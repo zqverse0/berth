@@ -141,14 +141,21 @@ fn windows_cmd(executable: &Path) -> String {
 fn update_windows_path(bin_dir: &Path, install: bool) -> io::Result<()> {
     let escaped = bin_dir.display().to_string().replace('\'', "''");
     let operation = if install {
+        // format! 的格式串必须是字面量：长串用 concat! 拼，宏展开的格式串不能隐式捕获变量
         format!(
-            "$p=[Environment]::GetEnvironmentVariable('Path','User');$d='{escaped}';".to_owned()
-                + "if(-not (($p -split ';') -contains $d)){{$n=if($p){{$p.TrimEnd(';')+';'+$d}}else{{$d}};[Environment]::SetEnvironmentVariable('Path',$n,'User')}}"
+            concat!(
+                "$p=[Environment]::GetEnvironmentVariable('Path','User');$d='{escaped}';",
+                "if(-not (($p -split ';') -contains $d)){{$n=if($p){{$p.TrimEnd(';')+';'+$d}}else{{$d}};[Environment]::SetEnvironmentVariable('Path',$n,'User')}}"
+            ),
+            escaped = escaped
         )
     } else {
         format!(
-            "$p=[Environment]::GetEnvironmentVariable('Path','User');$d='{escaped}';".to_owned()
-                + "$n=(($p -split ';')|?{{$_ -and $_ -ne $d}})-join ';';[Environment]::SetEnvironmentVariable('Path',$n,'User')"
+            concat!(
+                "$p=[Environment]::GetEnvironmentVariable('Path','User');$d='{escaped}';",
+                "$n=(($p -split ';')|?{{$_ -and $_ -ne $d}})-join ';';[Environment]::SetEnvironmentVariable('Path',$n,'User')"
+            ),
+            escaped = escaped
         )
     };
     let status = Command::new("powershell.exe")
