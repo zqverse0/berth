@@ -48,6 +48,7 @@
 | `src-tauri/tool/`、tool.json 契约 | `src-tauri/tool/AGENTS.md` |
 | 实体 / 迁移 | `src-tauri/project/berth-project-core/AGENTS.md` |
 | 项目内 `.berth/`（内容、写入方、`local/` 不进 git） | `.berth/tasks/10-04-berth-project-dir/prd.md` §4 |
+| Git 同步、发布到公开仓库、归档、README 截图 | `docs/releasing/workflow.md` |
 | 设计缘由、踩过的坑 | `.berth/knowledge/`（维护方法 `berth guide knowledge`） |
 | 全局模块图与数据流（需要时才读） | `docs/architecture.md` |
 

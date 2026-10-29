@@ -374,6 +374,12 @@ jobs:
           echo "APPLE_CERTIFICATE_PATH=$certificate_path" >> "$GITHUB_ENV"
           echo "APPLE_KEYCHAIN_SEARCH_LIST_PATH=$keychain_search_list_path" >> "$GITHUB_ENV"
           echo "APPLE_ORIGINAL_DEFAULT_KEYCHAIN=$original_default_keychain" >> "$GITHUB_ENV"
+          # 公证凭据只在有证书时导出：Tauri 见到 APPLE_ID 等变量（哪怕是空串）就会去公证
+          {
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
 
           echo "$APPLE_CERTIFICATE" | base64 --decode > "$certificate_path"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
@@ -520,12 +526,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Tauri notarizes the signed bundle when these three env vars are
-          # present (in addition to the imported Developer ID cert +
-          # APPLE_SIGNING_IDENTITY used for code signing).
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 由导入证书那一步写进 GITHUB_ENV；
+          # ad-hoc 签名时不设置，Tauri 就不会公证。
         with:
           releaseId: ${{ needs.create-draft-release.outputs.release_id }}
           tagName: ${{ github.ref_name }}

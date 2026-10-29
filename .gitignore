@@ -90,3 +90,6 @@ work/
 .cache/
 
 __pycache__/
+
+# 本地归档区（见 REMOVE/README.md），不进 git
+REMOVE/

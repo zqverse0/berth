@@ -22,7 +22,7 @@ const eslintConfig = defineConfig([
     // 内部过程资料（调研探针、迁移脚本），不是产品代码
     ".trellis/**",
     ".berth/**",
-    ".grok/**",
+    "REMOVE/**",
     "perf/**",
     "outputs/**",
   ]),

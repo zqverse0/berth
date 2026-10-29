@@ -1,5 +1,5 @@
 <!--
-  TODO：在简介下方和「快速开始」里放当前界面的截图 / GIF；定稿后出英文版并把这份改名为 README.zh-CN.md
+  TODO：「快速开始」里补启动流程 GIF；定稿后出英文版并把这份改名为 README.zh-CN.md
 -->
 
 <div align="center">
@@ -13,6 +13,8 @@
 ![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
 [下载](https://github.com/zqverse0/berth/releases) · [快速开始](#快速开始) · [功能](#功能一览) · [接入新的 Agent](#接入新的-agent)
+
+![Berth 项目首页：任务、最近变更、知识图谱，右侧是正在工作的 Claude Code](docs/screenshots/home.png)
 
 </div>
 
@@ -46,6 +48,16 @@ Berth 的代码里没有一行按 Agent 品牌写的分支。每个 Agent 是一
 Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
 
 ## 功能一览
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/sessions.png" alt="会话：Claude Code、Pi、Grok、Cline 的历史会话按项目归在一起"><br><sub><b>会话</b>：各家 Agent 的历史会话按项目归在一起，随时恢复</sub></td>
+<td width="50%"><img src="docs/screenshots/group.png" alt="项目群：成员是带专家身份启动的 Agent"><br><sub><b>项目群</b>：带专家身份启动的 Agent 自动入群，点名派活</sub></td>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/screenshots/tasks.png" alt="任务：进行中与规划中的任务，存在项目 .berth/ 里"><br><sub><b>任务</b>：任务和步骤存在项目自己的 <code>.berth/</code> 里，随仓库走</sub></td>
+</tr>
+</table>
 
 | | |
 |---|---|

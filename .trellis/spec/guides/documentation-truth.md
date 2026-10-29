@@ -10,7 +10,7 @@ or project skills.
 - `AGENTS.md` owns product rules and red lines.
 - `docs/architecture.md` owns current module boundaries and data flows.
 - `.trellis/spec/` owns implementation contracts for future changes.
-- `.trellis/tasks/` owns temporary plans and evidence.
+- `.berth/tasks/` owns temporary plans and evidence.
 - `docs/REMOVED.md` owns history only.
 - `docs/README.md` owns the project overview and documentation map.
 

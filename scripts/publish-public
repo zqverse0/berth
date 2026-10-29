@@ -8,7 +8,7 @@ set -euo pipefail
 
 PUBLIC=git@github.com:zqverse0/berth.git
 # 不公开的内部资料；.trellis 只保留 spec/（AGENTS.md 引用的开发规范）
-EXCLUDE=(.berth .grok .claude .agents perf outputs docs/REMOVED.md docs/images .gitattributes)
+EXCLUDE=(.berth .claude .agents perf outputs docs/REMOVED.md)
 
 tag=false
 if [ "${1:-}" = "--tag" ]; then tag=true; shift; fi

@@ -44,7 +44,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3NEFDRDkzOUQ4MjY0QTYKUldTbVpJS2RrODFLbDY1YnQyb0NLVHk0ZjN0THdla1dDdGFISnBJVHJoVHlOZ3dWL08wS05SM0IK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5MkNCQzUwMEMyQjEwNzAKUldSd0VDc01VTHdzU2ZzL0lSMzBEKzNLTTIxRG8wSFlCeXZSbjJWZVZ3VVhCS0FsbWNnTmlISzQK",
       "endpoints": [
         "https://github.com/zqverse0/berth/releases/latest/download/latest.json"
       ],

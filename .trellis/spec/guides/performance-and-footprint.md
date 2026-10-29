@@ -4,7 +4,7 @@
 
 Read this guide before work that claims to improve startup, interaction latency, idle resource use, bundle/module loading, Rust binary size, static assets, sidecars, or installer size.
 
-The long-term roadmap lives in `.trellis/tasks/08-31-runtime-performance-footprint-roadmap/`. This guide remains applicable after that task is archived.
+The long-term roadmap was archived to `REMOVE/.trellis/tasks/08-31-runtime-performance-footprint-roadmap/`. This guide remains applicable after that task is archived.
 
 ## 2. Fixed decision order
 
