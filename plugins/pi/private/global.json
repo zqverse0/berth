@@ -1,0 +1,11 @@
+{
+  "keepNativePackages": false,
+  "nativePackages": [
+    "npm:pi-mcp-adapter"
+  ],
+  "extensions": [
+    "berth-agent-status.ts"
+  ],
+  "skills": [],
+  "mcp": []
+}

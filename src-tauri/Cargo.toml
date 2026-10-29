@@ -1,0 +1,217 @@
+[workspace]
+members = [
+    "control/berth-control-proto",
+    "project/berth-project-core",
+    "project/berth-group",
+    "tool/berth-tool-core",
+    "tool/berth-plugin-api",
+    "provider/berth-provider-proxy",
+    "terminal/shared/berth-term-types",
+    "terminal/shared/berth-term-proto",
+    "terminal/shared/berth-term-ipc",
+    "terminal/shared/berth-term-os",
+    "terminal/daemon/berth-term-engine",
+    "terminal/daemon/berth-term-pty",
+    "terminal/daemon/berth-term-server",
+    "terminal/daemon/berth-termd",
+    "terminal/sdk/berth-term-sdk",
+    "terminal/cli/berth-cli",
+]
+default-members = ["."]
+resolver = "2"
+
+[workspace.package]
+version = "0.36.12"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zqverse0/berth"
+
+[package]
+name = "berth-gui"
+version.workspace = true
+description = "Reading and research workspace with agent collaboration"
+authors = ["zcs"]
+edition = "2021"
+default-run = "berth-gui"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "berth_lib"
+# Desktop only: the bin links the rlib. staticlib/cdylib are the Tauri mobile
+# template outputs; emitting them cost ~1.1GB of writes per debug rebuild.
+# Add them back only if Android/iOS targets land.
+crate-type = ["rlib"]
+
+[features]
+default = ["tauri-runtime"]
+tauri-runtime = [
+    "dep:tauri",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-dialog",
+    "dep:fix-path-env",
+    "dep:tauri-build",
+    "dep:tauri-plugin-window-state",
+    "dep:tauri-plugin-updater",
+    "dep:tauri-plugin-process",
+    "dep:tauri-plugin-notification",
+    "dep:tauri-plugin-single-instance",
+    "dep:keyring",
+]
+# Exposes test scaffolding (`AppState::new_for_test`, `EventEmitter::test_web_only`,
+# `ConnectionManager::insert_test_connection`, parser `with_base_dir`, the
+# `db::test_helpers` module) for integration tests in `tests/*.rs`. Without
+# this feature the items are physically uncompiled in release builds.
+test-utils = []
+# Dev-only: tauri-plugin-debug-bridge exposes a localhost HTTP+WS server
+# inside the running app so `tauri-browser` can evaluate JS, take screenshots,
+# and stream console output for Phase A8 performance measurement.
+# NEVER enable in release builds.
+debug-bridge = ["dep:tauri-plugin-debug-bridge"]
+
+[[bin]]
+name = "berth-gui"
+path = "src/main.rs"
+required-features = ["tauri-runtime"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "unstable"], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.12"
+thiserror = "2"
+dirs = "6"
+walkdir = "2"
+ignore = "0.4"
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "net", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4"] }
+futures = "0.3"
+reqwest = { version = "0.13", features = ["stream", "json", "query", "form"] }
+scraper = "0.22"
+flate2 = "1"
+# 远程访问页的 HTTP 服务（`src/remote/`）；与 provider proxy 同一套，不另起依赖。
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+# 远程访问页的 WebSocket（命令、事件、终端同一条连接）；debug-bridge 已带入同一版本。
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+http-body-util = "0.1"
+tar = "0.4"
+# Only our own backup archives (Deflated/Stored); the default features add
+# zstd/bzip2/xz C builds and AES.
+zip = { version = "2", default-features = false, features = ["deflate", "time"] }
+pulldown-cmark = "0.13"
+urlencoding = "2"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", version = "0.0.0", optional = true }
+# Same trimmed SQLite stack as berth-project-core: no TLS (a second rustls
+# backend) and no decimal/uuid/time column types.
+sea-orm = { version = "1.1", default-features = false, features = ["macros", "with-json", "with-chrono", "sqlx-sqlite", "runtime-tokio"] }
+sea-orm-migration = { version = "1.1", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
+# Synchronous read-only access to declared SQLite session stores from the
+# sync AgentParser trait, where sqlx's async pool doesn't fit. Pinned to the
+# rusqlite line whose libsqlite3-sys (0.30) matches sqlx-sqlite's, so both link
+# the same bundled SQLite.
+rusqlite = "0.32"
+toml = "0.8"
+serde_yaml = "0.9"
+notify = "6"
+base64 = "0.22"
+kill_tree = { version = "0.2", features = ["blocking", "tokio"] }
+which = "7"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"], optional = true }
+futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["io", "rt"] }
+rand = "0.8"
+image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg"] }
+sha2 = "0.10"
+aes-gcm = { version = "0.10", features = ["stream"] }
+argon2 = "0.5"
+tempfile = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "registry", "std"] }
+tracing-appender = "0.2"
+# 关闭 available：GUI 只编译当前生产调用闭包，不编入未用 SDK 能力。
+berth-term-sdk = { path = "terminal/sdk/berth-term-sdk", default-features = false }
+berth-control-proto = { path = "control/berth-control-proto" }
+berth-group = { path = "project/berth-group" }
+berth-project-core = { path = "project/berth-project-core" }
+berth-tool-core = { path = "tool/berth-tool-core" }
+berth-provider-proxy = { path = "provider/berth-provider-proxy" }
+berth-term-ipc = { path = "terminal/shared/berth-term-ipc" }
+berth-term-os = { path = "terminal/shared/berth-term-os" }
+# Dev-only debug bridge — localhost HTTP+WS server for `tauri-browser` JS eval,
+# screenshots, and console streaming during performance measurement (Phase A8).
+# Gated behind the `debug-bridge` feature; never enabled in release builds.
+tauri-plugin-debug-bridge = { version = "0.5", optional = true }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+temp-env = { version = "0.3", features = ["async_closure"] }
+tokio = { version = "1", features = ["test-util", "macros", "rt", "sync", "time"] }
+insta = { version = "1", features = ["json", "redactions"] }
+berth-term-proto = { path = "terminal/shared/berth-term-proto" }
+
+[profile.dev]
+debug = 1
+incremental = true
+# 调试信息留在各 .o 里不拷进可执行文件，缩短每次增量链接
+split-debuginfo = "unpacked"
+
+# 第三方依赖不带调试信息：链接输入小一大截；只影响依赖栈帧的行号
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+# build script 与 proc-macro 在构建期被执行；dev profile 默认 opt-level=0
+# 会让它们跑得很慢。本项目有 368 个 #[tauri::command]，宏展开量大。
+# 参考 Tauri 官方 App Size 文档与 corrode.dev 编译加速建议。
+# 注意：首次写入会触发 build-script/proc-macro 全量重编（一次性成本）；
+# 收益体现在之后的每次增量编译。
+opt-level = 3
+
+# 体积优先的生产基线。覆盖 workspace 内 berth-gui 与 berth-termd。
+# strip 后崩溃栈不可读，靠应用内 Runtime Logs。
+# 不设 panic = "abort"：lib.rs 启动线程用 catch_unwind 隔离 ACP 缓存清扫。
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 16
+strip = true
+
+# `tauri dev` / dev-trial 编 sidecar（berth-cli、berth-termd）用：发布 profile 的 thin LTO 与
+# opt-level="s" 让每次改 berth-project-core 后启动 dev 都要等 ~40s。语义与 release 一致
+# （断言、溢出检查、panic 策略都继承），只换编译速度；发布包仍走 release。
+[profile.sidecar-dev]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 256
+incremental = true
+strip = false

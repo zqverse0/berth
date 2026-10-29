@@ -1,0 +1,21 @@
+{
+  "identifier": "desktop-capability",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "main",
+    "commit-*",
+    "merge-*",
+    "stash-*",
+    "push-*",
+    "import-sessions",
+    "pet",
+    "pet-panel"
+  ],
+  "permissions": [
+    "window-state:default"
+  ]
+}

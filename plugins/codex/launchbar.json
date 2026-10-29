@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "session",
+      "component": "select",
+      "label": "会话",
+      "optionsFrom": "projectSessions"
+    },
+    {
+      "id": "sandbox",
+      "component": "select",
+      "label": "沙箱",
+      "defaultValue": "workspace-write",
+      "options": [
+        { "value": "read-only", "label": "只读" },
+        { "value": "workspace-write", "label": "工作区可写" },
+        { "value": "danger-full-access", "label": "完全访问" },
+        { "value": "bypass-all", "label": "跳过审批与沙箱" }
+      ],
+      "unattended": "bypass-all"
+    },
+    {
+      "id": "provider",
+      "component": "select",
+      "label": "服务商",
+      "optionsFrom": "providerVendor",
+      "protocols": ["chat"]
+    },
+    {
+      "id": "model",
+      "component": "select",
+      "label": "模型",
+      "optionsFrom": "providerModels"
+    },
+    {
+      "id": "expert",
+      "component": "select",
+      "label": "专家",
+      "optionsFrom": "experts"
+    }
+  ]
+}

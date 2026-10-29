@@ -1,0 +1,17 @@
+[package]
+name = "berth-terminald"
+version.workspace = true
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zqverse0/berth"
+description = "Berth's bundled terminal daemon."
+
+[[bin]]
+name = "berth-termd"
+path = "src/main.rs"
+
+[dependencies]
+berth-term-os = { path = "../../shared/berth-term-os" }
+berth-term-server = { path = "../berth-term-server", default-features = false }
+tokio = { version = "1.48.0", features = ["net", "rt", "rt-multi-thread", "time"] }

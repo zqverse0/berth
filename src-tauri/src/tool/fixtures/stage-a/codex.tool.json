@@ -1,0 +1,306 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "codex",
+  "revision": "1",
+  "identity": {
+    "name": "Codex CLI",
+    "description": "OpenAI Codex CLI and its user/project configuration.",
+    "roles": [
+      "agent"
+    ],
+    "tags": [
+      "cli",
+      "agent"
+    ],
+    "icon": "codex"
+  },
+  "resources": {
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".codex/config.toml"
+      },
+      "format": "codex-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-user": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".codex/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-agents": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-central-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex"
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "expert-instruction": {
+      "kind": "file",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex/AGENTS.md"
+      },
+      "purpose": "expert-instruction"
+    },
+    "expert-skills": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex/skills"
+      },
+      "purpose": "expert-skills"
+    }
+  },
+  "actions": {
+    "launch": {
+      "title": {
+        "zh-CN": "启动 Codex CLI",
+        "en": "Launch Codex CLI"
+      },
+      "description": {
+        "zh-CN": "在终端中启动交互式 Codex CLI；第三方服务商经 env + -c 参数链注入一次。",
+        "en": "Launch the interactive Codex CLI in a terminal; third-party providers inject once through env plus the -c argument chain."
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sandbox": {
+            "type": "string",
+            "enum": [
+              "read-only",
+              "workspace-write",
+              "danger-full-access",
+              "bypass-all"
+            ],
+            "default": "workspace-write"
+          },
+          "provider": {
+            "type": "string",
+            "berth:valueSource": "provider.vendors"
+          },
+          "model": {
+            "type": "string",
+            "berth:valueSource": "provider.models"
+          }
+        },
+        "additionalProperties": false
+      },
+      "effects": [
+        "process-start",
+        "read-local",
+        "write-local"
+      ],
+      "bindings": [
+        {
+          "id": "terminal",
+          "call": {
+            "capability": "terminal.open/1",
+            "arguments": {
+              "program": "codex",
+              "argv": [],
+              "emit": [
+                {
+                  "value": {
+                    "$from": "/inputs/sandbox"
+                  },
+                  "mode": "choice",
+                  "omitIfMissing": true,
+                  "choices": {
+                    "read-only": [
+                      "--sandbox",
+                      "read-only"
+                    ],
+                    "workspace-write": [
+                      "--sandbox",
+                      "workspace-write"
+                    ],
+                    "danger-full-access": [
+                      "--sandbox",
+                      "danger-full-access"
+                    ],
+                    "bypass-all": [
+                      "--dangerously-bypass-approvals-and-sandbox"
+                    ]
+                  }
+                },
+                {
+                  "value": {
+                    "$from": "/inputs/model"
+                  },
+                  "mode": "template",
+                  "omitIfMissing": true,
+                  "tokens": [
+                    "-m",
+                    "{value}"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-08",
+      "notes": "Migrated from tools/codex/agent.json + tools/codex/launchbar.json (SHA-256 dc9cfffb805e / 86ffc09543f2). Root manifest tools/codex.json is a separate command-catalog surface pending stage D; usage.json stays a package attachment."
+    }
+  },
+  "examples": [
+    {
+      "actionId": "launch",
+      "inputs": {}
+    },
+    {
+      "actionId": "launch",
+      "inputs": {
+        "sandbox": "read-only"
+      }
+    },
+    {
+      "actionId": "launch",
+      "inputs": {
+        "sandbox": "bypass-all"
+      }
+    }
+  ],
+  "views": {
+    "berth": {
+      "launchbar": {
+        "actionId": "launch",
+        "fields": [
+          "sandbox",
+          "provider",
+          "model"
+        ]
+      }
+    }
+  },
+  "extensions": {
+    "org.berth.agent": {
+      "projectType": "codex",
+      "providerInjection": {
+        "agentType": "codex",
+        "official": {
+          "label": "OpenAI Official",
+          "website": "https://chatgpt.com/codex",
+          "models": [
+            {
+              "name": "GPT-5.6-Sol",
+              "id": "gpt-5.6-sol"
+            },
+            {
+              "name": "GPT-5.6-Terra",
+              "id": "gpt-5.6-terra"
+            },
+            {
+              "name": "GPT-5.6-Luna",
+              "id": "gpt-5.6-luna"
+            },
+            {
+              "name": "GPT-5.5",
+              "id": "gpt-5.5"
+            },
+            {
+              "name": "GPT-5.4",
+              "id": "gpt-5.4"
+            },
+            {
+              "name": "GPT-5.4-Mini",
+              "id": "gpt-5.4-mini"
+            },
+            {
+              "name": "GPT-5.2",
+              "id": "gpt-5.2"
+            }
+          ]
+        },
+        "env": {
+          "BERTH_CODEX_API_KEY": "$api_key"
+        },
+        "argv": [
+          "-c",
+          "model_provider=berth",
+          "-c",
+          "model_providers.berth.name=berth",
+          "-c",
+          "model_providers.berth.base_url=$api_url",
+          "-c",
+          "model_providers.berth.env_key=BERTH_CODEX_API_KEY"
+        ]
+      },
+      "expertDeployment": {
+        "root": "expert-root",
+        "instructionFile": "AGENTS.md",
+        "skillsDir": "skills"
+      },
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-user"
+          ],
+          "projectSearchPaths": [
+            "skills-project",
+            "skills-project-agents"
+          ],
+          "shared": [
+            "skills-shared"
+          ],
+          "store": "skills-central-store"
+        }
+      }
+    }
+  }
+}

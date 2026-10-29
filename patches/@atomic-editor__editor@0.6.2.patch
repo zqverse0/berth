@@ -1,0 +1,358 @@
+diff --git a/dist/inline-preview.js b/dist/inline-preview.js
+index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..5a82314f20b265ca598e362559d1b31593e713ab 100644
+--- a/dist/inline-preview.js
++++ b/dist/inline-preview.js
+@@ -3,15 +3,6 @@ import { EditorSelection, Prec, StateEffect, StateField, } from '@codemirror/sta
+ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, } from '@codemirror/view';
+ import { treeGrowthEffect, treeProgressPlugin } from './tree-progress';
+ import { readOnlyFacet } from './read-only';
+-function defaultOnLinkClick(url) {
+-    try {
+-        window.open(url, '_blank', 'noopener,noreferrer');
+-    }
+-    catch {
+-        // window.open can throw in sandboxed iframes etc. — silent failure
+-        // is fine; the caller can supply an opener that handles this.
+-    }
+-}
+ const FREEZE_TAIL_MS = 100;
+ // ---- freeze plumbing -----------------------------------------------------
+ const setFrozen = StateEffect.define();
+@@ -25,41 +16,6 @@ const previewFrozenField = StateField.define({
+         return prev;
+     },
+ });
+-function linkIconHitTarget(event, root) {
+-    const target = event.target;
+-    if (!(target instanceof Element))
+-        return null;
+-    const linkEl = target.closest('.cm-atomic-link');
+-    if (!linkEl || (root && !root.contains(linkEl)))
+-        return null;
+-    // The icon is a `::after` pseudo-element, so it doesn't have its own
+-    // event target. Compute the same trailing hit-zone used by the click
+-    // opener and treat pointerdown in that zone as "on the icon", not
+-    // "inside editable link text".
+-    const rects = Array.from(linkEl.getClientRects());
+-    if (rects.length === 0)
+-        return null;
+-    const lastRect = rects[rects.length - 1];
+-    const emSize = parseFloat(window.getComputedStyle(linkEl).fontSize);
+-    const iconZone = emSize * 1.25;
+-    const onIcon = event.clientX >= lastRect.right - iconZone &&
+-        event.clientX <= lastRect.right &&
+-        event.clientY >= lastRect.top &&
+-        event.clientY <= lastRect.bottom;
+-    return onIcon ? linkEl : null;
+-}
+-// Whole-link hit test, used in read-only mode where the entire link
+-// (text + icon) is the open affordance. Mirrors `linkIconHitTarget`'s
+-// containment check but without the trailing-icon zone restriction.
+-function linkElementFromEvent(event, root) {
+-    const target = event.target;
+-    if (!(target instanceof Element))
+-        return null;
+-    const linkEl = target.closest('.cm-atomic-link');
+-    if (!linkEl || (root && !root.contains(linkEl)))
+-        return null;
+-    return linkEl;
+-}
+ // Tracks mouse state on the editor and drives the freeze flag. We listen
+ // on the content DOM for pointerdown and on the window for pointerup —
+ // users can release outside the editor after a drag, and we'd miss the
+@@ -105,15 +61,6 @@ const freezeMousePlugin = ViewPlugin.fromClass(class {
+                 if (!(target instanceof Node) || !this.view.contentDOM.contains(target)) {
+                     return;
+                 }
+-                if (linkIconHitTarget(event, this.view.contentDOM)) {
+-                    // Let the follow-up click open the link, but stop CM6 from
+-                    // interpreting the icon press as a text-editing click. Without
+-                    // this, pointerdown moves the selection into the Link node and
+-                    // reveals `[label](url)` before the click handler opens it.
+-                    event.preventDefault();
+-                    event.stopImmediatePropagation();
+-                    return;
+-                }
+                 this.down = true;
+                 if (this.releaseTimer != null) {
+                     window.clearTimeout(this.releaseTimer);
+@@ -825,59 +772,6 @@ const inlinePreviewPlugin = ViewPlugin.fromClass(class {
+ }, {
+     decorations: (v) => v.decorations,
+ });
+-// CM6's drawSelection layer intentionally sits behind `.cm-content`. That is
+-// normally ideal—the rectangle is behind the glyphs—but an opaque fenced-code
+-// line background also sits between the layer and the glyphs, hiding the
+-// selection completely. Mirror only the selected portions of FencedCode as
+-// inline marks so their background paints above the block and below its text.
+-// This plugin stays separate from inlinePreviewPlugin because mouse selection
+-// must repaint live even while preview decorations are frozen for click-jitter
+-// prevention.
+-function fencedCodeSelectionDecorations(view) {
+-    const selections = view.state.selection.ranges.filter((range) => !range.empty);
+-    if (selections.length === 0)
+-        return Decoration.none;
+-    const ranges = [];
+-    const tree = syntaxTree(view.state);
+-    for (const selection of selections) {
+-        // Selection updates can arrive for every pointermove. Restrict the walk to
+-        // the selected range so dragging within a short code sample stays O(range)
+-        // instead of walking an entire long document on every event.
+-        tree.iterate({
+-            from: selection.from,
+-            to: selection.to,
+-            enter(node) {
+-                if (node.name !== 'FencedCode')
+-                    return;
+-                const from = Math.max(node.from, selection.from);
+-                const to = Math.min(node.to, selection.to);
+-                if (from < to) {
+-                    ranges.push(Decoration.mark({ class: 'cm-atomic-fenced-selection' }).range(from, to));
+-                }
+-                return false;
+-            },
+-        });
+-    }
+-    return Decoration.set(ranges, true);
+-}
+-const fencedCodeSelectionPlugin = ViewPlugin.fromClass(class {
+-    constructor(view) {
+-        Object.defineProperty(this, "decorations", {
+-            enumerable: true,
+-            configurable: true,
+-            writable: true,
+-            value: void 0
+-        });
+-        this.decorations = fencedCodeSelectionDecorations(view);
+-    }
+-    update(update) {
+-        if (update.docChanged || update.selectionSet) {
+-            this.decorations = fencedCodeSelectionDecorations(update.view);
+-        }
+-    }
+-}, {
+-    decorations: (plugin) => plugin.decorations,
+-});
+ // Tight-continuation Enter for bullet lists.
+ //
+ // Why we override the default: @codemirror/lang-markdown's
+@@ -944,48 +838,6 @@ function insertTightListItem(view) {
+     });
+     return true;
+ }
+-function makeLinkClickHandler(onLinkClick) {
+-    return EditorView.domEventHandlers({
+-        click: (event, view) => {
+-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+-                return false;
+-            if (event.button !== 0)
+-                return false;
+-            // In read-only mode there's no editable link text to protect, so
+-            // a click anywhere on the link opens it. In edit mode the open
+-            // affordance stays scoped to the trailing icon hit-zone so the
+-            // text itself remains clickable-to-edit.
+-            const linkEl = view.state.facet(readOnlyFacet)
+-                ? linkElementFromEvent(event, view.contentDOM)
+-                : linkIconHitTarget(event, view.contentDOM);
+-            if (!linkEl)
+-                return false;
+-            const pos = view.posAtDOM(linkEl);
+-            if (pos < 0)
+-                return false;
+-            const tree = syntaxTree(view.state);
+-            let node = tree.resolveInner(pos, 1);
+-            let visibleUrl = null;
+-            while (node && node.name !== 'Link') {
+-                if (node.name === 'URL')
+-                    visibleUrl = node;
+-                node = node.parent;
+-            }
+-            const urlNode = node
+-                ? linkDestinationUrl(node, view.state.doc)
+-                : visibleUrl;
+-            if (!urlNode)
+-                return false;
+-            const url = view.state.doc.sliceString(urlNode.from, urlNode.to);
+-            if (!url)
+-                return false;
+-            event.preventDefault();
+-            event.stopPropagation();
+-            onLinkClick(url);
+-            return true;
+-        },
+-    });
+-}
+ /**
+  * Assemble the inline-preview extension set. Call once per editor and
+  * include the result in your EditorState `extensions` list. Accepts an
+@@ -993,15 +845,16 @@ function makeLinkClickHandler(onLinkClick) {
+  * their platform's external-URL mechanism (Tauri IPC, Capacitor
+  * browser, etc.) instead of the default `window.open`.
+  */
+-export function inlinePreview(config = {}) {
+-    const { onLinkClick = defaultOnLinkClick } = config;
++// Berth patch: link opening (whole link text, not a trailing icon) lives in
++// Berth's own click handler, so `onLinkClick` is ignored here. The fenced-code
++// selection mirror is dropped: Berth keeps code blocks translucent, so the
++// regular selection layer already shows through.
++export function inlinePreview(_config = {}) {
+     return [
+         previewFrozenField,
+         inlinePreviewPlugin,
+-        fencedCodeSelectionPlugin,
+         freezeMousePlugin,
+         treeProgressPlugin,
+-        makeLinkClickHandler(onLinkClick),
+         // Prec.highest to beat @codemirror/lang-markdown's own Enter
+         // handler, which is registered internally by the `markdown()`
+         // extension (not just via the exported markdownKeymap) and
+diff --git a/dist/table-widget.js b/dist/table-widget.js
+index aee407c4aaa2eea5a46c0fa28831dcc80985c783..fce7c5c5e637d797e4ced415906b30ae8a5592ad 100644
+--- a/dist/table-widget.js
++++ b/dist/table-widget.js
+@@ -136,6 +136,14 @@ export function parseCellInline(raw) {
+ }
+ function matchCellMarkAt(raw, from) {
+     const rest = raw.slice(from);
++    // Berth patch: inline code span — content is literal, not parsed.
++    let code = rest.match(/^(`+)([^`\n]+?)\1(?!`)/);
++    if (code) {
++        return {
++            token: { type: 'code', delim: code[1], text: code[2] },
++            end: from + code[0].length,
++        };
++    }
+     // Bold with `**` or `__` — greedy on the outside, lazy on the
+     // content so we catch the nearest closer.
+     let m = rest.match(/^\*\*([\s\S]+?)\*\*/);
+@@ -229,6 +237,17 @@ function renderCellToken(tok) {
+     if (tok.type === 'text') {
+         return document.createTextNode(tok.text);
+     }
++    if (tok.type === 'code') {
++        const wrap = document.createElement('span');
++        wrap.className = 'cm-atomic-code-wrap';
++        wrap.appendChild(makeCellMark(tok.delim));
++        const inner = document.createElement('span');
++        inner.className = 'cm-atomic-inline-code';
++        inner.textContent = tok.text;
++        wrap.appendChild(inner);
++        wrap.appendChild(makeCellMark(tok.delim));
++        return wrap;
++    }
+     if (tok.type === 'strong') {
+         const wrap = document.createElement('span');
+         wrap.className = 'cm-atomic-strong-wrap';
+@@ -386,6 +405,7 @@ const MARK_WRAP_CLASSES = [
+     'cm-atomic-em-wrap',
+     'cm-atomic-strike-wrap',
+     'cm-atomic-link-wrap',
++    'cm-atomic-code-wrap',
+ ];
+ function isMarkWrap(el) {
+     for (const c of MARK_WRAP_CLASSES)
+@@ -745,6 +765,71 @@ function attachCellEditing(view, cell, source) {
+             event.stopPropagation();
+             moveCellFocus(view, cell, event.shiftKey ? -1 : 1);
+         }
++        // Berth patch: Mod-A on an already fully selected cell selects the
++        // whole document (first press keeps the native in-cell select-all).
++        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
++            const sel = source.ownerDocument.defaultView?.getSelection();
++            if (sel && sel.toString().length < (source.textContent ?? '').length)
++                return;
++            event.preventDefault();
++            event.stopPropagation();
++            view.focus();
++            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
++        }
++    });
++    // Berth patch: each cell is its own editing host, so a native drag can't
++    // leave it. Once a drag crosses into another cell, hand the selection to
++    // CM: the whole table, extended to wherever the pointer goes outside it.
++    source.addEventListener('pointerdown', (event) => {
++        if (event.button !== 0 || event.shiftKey)
++            return;
++        const wrap = cell.closest('.cm-atomic-table');
++        if (!wrap)
++            return;
++        let crossed = false;
++        const select = (x, y) => {
++            const range = findCurrentTableRange(view, wrap);
++            if (!range)
++                return;
++            let anchor = range.from;
++            let head = range.to;
++            const over = document.elementFromPoint(x, y);
++            if (!(over && wrap.contains(over))) {
++                const pos = view.posAtCoords({ x, y }, false);
++                if (pos < range.from) {
++                    anchor = range.to;
++                    head = pos;
++                }
++                else if (pos > range.to) {
++                    head = pos;
++                }
++            }
++            view.dispatch({ selection: { anchor, head } });
++        };
++        const onMove = (ev) => {
++            if (!crossed) {
++                const over = document.elementFromPoint(ev.clientX, ev.clientY);
++                if (over && cell.contains(over))
++                    return;
++                crossed = true;
++                wrap.classList.add('cm-atomic-table-dragging');
++                source.ownerDocument.defaultView?.getSelection()?.removeAllRanges();
++                view.focus();
++            }
++            select(ev.clientX, ev.clientY);
++        };
++        const onUp = (ev) => {
++            document.removeEventListener('pointermove', onMove);
++            document.removeEventListener('pointerup', onUp);
++            if (!crossed)
++                return;
++            wrap.classList.remove('cm-atomic-table-dragging');
++            // A native drag can still clobber the DOM selection mid-gesture;
++            // re-assert the final range.
++            select(ev.clientX, ev.clientY);
++        };
++        document.addEventListener('pointermove', onMove);
++        document.addEventListener('pointerup', onUp);
+     });
+     cell.addEventListener('contextmenu', (event) => {
+         event.preventDefault();
+@@ -1177,6 +1262,24 @@ const tableField = StateField.define({
+     },
+     provide: (f) => EditorView.decorations.from(f),
+ });
++// Berth patch: the selection layer sits behind the table's opaque cells, so
++// mark tables fully covered by a CM selection range explicitly.
++const tableSelectionHighlight = EditorView.updateListener.of((update) => {
++    if (!update.selectionSet && !update.docChanged && !update.viewportChanged)
++        return;
++    const ranges = update.state.selection.ranges;
++    for (const wrap of update.view.dom.querySelectorAll('.cm-atomic-table')) {
++        let selected = false;
++        try {
++            const range = findCurrentTableRange(update.view, wrap);
++            selected = !!range && ranges.some((r) => r.from <= range.from && r.to >= range.to && !r.empty);
++        }
++        catch {
++            // posAtDOM throws on transitional DOM; leave unselected.
++        }
++        wrap.classList.toggle('cm-atomic-table-selected', selected);
++    }
++});
+ const defaultLinkOpener = (url) => {
+     try {
+         window.open(url, '_blank', 'noopener,noreferrer');
+@@ -1195,6 +1298,7 @@ export function tables(config = {}) {
+     return [
+         tableField,
+         treeProgressPlugin,
++        tableSelectionHighlight,
+         ...(config.onLinkClick ? [tableLinkClickFacet.of(config.onLinkClick)] : []),
+         // Prec.high so we run before the default Backspace binding.
+         Prec.high(keymap.of([{ key: 'Backspace', run: backspaceAtTableBoundary }])),

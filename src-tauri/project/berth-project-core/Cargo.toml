@@ -1,0 +1,42 @@
+[package]
+name = "berth-project-core"
+version.workspace = true
+description = "Shared Berth project persistence: entities, migration owner, data-instance resolution and the project domain service consumed by both the desktop host and the CLI. No Tauri dependencies."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+# `.berth/knowledge` 扫描（knowledge 模块）：与 GUI 同版本。
+pulldown-cmark = "0.13"
+serde_yaml = "0.9"
+walkdir = "2"
+# SQLite 栈与 GUI 同一实现（不引入第二套驱动）。feature 裁剪只为 CLI sidecar 体积：
+# 关掉 sea-orm 默认的 bigdecimal/time/uuid/rust_decimal 与 rustls（SQLite 不需要 TLS），
+# 保留 macros（DeriveEntityModel）与 with-chrono（DateTimeUtc 列）。
+sea-orm = { version = "1.1", default-features = false, features = [
+    "macros",
+    "with-chrono",
+    "sqlx-sqlite",
+    "runtime-tokio",
+] }
+sea-orm-migration = { version = "1.1", default-features = false, features = [
+    "sqlx-sqlite",
+    "runtime-tokio",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+# 迁移/连接失败时的诊断；与 GUI 侧同一后端，不做第二套日志栈。
+urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+temp-env = "0.3"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

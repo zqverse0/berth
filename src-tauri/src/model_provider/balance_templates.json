@@ -1,0 +1,246 @@
+[
+  {
+    "id": "deepseek",
+    "matchHosts": [
+      "api.deepseek.com"
+    ],
+    "declaration": {
+      "label": "DeepSeek balance",
+      "request": {
+        "method": "GET",
+        "url": "https://api.deepseek.com/user/balance",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "balance",
+          "label": "Balance",
+          "remainingPointers": [
+            "/balance_infos/0/total_balance"
+          ],
+          "valueScale": 1,
+          "unit": "CNY"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "stepfun",
+    "matchHosts": [
+      "api.stepfun.com",
+      "api.stepfun.ai"
+    ],
+    "declaration": {
+      "label": "StepFun balance",
+      "request": {
+        "method": "GET",
+        "url": "https://api.stepfun.com/v1/accounts",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "balance",
+          "label": "Balance",
+          "remainingPointers": [
+            "/balance"
+          ],
+          "valueScale": 1,
+          "unit": "CNY"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "siliconflow-cn",
+    "matchHosts": [
+      "api.siliconflow.cn"
+    ],
+    "declaration": {
+      "label": "SiliconFlow balance",
+      "request": {
+        "method": "GET",
+        "url": "https://api.siliconflow.cn/v1/user/info",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "balance",
+          "label": "Balance",
+          "remainingPointers": [
+            "/data/totalBalance"
+          ],
+          "valueScale": 1,
+          "unit": "CNY"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "siliconflow-en",
+    "matchHosts": [
+      "api.siliconflow.com"
+    ],
+    "declaration": {
+      "label": "SiliconFlow balance",
+      "request": {
+        "method": "GET",
+        "url": "https://api.siliconflow.com/v1/user/info",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "balance",
+          "label": "Balance",
+          "remainingPointers": [
+            "/data/totalBalance"
+          ],
+          "valueScale": 1,
+          "unit": "USD"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "openrouter",
+    "matchHosts": [
+      "openrouter.ai"
+    ],
+    "declaration": {
+      "label": "OpenRouter credits",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/credits",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "credits",
+          "label": "Credits",
+          "usedPointers": [
+            "/data/total_usage"
+          ],
+          "limitPointers": [
+            "/data/total_credits"
+          ],
+          "valueScale": 1,
+          "unit": "USD"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "novita",
+    "matchHosts": [
+      "api.novita.ai"
+    ],
+    "declaration": {
+      "label": "Novita balance",
+      "request": {
+        "method": "GET",
+        "url": "https://api.novita.ai/v3/user/balance",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "windows": [
+        {
+          "id": "balance",
+          "label": "Balance",
+          "remainingPointers": [
+            "/availableBalance"
+          ],
+          "valueScale": 0.0001,
+          "unit": "USD"
+        }
+      ],
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused"
+      }
+    }
+  },
+  {
+    "id": "zhipu",
+    "matchHosts": [
+      "open.bigmodel.cn",
+      "open.bigmodel.ai",
+      "api.z.ai"
+    ],
+    "declaration": {
+      "label": "Zhipu coding plan",
+      "credential": {
+        "kind": "json-file",
+        "tokenPointer": "/unused",
+        "authHeader": {
+          "name": "Authorization",
+          "prefix": ""
+        }
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+        "headers": {
+          "Accept": "application/json",
+          "Accept-Language": "en-US,en"
+        }
+      },
+      "windows": [
+        {
+          "id": "fiveHour",
+          "label": "5h",
+          "usedPercentPointers": [
+            "/data/limits/0/percentage"
+          ],
+          "resetsAtPointers": [
+            "/data/limits/0/nextResetTime"
+          ],
+          "windowMinutes": 300
+        },
+        {
+          "id": "weekly",
+          "label": "wk",
+          "usedPercentPointers": [
+            "/data/limits/1/percentage"
+          ],
+          "resetsAtPointers": [
+            "/data/limits/1/nextResetTime"
+          ],
+          "windowMinutes": 10080
+        }
+      ],
+      "planTypePointers": [
+        "/data/level"
+      ]
+    }
+  }
+]

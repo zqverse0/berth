@@ -1,0 +1,232 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "claude",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Claude Code",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": "Anthropic's coding agent CLI.",
+      "icon": "claude"
+    },
+    "agent": {
+      "projectType": "claude_code",
+      "providerInjection": {
+        "agentType": "claude_code",
+        "slots": [
+          "fable",
+          "haiku",
+          "opus",
+          "sonnet"
+        ],
+        "apis": [
+          "anthropic"
+        ]
+      },
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-search-0",
+            "skills-search-1"
+          ],
+          "projectSearchPaths": [
+            "skills-project-0"
+          ],
+          "shared": [
+            "skills-shared-0"
+          ],
+          "store": "skills-store"
+        },
+        "skillStatus": [
+          "skill-status-enabled-flags",
+          "skill-status-install-registry",
+          "skill-status-usage-stats"
+        ]
+      },
+      "sessions": "session-spec",
+      "logins": [
+        {
+          "id": "claude",
+          "label": "Claude 订阅",
+          "website": "https://www.anthropic.com/claude-code",
+          "credentialFile": "${home}/.claude/.credentials.json"
+        }
+      ],
+      "usage": {
+        "label": "Account usage",
+        "path": "${home}/.cache/berth/claude-statusline.json",
+        "windows": [
+          {
+            "id": "session",
+            "label": "5h",
+            "usedPercentPointers": [
+              "/rate_limits/five_hour/used_percentage"
+            ],
+            "resetsAtPointers": [
+              "/rate_limits/five_hour/resets_at"
+            ],
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "7d",
+            "usedPercentPointers": [
+              "/rate_limits/seven_day/used_percentage"
+            ],
+            "resetsAtPointers": [
+              "/rate_limits/seven_day/resets_at"
+            ],
+            "windowMinutes": 10080
+          }
+        ]
+      }
+    },
+    "install": {
+      "bin": "claude",
+      "paths": {
+        "unix": [
+          "~/.local/bin/claude"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update"
+      ],
+      "latest": {
+        "npm": "@anthropic-ai/claude-code"
+      }
+    }
+  },
+  "resources": {
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude"
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude.json"
+      },
+      "format": "claude-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".claude/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-search-1": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".claude/plugins/cache",
+        "layout": "recursive"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "skill-status-enabled-flags": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude/settings.json"
+      },
+      "purpose": "skill-status:enabled-flags"
+    },
+    "skill-status-install-registry": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude/plugins/installed_plugins.json"
+      },
+      "purpose": "skill-status:install-registry"
+    },
+    "skill-status-usage-stats": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude.json"
+      },
+      "purpose": "skill-status:usage-stats"
+    },
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      },
+      "purpose": "session-parser-spec"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Migrated from tools/claude/ (agent.json f6b666494748 / launchbar.json 75187fa724a0) by migrate-tools.mjs."
+    },
+    "manifest-commands-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Command surface migrated from tools/claude-code.json (SHA-256 3d33b1807bc6); 112 scenarios argv-equivalent, 6 constraint-violating scenarios skipped on both sides (legacy constraints preserved as berth:legacyConstraints annotations, not enforced in the new chain)."
+    }
+  }
+}

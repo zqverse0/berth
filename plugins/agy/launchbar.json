@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "mode",
+      "component": "select",
+      "label": "模式",
+      "options": [
+        { "value": "accept-edits", "label": "自动接受编辑" },
+        { "value": "plan", "label": "计划模式" },
+        { "value": "bypass", "label": "跳过权限" }
+      ]
+    },
+    {
+      "id": "effort",
+      "component": "select",
+      "label": "推理强度",
+      "options": [
+        { "value": "low", "label": "低" },
+        { "value": "medium", "label": "中" },
+        { "value": "high", "label": "高" }
+      ]
+    },
+    {
+      "id": "sandbox",
+      "component": "select",
+      "label": "终端沙箱",
+      "options": [
+        { "value": "off", "label": "关闭" },
+        { "value": "on", "label": "开启" }
+      ]
+    },
+    {
+      "id": "expert",
+      "component": "select",
+      "label": "专家",
+      "optionsFrom": "experts"
+    }
+  ]
+}

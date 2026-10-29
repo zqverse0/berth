@@ -1,0 +1,114 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "cline",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Cline CLI",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": "Cline CLI — an AI coding assistant TUI with multi-provider support.",
+      "icon": "cline"
+    },
+    "agent": {
+      "projectType": "cline",
+      "promptInput": "prompt",
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-search-0"
+          ],
+          "store": "skills-store"
+        }
+      },
+      "sessions": "session-spec"
+    },
+    "install": {
+      "bin": "cline",
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update"
+      ],
+      "latest": {
+        "npm": "cline"
+      }
+    }
+  },
+  "resources": {
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": "."
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".cline/data/settings/cline_mcp_settings.json"
+      },
+      "format": "cline-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      },
+      "purpose": "session-parser-spec"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "research-date": {
+      "kind": "research-session",
+      "observedAt": "2026-09-20",
+      "notes": "Cline CLI 3.0.62 调研完成，确认启动参数和配置结构。"
+    }
+  }
+}

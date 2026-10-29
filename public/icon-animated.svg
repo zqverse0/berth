@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="64 64 896 896" width="896" height="896">
+<!-- Animated variant of src-tauri/icons/icon.svg: rocking boat + flowing wave. Self-contained, usable via <img>. -->
+<style>
+.boat { transform-origin: 512px 760px; animation: rock 2.4s ease-in-out infinite; }
+.wave { animation: flow 1.2s linear infinite; }
+@keyframes rock { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-18px) rotate(3deg); } }
+/* 204 = one wave period, so the strip loops seamlessly */
+@keyframes flow { to { transform: translateX(-204px); } }
+@media (prefers-reduced-motion: reduce) { .boat, .wave { animation: none; } }
+</style>
+<defs>
+<linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FCF7EE"/><stop offset="1" stop-color="#EEE4D4"/></linearGradient>
+<linearGradient id="f"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.2" stop-color="#fff"/><stop offset="0.8" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<mask id="m" maskUnits="userSpaceOnUse" x="160" y="840" width="704" height="110"><rect x="160" y="840" width="704" height="110" fill="url(#f)"/></mask>
+</defs>
+<rect x="64" y="64" width="896" height="896" rx="210" fill="url(#t)"/>
+<g class="boat">
+<path d="M524 186 C 720 304 748 500 710 622 C 614 602 524 568 474 522 C 428 468 454 318 524 186 Z" fill="#D97757"/>
+<path d="M420 338 C 336 434 306 552 324 634 C 384 626 432 600 464 568 C 446 498 432 420 420 338 Z" fill="#E9AA68"/>
+<path d="M746 470 C 794 520 806 582 796 626 C 768 622 744 612 726 596 C 726 552 734 510 746 470 Z" fill="#8F4A35"/>
+<path d="M160 600 C 320 700 704 700 864 600 C 832 776 706 846 512 846 C 318 846 192 776 160 600 Z" fill="#8F4A35"/>
+</g>
+<g mask="url(#m)">
+<path class="wave" d="M22 896 C96 866 152 926 226 896 C300 866 356 926 430 896 C504 866 560 926 634 896 C708 866 764 926 838 896 C912 866 968 926 1042 896 C1116 866 1172 926 1246 896" fill="none" stroke="#D97757" stroke-width="42" stroke-linecap="round"/>
+</g>
+</svg>

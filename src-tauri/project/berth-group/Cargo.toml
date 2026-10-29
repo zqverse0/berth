@@ -1,0 +1,18 @@
+[package]
+name = "berth-group"
+version.workspace = true
+description = "Berth project groups: channel posting, delivery to member panes, worker spawn and the background watcher. Terminal access is injected (CLI talks to termd, the desktop host uses its own manager). No clap / Tauri dependencies."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+berth-project-core = { path = "../berth-project-core" }
+berth-tool-core = { path = "../../tool/berth-tool-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

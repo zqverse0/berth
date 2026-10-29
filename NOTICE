@@ -1,0 +1,20 @@
+Berth
+
+This project is independently maintained and is based in part on Codeg,
+originally developed at https://github.com/xintaofei/codeg and distributed
+under the Apache License, Version 2.0.
+
+The original Codeg copyright and license notices remain applicable to the
+parts of the source derived from that project. Berth's changes are maintained
+as an independent project and are not endorsed by or affiliated with the
+original Codeg maintainers.
+
+This project also includes material derived from RMUX,
+originally developed at https://github.com/helvesec/rmux and distributed under
+the MIT License or the Apache License, Version 2.0, at the user's option.
+Copyright 2026 The RMUX Authors.
+
+The original RMUX copyright and license notices remain applicable to the
+parts of the source derived from that project. The RMUX source attribution
+and license texts are retained in the corresponding terminal component
+directories.

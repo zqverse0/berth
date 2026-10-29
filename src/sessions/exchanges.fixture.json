@@ -1,0 +1,109 @@
+{
+  "description": "会话一问一答分组的共用样例：src/sessions/exchanges.test.ts 与 berth-project-core knowledge::exchanges 都要分出 expected。",
+  "turns": [
+    {
+      "id": "t0",
+      "role": "assistant",
+      "timestamp": "2026-10-15T01:00:00Z",
+      "blocks": [{ "type": "text", "text": "Trellis SessionStart ✓" }]
+    },
+    {
+      "id": "t1",
+      "role": "user",
+      "timestamp": "2026-10-15T01:00:01Z",
+      "blocks": [{ "type": "text", "text": "为什么 cat missing.txt 报错？" }]
+    },
+    {
+      "id": "t2",
+      "role": "assistant",
+      "timestamp": "2026-10-15T01:00:02Z",
+      "blocks": [
+        { "type": "thinking", "text": "" },
+        { "type": "text", "text": "我先看一下当前目录。" },
+        {
+          "type": "tool_use",
+          "tool_use_id": "c1",
+          "tool_name": "bash",
+          "input_preview": "cat missing.txt"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "role": "user",
+      "timestamp": "2026-10-15T01:00:03Z",
+      "blocks": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "c1",
+          "output_preview": "No such file or directory",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "id": "t4",
+      "role": "system",
+      "timestamp": "2026-10-15T01:00:04Z",
+      "blocks": [{ "type": "text", "text": "hook: context loaded" }]
+    },
+    {
+      "id": "t5",
+      "role": "assistant",
+      "timestamp": "2026-10-15T01:00:05Z",
+      "completed_at": "2026-10-15T01:00:09Z",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "tool_use_id": "c2",
+          "tool_name": "ls",
+          "input_preview": "."
+        },
+        { "type": "text", "text": "文件不在当前目录。" },
+        { "type": "text", "text": "原因是路径不对，用绝对路径即可。" }
+      ]
+    },
+    {
+      "id": "t6",
+      "role": "user",
+      "timestamp": "2026-10-15T01:01:00Z",
+      "blocks": [{ "type": "image", "data": "", "mime_type": "image/png" }]
+    },
+    {
+      "id": "t7",
+      "role": "assistant",
+      "timestamp": "2026-10-15T01:01:01Z",
+      "blocks": [{ "type": "text", "text": "这张图是终端截图。" }]
+    },
+    {
+      "id": "t8",
+      "role": "user",
+      "timestamp": "2026-10-15T01:02:00Z",
+      "blocks": [{ "type": "text", "text": "可以" }]
+    }
+  ],
+  "expected": [
+    {
+      "index": 0,
+      "prompt": null,
+      "steps": [],
+      "errors": [],
+      "answer": "Trellis SessionStart ✓"
+    },
+    {
+      "index": 1,
+      "prompt": "为什么 cat missing.txt 报错？",
+      "steps": ["我先看一下当前目录。", "文件不在当前目录。"],
+      "errors": ["bash"],
+      "answer": "原因是路径不对，用绝对路径即可。"
+    },
+    {
+      "index": 2,
+      "prompt": "",
+      "steps": [],
+      "errors": [],
+      "answer": "这张图是终端截图。"
+    },
+    { "index": 3, "prompt": "可以", "steps": [], "errors": [], "answer": null }
+  ]
+}

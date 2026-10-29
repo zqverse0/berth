@@ -1,0 +1,11 @@
+# tauri dev 递归监听整个 src-tauri/；这里排除不影响 berth-gui 构建产物的路径，
+# 免得改它们时白白重编、重启 dev 窗口。
+
+# berth-gui 不依赖的 crate（sidecar 在每次 dev 启动时由 prepare-sidecars 构建）
+terminal/cli/
+terminal/daemon/
+
+# 只在 cargo test 时编译
+tests/
+tests.rs
+*_tests.rs

@@ -1,0 +1,127 @@
+#!/bin/sh
+# Product command for this checkout: `berth` is the current CLI.
+# Sidecar staging writes src-tauri/binaries/berth after `pnpm tauri:prepare-sidecars`.
+
+set -eu
+
+script=$0
+while [ -L "$script" ]; do
+  link=$(readlink -- "$script")
+  case $link in
+    /*) script=$link ;;
+    *) script=$(dirname -- "$script")/$link ;;
+  esac
+done
+
+root=$(CDPATH= cd -- "$(dirname -- "$script")/.." && pwd)
+
+# 仓库 CLI 始终配对开发实例，不继承正式版资产、库或终端连接。
+if [ -f "$root/src-tauri/tauri.dev.conf.json" ]; then
+  physical_path() (
+    if [ -e "$1" ] && command -v realpath >/dev/null 2>&1; then
+      realpath "$1"
+    elif [ -d "$1" ]; then
+      CDPATH= cd -P -- "$1" && pwd -P
+    else
+      parent=$(dirname -- "$1")
+      printf '%s/%s\n' "$(physical_path "$parent")" "$(basename -- "$1")"
+    fi
+  )
+  release_assets=$(physical_path "$HOME/.berth")
+  case $(uname -s) in
+    Darwin) release_data=$(physical_path "$HOME/Library/Application Support/app.berth") ;;
+    *) release_data=$(physical_path "${XDG_DATA_HOME:-$HOME/.local/share}/app.berth") ;;
+  esac
+  BERTH_HOME=${BERTH_HOME:-$HOME/.berth-dev}
+  BERTH_DATA_DIR=${BERTH_DATA_DIR:-$HOME/.berth-dev}
+  BERTH_DATA_FILE=${BERTH_DATA_FILE:-berth-dev.db}
+  BERTH_GUI_ENDPOINT=${BERTH_GUI_ENDPOINT:-${XDG_RUNTIME_DIR:-/tmp}/berth-dev/gui}
+  BERTH_TMPDIR=${BERTH_TMPDIR:-${XDG_RUNTIME_DIR:-/tmp}/berth-dev}
+  export BERTH_HOME BERTH_DATA_DIR BERTH_DATA_FILE BERTH_GUI_ENDPOINT BERTH_TMPDIR
+
+  for var in BERTH_HOME BERTH_DATA_DIR; do
+    case $var in
+      BERTH_HOME) path=$BERTH_HOME ;;
+      *) path=$BERTH_DATA_DIR ;;
+    esac
+    path=$(physical_path "$path")
+    case $path in
+      "$release_assets"|"$release_assets"/*|"$release_data"|"$release_data"/*)
+        printf 'berth: %s points into installed Berth data; use a dev-only directory\n' "$var" >&2
+        exit 1 ;;
+    esac
+  done
+  if [ "$BERTH_DATA_FILE" != berth-dev.db ]; then
+    printf 'berth: BERTH_DATA_FILE must be berth-dev.db for this checkout\n' >&2
+    exit 1
+  fi
+  case $(physical_path "$BERTH_DATA_DIR/$BERTH_DATA_FILE") in
+    "$release_data"/*)
+      printf 'berth: dev database resolves into installed Berth data\n' >&2
+      exit 1 ;;
+  esac
+
+  uid=$(id -u)
+  for socket_root in /tmp ${TMUX_TMPDIR:+"$TMUX_TMPDIR"} ${XDG_RUNTIME_DIR:+"$XDG_RUNTIME_DIR"}; do
+    socket_root=$(physical_path "$socket_root")
+    tmpdir=$(physical_path "$BERTH_TMPDIR")
+    case $tmpdir in
+      "$socket_root"|"$socket_root/berth-$uid"|"$socket_root/berth-$uid"/*)
+        printf 'berth: BERTH_TMPDIR points to an installed Berth socket root\n' >&2
+        exit 1 ;;
+    esac
+    if [ "$(physical_path "$BERTH_GUI_ENDPOINT")" = "$socket_root/berth-$uid/gui" ]; then
+      printf 'berth: BERTH_GUI_ENDPOINT points to the installed Berth GUI\n' >&2
+      exit 1
+    fi
+  done
+
+  # $BERTH 比 BERTH_TMPDIR 优先：只继承当前 dev socket 下的 pane 身份。
+  socket=${BERTH-}
+  socket=${socket%%,*}
+  dev_socket_dir=$(physical_path "$BERTH_TMPDIR/berth-$uid")
+  case $socket in
+    /*) if [ "$(dirname -- "$(physical_path "$socket")")" != "$dev_socket_dir" ]; then
+          unset BERTH
+        fi ;;
+    *) unset BERTH ;;
+  esac
+
+  # 带 target 后缀的 sidecar 无法通过 CLI 的同目录查找命中，显式配对本 checkout。
+  if [ -z "${BERTH_SDK_DAEMON_BINARY:-}" ]; then
+    for daemon in "$root"/src-tauri/binaries/berth-termd-*; do
+      case $daemon in *.exe) continue ;; esac
+      if [ -x "$daemon" ]; then
+        BERTH_SDK_DAEMON_BINARY=$daemon
+        export BERTH_SDK_DAEMON_BINARY
+        break
+      fi
+    done
+  fi
+fi
+
+cli=$root/src-tauri/binaries/berth
+if [ -x "$cli" ]; then
+  exec "$cli" "$@"
+fi
+
+if command -v rustc >/dev/null 2>&1; then
+  host=$(rustc -vV | awk '/^host:/{print $2}')
+  sidecar=$root/src-tauri/binaries/berth-cli-$host
+  if [ -x "$sidecar" ]; then
+    exec "$sidecar" "$@"
+  fi
+fi
+
+for candidate in \
+  "$root/src-tauri/target/debug/berth" \
+  "${CARGO_TARGET_DIR:-}/debug/berth"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    exec "$candidate" "$@"
+  fi
+done
+
+printf '%s\n' \
+  'berth: current workspace CLI is not built yet.' \
+  'Run `pnpm tauri:prepare-sidecars` in this repository, then retry.' >&2
+exit 1

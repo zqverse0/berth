@@ -1,0 +1,91 @@
+{
+  "storage": "jsonl",
+  "path": "~/.codex/sessions",
+  "files": "**/*.jsonl",
+  "locate": "**/*-{id}.jsonl",
+  "session": {
+    "record": "session_meta",
+    "id": [
+      "/payload/id",
+      "/payload/session_id"
+    ],
+    "project": "/payload/cwd",
+    "time": "/payload/timestamp"
+  },
+  "message": {
+    "record": [
+      "response_item",
+      "event_msg"
+    ],
+    "value": "/payload",
+    "variant": "/type",
+    "role": "/role",
+    "roleMap": {
+      "custom_tool_call": "assistant",
+      "custom_tool_call_output": "tool",
+      "function_call": "assistant",
+      "function_call_output": "tool",
+      "agent_message": "assistant",
+      "reasoning": "assistant"
+    },
+    "content": [
+      "/content",
+      "/summary"
+    ],
+    "time": "/timestamp",
+    "tool_name": "/name",
+    "tool_input": [
+      "/input",
+      "/arguments"
+    ],
+    "tool_output": "/output",
+    "tool_use_id": [
+      "/call_id",
+      "/toolCallId"
+    ],
+    "injected": {
+      "textPrefixes": [
+        "<environment_context>",
+        "# AGENTS.md instructions for",
+        "<recommended_plugins>",
+        "<turn_aborted>",
+        "<subagent_notification>"
+      ]
+    },
+    "usage": "/info/last_token_usage"
+  },
+  "context": [
+    {
+      "source": "system",
+      "record": "session_meta",
+      "text": [
+        "/payload/base_instructions/text",
+        "/payload/base_instructions"
+      ]
+    },
+    {
+      "source": "system",
+      "record": "developer",
+      "kind": "/payload/role",
+      "text": "/payload/content"
+    },
+    {
+      "source": "instructions",
+      "record": "user",
+      "kind": "/payload/role",
+      "text": "/payload/content",
+      "textPrefixes": [
+        "# AGENTS.md instructions for"
+      ]
+    },
+    {
+      "source": "environment",
+      "record": "user",
+      "kind": "/payload/role",
+      "text": "/payload/content",
+      "textPrefixes": [
+        "<environment_context>"
+      ]
+    }
+  ]
+}

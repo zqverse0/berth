@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "session",
+      "component": "select",
+      "label": "会话",
+      "optionsFrom": "projectSessions"
+    },
+    {
+      "id": "thinking",
+      "component": "select",
+      "label": "思考强度",
+      "options": [
+        { "value": "off", "label": "关闭" },
+        { "value": "low", "label": "低" },
+        { "value": "medium", "label": "中" },
+        { "value": "high", "label": "高" },
+        { "value": "xhigh", "label": "超高" },
+        { "value": "max", "label": "最大" }
+      ]
+    },
+    {
+      "id": "project-trust",
+      "component": "select",
+      "label": "项目文件信任",
+      "options": [
+        { "value": "approve", "label": "信任项目文件" },
+        { "value": "no-approve", "label": "忽略项目文件" }
+      ]
+    },
+    {
+      "id": "provider",
+      "component": "select",
+      "label": "服务商",
+      "optionsFrom": "providerVendor",
+      "protocols": ["chat", "claude"]
+    },
+    {
+      "id": "model",
+      "component": "select",
+      "label": "模型",
+      "optionsFrom": "providerModels"
+    },
+    {
+      "id": "expert",
+      "component": "select",
+      "label": "专家",
+      "optionsFrom": "experts"
+    }
+  ]
+}

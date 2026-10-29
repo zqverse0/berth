@@ -1,0 +1,83 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "officecli",
+  "version": "1.0.0",
+  "contributes": {
+    "identity": {
+      "name": "OfficeCLI",
+      "roles": [],
+      "tags": [
+        "cli",
+        "office",
+        "docx",
+        "xlsx",
+        "pptx"
+      ],
+      "description": "AI-friendly CLI for .docx/.xlsx/.pptx: inspect, edit by element path, validate and render. Berth previews Office files through `officecli watch`; element paths picked in the preview feed straight into officecli get/set.",
+      "homepage": "https://officecli.ai"
+    },
+    "preview": {
+      "extensions": [
+        "docx",
+        "xlsx",
+        "pptx"
+      ],
+      "argv": [
+        "watch",
+        "{file}",
+        "--port",
+        "{port}"
+      ],
+      "protocol": "watch/1",
+      "script": "preview.js"
+    },
+    "extract": {
+      "extensions": [
+        "docx",
+        "xlsx",
+        "pptx"
+      ],
+      "argv": [
+        "view",
+        "{file}",
+        "text",
+        "--max-lines",
+        "{maxLines}"
+      ]
+    },
+    "install": {
+      "bin": "officecli",
+      "paths": {
+        "unix": [
+          "~/.local/bin/officecli"
+        ],
+        "windows": [
+          "%LOCALAPPDATA%/OfficeCLI/officecli.exe"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "latest": {
+        "github": "iOfficeAI/OfficeCLI"
+      }
+    }
+  },
+  "resources": {},
+  "knowledge": {
+    "berth-loop": {
+      "kind": "guide",
+      "title": "Working on Office files with the user in Berth",
+      "path": "usage.md"
+    }
+  },
+  "evidence": {
+    "cli-help": {
+      "kind": "observation",
+      "observedAt": "2026-10-01",
+      "toolVersion": "1.0.152",
+      "notes": "Commands in usage.md checked against `officecli --help`, `view --help`, `watch --help`; paths and ranges verified with get/set on sample pptx/docx/xlsx."
+    }
+  }
+}

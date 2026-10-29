@@ -1,0 +1,189 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "grok",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1,
+    "data": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Grok",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": "xAI Grok CLI and its user/project configuration.",
+      "icon": "grok"
+    },
+    "agent": {
+      "projectType": "grok",
+      "promptInput": "prompt",
+      "providerInjection": {
+        "agentType": "grok",
+        "apis": [
+          "openai-responses",
+          "openai-chat"
+        ]
+      },
+      "capabilityStores": {
+        "skills": {
+          "searchPaths": [
+            "skills-search-0",
+            "skills-search-1"
+          ],
+          "projectSearchPaths": [
+            "skills-project-0"
+          ],
+          "shared": [
+            "skills-shared-0"
+          ],
+          "store": "skills-store"
+        }
+      },
+      "sessions": "session-spec",
+      "usage": {
+        "label": "xAI 订阅用量",
+        "command": [
+          "${berth}",
+          "tools",
+          "run",
+          "grok",
+          "private/usage-snapshot.js"
+        ],
+        "planTypePointers": [
+          "/tier"
+        ],
+        "windows": [
+          {
+            "id": "weekly",
+            "label": "7d",
+            "usedPercentPointers": [
+              "/credits/creditUsagePercent"
+            ],
+            "resetsAtPointers": [
+              "/credits/currentPeriod/end"
+            ],
+            "windowMinutes": 10080
+          }
+        ]
+      },
+      "logins": [
+        {
+          "id": "xai",
+          "label": "xAI 订阅",
+          "website": "https://x.ai/grok",
+          "credentialFile": "${home}/.grok/auth.json",
+          "models": {
+            "path": "${home}/.grok/models_cache.json",
+            "listPointers": [
+              "/models"
+            ],
+            "idPointer": "/info/id",
+            "namePointer": "/info/name"
+          }
+        }
+      ],
+      "interruptKey": "C-c"
+    },
+    "install": {
+      "bin": "grok",
+      "paths": {
+        "unix": [
+          "~/.local/bin/grok",
+          "~/.grok/bin/grok"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update"
+      ]
+    }
+  },
+  "resources": {
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".grok"
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".grok/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-search-1": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".grok/bundled/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".grok/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      },
+      "purpose": "session-parser-spec"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Migrated from tools/grok/ (agent.json 0b269ea3d91d / launchbar.json 28dfab2554d9) by migrate-tools.mjs."
+    }
+  }
+}

@@ -1,0 +1,315 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "claude",
+  "revision": "1",
+  "identity": {
+    "name": "Claude Code",
+    "description": "Anthropic's coding agent CLI.",
+    "roles": [
+      "agent"
+    ],
+    "tags": [
+      "cli",
+      "agent"
+    ],
+    "icon": "claude"
+  },
+  "resources": {
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude.json"
+      },
+      "format": "claude-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-user": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".claude/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-plugins-cache": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".claude/plugins/cache",
+        "layout": "recursive"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-central-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "skill-enabled-flags": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude/settings.json"
+      },
+      "purpose": "skill-status:enabled-flags"
+    },
+    "skill-install-registry": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude/plugins/installed_plugins.json"
+      },
+      "purpose": "skill-status:install-registry"
+    },
+    "skill-usage-stats": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".claude.json"
+      },
+      "purpose": "skill-status:usage-stats"
+    },
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude"
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "expert-instruction": {
+      "kind": "file",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude/CLAUDE.md"
+      },
+      "purpose": "expert-instruction"
+    },
+    "expert-skills": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".claude/skills"
+      },
+      "purpose": "expert-skills"
+    }
+  },
+  "actions": {
+    "launch": {
+      "title": {
+        "zh-CN": "启动 Claude Code",
+        "en": "Launch Claude Code"
+      },
+      "description": {
+        "zh-CN": "在终端中启动交互式 Claude Code CLI；服务商/模型经业务绑定注入，不重复发射参数。",
+        "en": "Launch the interactive Claude Code CLI in a terminal; provider/model are injected through the model binding exactly once."
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "permission-mode": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "acceptEdits",
+              "bypassPermissions"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "berth:valueSource": "provider.vendors"
+          },
+          "model": {
+            "type": "string",
+            "berth:valueSource": "provider.models"
+          }
+        },
+        "additionalProperties": false
+      },
+      "effects": [
+        "process-start",
+        "read-local",
+        "write-local"
+      ],
+      "bindings": [
+        {
+          "id": "terminal",
+          "call": {
+            "capability": "terminal.open/1",
+            "arguments": {
+              "program": "claude",
+              "argv": [],
+              "emit": [
+                {
+                  "value": {
+                    "$from": "/inputs/permission-mode"
+                  },
+                  "mode": "choice",
+                  "omitIfMissing": true,
+                  "choices": {
+                    "plan": [
+                      "--permission-mode",
+                      "plan"
+                    ],
+                    "acceptEdits": [
+                      "--permission-mode",
+                      "acceptEdits"
+                    ],
+                    "bypassPermissions": [
+                      "--permission-mode",
+                      "bypassPermissions"
+                    ]
+                  }
+                },
+                {
+                  "value": {
+                    "$from": "/inputs/model"
+                  },
+                  "mode": "template",
+                  "omitIfMissing": true,
+                  "tokens": [
+                    "--model",
+                    "{value}"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-08",
+      "notes": "Migrated from tools/claude/agent.json + tools/claude/launchbar.json (SHA-256 f6b666494748 / 75187fa724a0). Root manifest tools/claude-code.json is a separate command-catalog surface pending stage D."
+    }
+  },
+  "examples": [
+    {
+      "actionId": "launch",
+      "inputs": {}
+    },
+    {
+      "actionId": "launch",
+      "inputs": {
+        "permission-mode": "plan",
+        "model": "opus"
+      }
+    }
+  ],
+  "views": {
+    "berth": {
+      "launchbar": {
+        "actionId": "launch",
+        "fields": [
+          "permission-mode",
+          "provider",
+          "model"
+        ]
+      }
+    }
+  },
+  "extensions": {
+    "org.berth.agent": {
+      "projectType": "claude_code",
+      "providerInjection": {
+        "agentType": "claude_code",
+        "slots": [
+          "fable",
+          "haiku",
+          "opus",
+          "sonnet"
+        ],
+        "official": {
+          "label": "Claude Official",
+          "website": "https://www.anthropic.com/claude-code",
+          "models": [
+            {
+              "name": "Sonnet",
+              "id": "sonnet"
+            },
+            {
+              "name": "Opus",
+              "id": "opus"
+            },
+            {
+              "name": "Haiku",
+              "id": "haiku"
+            }
+          ]
+        },
+        "env": {
+          "ANTHROPIC_BASE_URL": "$api_url",
+          "ANTHROPIC_AUTH_TOKEN": "$api_key",
+          "ANTHROPIC_DEFAULT_FABLE_MODEL": "$model:fable",
+          "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "$model-name:fable",
+          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$model:haiku",
+          "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "$model-name:haiku",
+          "ANTHROPIC_DEFAULT_OPUS_MODEL": "$model:opus",
+          "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "$model-name:opus",
+          "ANTHROPIC_DEFAULT_SONNET_MODEL": "$model:sonnet",
+          "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "$model-name:sonnet"
+        }
+      },
+      "expertDeployment": {
+        "root": "expert-root",
+        "instructionFile": "CLAUDE.md",
+        "skillsDir": "skills"
+      },
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-user",
+            "skills-plugins-cache"
+          ],
+          "projectSearchPaths": [
+            "skills-project"
+          ],
+          "shared": [
+            "skills-shared"
+          ],
+          "store": "skills-central-store"
+        },
+        "skillStatus": [
+          "skill-enabled-flags",
+          "skill-install-registry",
+          "skill-usage-stats"
+        ]
+      }
+    }
+  }
+}

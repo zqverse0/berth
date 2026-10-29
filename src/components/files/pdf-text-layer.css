@@ -1,0 +1,92 @@
+/* Berth surface rules only; PDF.js owns page, canvas and text-layer geometry. */
+.pdf-viewer-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--pdf-viewer-bg, #e4e4e7);
+}
+
+.dark .pdf-viewer-container {
+  --pdf-viewer-bg: #18181b;
+}
+
+.pdf-viewer-container .pdfViewer {
+  min-width: min-content;
+  padding-block: 0.5rem;
+}
+
+.pdf-viewer-container .pdfViewer .page {
+  border: 0;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+}
+
+/* pdf.js 按页绘制选区（DrawLayer），颜色跟主题选中色 */
+.pdf-viewer-container .pdfViewer .canvasWrapper .selection {
+  background: var(--selection);
+}
+
+/* 松手后的连续选区色块（pdf-selection-settle.ts）：画上它时隐藏 pdf.js 的断开选区 */
+.pdf-viewer-container .berth-pdf-settled-selection {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--selection);
+  pointer-events: none;
+}
+
+.berth-pdf-selection-settled .pdfViewer .canvasWrapper .selection {
+  visibility: hidden;
+}
+
+/* 高亮 overlay 容器：铺满页面、不拦截文本选择 */
+.berth-pdf-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 单个高亮色块：百分比坐标由内联样式给出，hover 加深并加轮廓 */
+.berth-pdf-highlight {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.4;
+  transition: opacity 120ms ease;
+}
+
+.berth-pdf-highlight:hover {
+  opacity: 0.6;
+  outline: 1px solid rgb(0 0 0 / 30%);
+  outline-offset: 1px;
+}
+
+.berth-pdf-highlight:focus,
+.berth-pdf-highlight:focus-visible {
+  opacity: 0.7;
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* 注释下划线：位于文字底部，跟随系统主题色，可点击查看/编辑注释内容 */
+.berth-pdf-note-underline {
+  position: absolute;
+  display: block;
+  min-width: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background-color: color-mix(in oklch, var(--ring) 85%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 7;
+  transition: opacity 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.berth-pdf-note-underline:hover {
+  background-color: var(--ring);
+  outline: 2px solid color-mix(in oklch, var(--ring) 30%, transparent);
+  outline-offset: 1px;
+}

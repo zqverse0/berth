@@ -1,0 +1,27 @@
+[package]
+name = "berth-provider-proxy"
+version.workspace = true
+description = "Local credential proxy for model providers: swaps the placeholder credential and Host, passes everything else through. Shared by the Berth CLI and desktop hosts. No Tauri dependencies."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+# 上游用 hyper 而非 reqwest：reqwest 会补默认 `accept: */*` 且不保留头名大小写，做不到透传。
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "tls12", "aws-lc-rs"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+# 与 reqwest 相同的系统证书校验。
+rustls-platform-verifier = "0.7"
+# 只读请求体里的 `model`，用于按模型选分组 Key。
+serde_json = "1"
+tokio = { version = "1", features = ["net", "rt"] }
+tower-service = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }

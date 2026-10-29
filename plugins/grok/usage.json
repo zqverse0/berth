@@ -1,0 +1,57 @@
+{
+  "label": "Account usage",
+  "credential": {
+    "fromObjectValues": true,
+    "headerPointers": {
+      "x-userid": "/user_id"
+    },
+    "kind": "json-file",
+    "path": "${home}/.grok/auth.json",
+    "preferKeyPrefix": "https://auth.x.ai",
+    "tokenPointer": "/key"
+  },
+  "request": {
+    "headers": {
+      "Accept": "application/json",
+      "X-XAI-Token-Auth": "xai-grok-cli"
+    },
+    "method": "GET",
+    "url": "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+  },
+  "windows": [
+    {
+      "id": "weekly",
+      "label": "7d",
+      "usedPercentPointers": [
+        "/creditUsagePercent",
+        "/config/creditUsagePercent"
+      ],
+      "resetsAtPointers": [
+        "/currentPeriod/end",
+        "/config/currentPeriod/end",
+        "/billingPeriodEnd",
+        "/config/billingPeriodEnd"
+      ],
+      "windowMinutes": 10080
+    },
+    {
+      "id": "monthly",
+      "label": "30d",
+      "usedPointers": [
+        "/used/val",
+        "/config/used/val"
+      ],
+      "limitPointers": [
+        "/monthlyLimit/val",
+        "/config/monthlyLimit/val"
+      ],
+      "resetsAtPointers": [
+        "/currentPeriod/end",
+        "/config/currentPeriod/end",
+        "/billingPeriodEnd",
+        "/config/billingPeriodEnd"
+      ],
+      "windowMinutes": 43200
+    }
+  ]
+}

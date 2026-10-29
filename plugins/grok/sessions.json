@@ -1,0 +1,72 @@
+{
+  "storage": "jsonl",
+  "path": "~/.grok/sessions",
+  "files": "**/chat_history.jsonl",
+  "locate": "**/{id}/chat_history.jsonl",
+  "session": {
+    "record": "system",
+    "id": "@path.parent.name",
+    "project": "@path.parent.parent.url_decode.name"
+  },
+  "message": {
+    "variant": "/type",
+    "roleMap": {
+      "system": "system",
+      "user": "user",
+      "assistant": "assistant",
+      "reasoning": "assistant",
+      "tool_result": "tool"
+    },
+    "content": [
+      "/content",
+      "/summary"
+    ],
+    "model": "/model_id",
+    "tool_calls": "/tool_calls",
+    "tool_use_id": [
+      "/tool_call_id",
+      "/toolCallId"
+    ],
+    "tool_output": "/content"
+  },
+  "context": [
+    {
+      "source": "system",
+      "record": "system",
+      "text": "/content"
+    },
+    {
+      "source": "environment",
+      "record": "user",
+      "text": "/content",
+      "textPrefixes": [
+        "<user_info>"
+      ]
+    },
+    {
+      "source": "skills",
+      "record": "user",
+      "text": "/content",
+      "textPrefixes": [
+        "<system-reminder>\n## Available Skills",
+        "<system-reminder>\nThe following skills are available"
+      ]
+    },
+    {
+      "source": "tools",
+      "record": "user",
+      "text": "/content",
+      "textPrefixes": [
+        "<system-reminder>\n\nCall `search_tool`"
+      ]
+    },
+    {
+      "source": "summary",
+      "record": "user",
+      "text": "/content",
+      "textPrefixes": [
+        "This session is being continued from a previous conversation"
+      ]
+    }
+  ]
+}

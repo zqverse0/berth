@@ -1,0 +1,25 @@
+[package]
+name = "berth-tool-core"
+version.workspace = true
+description = "Tool Asset Protocol parsing, repository rules and capability dispatch shared by the Berth CLI and desktop hosts. No Tauri dependencies."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+dirs = "6"
+# sessions.json 的 `@path.url_decode` selector。
+urlencoding = "2"
+# sessions.json 的 `sessionIndex`：只读查会话元数据库（与 GUI / berth-project-core 同一份 libsqlite3-sys）。
+rusqlite = "0.32"
+# tool.json `engines.berth` 版本范围（Cargo.lock 已有）。
+semver = "1"
+# 新会话的启动 id（`assign_launch_session`）。
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

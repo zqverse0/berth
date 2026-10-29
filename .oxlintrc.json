@@ -1,0 +1,20 @@
+{
+  "jsPlugins": ["@shadcn/lint"],
+  "ignorePatterns": [
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "src-tauri/target/**",
+    "src-tauri/experts/**",
+    "public/vs/**",
+    "public/pdfjs/**",
+    ".pi/**",
+    ".trellis/**"
+  ],
+  "rules": {
+    "shadcn/no-restyle": "warn",
+    "shadcn/no-raw-colors": "warn",
+    "shadcn/no-arbitrary-values": "warn"
+  }
+}

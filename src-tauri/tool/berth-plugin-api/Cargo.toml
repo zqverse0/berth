@@ -1,0 +1,24 @@
+[package]
+name = "berth-plugin-api"
+version.workspace = true
+description = "Berth plugin host interface (docs/plugin-architecture.md): JSON-RPC namespaces and the embedded QuickJS script runtime."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+berth-tool-core = { path = "../berth-tool-core" }
+# 插件脚本引擎（ES2023）；loader 让包内模块互相 import。
+rquickjs = { version = "0.14", features = ["loader"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# data.parseToml / stringifyToml。
+toml = "0.8"
+which = "7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

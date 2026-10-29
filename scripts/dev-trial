@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""dev-trial：把 worktree 分支试合并进 dev，在用户常驻的 dev 实例里验证，通过保留、失败回退。
+
+worktree 里不编译；唯一的编译与运行发生在主 checkout（跑 `pnpm tauri dev` 的那份）。
+同一时刻只有一个试合并：全局 termd 锁 `dev-trial` 由后台持锁进程持有，直到 keep / rollback / 超时。
+
+  dev-trial start <分支>      排队拿锁 → 合并进 dev → 有 CLI 改动则构建 sidecar → 等 GUI 重编
+  dev-trial keep <分支>       保留合并，释放锁
+  dev-trial rollback <分支>   reset --keep 回到合并前，释放锁（分支上的提交不丢）
+  dev-trial base              稳定基线：rebase 一律用 `git rebase $(dev-trial base)`，不要直接 rebase dev
+                              （试合并进行中时 dev 的 HEAD 是尚未确认的合并提交）
+  dev-trial status            当前试合并状态
+  dev-trial berth <参数...>   用 dev 实例的 CLI（清掉继承自正式版的 BERTH_* 环境）
+  dev-trial cargo <check|test|build> -p <crate> ...
+                              worktree 里的小 crate 检查：全局串行 + 独立 target 目录（不碰 tauri dev 的产物）
+
+细则见 docs/verification.md「试合并」。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+BASE = os.environ.get("DEV_TRIAL_BASE", "dev")
+LOCK = "dev-trial"
+HOLD_TIMEOUT = int(os.environ.get("DEV_TRIAL_TIMEOUT", "1800"))  # 秒：未 keep 即自动回退
+BUILD_WAIT = int(os.environ.get("DEV_TRIAL_BUILD_WAIT", "900"))  # 秒：等 tauri dev 重编
+# worktree 的 cargo 用独立 target：与 tauri dev 共用 target-shared 时，环境变量不同会让 build script
+# 互相判过期，dev 实例被迫全量重编（2026-10-04 实测）。
+CARGO_TARGET = Path(os.environ.get("DEV_TRIAL_CARGO_TARGET", str(Path.home() / ".cache/berth-worktree-target")))
+GUI_BINARY = Path(os.environ.get("CARGO_TARGET_DIR", str(Path.home() / ".cargo/target-shared"))) / "debug/berth-gui"
+FINAL = {"kept", "rolled_back", "failed", "error"}
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"dev-trial: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    out = subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True)
+    if check and out.returncode != 0:
+        die(f"git {' '.join(args)} 失败：{out.stderr.strip() or out.stdout.strip()}")
+    return out
+
+
+def main_checkout() -> Path:
+    """检出 BASE 分支的那个 worktree，即用户跑 tauri dev 的主 checkout。"""
+    # 按脚本所在仓库找（worktree 里的副本也指回同一仓库），不按当前目录：`dev-trial berth` 常在别的目录里调用。
+    listing = git(Path(__file__).resolve().parent, "worktree", "list", "--porcelain").stdout
+    path = None
+    for line in listing.splitlines():
+        if line.startswith("worktree "):
+            path = Path(line.split(" ", 1)[1])
+        elif line == f"branch refs/heads/{BASE}" and path:
+            return path
+    die(f"没有检出 {BASE} 的 worktree；dev-trial 需要用户的主 checkout 停在 {BASE}")
+    raise AssertionError
+
+
+def state_dir(main: Path) -> Path:
+    common = Path(git(main, "rev-parse", "--git-common-dir").stdout.strip())
+    directory = (common if common.is_absolute() else main / common) / "dev-trial"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def read_state(directory: Path) -> dict:
+    try:
+        return json.loads((directory / "state.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(directory: Path, fresh: bool = False, **fields: object) -> dict:
+    state = {**({} if fresh else read_state(directory)), **fields, "updated_at": time.time()}
+    temporary = directory / "state.json.tmp"
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    temporary.replace(directory / "state.json")
+    if state.get("phase") in FINAL and state.get("request"):
+        # 锁随即交给下一个请求、state.json 会被覆盖；按请求另存结局供 keep / rollback 读取
+        (directory / f"result-{state['request']}.json").write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    return state
+
+
+def classify(paths: list[str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {"cli": [], "rust": [], "frontend": [], "other": []}
+    # CLI 还依赖 terminal/ 与 project/ 下的共享 crate：改它们也要重建 CLI（GUI 同样会重编）。
+    cli_inputs = ("src-tauri/terminal/", "src-tauri/project/", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock")
+    for path in paths:
+        if path.startswith(cli_inputs):
+            groups["cli"].append(path)
+        if path.startswith("src-tauri/") and not path.startswith("src-tauri/terminal/cli/"):
+            groups["rust"].append(path)
+        elif path.startswith("src/"):
+            groups["frontend"].append(path)
+        elif not path.startswith("src-tauri/"):
+            groups["other"].append(path)
+    return groups
+
+
+def tauri_dev_running() -> bool:
+    """看 `tauri dev` 进程本身：重编期间 app 进程会被杀掉，不能用它判断。"""
+    out = subprocess.run(["pgrep", "-f", "tauri dev"], capture_output=True)
+    return out.returncode == 0
+
+
+def berth_command() -> str:
+    """锁在正式版 termd 里，所有 Agent 都从正式版 Berth 终端调用，用 PATH 上的 berth。"""
+    found = shutil.which("berth")
+    if not found:
+        die("PATH 上没有 berth，无法拿全局锁")
+    return found
+
+
+# ---------------------------------------------------------------- 持锁进程
+
+
+def hold(branch: str, request: str) -> None:
+    """在 `berth lock dev-trial` 内运行：合并、等待决定、按决定保留或回退。退出即释放锁。"""
+    main = main_checkout()
+    directory = state_dir(main)
+    write_state(directory, fresh=True, request=request, branch=branch, phase="merging", pid=os.getpid(), acquired_at=time.time())
+
+    def fail(reason: str, phase: str = "failed") -> None:
+        write_state(directory, phase=phase, reason=reason)
+        sys.exit(0)
+
+    if git(main, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != BASE:
+        fail(f"主 checkout 当前不在 {BASE}")
+    if (Path(git(main, "rev-parse", "--git-dir").stdout.strip()) / "MERGE_HEAD").exists():
+        fail("主 checkout 有未完成的合并")
+
+    pre = git(main, "rev-parse", "HEAD").stdout.strip()
+    merged = git(main, "merge", "--no-ff", "--no-edit", "-m", f"Merge branch '{branch}' into {BASE} (dev-trial)", branch, check=False)
+    if merged.returncode != 0:
+        if (Path(git(main, "rev-parse", "--git-dir").stdout.strip()) / "MERGE_HEAD").exists():
+            git(main, "merge", "--abort", check=False)
+        hint = "" if contains(main, BASE, branch) else f"；排队期间 {BASE} 前进了，在 worktree 里 `git rebase $(dev-trial base)` 解决冲突后重新 start"
+        fail("合并失败（与主 checkout 的未提交改动重叠，或与新合入的改动冲突）" + hint + "：" + (merged.stderr or merged.stdout).strip()[-800:])
+    head = git(main, "rev-parse", "HEAD").stdout.strip()
+    files = [p for p in git(main, "diff", "--name-only", pre, head).stdout.splitlines() if p]
+    groups = classify(files)
+    write_state(directory, phase="merged", pre=pre, head=head, merged_at=time.time(), changed=groups)
+
+    def rollback(reason: str) -> None:
+        if git(main, "rev-parse", "HEAD").stdout.strip() != head:
+            fail(f"{BASE} 在试合并期间被改动，未自动回退；请人工处理（合并前 {pre[:10]}）", "error")
+        out = git(main, "reset", "--keep", pre, check=False)
+        if out.returncode != 0:
+            fail(f"reset --keep 失败，未回退：{out.stderr.strip()}（合并前 {pre[:10]}）", "error")
+        write_state(directory, phase="rolled_back", reason=reason)
+        sys.exit(0)
+
+    if groups["cli"]:
+        write_state(directory, phase="building_cli")
+        log = directory / f"cli-build-{request}.log"
+        with log.open("w") as handle:
+            built = subprocess.run(["pnpm", "tauri:prepare-sidecars", "--dev"], cwd=main, stdout=handle, stderr=subprocess.STDOUT)
+        if built.returncode != 0:
+            tail = log.read_text()[-1500:]
+            write_state(directory, cli_build_log=str(log), cli_build_tail=tail)
+            rollback("CLI 构建失败，已自动回退；输出见 cli_build_log")
+        write_state(directory, phase="merged", cli_built_at=time.time())
+
+    deadline = time.time() + HOLD_TIMEOUT
+    decision_file = directory / f"decision-{request}"
+    while time.time() < deadline:
+        if decision_file.exists():
+            decision = decision_file.read_text().strip()
+            decision_file.unlink(missing_ok=True)
+            if decision == "keep":
+                write_state(directory, phase="kept")
+                sys.exit(0)
+            rollback("Agent 选择回退")
+        time.sleep(2)
+    rollback(f"{HOLD_TIMEOUT} 秒内没有 keep，已自动回退")
+
+
+# ---------------------------------------------------------------- 命令
+
+
+def describe(state: dict) -> str:
+    if not state:
+        return "没有试合并记录"
+    lines = [f"分支 {state.get('branch')} · 阶段 {state.get('phase')}"]
+    if state.get("pre"):
+        lines.append(f"合并前 {state['pre'][:10]} → 合并后 {str(state.get('head', ''))[:10]}")
+    for key, label in (("cli", "CLI"), ("rust", "Rust"), ("frontend", "前端"), ("other", "其他")):
+        paths = (state.get("changed") or {}).get(key) or []
+        if paths:
+            lines.append(f"{label} 改动 {len(paths)} 个文件")
+    if state.get("reason"):
+        lines.append(f"原因：{state['reason']}")
+    if state.get("cli_build_tail"):
+        lines.append("CLI 构建输出（末尾）：\n" + state["cli_build_tail"])
+    return "\n".join(lines)
+
+
+def active(state: dict) -> bool:
+    return bool(state) and state.get("phase") not in FINAL
+
+
+def stable_base(main: Path, state: dict) -> str:
+    """试合并进行中时 dev 的 HEAD 可能被回退，稳定基线是合并前的提交。"""
+    if active(state) and state.get("pre"):
+        return state["pre"]
+    return git(main, "rev-parse", BASE).stdout.strip()
+
+
+def contains(main: Path, commit: str, branch: str) -> bool:
+    return git(main, "merge-base", "--is-ancestor", commit, branch, check=False).returncode == 0
+
+
+def start(branch: str) -> None:
+    main = main_checkout()
+    directory = state_dir(main)
+    if git(main, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode != 0:
+        die(f"分支 {branch} 不存在")
+    if branch == BASE:
+        die(f"不能试合并 {BASE} 自己")
+    state = read_state(directory)
+    if active(state) and state.get("head") and contains(main, state["head"], branch):
+        die(f"{branch} 包含 {state.get('branch')} 尚未确认的试合并提交：在 worktree 里 `git rebase --onto $(dev-trial base) {state['head'][:10]}` 去掉它")
+    if not contains(main, stable_base(main, state), branch):
+        die(f"{branch} 不包含最新的稳定 {BASE}：先在自己的 worktree 里 `git rebase $(dev-trial base)`（冲突在 worktree 里解决）再试")
+    if active(state) and state.get("branch") == branch:
+        die(f"{branch} 已在试合并中：\n{describe(state)}\n用 keep / rollback 结束它")
+    if not tauri_dev_running():
+        print(f"dev-trial: 警告：没有发现运行中的 tauri dev（{GUI_BINARY}），Rust 改动不会被编译和验证", file=sys.stderr)
+
+    request = uuid.uuid4().hex[:12]
+    log = directory / f"hold-{request}.log"
+    with log.open("w") as handle:
+        holder = subprocess.Popen(
+            [berth_command(), "lock", LOCK, "--", sys.executable, os.path.abspath(__file__), "_hold", branch, request],
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    print(f"已排队（请求 {request}），等待全局锁 {LOCK}…", flush=True)
+    last_note = time.time()
+    while True:
+        state = read_state(directory)
+        if state.get("request") == request and state.get("phase") in {"merged", *FINAL}:
+            break
+        if holder.poll() is not None and read_state(directory).get("request") != request:
+            die(f"持锁进程提前退出，没有开始试合并；日志：{log}\n{log.read_text()[-800:]}")
+        if time.time() - last_note > 30:
+            current = read_state(directory)
+            if current.get("request") == request:
+                print(f"  本次试合并进行中：{current.get('phase')}", flush=True)
+            else:
+                print(f"  仍在排队；当前持有者：{current.get('branch')}（{current.get('phase')}）", flush=True)
+            last_note = time.time()
+        time.sleep(2)
+
+    print(describe(state))
+    if state["phase"] != "merged":
+        sys.exit(1)
+
+    if (state.get("changed") or {}).get("rust") and tauri_dev_running():
+        merged_at = state["merged_at"]
+        print(f"等待 tauri dev 重编（最多 {BUILD_WAIT} 秒）…", flush=True)
+        deadline = time.time() + BUILD_WAIT
+        while time.time() < deadline:
+            if GUI_BINARY.exists() and GUI_BINARY.stat().st_mtime > merged_at:
+                print("GUI 已重编完成，dev 实例已重启为新代码。")
+                break
+            time.sleep(5)
+        else:
+            print("没有等到新的 GUI 二进制：多半编译失败。读 dev 终端输出确认（berth terminal capture -t <tauri dev 终端>），失败就 rollback。")
+    print(
+        f"\n现在在 dev 实例里验证。结论：\n  {sys.argv[0]} keep {branch}\n  {sys.argv[0]} rollback {branch}\n"
+        f"{HOLD_TIMEOUT // 60} 分钟内不 keep 会自动回退。"
+    )
+
+
+def decide(branch: str, decision: str) -> None:
+    main = main_checkout()
+    directory = state_dir(main)
+    state = read_state(directory)
+    if not active(state) or state.get("branch") != branch:
+        die(f"{branch} 没有进行中的试合并：\n{describe(state)}")
+    if state.get("phase") != "merged":
+        die(f"试合并还在 {state.get('phase')} 阶段，稍后再试")
+    request = state["request"]
+    (directory / f"decision-{request}").write_text(decision)
+    while True:
+        current = read_state(directory)
+        if current.get("request") != request or not active(current):
+            break
+        time.sleep(1)
+    result = directory / f"result-{request}.json"
+    print(describe(json.loads(result.read_text()) if result.exists() else current))
+
+
+def dev_berth(args: list[str]) -> None:
+    main = main_checkout()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BERTH")}
+    os.execve(str(main / "bin/berth"), [str(main / "bin/berth"), *args], env)
+
+
+def worktree_cargo(args: list[str]) -> None:
+    packages = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg in {"-p", "--package"}]
+    packages += [arg.split("=", 1)[1] for arg in args if arg.startswith("--package=")]
+    if not args or args[0] not in {"check", "test", "build", "clippy"}:
+        die("只支持 check / test / build / clippy")
+    if not packages:
+        die("必须用 -p <crate> 指定小 crate；不允许 workspace 全量")
+    if "berth-gui" in packages:
+        die("berth-gui 只由 tauri dev 编译：用 dev-trial start 在 dev 实例里验证")
+    env = {**os.environ, "CARGO_TARGET_DIR": str(CARGO_TARGET)}
+    command = [berth_command(), "lock", "build", "--", "cargo", *args]
+    os.execvpe(command[0], command, env)
+
+
+def run() -> None:
+    args = sys.argv[1:]
+    if not args or args[0] in {"-h", "--help"}:
+        print(__doc__)
+        return
+    command, rest = args[0], args[1:]
+    if command == "_hold" and len(rest) == 2:
+        hold(*rest)
+    elif command == "start" and len(rest) == 1:
+        start(rest[0])
+    elif command in {"keep", "rollback"} and len(rest) == 1:
+        decide(rest[0], command)
+    elif command == "base" and not rest:
+        main = main_checkout()
+        print(stable_base(main, read_state(state_dir(main))))
+    elif command == "status" and not rest:
+        print(describe(read_state(state_dir(main_checkout()))))
+    elif command == "berth":
+        dev_berth(rest)
+    elif command == "cargo":
+        worktree_cargo(rest)
+    else:
+        die(f"用法不对：{' '.join(args)}；见 {sys.argv[0]} --help", 2)
+
+
+if __name__ == "__main__":
+    run()

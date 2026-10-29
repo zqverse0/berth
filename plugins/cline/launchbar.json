@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "mode",
+      "component": "select",
+      "label": "模式",
+      "options": [
+        { "value": "act", "label": "执行模式" },
+        { "value": "plan", "label": "计划模式" }
+      ]
+    },
+    {
+      "id": "thinking",
+      "component": "select",
+      "label": "推理强度",
+      "options": [
+        { "value": "none", "label": "无" },
+        { "value": "low", "label": "低" },
+        { "value": "medium", "label": "中" },
+        { "value": "high", "label": "高" },
+        { "value": "xhigh", "label": "超高" }
+      ]
+    },
+    {
+      "id": "auto-approve",
+      "component": "switch",
+      "label": "自动审批"
+    },
+    {
+      "id": "tui",
+      "component": "switch",
+      "label": "TUI 界面"
+    },
+    {
+      "id": "expert",
+      "component": "select",
+      "label": "专家",
+      "optionsFrom": "experts"
+    }
+  ]
+}

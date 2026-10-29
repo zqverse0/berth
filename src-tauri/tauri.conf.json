@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "berth",
+  "version": "0.36.12",
+  "mainBinaryName": "berth-gui",
+  "identifier": "app.berth",
+  "build": {
+    "beforeDevCommand": "pnpm tauri:before-dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "pnpm tauri:before-build",
+    "frontendDist": "../out"
+  },
+  "app": {
+    "windows": [],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost http://localhost:*; script-src 'self' 'unsafe-inline' blob: http://localhost:*; style-src 'self' 'unsafe-inline' http://localhost:*; font-src 'self' data: http://localhost:*; img-src 'self' asset: http://asset.localhost data: blob: https: http://localhost:*; connect-src 'self' ipc: http://ipc.localhost https://github.com https://api.github.com https://*.githubusercontent.com http://localhost:* ws://localhost:*; frame-src 'self' https: http://localhost:*",
+      "dangerousDisableAssetCspModification": [
+        "style-src",
+        "script-src"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/berth-termd",
+      "binaries/berth-cli"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3NEFDRDkzOUQ4MjY0QTYKUldTbVpJS2RrODFLbDY1YnQyb0NLVHk0ZjN0THdla1dDdGFISnBJVHJoVHlOZ3dWL08wS05SM0IK",
+      "endpoints": [
+        "https://github.com/zqverse0/berth/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

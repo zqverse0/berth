@@ -1,0 +1,1501 @@
+/* 只扫描应用源码；避免 Tailwind 跟随 cwd 扫描整个父级工作区。 */
+@import "tailwindcss" source(none);
+@source "../";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@xterm/xterm/css/xterm.css";
+/* 自托管字体（@font-face 声明惰性，woff2 仅在被应用/预览时下载） */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/fira-code";
+@import "@fontsource-variable/geist-mono";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* 默认界面字体 = Inter（与 DEFAULT_UI_FONT_ID = "inter" 一致，须等于
+     font-presets.ts 的 resolveFontStack("inter", "", "sans")，否则首屏到水合会闪字），
+     运行时由 AppearanceProvider 覆盖 --font-sans。会话消息区等普通文本均跟随 --font-sans；
+     --font-mono 不在此自定义，由 Tailwind 默认等宽栈兜底（与代码编辑器字体相互独立）。 */
+  --font-sans:
+    "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  /* Berth workspace tokens: compact, border-led chrome instead of card-heavy
+     surfaces. Keep these values here so the visual language can be tuned
+     without editing component implementations. */
+  --radius: 0.25rem;
+  --radius-compact-sm: 2px;
+  --radius-compact-md: 3px;
+  --radius-compact-lg: 4px;
+  --density-compact: 0.92;
+  --spacing-unit: calc(0.25rem * var(--density-compact));
+  --spacing: var(--spacing-unit);
+  --control-height-sm: calc(1.75rem * var(--density-compact));
+  --control-height: calc(2rem * var(--density-compact));
+  --control-height-lg: calc(2.25rem * var(--density-compact));
+  --panel-padding: calc(1rem * var(--density-compact));
+  --motion-duration-fast: 100ms;
+  --motion-duration-standard: 160ms;
+  --default-transition-duration: var(--motion-duration-fast);
+  --shadow-none: 0 0 #0000;
+  --shadow-overlay: 0 8px 24px -16px rgb(0 0 0 / 42%);
+
+  /* Workspace 背景图片：面板半透明度与磨砂强度。仅当 <html data-workspace-bg="on">
+     时下方 .ws-surface* 规则才消费它们；未启用背景图时这些变量存在但无副作用。
+     --ws-surface-alpha 由 inline 脚本 / AppearanceProvider 覆盖为用户设置。 */
+  --ws-surface-alpha: 0.3;
+  --ws-surface-blur: 8px;
+
+  /* 消息内磨砂表面（ws-msg-*：内联代码 / 用户气泡 / 卡片 / 胶囊 / 表格 / 代码块标题栏）的
+     固定半透明度：刻意不随「面板不透明度」滑块（--ws-surface-alpha）变化，让这些消息内小面
+     在任何面板透明度下都稳定。全族统一用中性 --muted 染色（不再按角色分 card/secondary/primary），
+     配 backdrop 磨砂 + 1px 描边（见下方 ws-msg-* 各规则），在忙碌背景图上仍看得清、分得出边界。 */
+  --ws-msg-alpha: 0.5;
+}
+
+/* 选中色取主题主色。 */
+::selection {
+  background-color: var(--selection);
+}
+
+/* ===========================================================================
+   Berth 主题：单一配色，取自应用图标——米色底、陶土橙（主色）、琥珀、船身棕、波浪赭红。
+   浅色用暖米底（不用纯白，降低刺眼），深色用暖炭灰（不用近黑），正文是暖棕 / 奶白而非纯黑纯白。
+   终端、编辑器语法高亮、消息排版都从这里取色；改配色只改这一处。
+   ========================================================================= */
+:root {
+  --background: oklch(0.962 0.013 78);
+  --foreground: oklch(0.29 0.03 45);
+  --card: oklch(0.978 0.009 80);
+  --card-foreground: oklch(0.29 0.03 45);
+  --popover: oklch(0.985 0.007 80);
+  --popover-foreground: oklch(0.29 0.03 45);
+  --primary: oklch(0.6 0.145 42);
+  --primary-foreground: oklch(0.98 0.01 80);
+  --secondary: oklch(0.925 0.018 72);
+  --secondary-foreground: oklch(0.29 0.03 45);
+  --muted: oklch(0.935 0.016 74);
+  --muted-foreground: oklch(0.5 0.03 52);
+  --accent: oklch(0.91 0.024 66);
+  --accent-foreground: oklch(0.29 0.03 45);
+  --destructive: oklch(0.55 0.19 28);
+  --border: oklch(0.875 0.022 68);
+  --input: oklch(0.86 0.024 68);
+  --ring: oklch(0.66 0.12 45);
+  /* 语法高亮 / 图表：陶土、鼠尾草绿、琥珀、赭红、石板蓝。 */
+  --chart-1: oklch(0.6 0.145 42);
+  --chart-2: oklch(0.52 0.09 140);
+  --chart-3: oklch(0.6 0.13 72);
+  --chart-4: oklch(0.5 0.13 22);
+  --chart-5: oklch(0.5 0.08 235);
+  --sidebar: oklch(0.945 0.017 74);
+  --sidebar-foreground: oklch(0.29 0.03 45);
+  --sidebar-primary: oklch(0.6 0.145 42);
+  --sidebar-primary-foreground: oklch(0.98 0.01 80);
+  --sidebar-accent: oklch(0.905 0.025 66);
+  --sidebar-accent-foreground: oklch(0.29 0.03 45);
+  --sidebar-border: oklch(0.87 0.022 68);
+  --sidebar-ring: oklch(0.66 0.12 45);
+  /* 链接 / @提及 / 文件引用：比主色深一档，正文里一眼可辨。 */
+  --link: oklch(0.52 0.14 40);
+  --selection: color-mix(in oklch, var(--primary) 20%, transparent);
+}
+
+.dark {
+  --background: oklch(0.235 0.012 55);
+  --foreground: oklch(0.91 0.018 78);
+  --card: oklch(0.262 0.013 55);
+  --card-foreground: oklch(0.91 0.018 78);
+  --popover: oklch(0.285 0.014 55);
+  --popover-foreground: oklch(0.91 0.018 78);
+  --primary: oklch(0.72 0.13 48);
+  --primary-foreground: oklch(0.22 0.02 45);
+  --secondary: oklch(0.31 0.015 55);
+  --secondary-foreground: oklch(0.91 0.018 78);
+  --muted: oklch(0.3 0.014 55);
+  --muted-foreground: oklch(0.7 0.022 68);
+  --accent: oklch(0.34 0.02 52);
+  --accent-foreground: oklch(0.91 0.018 78);
+  --destructive: oklch(0.68 0.17 28);
+  --border: oklch(0.37 0.016 55);
+  --input: oklch(0.4 0.018 55);
+  --ring: oklch(0.62 0.11 48);
+  --chart-1: oklch(0.72 0.13 48);
+  --chart-2: oklch(0.74 0.09 140);
+  --chart-3: oklch(0.8 0.12 80);
+  --chart-4: oklch(0.72 0.11 22);
+  --chart-5: oklch(0.74 0.07 235);
+  --sidebar: oklch(0.215 0.011 55);
+  --sidebar-foreground: oklch(0.91 0.018 78);
+  --sidebar-primary: oklch(0.72 0.13 48);
+  --sidebar-primary-foreground: oklch(0.22 0.02 45);
+  --sidebar-accent: oklch(0.3 0.018 52);
+  --sidebar-accent-foreground: oklch(0.91 0.018 78);
+  --sidebar-border: oklch(0.33 0.015 55);
+  --sidebar-ring: oklch(0.62 0.11 48);
+  --link: oklch(0.76 0.12 52);
+}
+
+@theme inline {
+  --color-link: var(--link);
+  --font-sans: var(--font-sans);
+  --spacing: var(--spacing-unit);
+  --default-transition-duration: var(--motion-duration-fast);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: var(--radius-compact-sm);
+  --radius-md: var(--radius-compact-md);
+  --radius-lg: var(--radius-compact-lg);
+  --radius-xl: var(--radius-compact-lg);
+  --radius-2xl: var(--radius-compact-lg);
+  --radius-3xl: var(--radius-compact-lg);
+  --radius-4xl: var(--radius-compact-lg);
+}
+
+/* The utility classes are generated by Tailwind with literal shadow values,
+   so bind their visual scale back to the same tokens explicitly. Small
+   elevation is replaced by the 1px border already supplied by the base layer;
+   overlays retain only a restrained lift. */
+.shadow,
+.shadow-sm,
+.shadow-md {
+  --tw-shadow: var(--shadow-none);
+}
+
+.shadow-lg,
+.shadow-xl,
+.shadow-2xl {
+  --tw-shadow: var(--shadow-overlay);
+}
+
+.duration-75,
+.duration-100 {
+  --tw-duration: var(--motion-duration-fast);
+  transition-duration: var(--motion-duration-fast);
+}
+
+.duration-150,
+.duration-200,
+.duration-300,
+.duration-500,
+.duration-700,
+.duration-1000 {
+  --tw-duration: var(--motion-duration-standard);
+  transition-duration: var(--motion-duration-standard);
+}
+
+/* Common controls and panel surfaces consume the density tokens directly;
+   the remaining spacing utilities still derive from --spacing-unit. */
+.h-7 {
+  height: var(--control-height-sm);
+}
+
+.h-8 {
+  height: var(--control-height);
+}
+
+.h-9 {
+  height: var(--control-height-lg);
+}
+
+.p-4 {
+  padding: var(--panel-padding);
+}
+
+.px-4 {
+  padding-inline: var(--panel-padding);
+}
+
+.py-4 {
+  padding-block: var(--panel-padding);
+}
+
+.pt-4 {
+  padding-top: var(--panel-padding);
+}
+
+.pr-4 {
+  padding-right: var(--panel-padding);
+}
+
+.pb-4 {
+  padding-bottom: var(--panel-padding);
+}
+
+.pl-4 {
+  padding-left: var(--panel-padding);
+}
+
+.ps-4 {
+  padding-inline-start: var(--panel-padding);
+}
+
+.pe-4 {
+  padding-inline-end: var(--panel-padding);
+}
+
+/* The installed shadcn theme expresses the larger radius utilities as
+   `calc(var(--radius) + Npx)`. Keep those generated utilities compact too;
+   pills and circles remain explicit `rounded-full` choices. */
+.rounded-sm {
+  border-radius: var(--radius-compact-sm);
+}
+
+.rounded-md {
+  border-radius: var(--radius-compact-md);
+}
+
+.rounded-lg,
+.rounded-xl,
+.rounded-2xl,
+.rounded-3xl,
+.rounded-4xl {
+  border-radius: var(--radius-compact-lg);
+}
+
+.rounded-t-xl,
+.rounded-t-2xl,
+.rounded-t-3xl,
+.rounded-t-4xl {
+  border-top-left-radius: var(--radius-compact-lg);
+  border-top-right-radius: var(--radius-compact-lg);
+}
+
+.rounded-b-xl,
+.rounded-b-2xl,
+.rounded-b-3xl,
+.rounded-b-4xl {
+  border-bottom-left-radius: var(--radius-compact-lg);
+  border-bottom-right-radius: var(--radius-compact-lg);
+}
+
+.rounded-l-xl,
+.rounded-l-2xl,
+.rounded-l-3xl,
+.rounded-l-4xl,
+.rounded-s-xl,
+.rounded-s-2xl,
+.rounded-s-3xl,
+.rounded-s-4xl {
+  border-start-start-radius: var(--radius-compact-lg);
+  border-end-start-radius: var(--radius-compact-lg);
+}
+
+.rounded-r-xl,
+.rounded-r-2xl,
+.rounded-r-3xl,
+.rounded-r-4xl,
+.rounded-e-xl,
+.rounded-e-2xl,
+.rounded-e-3xl,
+.rounded-e-4xl {
+  border-start-end-radius: var(--radius-compact-lg);
+  border-end-end-radius: var(--radius-compact-lg);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* 各页面根节点都铺满视口、自己滚动，文档本身从不滚动。不要在 body 上挂 OverlayScrollbars：
+     它测量时反复改 <html> 属性，每次 DOM 尺寸变化都会让整页样式重算（打开文件卡顿）。 */
+  html,
+  body {
+    overscroll-behavior: none;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-background text-foreground;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ===========================================================================
+   Workspace 背景图片：半透明表面
+   workspace/layout.tsx 的结构性表面（侧栏/面板/标签条/终端/状态栏）用这几个语义
+   类替代 bg-sidebar/bg-muted/bg-background。未启用背景图时它们与原 Tailwind 工具类
+   字节等价（纯色，折叠防闪白契约不变）；仅当 inline 脚本 / Provider 给 <html> 打上
+   data-workspace-bg="on" 时才转为半透明 + 磨砂，透出背景图。
+   ========================================================================= */
+.ws-surface {
+  background-color: var(--background);
+}
+.ws-surface-muted {
+  background-color: var(--muted);
+}
+.ws-surface-sidebar {
+  background-color: var(--sidebar);
+}
+
+[data-terminal-surface="true"] .xterm {
+  width: 100%;
+  height: 100%;
+  background-color: var(--card);
+}
+
+/* xterm 6 owns scroll state through `.xterm-scrollable-element`, while the
+   legacy `.xterm-viewport` still ships with `overflow-y: scroll`. Keep both
+   xterm-owned bars invisible: TerminalView projects the buffer into the same
+   shared ScrollArea used by file surfaces, so there is one visible scrollbar. */
+[data-terminal-surface="true"] .xterm .xterm-viewport {
+  background-color: var(--card);
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+[data-terminal-surface="true"] .xterm .xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+[data-terminal-surface="true"] .xterm .xterm-scrollable-element > .scrollbar {
+  display: none !important;
+}
+
+[data-terminal-surface="true"] .xterm .composition-view {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+[data-workspace-bg="on"] .ws-surface {
+  background-color: color-mix(
+    in oklch,
+    var(--background) calc(var(--ws-surface-alpha) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--ws-surface-blur));
+  backdrop-filter: blur(var(--ws-surface-blur));
+}
+[data-workspace-bg="on"] .ws-surface-muted {
+  background-color: color-mix(
+    in oklch,
+    var(--muted) calc(var(--ws-surface-alpha) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--ws-surface-blur));
+  backdrop-filter: blur(var(--ws-surface-blur));
+}
+[data-workspace-bg="on"] .ws-surface-sidebar {
+  background-color: color-mix(
+    in oklch,
+    var(--sidebar) calc(var(--ws-surface-alpha) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--ws-surface-blur));
+  backdrop-filter: blur(var(--ws-surface-blur));
+}
+/* Card 表面（面板级，磨砂，组合式）：无 base 规则，与元素上的 bg-card 配对——关图时保留
+   bg-card 原样（含 hover:bg-* 等 layered 工具类，零回归），开图才转半透明磨砂。属 ws-surface-*
+   面板级家族，跟随「面板不透明度」滑块（--ws-surface-alpha）。消息流内的卡片改用 ws-msg-card
+   （固定 --ws-msg-alpha，不随滑块，见下）；此原语保留给面板级卡片（如 git-log 提交卡），当前
+   暂无消费者。老 WebKit 无 color-mix 时声明作废 → 回落到元素自带 bg-card（不透明），无需额外兜底。 */
+[data-workspace-bg="on"] .ws-surface-card {
+  background-color: color-mix(
+    in oklch,
+    var(--card) calc(var(--ws-surface-alpha) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--ws-surface-blur));
+  backdrop-filter: blur(var(--ws-surface-blur));
+}
+
+/* 用户消息气泡（MessageContent 上的 ws-msg-secondary，配对元素自带的
+   group-[.is-user]:bg-secondary）：开图转半透明中性染色（全族统一 --muted，不磨砂，不再 secondary
+   色）+ inset 1px ring 描边（纯色 var(--border)，替代磨砂提供分离）。以 .is-user 祖先限定——助手
+   消息（.is-assistant）本无气泡底色，须保持画布透出，不受影响。关图零回归。 */
+[data-workspace-bg="on"] .is-user .ws-msg-secondary {
+  background-color: color-mix(
+    in oklch,
+    var(--muted) calc(var(--ws-msg-alpha) * 100%),
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* 折叠态用户消息底部渐隐：遮罩内容本身而非叠加层，跟 .qa-marquee-viewport /
+   .browser-tab-label 同技术，天然适配纯色 bg-secondary 或开工作区背景图后的
+   半透明 ws-msg-secondary。不属于下面的 ws- 门控家族，始终生效。 */
+.collapsed-user-message-fade {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 2.5rem),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+}
+
+/* ===== 消息内半透明表面 ws-msg-* =====
+   会话消息内一切带底色元素读作同一种半透明中性染色（**不磨砂**，用户要真透出背景图）+ 1px
+   var(--border) 边。alpha 固定（--ws-msg-alpha=0.5），刻意不随「面板不透明度」滑块——消息不随
+   chrome 不透明度抖动，区别于面板级 ws-surface-* 家族（那族仍磨砂、跟滑块）。组合式（无 base
+   规则）：配元素自带的 bg-*（关图兜底，零回归）；老 WebKit 无 color-mix 时染色声明作废、回落
+   到元素自带 bg-*（不透明），ring 用纯色仍描边。 */
+
+/* 内容卡片（抬升的容器：委派三卡 / 后台任务卡 / 提问两卡 / 计划卡 / CodeBlock 根）。全族统一
+   染色用中性 --muted；边界由元素自带 border 提供，无需 ring。 */
+[data-workspace-bg="on"] .ws-msg-card {
+  background-color: color-mix(
+    in oklch,
+    var(--muted) calc(var(--ws-msg-alpha) * 100%),
+    transparent
+  );
+}
+
+/* 轻量胶囊（合并工具胶囊 / Agent 胶囊）：全族统一后与卡片同族——开图转半透明中性染色
+   （muted@--ws-msg-alpha，不磨砂）+ inset 1px ring（pill 无边框故用 ring）。关图零回归（无 base
+   规则，元素自带 bg-muted/60·bg-primary/10 原样）。注：开图 unlayered 背景会盖过同节点
+   hover:bg-*，与卡片一致（染色即表面）。 */
+[data-workspace-bg="on"] .ws-msg-chip {
+  background-color: color-mix(
+    in oklch,
+    var(--muted) calc(var(--ws-msg-alpha) * 100%),
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* Canvas 表面：开启背景图时强制透明，让底层背景图 + 遮罩直接透出（会话/文件
+   overlay section、侧栏会话行）。无 base 规则 —— 与元素上配对的 bg-*（bg-background
+   / bg-sidebar）组合，未启用背景图时完全等价那个纯色（零回归）。透明不依赖
+   color-mix，故无需 @supports 降级。 */
+[data-workspace-bg="on"] .ws-transparent-bg {
+  background-color: transparent;
+}
+
+/* 顶部标签条「浏览器拱门」下边框（组合式，无 base 规则，关图零回归）。整条标签条 +
+   所有 tab 开图皆透明（透出真背景图）；靠一条细下边框把标签条与下方内容分隔，唯独激活
+   tab 处开口——线绕到激活 tab 顶部走一圈（拱门轮廓），激活 tab 靠这圈描边区分而非填充色。
+   连续下边框无法在激活 tab 处「开口」（透明子元素盖不住祖先画的线），故平线逐段画在激活
+   tab 的兄弟区域（预留区/非激活 tab/按钮/拖拽填充），激活 tab 及其祖先不画。拱门轮廓（顶 +
+   两侧 + 反向圆角脚）与两端 group px-2 补缝都在下方 .browser-tab-item 区块。色 =
+   var(--ws-chrome-border)（下方定义的加强色，与状态栏/header 等所有 chrome 分隔线统一）。 */
+
+/* ===== 结构性 chrome 分隔线加强色 --ws-chrome-border =====
+   状态栏顶边 / 会话·文件 header 底边 / 移动端标题栏·aux 标签条底边 / 标签条平线 + 激活 tab 拱门——
+   这些持久的 chrome 细分隔线原本用主题 --border（浅色主题=0.922 灰，在浅色磨砂面上几乎看不见；深色
+   主题=白/10%）。开启背景图后（默认遮罩 0.82 把画面veil向 --background），它们常被冲淡看不清（用户
+   反馈「边框很多时候不清楚」）。这里给它们一个 foreground 染色的加强 hairline：浅色主题转深、深色主题
+   转浅，自动在两侧都有对比；alpha 低只描出一条清晰细线。仅 bg-on 生效，关图零回归。单一变量=一处调深浅。 */
+[data-workspace-bg="on"] {
+  --ws-chrome-border: color-mix(in oklch, var(--foreground) 13%, transparent);
+}
+/* 老引擎无 color-mix 时回落到主题 --border（仍随主题，至少不崩）。 */
+@supports not (background: color-mix(in oklch, white, transparent)) {
+  [data-workspace-bg="on"] {
+    --ws-chrome-border: var(--border);
+  }
+}
+/* 组合式 utility（无 base 规则）：挂在已带 border-* / border-border* 的 chrome 元素上，开图时用加强色
+   覆盖其 border-color。unlayered 压过 Tailwind 的 layered border-border（与 specificity 无关）。关图无此
+   规则 → 元素保留自带 border 颜色，零回归。这些分隔线无 hover 变色，故 unlayered 覆盖不会误盖交互态。 */
+[data-workspace-bg="on"] .ws-chrome-border {
+  border-color: var(--ws-chrome-border);
+}
+
+/* 平线：挂到激活 tab 的兄弟/非祖先区域，逐段 border-bottom 连成一条线（各兄弟 h-full，
+   底都落在 strip 底 y=40）。激活 tab 不挂 → 留缺口给拱门。色随 --ws-chrome-border（同上加强色，
+   与状态栏/header 分隔线统一）。 */
+[data-workspace-bg="on"] .ws-strip-line {
+  border-bottom: 1px solid var(--ws-chrome-border);
+}
+
+/* 旧 WebKitGTK 无 color-mix 时降级为不透明（背景图仅在透明内容区透出，不崩）。 */
+@supports not (background: color-mix(in oklch, white, transparent)) {
+  /* 老引擎关掉面板 chrome 的背景模糊（背景色 color-mix 已作废回落到不透明 bg-*）。消息内表面
+     现已不磨砂（只半透明染色 + 纯色 var(--border) 描边），无 backdrop-filter 可关，故不在此列。 */
+  [data-workspace-bg="on"] .ws-surface,
+  [data-workspace-bg="on"] .ws-surface-muted,
+  [data-workspace-bg="on"] .ws-surface-sidebar,
+  [data-workspace-bg="on"] .ws-surface-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* 标签条拱门/平线（ws-strip-line、.browser-tab-item 的拱门 ::after / 首末 tab 补缝
+     ::after / seat 描边）只画纯色 var(--border) 边框——无 color-mix、无 backdrop-filter，
+     故不进本 @supports，老引擎照常渲染。 */
+}
+
+/* Native fallback for containers that cannot use OverlayScrollbars (e.g. virtua) */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Ensure native scrollbars inside OverlayScrollbars viewports are 100% suppressed across WebKitGTK/WebKit */
+.os-viewport,
+[data-overlayscrollbars-viewport] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.os-viewport::-webkit-scrollbar,
+[data-overlayscrollbars-viewport]::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+
+/* OverlayScrollbars custom theme — 6px track, grows to 8px on hover.
+   Use compound selector to beat the base `.os-scrollbar` defaults
+   (--os-size:0, --os-handle-bg:none) regardless of CSS load order. */
+.os-scrollbar.os-theme-berth {
+  --os-size: 6px;
+  --os-handle-bg: var(--border);
+  --os-handle-bg-hover: var(--muted-foreground);
+  --os-handle-bg-active: var(--muted-foreground);
+  --os-handle-border-radius: 999px;
+  --os-handle-perpendicular-size: 100%;
+  --os-handle-perpendicular-size-hover: 100%;
+  --os-handle-perpendicular-size-active: 100%;
+  z-index: 40;
+}
+
+.os-scrollbar.os-theme-berth:hover {
+  --os-size: 8px;
+}
+
+/* Streamdown code blocks: dark mode via shiki dual-theme CSS variables（底色见 .md-prose） */
+.dark [data-streamdown="code-block-body"] {
+  color: var(--shiki-dark, var(--sdm-fg, inherit)) !important;
+}
+
+.dark [data-streamdown="code-block-body"] code > span > span {
+  color: var(--shiki-dark, var(--sdm-c, inherit)) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-streamdown="code-block-body"] {
+    color: var(--shiki-dark, var(--sdm-fg, inherit)) !important;
+  }
+
+  :root:not(.light) [data-streamdown="code-block-body"] code > span > span {
+    color: var(--shiki-dark, var(--sdm-c, inherit)) !important;
+  }
+}
+
+/* Streamdown table overrides */
+[data-streamdown="table-wrapper"] {
+  position: relative;
+}
+
+/* 代码块只留复制：Streamdown 的 controls.code 同时管复制和下载。 */
+[data-streamdown="code-block-download-button"] {
+  display: none;
+}
+
+/* Streamdown code line number width by total line digits */
+[data-streamdown="code-block-body"] code {
+  --sd-line-number-width: 1ch;
+}
+
+[data-streamdown="code-block-body"] code:has(> span:nth-child(n + 10)) {
+  --sd-line-number-width: 2ch;
+}
+
+[data-streamdown="code-block-body"] code:has(> span:nth-child(n + 100)) {
+  --sd-line-number-width: 3ch;
+}
+
+[data-streamdown="code-block-body"] code:has(> span:nth-child(n + 1000)) {
+  --sd-line-number-width: 4ch;
+}
+
+[data-streamdown="code-block-body"] code:has(> span:nth-child(n + 10000)) {
+  --sd-line-number-width: 5ch;
+}
+
+[data-streamdown="code-block-body"] code:has(> span:nth-child(n + 100000)) {
+  --sd-line-number-width: 6ch;
+}
+
+[data-streamdown="code-block-body"] code > span::before {
+  width: var(--sd-line-number-width) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Streamdown mermaid: keep diagrams crisp when zoomed.
+   The pan/zoom container applies `transform: scale()` together with an inline
+   `will-change: transform`. That pins it to a composited layer rasterized once
+   at 1x, and the GPU then upscales that bitmap on zoom — in WKWebView (Tauri)
+   this blurs the whole SVG (shapes + labels), worst at max zoom. Dropping
+   will-change lets the browser repaint the SVG vectors at the actual zoom level.
+   The component's inline style is not !important, so this rule wins the cascade.
+   Covers both the inline and fullscreen views (both render the same container). */
+[data-streamdown="mermaid"] [role="application"] {
+  will-change: auto !important;
+}
+
+/* Tool collapsible: fade-in on expand (height must change instantly for virtualizer) */
+.tool-collapsible-content[data-state="open"] > * {
+  animation: tool-content-fade 150ms ease-out;
+}
+
+@keyframes tool-content-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Welcome-page quick actions: single-row seamless marquee. The motion is driven
+   by a JS requestAnimationFrame loop (see quick-actions.tsx) that sets the track
+   transform every frame — NOT a CSS animation. A CSS transform animation gets
+   composited, and on hover-pause WebKit reverts to the (slightly-behind)
+   main-thread clock, snapping the row backwards; setting the transform
+   explicitly each frame means pausing just stops updating, so it freezes in
+   place. CSS here only does the visuals + the reduced-motion fallback. */
+
+/* Both-edge fade so bars scroll in/out softly instead of clipping at a hard
+   border. Background-agnostic (masks the content itself, not an overlay). */
+.qa-marquee-viewport {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent
+  );
+}
+
+/* Reduced motion: the rAF loop bails, so drop the transform and turn the
+   viewport into a normal horizontal scroller with the duplicate copy hidden. */
+@media (prefers-reduced-motion: reduce) {
+  .qa-marquee-viewport {
+    overflow-x: auto;
+  }
+  .qa-marquee-track > [data-qa-clone] {
+    display: none;
+  }
+}
+
+/* Workspace panel show/hide slide. The headless SplitView writes one local
+   grid template; this transition is enabled only for explicit sidebar/aux
+   toggles and never for divider preview frames. */
+.panel-slide-animating {
+  transition:
+    grid-template-columns 240ms ease-out,
+    grid-template-rows 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-slide-animating {
+    transition: none;
+  }
+}
+
+.select-none {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* CodeMirror fills the reading surface; scrolling stays inside its scroller. */
+.cm-editor {
+  min-height: 0;
+  height: 100%;
+}
+
+.cm-editor .cm-dirty-line {
+  border-left: 2px solid transparent;
+}
+
+.cm-editor .cm-dirty-line-added {
+  border-left-color: #2ea043;
+  background-color: rgb(46 160 67 / 8%);
+}
+
+.cm-editor .cm-dirty-line-modified {
+  border-left-color: #1f6feb;
+  background-color: rgb(31 111 235 / 7%);
+}
+
+.cm-editor .cm-dirty-line-deleted {
+  border-left-color: #cf222e;
+  background-color: rgb(207 34 46 / 7%);
+}
+
+.dark .cm-editor .cm-dirty-line-added {
+  border-left-color: #3fb950;
+}
+
+.dark .cm-editor .cm-dirty-line-modified {
+  border-left-color: #388bfd;
+}
+
+.dark .cm-editor .cm-dirty-line-deleted {
+  border-left-color: #f85149;
+}
+
+/* Browser-style tab separators (embedded desktop title-bar tab strips).
+   Each tab draws a hairline on its LEFT edge; the line is suppressed for the
+   first tab and around any active / hovered tab (Chrome behavior) using only
+   adjacent-sibling selectors — no :has(), so it is robust across webviews.
+   Tone: `--border` off-image; boosted to `--ws-chrome-border` under a workspace
+   background so it matches the tab arch / strip-line border (rule below). */
+.browser-tab-item {
+  position: relative;
+}
+.browser-tab-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  /* The item stretches from below the group's `pt-1.5` gap to the strip bottom,
+     so its geometric center sits 3px below the h-10 strip's midline. Nudge the
+     hairline up 3px so it centers on the strip midline — matching the tab
+     content (dot/title/close), which is raised by the inner row's `pb-1.5`. */
+  top: calc(50% - 3px);
+  height: 1rem;
+  width: 1px;
+  transform: translateY(-50%);
+  background: var(--border);
+  opacity: 1;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.browser-tab-item:first-child::before,
+.browser-tab-item[data-active="true"]::before,
+.browser-tab-item:hover::before,
+.browser-tab-item[data-active="true"] + .browser-tab-item::before,
+.browser-tab-item:hover + .browser-tab-item::before {
+  opacity: 0;
+}
+
+/* Trailing separator between the last tab and the new-conversation button (the
+   conversation strip only — see tab-bar.tsx `tab-strip-tail`). Inter-tab
+   separators sit on each tab's LEFT edge, so the last tab's RIGHT edge, where
+   the flush-pinned button wrapper begins, has none. Same hairline geometry as
+   `.browser-tab-item::before` (the wrapper shares the tabs' flex box, so the
+   `calc(50% - 3px)` nudge centers it on the strip midline identically) and the
+   same tone (`--border` off-image, `--ws-chrome-border` on — see below), so it
+   reads as just another inter-tab separator. Suppressed when the last tab is
+   active or hovered, mirroring how a tab drops the separators flanking the
+   active/hovered tab. */
+.tab-strip-tail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: calc(50% - 3px);
+  height: 1rem;
+  width: 1px;
+  transform: translateY(-50%);
+  background: var(--border);
+  opacity: 1;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.browser-tab-item[data-active="true"] + .tab-strip-tail::before,
+.browser-tab-item:hover + .tab-strip-tail::before {
+  opacity: 0;
+}
+
+/* Under a workspace background image, lift the inter-tab separators (and the
+   trailing new-conversation divider) to the boosted `--ws-chrome-border` so they
+   match the tab's own arch / strip-line border color instead of the faint
+   theme `--border`, which washes out on the frosted strip. Off-image they stay
+   `--border` (above). Covers both the conversation and file tab strips. */
+[data-workspace-bg="on"] .browser-tab-item::before,
+[data-workspace-bg="on"] .tab-strip-tail::before {
+  background: var(--ws-chrome-border);
+}
+
+/* Embedded tab label — no ellipsis: fade the right edge so an overflowing title
+   dissolves instead of hard-cutting with "…". Pairs with `overflow-hidden
+   whitespace-nowrap` on the label (replaces `truncate`).
+   OVERFLOW-ONLY fade: the label reserves a right padding equal to the fade width,
+   and the gradient fades exactly that padding. A title that fits ends inside the
+   solid zone, so the fade falls over empty padding and eats nothing; only a title
+   long enough to spill into the padding actually fades. This is what lets a short /
+   only tab ("新建会话") show its full title instead of losing its tail to the fade.
+   One fade width suffices because the close button no longer hides under the label —
+   its footprint is reserved as content padding (below), so it never covers text. */
+.browser-tab-label {
+  padding-right: 0.75rem;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 0.75rem),
+    transparent
+  );
+  mask-image: linear-gradient(to right, #000 calc(100% - 0.75rem), transparent);
+}
+
+/* Non-active tab on hover: its close button fades in (an absolute `right-2` / `w-4`
+   overlay) over the label's right ~1rem. The narrow overflow-only fade above only
+   softens 0.75rem, so on hover widen the fade to dissolve the title before the
+   button's left edge — transparent by `100% - 1rem` (with the default `px-2` right,
+   the label-box right edge sits at the button's right edge, and the 1rem-wide button
+   covers the last 1rem of the label box). So an OVERFLOWING title dissolves into the
+   button instead of colliding with it. Active tabs are excluded: they reserve the
+   button's footprint as padding (below), so their label already ends left of it. */
+.browser-tab-item:not([data-active="true"])
+  .browser-tab-content:hover
+  .browser-tab-label {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 1.75rem),
+    transparent calc(100% - 1rem)
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 1.75rem),
+    transparent calc(100% - 1rem)
+  );
+}
+
+/* The active tab's close button is always visible (an absolute `right-2` / `w-4`
+   overlay). Reserve its footprint (0.5rem offset + 1rem width = 1.5rem) as the
+   content's right padding, overriding the default `px-2` right, so the title ends
+   left of the button (its tail fades under the reserved zone) instead of sitting
+   under it. Tabs are fixed-width (`grow-0 basis-48`); this padding just carves out
+   the button's column. Non-active tabs don't reserve it: their button only appears
+   on hover, where the label widens its fade to clear the button (above); idle
+   titles keep the full width and tabs never reflow-widen on hover. General (not
+   workspace-bg gated). */
+.browser-tab-item[data-active="true"]:not([data-agent-tab="true"])
+  .browser-tab-content {
+  padding-right: 1.5rem;
+}
+
+/* Non-active embedded tab hover: an inset rounded tint with a larger bottom inset,
+   so the hovered label reads as vertically centered inside the highlight (the tab
+   and its text never move — only the hover fill insets, mirroring the content's
+   `pb-1.5`-raised baseline). Replaces a full-bleed `hover:bg-*`. The content div
+   carries `isolate`, so this `z-index:-1` fill paints behind the label/icon but in
+   front of the tab's own (transparent) surface — no per-child re-stacking, robust
+   across webviews. Off (no bg image) it's the same tint over the muted strip. */
+.browser-tab-hover::before {
+  content: "";
+  position: absolute;
+  inset: 2px 2px 8px 2px;
+  z-index: -1;
+  border-radius: 0.5rem;
+  background-color: color-mix(in oklab, var(--background) 60%, transparent);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-tab-hover::before {
+    transition: none;
+  }
+}
+.browser-tab-hover:hover::before {
+  opacity: 1;
+}
+
+/* Tab bottom "seat": the two bottom corners flare outward with a concave
+   (reverse) curve — the browser-tab look — so a tab blends down into the strip /
+   detail header. A dedicated span hosts these because the tab's own surface is
+   `overflow-hidden` (it would clip the outboard flares) and its ::before is
+   already the separator hairline. It is rendered for every embedded tab but
+   stays invisible (opacity 0) until the tab is ACTIVE. Only the active tab's
+   solid `var(--background)` body reaches the strip bottom, so its feet flare from
+   real corners and read cleanly. A hovered non-active tab instead shows a
+   floating inset pill (`browser-tab-hover`, inset 2/2/8/2) that stops 8px short
+   of the bottom; revealing the feet under it left two concave nubs disconnected
+   from the pill at the bottom corners, so hover no longer reveals the seat. The
+   radial-gradient mask carves the concave quarter (no color seam). Since the item
+   has no horizontal padding, the seat spans the surface flush (`left/right: 0`)
+   and each flare reaches 0.5rem outward; that fits exactly within the group's
+   `px-2` padding, so `overflow-hidden` never clips the first/last tab's flare.
+   The active tab is elevated (`z-10` on the item), so a hovered neighbour's flare
+   can never paint over the active tab's corner. */
+.browser-tab-seat {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0.5rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-tab-seat {
+    transition: none;
+  }
+}
+.browser-tab-item[data-active="true"] .browser-tab-seat {
+  opacity: 1;
+}
+.browser-tab-seat::before,
+.browser-tab-seat::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 0.5rem;
+  width: 0.5rem;
+  background-color: var(--background);
+}
+.browser-tab-seat::before {
+  left: -0.5rem;
+  -webkit-mask-image: radial-gradient(
+    circle at top left,
+    transparent 7px,
+    #000 8px
+  );
+  mask-image: radial-gradient(circle at top left, transparent 7px, #000 8px);
+}
+.browser-tab-seat::after {
+  right: -0.5rem;
+  -webkit-mask-image: radial-gradient(
+    circle at top right,
+    transparent 7px,
+    #000 8px
+  );
+  mask-image: radial-gradient(circle at top right, transparent 7px, #000 8px);
+}
+/* Workspace 背景图开启：所有 tab 全透明，seat 反向圆角默认不显示（否则透明 tab 会挂
+   var(--background) 白色小圆角）。非激活 tab 的 seat 已不随 hover 显示（见上「仅激活」），
+   激活 tab 的脚在下方用真实 border 重画。 */
+[data-workspace-bg="on"] .browser-tab-seat::before,
+[data-workspace-bg="on"] .browser-tab-seat::after {
+  background-color: transparent;
+}
+/* 激活 tab 的两个反向圆角脚（bg-on）：用**真实 border + border-radius** 画 1px 凹弧描边，
+   取代旧的 radial-gradient 环带 mask——环带核仅 0.5px + 两侧抗锯齿，实机易出毛边/线头
+   （用户反馈「底部两角有线跑出来、过渡不自然」）。seat ::before/::after 本就是 gutter 里
+   0.5rem 见方的盒(left/right:-0.5rem, y32→40, box-sizing:border-box)，把**对角圆角 + 相邻
+   两条边框**做成一段干净四分之一凹弧：左脚=右下角圆角+下/右边框，右脚=左下角圆角+下/左边框。
+   弧顶(tab 边 y32)竖直切线接拱门 ::after 侧边、弧底(gutter 外沿 y40)水平切线接 ws-strip-line
+   平线，两端相切→过渡自然。清掉 mask 与填充色，只留描边，色 var(--ws-chrome-border) 与拱门同深。 */
+[data-workspace-bg="on"]
+  .browser-tab-item[data-active="true"]
+  .browser-tab-seat::before,
+[data-workspace-bg="on"]
+  .browser-tab-item[data-active="true"]
+  .browser-tab-seat::after {
+  background-color: transparent;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item[data-active="true"]
+  .browser-tab-seat::before {
+  border-bottom: 1px solid var(--ws-chrome-border);
+  border-right: 1px solid var(--ws-chrome-border);
+  border-bottom-right-radius: 0.5rem;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item[data-active="true"]
+  .browser-tab-seat::after {
+  border-bottom: 1px solid var(--ws-chrome-border);
+  border-left: 1px solid var(--ws-chrome-border);
+  border-bottom-left-radius: 0.5rem;
+}
+
+/* 激活 tab 拱门「顶 + 两侧」描边：画在 .browser-tab-item 的 ::after（Reorder.Item 未
+   overflow-hidden，脚可外飘）。top:0 = group pt-1.5 下沿(y6)，bottom:0.5rem → 竖边止于
+   y32，正好接上 seat 的反向圆角脚(y32→40)；竖边不再越过脚部下探到 y40，消除脚部两侧的
+   「垂直角边框」毛刺。rounded-t 出拱顶。仅 bg-on + 激活生效，关图无 ::after（零回归）。
+   ★left/right:-1px（而非 0）：竖边描边画在盒内沿，若贴 tab 边(left:0)则落在 x∈[0,1]（tab
+   内侧），而 seat 脚的竖直切线描边在 tab 外沿 x∈[-1,0]（脚 ::before/::after 往 gutter 外
+   飘 0.5rem，border 画在其内沿）——两者差 1px 形成 y32 处「水平错位」，正是用户反馈激活 tab
+   底部两角弧度「断断续续」的成因。把两侧各外移 1px → 竖边与脚竖直切线共线(x∈[-1,0] /
+   [w,w+1])，拱门侧边与反向弧脚无缝相接。取代旧的 .ws-tab-arch（整高边框底部越界成毛刺）。 */
+[data-workspace-bg="on"] .browser-tab-item[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -1px;
+  right: -1px;
+  bottom: 0.5rem;
+  border-top: 1px solid var(--ws-chrome-border);
+  border-left: 1px solid var(--ws-chrome-border);
+  border-right: 1px solid var(--ws-chrome-border);
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  pointer-events: none;
+}
+
+/* 标签条左右两端的补缝：group 的 px-2 在首/末 tab 外各留 0.5rem 无线缝（首 tab 非激活时
+   左端断层、末 tab 与新建按钮间右端空隙）。补缝不能画在 group 上（连续线会盖到激活 tab
+   下方），且必须跟随边缘 tab 的激活态——激活的首/末 tab 该处是拱门脚（反向圆角描边）而非
+   平线，此处绝不能有平线。故补缝画在「非激活」首/末 tab 自己的 ::after 上（激活 tab 的
+   ::after 已改画拱门轮廓，且 :not([data-active]) 排除它）：往 tab 外侧的 px-2 gutter 伸出
+   0.5rem 平线，接上两侧 reserve / 尾部按钮 wrapper 的 ws-strip-line。gutter 落在 group 的
+   padding box 内，overflow-hidden 不裁（同 seat 脚）。宽度 = px-2 = 0.5rem（改 group 内边距
+   需同步）。仅 bg-on 生效，关图无补缝（零回归）。 */
+[data-workspace-bg="on"]
+  .browser-tab-item:first-child:not([data-active="true"])::after,
+[data-workspace-bg="on"]
+  .browser-tab-item:last-child:not([data-active="true"])::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 1px;
+  width: 0.5rem;
+  background-color: var(--ws-chrome-border);
+  pointer-events: none;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item:first-child:not([data-active="true"])::after {
+  left: -0.5rem;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item:last-child:not([data-active="true"])::after {
+  right: -0.5rem;
+}
+
+/* 激活 tab 两侧邻居的基线内缩：激活 tab 的反向圆角脚（透明）往外 flare 0.5rem，盖在紧邻
+   tab 上；紧邻 tab 的 ws-strip-line 是**全宽** border-bottom，其被脚罩住的那 0.5rem 会在脚
+   下透出成一小段横线（脚弧只在外端 y40 触到基线，内侧一路悬空）——即用户反馈「激活 tab 角边
+   还有横线穿出来」。修法：把紧邻 tab 的基线撤掉 border-bottom、改画一条**朝激活 tab 一侧内缩
+   0.5rem** 的 ::after 平线，起点正落在脚弧触地处 → 基线与脚弧无缝相接、脚下不再有横线。
+   `data-adjacent-active`（before/after）由标签条按 activeIndex 现算并挂到 .browser-tab-item
+   上（前一个=before，后一个=after），避免上一个兄弟无法用 CSS 选中的问题，且不依赖 :has()。
+   紧邻 tab 必为非激活（有 ws-strip-line + 空闲 ::after），仅 bg-on 生效，关图零回归。 */
+[data-workspace-bg="on"]
+  .browser-tab-item[data-adjacent-active]
+  .ws-strip-line {
+  /* border-bottom-WIDTH:0（而非仅 color:transparent）：内缩基线走 ::after(bottom:0)，其
+     containing block 是本元素 padding box。若保留 1px 透明边框，padding box 比 border box
+     矮 1px → ::after 落在 border box 底沿上方 1px，与其它 tab 的 border-bottom（落在 border
+     box 底沿）差 1px，即用户反馈「紧邻激活的 tab 下边框对不齐」。撤掉边框宽度 → padding box
+     与 border box 同底，::after bottom:0 正落 border box 底沿，与普通 tab 基线共线。 */
+  border-bottom-width: 0;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item[data-adjacent-active]
+  .ws-strip-line::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 1px;
+  background-color: var(--ws-chrome-border);
+  pointer-events: none;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item[data-adjacent-active="after"]
+  .ws-strip-line::after {
+  left: 0.5rem;
+  right: 0;
+}
+[data-workspace-bg="on"]
+  .browser-tab-item[data-adjacent-active="before"]
+  .ws-strip-line::after {
+  left: 0;
+  right: 0.5rem;
+}
+/* 同款内缩，但用于末尾「新建会话」按钮 wrapper（它紧邻激活的末尾 tab 时挂 data-adjacent-active
+   ="after"）。激活 tab 的右反向圆角脚往外 flare 0.5rem 盖在这个 wrapper 上，而 wrapper 的
+   ws-strip-line 是全宽 border-bottom，会在脚下透出一小段横线（用户反馈「激活末尾 tab 右下角
+   下边框突出来」）。上面的规则只处理 tab 邻居——那里 ws-strip-line 是 .browser-tab-item 的
+   后代；这个尾部 wrapper 不是 tab，且 ws-strip-line 与 data-adjacent-active 同挂在它自己身上，
+   故用独立选择器。撤掉全宽 border-bottom、改画一条朝激活 tab 一侧内缩 0.5rem 的 ::after 平线
+   （起点正落在脚弧触地处）→ 脚下不再有横线。wrapper 的 position:relative 由组件提供。仅 bg-on
+   生效，关图零回归。 */
+[data-workspace-bg="on"] .ws-strip-line[data-adjacent-active="after"] {
+  border-bottom-width: 0;
+}
+[data-workspace-bg="on"] .ws-strip-line[data-adjacent-active="after"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0;
+  height: 1px;
+  background-color: var(--ws-chrome-border);
+  pointer-events: none;
+}
+
+/* ===========================================================================
+   Tab 拖拽全局性能与交互隔离
+   拖拽 Tab 时隔离重型工作区面板（CodeMirror / xterm / 渲染器），禁止选区干扰，
+   避免多分栏或高频移动时触发重型子组件的回流与事件开销。
+   ========================================================================= */
+html[data-berth-tab-dragging="true"],
+html[data-berth-tab-dragging="true"] * {
+  user-select: none !important;
+}
+
+/* An iframe (HTML preview) swallows pointer events, freezing the drag ghost
+   and drop-target hit-test while the pointer is over it. */
+html[data-berth-tab-dragging="true"] iframe {
+  pointer-events: none !important;
+}
+
+[data-workspace-drop-feedback] {
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+[data-workspace-tab-drop-target] {
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+/* ===== Markdown 排版 =====
+   文件编辑器的 live preview（@atomic-editor/editor）与消息渲染（Streamdown，挂 `.md-prose`：会话、群组、
+   任务 prd、工具说明）共用下面一套变量，两边视觉一致；消息字号跟随容器，不放大到文档尺寸。 */
+:root {
+  --md-leading: 1.7;
+  --md-code-bg: rgb(135 131 120 / 0.15);
+  --md-radius: 6px;
+  --md-accent-soft: color-mix(in oklch, var(--primary) 15%, transparent);
+}
+
+/* Markdown Live Preview：包样式的主题变量映射到应用 token，排版取 Notion 式字号、860px 正文栏。 */
+.atomic-cm-editor {
+  --atomic-editor-font: var(--font-sans);
+  --atomic-editor-font-mono: var(--font-mono, ui-monospace, monospace);
+  --atomic-editor-measure: 860px;
+  --atomic-editor-body-size: 1.15em;
+  --atomic-editor-body-leading: var(--md-leading);
+  --atomic-editor-fg: var(--foreground);
+  --atomic-editor-fg-muted: var(--muted-foreground);
+  --atomic-editor-fg-faint: color-mix(
+    in oklch,
+    var(--muted-foreground) 60%,
+    transparent
+  );
+  --atomic-editor-border: var(--border);
+  --atomic-editor-accent: var(--primary);
+  --atomic-editor-accent-bright: var(--primary);
+  --atomic-editor-accent-soft: var(--md-accent-soft);
+  --atomic-editor-link: var(--foreground);
+  --atomic-editor-link-hover: var(--primary);
+  --atomic-editor-code-bg: var(--md-code-bg);
+  --atomic-editor-code-rail: var(--border);
+  --atomic-editor-bg-surface: var(--muted);
+  --atomic-editor-bg-panel: var(--popover);
+  --atomic-editor-radius: var(--md-radius);
+  --atomic-editor-selection-bg: var(--selection);
+}
+/* 点文字就打开（markdown-live-preview.ts 的 clickToOpen）：不要尾部图标；可打开的文字显示手形 */
+.cm-editor.atomic-cm-editor .cm-atomic-link::after,
+.cm-editor.atomic-cm-editor .cm-atomic-link-icon {
+  display: none;
+}
+.cm-editor.atomic-cm-editor .cm-berth-open,
+.cm-editor.atomic-cm-editor .cm-atomic-link-wrap:not(.active) {
+  cursor: pointer;
+}
+.cm-editor.atomic-cm-editor .cm-content {
+  padding: 1.5rem 2rem 4rem;
+  /* 宽表格 / 长代码行不撑宽整篇（窄屏要左右滑才读得全）；宽块自己横向滚动 */
+  min-width: 0;
+}
+/* 手机：阅读列更宽 */
+@media (max-width: 767px) {
+  .cm-editor.atomic-cm-editor .cm-content {
+    padding-inline: 1rem;
+  }
+}
+.cm-editor.atomic-cm-editor .cm-activeLine {
+  background-color: transparent;
+}
+/* 消息渲染（Streamdown）：与 live preview 同一排版。unlayered 规则压过 Streamdown 自带的 layered 工具类。 */
+.md-prose {
+  line-height: var(--md-leading);
+  overflow-wrap: anywhere;
+}
+.md-prose > :first-child {
+  margin-top: 0;
+}
+.md-prose > :last-child {
+  margin-bottom: 0;
+}
+.md-prose :is(p, ul, ol, blockquote) {
+  margin-block: 0.5em;
+}
+.md-prose :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md-prose h1 {
+  font-size: 1.5em;
+}
+.md-prose h2 {
+  font-size: 1.3em;
+}
+.md-prose h3 {
+  font-size: 1.15em;
+}
+.md-prose :is(h4, h5, h6) {
+  font-size: 1em;
+}
+.md-prose h6 {
+  color: var(--muted-foreground);
+}
+.md-prose ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.md-prose ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.md-prose li {
+  margin-block: 0.15em;
+}
+.md-prose li > :is(p, ul, ol) {
+  margin-block: 0.15em;
+}
+.md-prose li::marker {
+  color: var(--muted-foreground);
+}
+.md-prose blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid var(--md-accent-soft);
+  color: var(--muted-foreground);
+}
+.md-prose hr {
+  margin-block: 1em;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.md-prose [data-streamdown="inline-code"] {
+  padding: 0.08em 0.35em;
+  border-radius: 0.35rem;
+  background: var(--md-code-bg);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.88em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* 围栏代码块：与 live preview 同底色 + 左侧细轨；shiki 只管字色。 */
+.md-prose [data-streamdown="code-block"] {
+  margin-block: 0.5em;
+  border: 0;
+  border-radius: var(--md-radius);
+  background: var(--md-code-bg);
+  box-shadow: inset 2px 0 0 var(--border);
+}
+.md-prose [data-streamdown="code-block-header"] {
+  padding: 0.35rem 0.75rem;
+  background: transparent;
+}
+.md-prose [data-streamdown="code-block-body"] {
+  background-color: transparent !important;
+  font-size: 0.92em;
+}
+.md-prose [data-streamdown="table-wrapper"] {
+  margin-block: 0.5em;
+}
+.md-prose table {
+  width: max-content;
+  min-width: 100%;
+  border: 0;
+  border-collapse: collapse;
+}
+.md-prose :is(thead, tbody, tr) {
+  border: 0;
+  background: transparent;
+}
+.md-prose :is(th, td) {
+  padding: 0.35em 0.6em;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md-prose th {
+  background: var(--md-code-bg);
+  font-weight: 600;
+}
+
+/* live preview 里渲染后的公式 / mermaid 图（markdown-embeds.ts） */
+.cm-md-embed-math-block,
+.cm-md-embed-mermaid {
+  padding: 0.5em 0;
+  overflow-x: auto;
+  cursor: text;
+}
+.cm-md-embed-mermaid {
+  text-align: center;
+}
+.cm-md-embed-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.cm-md-embed-error {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+  color: var(--destructive);
+  white-space: pre-wrap;
+}
+/* 标题字号对齐 Notion（库默认 1.35 / 1.2em 层级感太弱） */
+.cm-editor.atomic-cm-editor .cm-line.cm-atomic-h1 {
+  font-size: 1.875em;
+  font-weight: 600;
+}
+.cm-editor.atomic-cm-editor .cm-line.cm-atomic-h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+}
+.cm-editor.atomic-cm-editor .cm-line.cm-atomic-h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+}
+/* 表格单元格行内代码（patches/@atomic-editor__editor 补丁）：光标进入时露出反引号 */
+.cm-atomic-table-cell-source .cm-atomic-code-wrap.active > .cm-atomic-mark {
+  display: inline;
+}
+/* 跨单元格拖选交给 CM 选整表（同一补丁）：拖动中禁原生选区，选中后整表高亮 */
+.cm-atomic-table-dragging * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cm-atomic-table-selected th,
+.cm-atomic-table-selected td {
+  background: var(--selection);
+}
+
+/* 项目首页的港湾（components/workspace/project-home/harbor.tsx）与知识星图（knowledge/components/knowledge-orbit.tsx）。 */
+/* 都挂在 HTML 层上只动 transform / opacity，交给合成器；SVG 内部的动画在 WebKitGTK 上每帧重画 */
+.berth-harbor-bob,
+.berth-harbor-sway {
+  /* 原点 = logo 船底中央 */
+  transform-origin: 50% 82%;
+  will-change: transform;
+  animation: berth-harbor-bob 3.2s ease-in-out infinite;
+}
+.berth-harbor-sway {
+  animation: berth-harbor-sway 6s ease-in-out infinite;
+}
+/* 平移一个浪周期（200px）后无缝回到起点 */
+.berth-harbor-wave {
+  will-change: transform;
+  animation: berth-harbor-flow 9s linear infinite;
+}
+.berth-harbor-wave-slow {
+  will-change: transform;
+  animation: berth-harbor-flow 15s linear infinite;
+}
+.berth-harbor-pulse {
+  animation: berth-harbor-pulse 1.6s ease-in-out infinite;
+}
+/* 选中笔记：两条反向的小轨道；所在的圈缓慢转动。转动的元素外面套一层不动的定位层：同一元素既 translate 又跑 transform 动画，WebKitGTK 合成层会画偏 */
+.berth-orbit-spin {
+  will-change: transform;
+  animation: berth-orbit-spin 3.2s linear infinite;
+}
+.berth-orbit-spin-slow {
+  will-change: transform;
+  animation: berth-orbit-spin 5.4s linear infinite reverse;
+}
+.berth-orbit-ring {
+  will-change: transform;
+  animation: berth-orbit-spin 90s linear infinite;
+}
+/* 一次性的画线（path 设了 pathLength=1），播一遍不循环 */
+.berth-orbit-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: berth-orbit-draw 0.6s ease-out forwards;
+}
+@keyframes berth-harbor-bob {
+  0%,
+  100% {
+    transform: rotate(-1.2deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(1.2deg);
+  }
+}
+@keyframes berth-harbor-sway {
+  0%,
+  100% {
+    transform: rotate(-0.5deg);
+  }
+  50% {
+    transform: rotate(0.5deg);
+  }
+}
+@keyframes berth-harbor-flow {
+  to {
+    transform: translateX(-200px);
+  }
+}
+@keyframes berth-harbor-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes berth-orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes berth-orbit-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .berth-harbor-bob,
+  .berth-harbor-sway,
+  .berth-harbor-wave,
+  .berth-harbor-wave-slow,
+  .berth-harbor-pulse,
+  .berth-orbit-spin,
+  .berth-orbit-spin-slow,
+  .berth-orbit-ring {
+    animation: none;
+  }
+  .berth-orbit-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

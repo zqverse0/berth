@@ -1,0 +1,177 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "agy",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Antigravity CLI",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": "Google Antigravity CLI (agy) — an autonomous coding agent TUI, plus its native user configuration.",
+      "icon": "agy"
+    },
+    "agent": {
+      "projectType": "antigravity",
+      "sessions": "session-spec",
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-search-0",
+            "skills-search-1"
+          ],
+          "store": "skills-store"
+        }
+      },
+      "usage": {
+        "label": "Account usage",
+        "path": "${home}/.cache/berth/agy-statusline.json",
+        "planTypePointers": [
+          "/plan_tier"
+        ],
+        "windows": [
+          {
+            "id": "gemini-5h",
+            "label": "Gemini 5h",
+            "usedPercentPointers": [
+              "/quota/gemini-5h/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/quota/gemini-5h/reset_time"
+            ],
+            "windowMinutes": 300
+          },
+          {
+            "id": "gemini-weekly",
+            "label": "Gemini 7d",
+            "usedPercentPointers": [
+              "/quota/gemini-weekly/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/quota/gemini-weekly/reset_time"
+            ],
+            "windowMinutes": 10080
+          },
+          {
+            "id": "3p-5h",
+            "label": "Claude/GPT 5h",
+            "usedPercentPointers": [
+              "/quota/3p-5h/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/quota/3p-5h/reset_time"
+            ],
+            "windowMinutes": 300
+          },
+          {
+            "id": "3p-weekly",
+            "label": "Claude/GPT 7d",
+            "usedPercentPointers": [
+              "/quota/3p-weekly/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/quota/3p-weekly/reset_time"
+            ],
+            "windowMinutes": 10080
+          }
+        ]
+      }
+    },
+    "install": {
+      "bin": "agy",
+      "paths": {
+        "unix": [
+          "~/.local/bin/agy"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update"
+      ]
+    }
+  },
+  "resources": {
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      }
+    },
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": "."
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".gemini/config/mcp_config.json"
+      },
+      "format": "claude-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".gemini/antigravity-cli/builtin/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-search-1": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".gemini/config/plugins",
+        "layout": "recursive"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Migrated from tools/agy/ (agent.json 304ca9ee08c6 / launchbar.json 8c15b0fb2cde) by migrate-tools.mjs."
+    }
+  }
+}

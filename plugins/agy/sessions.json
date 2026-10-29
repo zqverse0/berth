@@ -1,0 +1,30 @@
+{
+  "storage": "jsonl",
+  "path": "~/.gemini/antigravity-cli/brain",
+  "files": "**/.system_generated/logs/transcript.jsonl",
+  "locate": "{id}/.system_generated/logs/transcript.jsonl",
+  "sessionIndex": {
+    "path": "~/.gemini/antigravity-cli/conversation_summaries.db",
+    "table": "conversation_summaries",
+    "key": "conversation_id",
+    "match": "@path.parent.parent.parent.name"
+  },
+  "session": {
+    "id": ["conversation_id", "@path.parent.parent.parent.name"],
+    "project": "workspace_uris#/0|file_path",
+    "title": ["title", "preview"]
+  },
+  "message": {
+    "variant": "/type",
+    "roleMap": {
+      "USER_INPUT": "user",
+      "PLANNER_RESPONSE": "assistant",
+      "GENERIC": "tool",
+      "SYSTEM_MESSAGE": "system"
+    },
+    "content": "/content",
+    "tool_calls": "/tool_calls",
+    "tool_output": "/content",
+    "time": "/created_at"
+  }
+}

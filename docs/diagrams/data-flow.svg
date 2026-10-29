@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1160" viewBox="0 0 1800 1160" role="img" aria-labelledby="title desc">
+  <title id="title">Berth 核心数据流图</title>
+  <desc id="desc">展示项目读取、配置、运行、收集四条主线以及前端、Tauri、领域、存储和终端之间的数据流。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#152238"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L0 6 L9 3 z" fill="#94a3b8"/></marker>
+    <filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity=".32"/></filter>
+    <style>
+      .title{font:700 34px system-ui,"Noto Sans CJK SC",sans-serif;fill:#f8fafc}.sub{font:16px system-ui,"Noto Sans CJK SC",sans-serif;fill:#94a3b8}
+      .laneTitle{font:700 23px system-ui,"Noto Sans CJK SC",sans-serif;fill:#f8fafc}.h{font:700 17px system-ui,"Noto Sans CJK SC",sans-serif;fill:#f8fafc}.t{font:14px system-ui,"Noto Sans CJK SC",sans-serif;fill:#dbeafe}.p{font:12px ui-monospace,SFMono-Regular,monospace;fill:#a5b4fc}
+      .node{stroke-width:1.8;filter:url(#shadow)}.line{fill:none;stroke:#94a3b8;stroke-width:2.2;marker-end:url(#arrow)}.event{stroke:#fbbf24;stroke-dasharray:7 6}.read{fill:#1e3a8a;stroke:#60a5fa}.config{fill:#5b21b6;stroke:#c4b5fd}.run{fill:#166534;stroke:#86efac}.collect{fill:#9a3412;stroke:#fdba74}.shared{fill:#334155;stroke:#94a3b8}
+    </style>
+  </defs>
+  <rect width="1800" height="1160" fill="url(#bg)"/>
+  <text x="70" y="62" class="title">Berth 核心数据流：读 / 配 / 跑 / 收</text>
+  <text x="70" y="92" class="sub">实线表示请求/数据，黄色虚线表示事件或失效通知；每条流程都经过现有共享边界</text>
+
+  <text x="75" y="155" class="laneTitle">读 · 本地 Agent 会话归位</text>
+  <rect x="70" y="180" width="245" height="90" rx="15" class="node read"/><text x="192" y="214" text-anchor="middle" class="h">Tool Package</text><text x="192" y="239" text-anchor="middle" class="p">tool.json → sessions.json</text>
+  <rect x="365" y="180" width="245" height="90" rx="15" class="node read"/><text x="487" y="214" text-anchor="middle" class="h">Declarative Reader</text><text x="487" y="239" text-anchor="middle" class="p">JSONL / SQLite</text>
+  <rect x="660" y="180" width="270" height="90" rx="15" class="node read"/><text x="795" y="214" text-anchor="middle" class="h">Project Query / Reconcile</text><text x="795" y="239" text-anchor="middle" class="p">sessions/project</text>
+  <rect x="980" y="180" width="245" height="90" rx="15" class="node read"/><text x="1102" y="214" text-anchor="middle" class="h">Index + Conversation DB</text><text x="1102" y="239" text-anchor="middle" class="p">SQLite derived + durable</text>
+  <rect x="1275" y="180" width="210" height="90" rx="15" class="node read"/><text x="1380" y="214" text-anchor="middle" class="h">Frontend Cache</text><text x="1380" y="239" text-anchor="middle" class="p">src/sessions/project</text>
+  <rect x="1535" y="180" width="195" height="90" rx="15" class="node read"/><text x="1632" y="214" text-anchor="middle" class="h">Transcript Tab</text><text x="1632" y="239" text-anchor="middle" class="p">TranscriptReader</text>
+  <path d="M315 225 H365" class="line"/><path d="M610 225 H660" class="line"/><path d="M930 225 H980" class="line"/><path d="M1225 225 H1275" class="line"/><path d="M1485 225 H1535" class="line"/>
+
+  <text x="75" y="345" class="laneTitle">配 · 资产、启动栏与服务商</text>
+  <rect x="70" y="370" width="270" height="100" rx="15" class="node config"/><text x="205" y="402" text-anchor="middle" class="h">$BERTH_HOME Assets</text><text x="205" y="427" text-anchor="middle" class="t">tool · launchbar · experts</text><text x="205" y="451" text-anchor="middle" class="p">user-maintained JSON / script</text>
+  <rect x="400" y="370" width="260" height="100" rx="15" class="node config"/><text x="530" y="402" text-anchor="middle" class="h">Tool Core / Projection</text><text x="530" y="427" text-anchor="middle" class="t">identity · diagnostics · inputs</text><text x="530" y="451" text-anchor="middle" class="p">no process/network side effect</text>
+  <rect x="720" y="370" width="250" height="100" rx="15" class="node config"/><text x="845" y="402" text-anchor="middle" class="h">Settings / Launchbar UI</text><text x="845" y="427" text-anchor="middle" class="t">选择 Agent / Provider / Expert</text><text x="845" y="451" text-anchor="middle" class="p">typed inputs only</text>
+  <rect x="1030" y="370" width="260" height="100" rx="15" class="node config"/><text x="1160" y="402" text-anchor="middle" class="h">Provider Domain</text><text x="1160" y="427" text-anchor="middle" class="t">SQLite profile + keyring secret</text><text x="1160" y="451" text-anchor="middle" class="p">resolve_for_launch</text>
+  <rect x="1350" y="370" width="380" height="100" rx="15" class="node config"/><text x="1540" y="402" text-anchor="middle" class="h">Launch Request</text><text x="1540" y="427" text-anchor="middle" class="t">agentId + typed inputs + providerId/modelId</text><text x="1540" y="451" text-anchor="middle" class="p">no target CLI argv in React</text>
+  <path d="M340 420 H400" class="line"/><path d="M660 420 H720" class="line"/><path d="M970 420 H1030" class="line"/><path d="M1290 420 H1350" class="line"/>
+
+  <text x="75" y="545" class="laneTitle">跑 · Terminal Runtime</text>
+  <rect x="70" y="570" width="245" height="100" rx="15" class="node run"/><text x="192" y="602" text-anchor="middle" class="h">terminal_create</text><text x="192" y="627" text-anchor="middle" class="t">Tauri adapter + core</text><text x="192" y="651" text-anchor="middle" class="p">commands/terminal*.rs</text>
+  <rect x="365" y="570" width="270" height="100" rx="15" class="node run"/><text x="500" y="602" text-anchor="middle" class="h">launch.py</text><text x="500" y="627" text-anchor="middle" class="t">拼目标 CLI argv</text><text x="500" y="651" text-anchor="middle" class="p">--berth-launch-inputs JSON</text>
+  <rect x="685" y="570" width="265" height="100" rx="15" class="node run"/><text x="817" y="602" text-anchor="middle" class="h">TerminalSessionManager</text><text x="817" y="627" text-anchor="middle" class="t">GUI live handles / adapter</text><text x="817" y="651" text-anchor="middle" class="p">not PTY authority</text>
+  <rect x="1000" y="570" width="220" height="100" rx="15" class="node run"/><text x="1110" y="602" text-anchor="middle" class="h">berth-term-sdk</text><text x="1110" y="627" text-anchor="middle" class="t">local IPC</text><text x="1110" y="651" text-anchor="middle" class="p">GUI / CLI peer</text>
+  <rect x="1270" y="570" width="220" height="100" rx="15" class="node run"/><text x="1380" y="602" text-anchor="middle" class="h">berth-termd</text><text x="1380" y="627" text-anchor="middle" class="t">session/window/pane</text><text x="1380" y="651" text-anchor="middle" class="p">runtime authority</text>
+  <rect x="1540" y="570" width="190" height="100" rx="15" class="node run"/><text x="1635" y="602" text-anchor="middle" class="h">PTY Process</text><text x="1635" y="627" text-anchor="middle" class="t">Agent CLI / shell</text><text x="1635" y="651" text-anchor="middle" class="p">project cwd</text>
+  <path d="M315 620 H365" class="line"/><path d="M635 620 H685" class="line"/><path d="M950 620 H1000" class="line"/><path d="M1220 620 H1270" class="line"/><path d="M1490 620 H1540" class="line"/>
+  <path d="M1380 670 V715 H817 V670" class="line event"/><text x="1095" y="705" class="p">snapshot / stream / lifecycle event</text>
+
+  <text x="75" y="775" class="laneTitle">收 · 项目产出与工作台</text>
+  <rect x="70" y="800" width="250" height="105" rx="15" class="node collect"/><text x="195" y="833" text-anchor="middle" class="h">项目文件</text><text x="195" y="858" text-anchor="middle" class="t">workspace_files / CodeMirror</text><text x="195" y="882" text-anchor="middle" class="p">project filesystem</text>
+  <rect x="370" y="800" width="250" height="105" rx="15" class="node collect"/><text x="495" y="833" text-anchor="middle" class="h">Git</text><text x="495" y="858" text-anchor="middle" class="t">status / diff / branch / worktree</text><text x="495" y="882" text-anchor="middle" class="p">commands/git.rs</text>
+  <rect x="670" y="800" width="250" height="105" rx="15" class="node collect"/><text x="795" y="833" text-anchor="middle" class="h">Project Tasks</text><text x="795" y="858" text-anchor="middle" class="t">只读 .trellis / .berth 投影</text><text x="795" y="882" text-anchor="middle" class="p">berth_tasks::read</text>
+  <rect x="970" y="800" width="250" height="105" rx="15" class="node collect"/><text x="1095" y="833" text-anchor="middle" class="h">Automation</text><text x="1095" y="858" text-anchor="middle" class="t">schedule → terminal → settle</text><text x="1095" y="882" text-anchor="middle" class="p">SQLite run history</text>
+  <rect x="1270" y="800" width="250" height="105" rx="15" class="node collect"/><text x="1395" y="833" text-anchor="middle" class="h">Knowledge</text><text x="1395" y="858" text-anchor="middle" class="t">snapshot / search / graph</text><text x="1395" y="882" text-anchor="middle" class="p">Markdown · Canvas · Trellis</text>
+  <rect x="1570" y="800" width="160" height="105" rx="15" class="node collect"/><text x="1650" y="833" text-anchor="middle" class="h">Workbench</text><text x="1650" y="858" text-anchor="middle" class="t">Git / Tasks</text><text x="1650" y="882" text-anchor="middle" class="t">Memory / Collab</text>
+  <path d="M320 852 H370" class="line"/><path d="M620 852 H670" class="line"/><path d="M920 852 H970" class="line"/><path d="M1220 852 H1270" class="line"/><path d="M1520 852 H1570" class="line"/>
+
+  <rect x="70" y="970" width="1660" height="125" rx="20" class="node shared"/>
+  <text x="900" y="1005" text-anchor="middle" class="laneTitle">共享边界与事实层</text>
+  <text x="260" y="1045" text-anchor="middle" class="h">Frontend Transport</text><text x="260" y="1070" text-anchor="middle" class="p">invoke / event only</text>
+  <text x="650" y="1045" text-anchor="middle" class="h">Tauri Commands</text><text x="650" y="1070" text-anchor="middle" class="p">thin adapter / *_core</text>
+  <text x="1050" y="1045" text-anchor="middle" class="h">Durable Truth</text><text x="1050" y="1070" text-anchor="middle" class="p">SQLite · keyring · project files · $BERTH_HOME</text>
+  <text x="1500" y="1045" text-anchor="middle" class="h">Transient Runtime</text><text x="1500" y="1070" text-anchor="middle" class="p">Zustand/localStorage caches · termd live state</text>
+</svg>

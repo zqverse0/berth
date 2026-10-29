@@ -1,0 +1,25 @@
+{
+  "storage": "json",
+  "path": "~/.cline/data/sessions",
+  "files": "**/{@path.parent.name}.messages.json",
+  "locate": "**/{id}/{id}.messages.json",
+  "records": "/messages",
+  "sessionDocument": "{@path.parent.name}.json",
+  "session": {
+    "id": "/session_id",
+    "project": [
+      "/cwd",
+      "/workspace_root"
+    ],
+    "title": "/prompt",
+    "model": "/model",
+    "time": "/started_at"
+  },
+  "message": {
+    "id": "/id",
+    "role": "/role",
+    "content": "/content",
+    "model": "/modelInfo/id",
+    "time": "/ts"
+  }
+}

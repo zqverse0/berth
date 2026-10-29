@@ -1,0 +1,223 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "codex",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1,
+    "data": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Codex CLI",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": "OpenAI Codex CLI and its user/project configuration.",
+      "icon": "codex"
+    },
+    "agent": {
+      "projectType": "codex",
+      "promptInput": "prompt",
+      "providerInjection": {
+        "agentType": "codex",
+        "apis": [
+          "openai-responses"
+        ]
+      },
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-search-0"
+          ],
+          "projectSearchPaths": [
+            "skills-project-0",
+            "skills-project-1"
+          ],
+          "shared": [
+            "skills-shared-0"
+          ],
+          "store": "skills-store"
+        }
+      },
+      "sessions": "session-spec",
+      "usage": {
+        "label": "ChatGPT 订阅用量",
+        "command": [
+          "${berth}",
+          "tools",
+          "run",
+          "codex",
+          "private/usage-snapshot.js"
+        ],
+        "planTypePointers": [
+          "/rate_limits/plan_type"
+        ],
+        "windows": [
+          {
+            "id": "session",
+            "label": "5h",
+            "usedPercentPointers": [
+              "/rate_limits/primary/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/rate_limits/primary/resets_at"
+            ],
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "7d",
+            "usedPercentPointers": [
+              "/rate_limits/secondary/used_percent"
+            ],
+            "resetsAtPointers": [
+              "/rate_limits/secondary/resets_at"
+            ],
+            "windowMinutes": 10080
+          }
+        ]
+      },
+      "logins": [
+        {
+          "id": "chatgpt",
+          "label": "ChatGPT 订阅",
+          "website": "https://chatgpt.com/codex",
+          "credentialFile": "${home}/.codex/auth.json",
+          "models": {
+            "command": [
+              "codex",
+              "debug",
+              "models"
+            ],
+            "listPointers": [
+              "/models"
+            ],
+            "idPointer": "/slug",
+            "namePointer": "/display_name",
+            "visibilityPointer": "/visibility",
+            "visibilityAllow": [
+              "list"
+            ]
+          }
+        }
+      ]
+    },
+    "install": {
+      "bin": "codex",
+      "paths": {
+        "unix": [
+          "~/.local/bin/codex"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update"
+      ],
+      "latest": {
+        "github": "openai/codex"
+      }
+    }
+  },
+  "resources": {
+    "expert-root": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex"
+      },
+      "purpose": "expert-deployment-root"
+    },
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".codex/config.toml"
+      },
+      "format": "codex-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".codex/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".codex/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-1": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      },
+      "purpose": "session-parser-spec"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Migrated from tools/codex/ (agent.json dc9cfffb805e / launchbar.json 86ffc09543f2) by migrate-tools.mjs."
+    },
+    "manifest-commands-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Command surface migrated from tools/codex.json (SHA-256 33bd67b8aece); 23 scenarios argv-equivalent, 0 constraint-violating scenarios skipped on both sides (legacy constraints preserved as berth:legacyConstraints annotations, not enforced in the new chain)."
+    }
+  }
+}

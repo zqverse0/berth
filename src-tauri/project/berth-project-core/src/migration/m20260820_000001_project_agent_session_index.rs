@@ -1,0 +1,151 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(ProjectAgentSessionIndex::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::AgentType)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::ExternalId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::SourceLocator)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::SourceKind)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::NormalizedProjectPath)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(ProjectAgentSessionIndex::Fingerprint).string())
+                    .col(ColumnDef::new(ProjectAgentSessionIndex::Title).text())
+                    .col(ColumnDef::new(ProjectAgentSessionIndex::Model).string())
+                    .col(ColumnDef::new(ProjectAgentSessionIndex::GitBranch).string())
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::MessageCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::StartedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::ActivityAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::SourceAvailable)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::IndexSchemaVersion)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::AdapterVersion)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::LastSeenGeneration)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProjectAgentSessionIndex::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .primary_key(
+                        Index::create()
+                            .col(ProjectAgentSessionIndex::AgentType)
+                            .col(ProjectAgentSessionIndex::ExternalId),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_project_agent_session_index_scope_activity")
+                    .table(ProjectAgentSessionIndex::Table)
+                    .col(ProjectAgentSessionIndex::NormalizedProjectPath)
+                    .col(ProjectAgentSessionIndex::AgentType)
+                    .col(ProjectAgentSessionIndex::ActivityAt)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_project_agent_session_index_source")
+                    .table(ProjectAgentSessionIndex::Table)
+                    .col(ProjectAgentSessionIndex::AgentType)
+                    .col(ProjectAgentSessionIndex::SourceLocator)
+                    .to_owned(),
+            )
+            .await
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ProjectAgentSessionIndex::Table)
+                    .to_owned(),
+            )
+            .await
+    }
+}
+
+#[derive(DeriveIden)]
+enum ProjectAgentSessionIndex {
+    Table,
+    AgentType,
+    ExternalId,
+    SourceLocator,
+    SourceKind,
+    NormalizedProjectPath,
+    Fingerprint,
+    Title,
+    Model,
+    GitBranch,
+    MessageCount,
+    StartedAt,
+    ActivityAt,
+    SourceAvailable,
+    IndexSchemaVersion,
+    AdapterVersion,
+    LastSeenGeneration,
+    CreatedAt,
+    UpdatedAt,
+}

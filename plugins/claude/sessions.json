@@ -1,0 +1,84 @@
+{
+  "storage": "jsonl",
+  "path": "~/.claude/projects",
+  "files": "**/*.jsonl",
+  "locate": "**/{id}.jsonl",
+  "session": {
+    "record": "user",
+    "id": "/sessionId",
+    "project": "/cwd",
+    "time": "/timestamp"
+  },
+  "message": {
+    "value": "/message",
+    "role": "/role",
+    "content": "/content",
+    "model": "/model",
+    "time": "/timestamp",
+    "usage": "/usage",
+    "injected": {
+      "flag": "/isMeta",
+      "textPrefixes": [
+        "<local-command-caveat>",
+        "<local-command-stdout>",
+        "<command-name>",
+        "This session is being continued from a previous conversation",
+        "[Request interrupted"
+      ]
+    }
+  },
+  "skills": {
+    "toolNames": [
+      "Skill"
+    ],
+    "nameKey": "skill"
+  },
+  "context": [
+    {
+      "source": "system",
+      "record": "prompt_snapshot",
+      "kind": "/attachment/type",
+      "text": "/attachment/systemPrompt"
+    },
+    {
+      "source": "instructions",
+      "record": "instructions",
+      "kind": "/attachment/type",
+      "items": "/attachment/files",
+      "name": "/path",
+      "path": "/path",
+      "text": "/content"
+    },
+    {
+      "source": "skills",
+      "record": "skill_listing",
+      "kind": "/attachment/type",
+      "text": "/attachment/content"
+    },
+    {
+      "source": "mcp",
+      "record": "mcp_instructions_delta",
+      "kind": "/attachment/type",
+      "text": "/attachment/addedBlocks"
+    },
+    {
+      "source": "agents",
+      "record": "agent_listing_delta",
+      "kind": "/attachment/type",
+      "text": "/attachment/addedLines"
+    },
+    {
+      "source": "hook",
+      "record": "hook_success",
+      "kind": "/attachment/type",
+      "name": "/attachment/hookName",
+      "text": "/attachment/content"
+    },
+    {
+      "source": "environment",
+      "record": "session_context",
+      "kind": "/attachment/type",
+      "text": "/attachment/context"
+    }
+  ]
+}

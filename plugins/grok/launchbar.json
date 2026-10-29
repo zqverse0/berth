@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "session",
+      "component": "select",
+      "label": "会话",
+      "optionsFrom": "projectSessions"
+    },
+    {
+      "id": "permission-mode",
+      "component": "select",
+      "label": "模式",
+      "options": [
+        { "value": "acceptEdits", "label": "自动接受编辑" },
+        { "value": "plan", "label": "计划模式" },
+        { "value": "auto", "label": "自动" },
+        { "value": "dontAsk", "label": "不询问" },
+        { "value": "bypassPermissions", "label": "跳过权限" }
+      ]
+    },
+    {
+      "id": "provider",
+      "component": "select",
+      "label": "服务商",
+      "optionsFrom": "providerVendor",
+      "protocols": ["chat"]
+    },
+    {
+      "id": "model",
+      "component": "select",
+      "label": "模型",
+      "optionsFrom": "providerModels"
+    },
+    {
+      "id": "expert",
+      "component": "select",
+      "label": "专家",
+      "optionsFrom": "experts"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+[package]
+name = "berth-term-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Berth terminal detached IPC protocol DTOs, framing, and wire-safe error types."
+keywords = ["terminal", "multiplexer", "protocol"]
+categories = ["command-line-interface", "asynchronous"]
+publish = true
+
+[dependencies]
+bincode = "1.3.3"
+berth-term-types = { path = "../berth-term-types", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+
+[dev-dependencies]
+serde_json = "1"

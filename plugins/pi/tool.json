@@ -1,0 +1,384 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "pi",
+  "version": "1.0.0",
+  "requires": {
+    "process": 1,
+    "fs": 1
+  },
+  "permissions": [
+    "process",
+    "fs"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Pi",
+      "roles": [
+        "agent"
+      ],
+      "tags": [
+        "cli",
+        "agent"
+      ],
+      "description": {
+        "zh-CN": "Pi 编码 Agent。启动栏切模型、思考强度、续会话；配置在 ~/.pi/agent 与项目 .pi。",
+        "en": "Pi coding agent. Launch bar covers model, thinking, and continue; config lives in ~/.pi/agent and .pi."
+      },
+      "icon": "pi"
+    },
+    "agent": {
+      "projectType": "pi",
+      "promptInput": "prompt",
+      "capabilityStores": {
+        "mcp": "mcp-store",
+        "skills": {
+          "searchPaths": [
+            "skills-search-0"
+          ],
+          "projectSearchPaths": [
+            "skills-project-0"
+          ],
+          "shared": [
+            "skills-shared-0"
+          ],
+          "store": "skills-store"
+        }
+      },
+      "providerInjection": {
+        "agentType": "pi",
+        "apis": [
+          "anthropic",
+          "openai-responses",
+          "openai-chat"
+        ]
+      },
+      "sessions": "session-spec",
+      "logins": [
+        {
+          "id": "chatgpt",
+          "label": "ChatGPT 订阅",
+          "website": "https://chatgpt.com/codex",
+          "credentialFile": "${home}/.pi/agent/auth.json",
+          "credentialKey": "/openai-codex",
+          "models": {
+            "command": [
+              "${berth}",
+              "tools",
+              "run",
+              "pi",
+              "private/login-models.js",
+              "openai-codex"
+            ],
+            "listPointers": [
+              "/models"
+            ],
+            "idPointer": "/id",
+            "namePointer": "/name"
+          }
+        },
+        {
+          "id": "xai",
+          "label": "xAI 订阅",
+          "website": "https://x.ai/grok",
+          "credentialFile": "${home}/.pi/agent/auth.json",
+          "credentialKey": "/xai",
+          "models": {
+            "command": [
+              "${berth}",
+              "tools",
+              "run",
+              "pi",
+              "private/login-models.js",
+              "xai"
+            ],
+            "listPointers": [
+              "/models"
+            ],
+            "idPointer": "/id",
+            "namePointer": "/name"
+          }
+        }
+      ]
+    },
+    "install": {
+      "bin": "pi",
+      "paths": {
+        "unix": [
+          "~/.local/bin/pi"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "update": [
+        "update",
+        "--self"
+      ],
+      "latest": {
+        "npm": "@earendil-works/pi-coding-agent"
+      }
+    }
+  },
+  "resources": {
+    "mcp-store": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/mcp.json"
+      },
+      "format": "claude-mcp-v1",
+      "purpose": "mcp-store"
+    },
+    "skills-search-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-project-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "workspace",
+        "path": ".pi/skills"
+      },
+      "purpose": "skill-store"
+    },
+    "skills-shared-0": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".agents/skills"
+      },
+      "purpose": "skill-store-shared"
+    },
+    "skills-store": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".berth/skills"
+      },
+      "purpose": "skill-store-central"
+    },
+    "settings-global": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/settings.json"
+      },
+      "format": "json",
+      "purpose": "configuration",
+      "description": {
+        "zh-CN": "全局设置：默认模型、思考强度、packages。",
+        "en": "Global settings: default model, thinking level, packages."
+      }
+    },
+    "settings-project": {
+      "kind": "file",
+      "locator": {
+        "base": "workspace",
+        "path": ".pi/settings.json"
+      },
+      "format": "json",
+      "purpose": "configuration",
+      "description": {
+        "zh-CN": "项目设置，覆盖全局。",
+        "en": "Project settings; override global."
+      }
+    },
+    "sessions": {
+      "kind": "directory",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/sessions"
+      },
+      "purpose": "session-store",
+      "description": {
+        "zh-CN": "按工作目录存放的 JSONL 会话。",
+        "en": "JSONL sessions grouped by working directory."
+      }
+    },
+    "models": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/models.json"
+      },
+      "format": "json",
+      "purpose": "model-catalog",
+      "description": {
+        "zh-CN": "自定义 provider / 模型目录。",
+        "en": "Custom provider and model catalog."
+      }
+    },
+    "trust": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/trust.json"
+      },
+      "format": "json",
+      "purpose": "project-trust",
+      "description": {
+        "zh-CN": "已保存的项目信任决定。",
+        "en": "Saved project-trust decisions."
+      }
+    },
+    "agents-user": {
+      "kind": "file",
+      "locator": {
+        "base": "home",
+        "path": ".pi/agent/AGENTS.md"
+      },
+      "format": "markdown",
+      "purpose": "instructions",
+      "description": {
+        "zh-CN": "用户级 AGENTS.md。",
+        "en": "User-level AGENTS.md."
+      }
+    },
+    "agents-project": {
+      "kind": "file",
+      "locator": {
+        "base": "workspace",
+        "path": "AGENTS.md"
+      },
+      "format": "markdown",
+      "purpose": "instructions",
+      "description": {
+        "zh-CN": "工作区根 AGENTS.md。",
+        "en": "Workspace-root AGENTS.md."
+      }
+    },
+    "session-spec": {
+      "kind": "file",
+      "locator": {
+        "base": "package",
+        "path": "sessions.json"
+      },
+      "purpose": "session-parser-spec"
+    }
+  },
+  "configuration": {
+    "default-provider": {
+      "title": {
+        "zh-CN": "默认服务商",
+        "en": "Default provider"
+      },
+      "schema": {
+        "type": "string"
+      },
+      "sources": {
+        "project": {
+          "resource": "settings-project",
+          "pointer": "/defaultProvider"
+        },
+        "global": {
+          "resource": "settings-global",
+          "pointer": "/defaultProvider"
+        }
+      },
+      "precedence": [
+        "project",
+        "global"
+      ],
+      "activation": "next-launch"
+    },
+    "default-model": {
+      "title": {
+        "zh-CN": "默认模型",
+        "en": "Default model"
+      },
+      "schema": {
+        "type": "string"
+      },
+      "sources": {
+        "project": {
+          "resource": "settings-project",
+          "pointer": "/defaultModel"
+        },
+        "global": {
+          "resource": "settings-global",
+          "pointer": "/defaultModel"
+        }
+      },
+      "precedence": [
+        "project",
+        "global"
+      ],
+      "activation": "next-launch"
+    },
+    "default-thinking": {
+      "title": {
+        "zh-CN": "默认思考强度",
+        "en": "Default thinking level"
+      },
+      "schema": {
+        "type": "string",
+        "enum": [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "sources": {
+        "project": {
+          "resource": "settings-project",
+          "pointer": "/defaultThinkingLevel"
+        },
+        "global": {
+          "resource": "settings-global",
+          "pointer": "/defaultThinkingLevel"
+        }
+      },
+      "precedence": [
+        "project",
+        "global"
+      ],
+      "activation": "next-launch"
+    }
+  },
+  "knowledge": {
+    "research": {
+      "title": {
+        "zh-CN": "调研记录",
+        "en": "Research notes"
+      },
+      "kind": "maintenance",
+      "path": "research.md"
+    },
+    "usage": {
+      "title": {
+        "zh-CN": "使用说明",
+        "en": "Usage"
+      },
+      "kind": "usage",
+      "path": "usage.md"
+    }
+  },
+  "evidence": {
+    "migration-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Migrated from tools/pi/ (agent.json 59cf18482d12 / launchbar.json abea6af47376) by migrate-tools.mjs."
+    },
+    "manifest-commands-source": {
+      "kind": "migration-input",
+      "observedAt": "2026-09-09",
+      "notes": "Command surface migrated from tools/pi.json (SHA-256 f432072fa324); 83 scenarios argv-equivalent, 6 constraint-violating scenarios skipped on both sides (legacy constraints preserved as berth:legacyConstraints annotations, not enforced in the new chain)."
+    },
+    "cli-help-0.84.4": {
+      "kind": "cli-help",
+      "observedAt": "2026-09-11",
+      "version": "0.84.4",
+      "command": "pi --help",
+      "notes": "Launch flags verified: --model, --thinking including minimal, --continue/-c, --approve/--no-approve. Settings at ~/.pi/agent/settings.json and .pi/settings.json."
+    }
+  }
+}

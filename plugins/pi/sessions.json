@@ -1,0 +1,40 @@
+{
+  "storage": "jsonl",
+  "path": "~/.pi/agent/sessions",
+  "files": "**/*.jsonl",
+  "locate": "**/*_{id}.jsonl",
+  "session": {
+    "record": "session",
+    "id": "/id",
+    "project": "/cwd",
+    "time": "/timestamp"
+  },
+  "message": {
+    "record": "message",
+    "value": "/message",
+    "role": "/role",
+    "content": "/content",
+    "model": "/model",
+    "time": "/timestamp",
+    "usage": "/usage",
+    "tool_use_id": "/toolCallId",
+    "is_error": "/isError"
+  },
+  "context": [
+    {
+      "source": "system",
+      "record": "system",
+      "kind": "/message/role",
+      "items": "/message/sections",
+      "text": ""
+    },
+    {
+      "source": "tools",
+      "record": "system",
+      "kind": "/message/role",
+      "items": "/message/toolsAdded",
+      "name": "/name",
+      "text": ""
+    }
+  ]
+}

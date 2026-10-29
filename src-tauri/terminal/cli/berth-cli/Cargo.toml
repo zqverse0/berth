@@ -1,0 +1,46 @@
+[package]
+name = "berth-cli"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+description = "Command-line frontend for the Berth terminal multiplexer."
+
+[[bin]]
+name = "berth"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+berth-control-proto = { path = "../../../control/berth-control-proto" }
+berth-project-core = { path = "../../../project/berth-project-core" }
+berth-group = { path = "../../../project/berth-group" }
+berth-term-ipc = { path = "../../shared/berth-term-ipc" }
+berth-term-proto = { path = "../../shared/berth-term-proto" }
+berth-term-sdk = { path = "../../sdk/berth-term-sdk" }
+berth-tool-core = { path = "../../../tool/berth-tool-core" }
+berth-plugin-api = { path = "../../../tool/berth-plugin-api" }
+berth-provider-proxy = { path = "../../../provider/berth-provider-proxy" }
+tokio = { version = "1", features = ["rt", "net"] }
+uuid = { version = "1", features = ["v4"] }
+which = "7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.185"
+rustix = { version = "1.1.4", features = ["event", "process", "runtime", "termios", "thread"] }
+signal-hook = "0.3.18"
+
+[target.'cfg(windows)'.dependencies]
+tokio = { version = "1.48.0", features = ["io-util", "macros", "rt", "sync", "time"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[dev-dependencies]
+sea-orm = { version = "1.1", default-features = false }
+tempfile = "3"
+berth-term-pty = { path = "../../daemon/berth-term-pty" }
+berth-term-server = { path = "../../daemon/berth-term-server" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }

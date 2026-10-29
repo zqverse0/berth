@@ -1,0 +1,529 @@
+"use client"
+
+import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  ArrowUpCircle,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Wifi,
+} from "lucide-react"
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Update = any
+import { useLocale, useTranslations } from "next-intl"
+import { MessageResponse } from "@/components/ai-elements/message"
+import { toast } from "@/lib/notify"
+import { BackupSettings } from "@/components/settings/backup-settings"
+import { ClassifierSettings } from "@/components/settings/classifier-settings"
+import { LogsSettings } from "@/components/settings/logs-settings"
+import { SystemRuntimeSettings } from "@/components/settings/system-runtime-settings"
+import { TranslateSettings } from "@/components/settings/translate-settings"
+import { useGeneralSectionShown } from "@/components/settings/settings-nav"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { getSystemProxySettings, updateSystemProxySettings } from "@/lib/api"
+import { openUrl } from "@/lib/platform"
+import {
+  checkAppUpdate,
+  closeAppUpdate,
+  getCurrentAppVersion,
+  normalizeAppUpdateError,
+} from "@/lib/updater"
+import { useAppUpdate } from "@/components/providers/update-provider"
+import { toErrorMessage } from "@/lib/app-error"
+
+function GithubMarkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="currentColor"
+      fillRule="evenodd"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z" />
+    </svg>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const PROXY_EXAMPLE = "http://127.0.0.1:7890"
+type UpdateAction = "check" | "install"
+
+/** Settings → 高级：版本更新、网络代理、终端 shell、备份、翻译、日志。 */
+export function AdvancedSettings() {
+  const t = useTranslations("SystemSettings")
+  const locale = useLocale()
+  const shown = useGeneralSectionShown("advanced")
+
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [enabled, setEnabled] = useState(false)
+  const [proxyUrl, setProxyUrl] = useState("")
+  const [proxyUrlError, setProxyUrlError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [currentVersion, setCurrentVersion] = useState<string>("")
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null)
+  // The in-flight download / install / restart lifecycle lives in the
+  // app-wide UpdateProvider (workspace layout wraps this page), so its
+  // progress survives navigating between settings pages or closing the page —
+  // this page is just one subscriber to it. It is always mounted inside the
+  // provider, hence the non-null assertion.
+  const update = useAppUpdate()!
+  const {
+    state: updateState,
+    isUpdating,
+    isBusy,
+    startUpdate,
+    restart,
+  } = update
+  const updateReady = updateState.status === "ready_to_restart"
+  // A determinate bar needs a known content length; the install phase (and a
+  // length-less download) fall back to an indeterminate pulse.
+  const downloadDeterminate =
+    updateState.status === "downloading" &&
+    !!updateState.total &&
+    updateState.total > 0
+  const downloadPercent = downloadDeterminate
+    ? Math.min(
+        100,
+        ((updateState.downloaded ?? 0) / (updateState.total as number)) * 100
+      )
+    : 0
+
+  const formattedLastCheckedAt = useMemo(() => {
+    if (!lastCheckedAt) return null
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(lastCheckedAt)
+  }, [lastCheckedAt, locale])
+
+  const formattedUpdateDate = useMemo(() => {
+    if (!availableUpdate?.date) return null
+
+    const parsed = new Date(availableUpdate.date)
+    if (Number.isNaN(parsed.getTime())) return availableUpdate.date
+
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+    }).format(parsed)
+  }, [availableUpdate?.date, locale])
+
+  const updateNotes = useMemo(
+    () => availableUpdate?.body?.trim() ?? "",
+    [availableUpdate?.body]
+  )
+
+  const updateStatusMessage = useMemo(() => {
+    if (checkingUpdate) return t("checking")
+    if (isUpdating) return t("updating")
+    if (availableUpdate) return null
+    if (lastCheckedAt) return t("alreadyLatest")
+    return null
+  }, [availableUpdate, checkingUpdate, isUpdating, lastCheckedAt, t])
+
+  const loadSettings = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+
+    try {
+      const [proxySettings, version] = await Promise.all([
+        getSystemProxySettings(),
+        getCurrentAppVersion(),
+      ])
+
+      setEnabled(proxySettings.enabled)
+      setProxyUrl(proxySettings.proxy_url ?? "")
+      setCurrentVersion(version)
+    } catch (err) {
+      const message = toErrorMessage(err)
+      setLoadError(message)
+      console.error("[Settings] load system settings failed:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSettings().catch((err) => {
+      console.error("[Settings] load system settings failed:", err)
+    })
+    if (process.env.NODE_ENV !== "development") {
+      checkForUpdates().catch((err) => {
+        console.error("[Settings] auto check update failed:", err)
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (!availableUpdate) return
+      closeAppUpdate(availableUpdate).catch((err) => {
+        console.error("[Settings] release updater resource failed:", err)
+      })
+    }
+  }, [availableUpdate])
+
+  const saveProxySettings = useCallback(
+    async (nextEnabled: boolean, nextProxyUrl: string) => {
+      if (nextEnabled && !nextProxyUrl.trim()) return
+
+      setSaving(true)
+      try {
+        const next = await updateSystemProxySettings({
+          enabled: nextEnabled,
+          proxy_url: nextProxyUrl.trim() || null,
+        })
+        setEnabled(next.enabled)
+        setProxyUrl(next.proxy_url ?? "")
+      } catch (err) {
+        const message = toErrorMessage(err)
+        toast.error(t("saveFailed", { message }))
+      } finally {
+        setSaving(false)
+      }
+    },
+    [t]
+  )
+
+  const formatUpdateError = useCallback(
+    (error: unknown, action: UpdateAction): string => {
+      const { kind } = normalizeAppUpdateError(error)
+
+      switch (kind) {
+        case "source_unreachable":
+          return t("updateErrors.sourceUnavailable")
+        case "network":
+          return t("updateErrors.network")
+        case "download_failed":
+          return t("updateErrors.downloadFailed")
+        case "install_failed":
+          return t("updateErrors.installFailed")
+        case "unknown":
+        default:
+          if (action === "install") {
+            return t("updateErrors.installFailed")
+          }
+          return t("updateErrors.unknown")
+      }
+    },
+    [t]
+  )
+
+  // A failure inside the detached backend download/install task lands in the
+  // shared update state rather than as a thrown error here, so surface it the
+  // same way as a check error — and it stays visible after navigating back.
+  const lifecycleError =
+    updateState.status === "error" && updateState.error
+      ? formatUpdateError(updateState.error, "install")
+      : null
+
+  const checkForUpdates = useCallback(async () => {
+    setCheckingUpdate(true)
+    setUpdateError(null)
+
+    try {
+      const previousUpdate = availableUpdate
+      const result = await checkAppUpdate()
+      setCurrentVersion(result.currentVersion)
+      setLastCheckedAt(new Date())
+
+      if (result.update) {
+        setAvailableUpdate(result.update)
+      } else {
+        setAvailableUpdate(null)
+      }
+
+      if (previousUpdate && previousUpdate !== result.update) {
+        await closeAppUpdate(previousUpdate)
+      }
+    } catch (err) {
+      const { kind, rawMessage } = normalizeAppUpdateError(err)
+      const message = formatUpdateError(err, "check")
+      setUpdateError(message)
+      toast.error(t("checkUpdateFailed", { message }))
+      if (kind === "unknown") {
+        console.error("[Settings] check app update failed:", rawMessage)
+      } else {
+        console.warn(`[Settings] updater ${kind}:`, rawMessage)
+      }
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }, [availableUpdate, formatUpdateError, t])
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center text-sm text-muted-foreground gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {t("loading")}
+      </div>
+    )
+  }
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="w-full space-y-4 p-3 md:p-4">
+        {shown("version") && (
+          <>
+            <section className="space-y-1">
+              <div className="flex items-center justify-between">
+                <h1 className="text-sm font-semibold">{t("sectionTitle")}</h1>
+                <Button
+                  variant="ghost"
+                  className="size-5 rounded-full"
+                  onClick={() => openUrl("https://github.com/zqverse0/berth")}
+                >
+                  <GithubMarkIcon className="size-5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("sectionDescription")}
+              </p>
+            </section>
+
+            <section className="rounded-xl border bg-card p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                {checkingUpdate ? (
+                  <RefreshCw className="h-4 w-4 text-muted-foreground animate-spin" />
+                ) : availableUpdate ? (
+                  <ArrowUpCircle className="h-4 w-4 text-muted-foreground" />
+                ) : lastCheckedAt ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                )}
+                <h2 className="text-sm font-semibold">{t("versionTitle")}</h2>
+              </div>
+
+              <p className="text-xs text-muted-foreground leading-5">
+                {t("updateDescription")}
+              </p>
+
+              <div className="rounded-md border bg-muted/20 px-3 py-3 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-muted-foreground">
+                    {t("currentVersion")}：
+                    {currentVersion ? `v${currentVersion}` : "-"}
+                  </p>
+                  {checkingUpdate ? (
+                    <Button
+                      key="checking-update"
+                      size="sm"
+                      disabled
+                      aria-busy="true"
+                      className="w-[9.5rem] justify-center transition-none"
+                    >
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("checking")}
+                    </Button>
+                  ) : updateReady ? (
+                    // Download finished in the background — relaunch into it
+                    // (IDE-style "Restart to update").
+                    <Button
+                      size="sm"
+                      onClick={() => void restart()}
+                      disabled={isBusy}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      {t("restartToUpdate")}
+                    </Button>
+                  ) : isBusy ? (
+                    <Button
+                      size="sm"
+                      disabled
+                      aria-busy="true"
+                      className="w-[9.5rem] justify-center transition-none"
+                    >
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("updating")}
+                    </Button>
+                  ) : availableUpdate ? (
+                    <Button size="sm" onClick={() => void startUpdate()}>
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                      {t("upgradeTo", { version: availableUpdate.version })}
+                    </Button>
+                  ) : (
+                    <Button
+                      key="check-update"
+                      size="sm"
+                      onClick={checkForUpdates}
+                      disabled={isBusy}
+                      className="w-[9.5rem] justify-center transition-none"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t("checkUpdate")}
+                    </Button>
+                  )}
+                </div>
+
+                {!availableUpdate && formattedLastCheckedAt && (
+                  <p className="text-muted-foreground">
+                    {t("lastChecked", { time: formattedLastCheckedAt })}
+                  </p>
+                )}
+
+                {updateStatusMessage && !isUpdating && (
+                  <p className="text-muted-foreground">{updateStatusMessage}</p>
+                )}
+
+                {isUpdating && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>
+                        {updateState.status === "downloading"
+                          ? t("downloading")
+                          : t("updating")}
+                      </span>
+                      {updateState.status === "downloading" && (
+                        <span>
+                          {formatBytes(updateState.downloaded ?? 0)}
+                          {updateState.total
+                            ? ` / ${formatBytes(updateState.total)}`
+                            : ""}
+                        </span>
+                      )}
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      {downloadDeterminate ? (
+                        <div
+                          className="h-full rounded-full bg-primary transition-all duration-300"
+                          style={{ width: `${downloadPercent}%` }}
+                        />
+                      ) : (
+                        <div className="h-full w-1/3 rounded-full bg-primary animate-pulse" />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {updateReady && (
+                  <p className="text-muted-foreground">
+                    {t("updateReadyHint")}
+                  </p>
+                )}
+
+                {availableUpdate && (
+                  <div className="space-y-2 pt-2 border-t border-border/70">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium">
+                        {t("upgradableVersion")}：v{availableUpdate.version}
+                      </span>
+                      {formattedUpdateDate && (
+                        <span className="text-muted-foreground text-[11px]">
+                          {formattedUpdateDate}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 max-h-72 overflow-auto rounded-md border bg-background/70 px-3 py-3 text-muted-foreground">
+                      {updateNotes ? (
+                        <MessageResponse>{updateNotes}</MessageResponse>
+                      ) : (
+                        t("none")
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {(updateError || lifecycleError) && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                  {t("updateError", {
+                    message: updateError || lifecycleError || "",
+                  })}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {shown("proxy") && (
+          <section className="rounded-xl border bg-card p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Wifi className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">{t("proxyTitle")}</h2>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-5">
+              {t("proxyDescription")}
+            </p>
+
+            {loadError && (
+              <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                {t("loadFailed", { message: loadError })}
+              </div>
+            )}
+
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={enabled}
+                disabled={saving}
+                onChange={(event) => {
+                  const next = event.target.checked
+                  if (next && !proxyUrl.trim()) {
+                    setProxyUrlError(t("proxyRequired"))
+                    return
+                  }
+                  setProxyUrlError(null)
+                  setEnabled(next)
+                  saveProxySettings(next, proxyUrl)
+                }}
+              />
+              {t("enableProxy")}
+            </label>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("proxyAddress")}
+              </label>
+              <Input
+                value={proxyUrl}
+                onChange={(event) => {
+                  setProxyUrl(event.target.value)
+                  if (event.target.value.trim()) setProxyUrlError(null)
+                }}
+                onBlur={() => {
+                  if (enabled && !proxyUrl.trim()) {
+                    setProxyUrlError(t("proxyRequired"))
+                    return
+                  }
+                  setProxyUrlError(null)
+                  saveProxySettings(enabled, proxyUrl)
+                }}
+                placeholder={PROXY_EXAMPLE}
+                disabled={saving}
+                aria-invalid={proxyUrlError ? true : undefined}
+              />
+              {proxyUrlError && (
+                <p className="text-[11px] text-destructive">{proxyUrlError}</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                {t("proxyHint", { example: PROXY_EXAMPLE })}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {shown("runtime") && <SystemRuntimeSettings />}
+        {shown("backup") && <BackupSettings />}
+        {shown("translate") && <TranslateSettings />}
+        {shown("classifier") && <ClassifierSettings />}
+        {shown("logs") && <LogsSettings />}
+      </div>
+    </ScrollArea>
+  )
+}

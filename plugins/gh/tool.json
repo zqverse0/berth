@@ -1,0 +1,52 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "gh",
+  "version": "1.0.0",
+  "contributes": {
+    "identity": {
+      "name": "Git & GitHub",
+      "roles": [],
+      "tags": [
+        "cli",
+        "github",
+        "git"
+      ],
+      "description": "Git plus GitHub's official CLI (gh). Settings here hold Berth's Git program and the accounts used for git push/pull and Discover; agents use gh to open PRs, watch CI checks and address review feedback without leaving Berth.",
+      "homepage": "https://cli.github.com"
+    },
+    "install": {
+      "bin": "gh",
+      "paths": {
+        "unix": [
+          "~/.local/bin/gh"
+        ],
+        "windows": [
+          "%ProgramFiles%/GitHub CLI/gh.exe"
+        ]
+      },
+      "version": [
+        "--version"
+      ],
+      "latest": {
+        "github": "cli/cli"
+      }
+    }
+  },
+  "resources": {},
+  "knowledge": {
+    "berth-loop": {
+      "kind": "guide",
+      "title": "Working with GitHub from Berth",
+      "path": "usage.md"
+    }
+  },
+  "evidence": {
+    "cli-help": {
+      "kind": "observation",
+      "observedAt": "2026-10-03",
+      "toolVersion": "2.101.0",
+      "notes": "Flags in usage.md checked against `gh <cmd> --help` for pr create/checks/view/diff/comment, run view, issue view. install.sh asset names checked against the v2.102.0 release."
+    }
+  }
+}

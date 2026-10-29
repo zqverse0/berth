@@ -1,0 +1,47 @@
+{
+  "label": "Account usage",
+  "credential": {
+    "kind": "json-file",
+    "path": "${home}/.codex/auth.json",
+    "tokenPointer": "/tokens/access_token",
+    "headerPointers": {
+      "ChatGPT-Account-Id": "/tokens/account_id"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://chatgpt.com/backend-api/wham/usage",
+    "headers": {
+      "User-Agent": "codex-cli",
+      "OpenAI-Beta": "codex-1",
+      "originator": "Codex Desktop"
+    }
+  },
+  "planTypePointers": [
+    "/plan_type"
+  ],
+  "windows": [
+    {
+      "id": "session",
+      "label": "5h",
+      "usedPercentPointers": [
+        "/rate_limit/primary_window/used_percent"
+      ],
+      "resetsAtPointers": [
+        "/rate_limit/primary_window/reset_at"
+      ],
+      "windowMinutes": 300
+    },
+    {
+      "id": "weekly",
+      "label": "7d",
+      "usedPercentPointers": [
+        "/rate_limit/secondary_window/used_percent"
+      ],
+      "resetsAtPointers": [
+        "/rate_limit/secondary_window/reset_at"
+      ],
+      "windowMinutes": 10080
+    }
+  ]
+}

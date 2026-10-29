@@ -1,0 +1,87 @@
+{
+  "name": "Claude Code",
+  "command": "claude",
+  "icon": "claude",
+  "description": "Anthropic's coding agent CLI.",
+  "projectType": "claude_code",
+  "baseArgs": [],
+  "providerInjection": {
+    "agentType": "claude_code",
+    "slots": [
+      "fable",
+      "haiku",
+      "opus",
+      "sonnet"
+    ],
+    "official": {
+      "label": "Claude Official",
+      "website": "https://www.anthropic.com/claude-code",
+      "models": [
+        {
+          "name": "Sonnet",
+          "id": "sonnet"
+        },
+        {
+          "name": "Opus",
+          "id": "opus"
+        },
+        {
+          "name": "Haiku",
+          "id": "haiku"
+        }
+      ]
+    },
+    "env": {
+      "ANTHROPIC_BASE_URL": "$api_url",
+      "ANTHROPIC_AUTH_TOKEN": "$api_key",
+      "ANTHROPIC_DEFAULT_FABLE_MODEL": "$model:fable",
+      "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "$model-name:fable",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$model:haiku",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "$model-name:haiku",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "$model:opus",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "$model-name:opus",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "$model:sonnet",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "$model-name:sonnet"
+    }
+  },
+  "expertDeployment": {
+    "root": ".claude",
+    "instructionFile": "CLAUDE.md",
+    "skillsDir": "skills"
+  },
+  "capabilityStores": {
+    "mcp": {
+      "path": "~/.claude.json",
+      "format": "claude-mcp-v1"
+    },
+    "skills": {
+      "searchPaths": [
+        "~/.claude/skills",
+        "recursive:~/.claude/plugins/cache"
+      ],
+      "projectSearchPaths": [
+        ".claude/skills"
+      ],
+      "shared": [
+        "~/.agents/skills"
+      ],
+      "store": "~/.berth/skills"
+    },
+    "skillStatus": {
+      "sources": [
+        {
+          "path": "~/.claude/settings.json",
+          "kind": "enabled-flags"
+        },
+        {
+          "path": "~/.claude/plugins/installed_plugins.json",
+          "kind": "install-registry"
+        },
+        {
+          "path": "~/.claude.json",
+          "kind": "usage-stats"
+        }
+      ]
+    }
+  }
+}

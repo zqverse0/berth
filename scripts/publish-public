@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# 把私有仓库某个提交的代码快照发布到公开仓库：去掉内部过程资料，作为一个新提交追加到
+# 公开 main（公开仓库只有发布快照，不带私有开发历史）。加 --tag 时再推 v<版本> tag，触发
+# .github/workflows/release.yml 构建全平台安装包。
+#
+#   scripts/publish-public [--tag] [<ref>，默认 main]
+set -euo pipefail
+
+PUBLIC=git@github.com:zqverse0/berth.git
+# 不公开的内部资料；.trellis 只保留 spec/（AGENTS.md 引用的开发规范）
+EXCLUDE=(.berth .grok .claude .agents perf outputs docs/REMOVED.md docs/images .gitattributes)
+
+tag=false
+if [ "${1:-}" = "--tag" ]; then tag=true; shift; fi
+ref=${1:-main}
+repo=$(git rev-parse --show-toplevel)
+version=$(git -C "$repo" show "$ref:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+git clone -q "$PUBLIC" "$work"
+find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+git -C "$repo" archive "$ref" | tar -x -C "$work"
+cd "$work"
+rm -rf "${EXCLUDE[@]}"
+find .trellis -mindepth 1 -maxdepth 1 ! -name spec -exec rm -rf {} + 2>/dev/null || true
+
+# 推送前的底线检查：不带本机路径和密钥
+if grep -rnIE "$HOME/|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[po]_[A-Za-z0-9]{30,}" . --exclude-dir=.git; then
+  echo "publish-public: 上面的内容不能公开，已中止" >&2
+  exit 1
+fi
+
+git add -A
+if git diff --cached --quiet; then
+  echo "publish-public: 与公开仓库没有差异"
+else
+  git -c user.name="$(git -C "$repo" config user.name)" -c user.email="$(git -C "$repo" config user.email)" \
+    commit -q -m "Berth $version"
+  git push -q origin HEAD:main
+  echo "publish-public: 已发布 Berth $version（$(git rev-parse --short HEAD)）"
+fi
+
+if $tag; then
+  git tag "v$version"
+  git push -q origin "v$version"
+  echo "publish-public: 已推送 v$version，Release 工作流开始构建"
+fi
