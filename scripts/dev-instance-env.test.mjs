@@ -5,6 +5,8 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -13,7 +15,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 
-import { configureDevInstance } from "./dev-instance-env.mjs"
+import { configureDevInstance, linkDevPlugins } from "./dev-instance-env.mjs"
 
 function fixture(t) {
   const base = mkdtempSync(join(tmpdir(), "berth-instance-test-"))
@@ -249,4 +251,27 @@ test("dev CLI refuses inherited release roots and explicit release endpoints", (
     runCli(cli, f).stderr,
     /dev database resolves into installed Berth data/
   )
+})
+
+test("dev plugins dir links to the checkout's plugins/ and keeps old copies", (t) => {
+  const f = fixture(t)
+  const env = { BERTH_HOME: join(f.home, ".berth-dev") }
+  const repo = join(f.base, "repo")
+  mkdirSync(join(repo, "plugins"), { recursive: true })
+  mkdirSync(join(env.BERTH_HOME, "tools", "old"), { recursive: true })
+  writeFileSync(join(env.BERTH_HOME, "tools", "old", "tool.json"), "{}")
+
+  linkDevPlugins(env, repo)
+  linkDevPlugins(env, repo)
+  const tools = join(env.BERTH_HOME, "tools")
+  assert.equal(readlinkSync(tools), join(repo, "plugins"))
+  assert.equal(
+    readFileSync(join(env.BERTH_HOME, "tools.copies", "old", "tool.json"), "utf8"),
+    "{}"
+  )
+
+  const other = join(f.base, "other")
+  mkdirSync(join(other, "plugins"), { recursive: true })
+  linkDevPlugins(env, other)
+  assert.equal(readlinkSync(tools), join(other, "plugins"))
 })

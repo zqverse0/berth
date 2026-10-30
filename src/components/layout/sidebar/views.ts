@@ -3,41 +3,36 @@
 import { useCallback, type ComponentType } from "react"
 import {
   Brain,
-  Compass,
   Files,
   FolderGit2,
   FolderKanban,
   ListTodo,
-  MessagesSquare,
   Users,
 } from "lucide-react"
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import { create } from "zustand"
+import {
+  localizedTitle,
+  pluginSidebarViewId,
+  usePluginViewsStore,
+} from "@/lib/plugins/plugin-views"
 
 export type SidebarView =
   | "projects"
   | "files"
   | "git"
   | "group"
-  | "sessions"
   | "tasks"
   | "memory"
-  | "discover"
   /** 设置标签页激活时的列表视图，由活动栏的设置按钮进入。 */
   | "settings"
+  /** 插件贡献的侧栏视图（`plugin:<插件>/<视图>`），由宿主原生渲染。 */
+  | `plugin:${string}`
 
 export interface SidebarViewItem {
   id: SidebarView
   icon: ComponentType<{ className?: string }>
-  labelKey:
-    | "projects"
-    | "files"
-    | "git"
-    | "group"
-    | "sessions"
-    | "tasks"
-    | "memory"
-    | "discover"
+  labelKey: "projects" | "files" | "git" | "group" | "tasks" | "memory"
 }
 
 export const SIDEBAR_VIEWS: SidebarViewItem[] = [
@@ -45,10 +40,8 @@ export const SIDEBAR_VIEWS: SidebarViewItem[] = [
   { id: "files", icon: Files, labelKey: "files" },
   { id: "git", icon: FolderGit2, labelKey: "git" },
   { id: "group", icon: Users, labelKey: "group" },
-  { id: "sessions", icon: MessagesSquare, labelKey: "sessions" },
   { id: "tasks", icon: ListTodo, labelKey: "tasks" },
   { id: "memory", icon: Brain, labelKey: "memory" },
-  { id: "discover", icon: Compass, labelKey: "discover" },
 ]
 
 /** Current sidebar view; shared by the activity bar and the sidebar body. */
@@ -63,11 +56,17 @@ export const useSidebarViewStore = create<{
 export function useSidebarViewLabel() {
   const t = useTranslations("Folder.sidebar")
   const tTabs = useTranslations("Folder.auxPanel.tabs")
+  const locale = useLocale()
+  const pluginViews = usePluginViewsStore((state) => state.views)
   return useCallback(
     (id: SidebarView) => {
       const item = SIDEBAR_VIEWS.find((view) => view.id === id)
-      return item ? tTabs(item.labelKey) : t("title")
+      if (item) return tTabs(item.labelKey)
+      const plugin = pluginViews.find(
+        (view) => pluginSidebarViewId(view) === id
+      )
+      return plugin ? localizedTitle(plugin.title, locale) : t("title")
     },
-    [t, tTabs]
+    [t, tTabs, locale, pluginViews]
   )
 }

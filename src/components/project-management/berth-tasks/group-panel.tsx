@@ -22,6 +22,7 @@ import {
 import { useTaskGroup } from "@/components/project-management/group/use-task-group"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import {
+  BERTH_MEMBER,
   type GroupEvent,
   memberAgent,
   memberLabel,
@@ -64,7 +65,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
   const focus = useGroupWorkspaceStore((state) =>
     name && state.folderId === folderId && state.group === name
       ? state.focusedMember
-      : null
+      : BERTH_MEMBER
   )
   const setFocus = (member: string | null) => {
     if (!name) return
@@ -76,7 +77,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
   // 回复 / 转给时收件人是这位成员（不一定是被引消息的作者）。
   const [replyMember, setReplyMember] = useState<string | null>(null)
   const [context, setContext] = useState<{ seq: number } | null>(null)
-  const [showSystem, setShowSystem] = useState(false)
   const rows = useMemo(
     () => memberRows(group.members, group.events, panes, seen),
     [group.members, group.events, panes, seen]
@@ -113,12 +113,23 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     },
     [members, folderId]
   )
-  // 汇报的过程日志：它出自的会话，从它回答的那条提问读起。
+  // Berth 没有会话可读：正在回答的提问下显示它的执行过程。
+  const liveLogOf = useCallback(
+    (ask: GroupEvent) => {
+      const log = members.find((m) => m.builtin)?.log
+      return log && log.ask === ask.seq ? log.lines : null
+    },
+    [members]
+  )
+  // 汇报的过程日志：它出自的会话（Berth 是随回答存下的过程），从它回答的那条提问读起。
   const events = group.events
   const processOf = useCallback(
     (event: GroupEvent) => {
       const ask = events.find((other) => other.seq === event.reply_to)
-      if (!ask || !event.session_id || !event.agent) return null
+      if (!ask) return null
+      if (event.steps?.length)
+        return { lines: event.steps, since: ask.timestamp_ms }
+      if (!event.session_id || !event.agent) return null
       const body = members
         .find((m) => m.name === event.author)
         ?.bodies.find((body) => body.target_ref === event.target_ref)
@@ -165,9 +176,14 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     () => addressable(rows).present.map((row) => row.member.name),
     [rows]
   )
-  // 收件人：回复 / 转给的对象 > 单聊的成员 > 群聊时全体在线成员。
+  // 收件人：回复 / 转给的对象 > 单聊的成员 > 群聊时全体在线成员（不含内置的 Berth：单聊它才发给它）。
   const targets = useMemo(
-    () => (reply && replyMember ? [replyMember] : focus ? [focus] : forwardTo),
+    () =>
+      reply && replyMember
+        ? [replyMember]
+        : focus
+          ? [focus]
+          : forwardTo.filter((name) => name !== BERTH_MEMBER),
     [reply, replyMember, focus, forwardTo]
   )
   const openMemberTerminal = useCallback(
@@ -242,8 +258,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
             setFocus(member)
             setContext(null)
           }}
-          showSystem={showSystem}
-          onShowSystemChange={setShowSystem}
         />
       ) : null}
       <div className="flex min-h-0 flex-1">
@@ -277,8 +291,8 @@ export function GroupPanel({ folderId }: { folderId: number }) {
                 forwardTo={forwardTo}
                 onForward={posting ? undefined : forward}
                 empty={group.name ? t("noEvents") : t("noGroup")}
-                showSystem={showSystem}
                 liveSessionOf={liveSessionOf}
+                liveLogOf={liveLogOf}
                 processOf={processOf}
                 onOpenFile={openFile}
               />

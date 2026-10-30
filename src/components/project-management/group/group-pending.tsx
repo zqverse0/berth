@@ -5,7 +5,7 @@ import { useNow, useTranslations } from "next-intl"
 import { Loader2 } from "lucide-react"
 import { agentTypeForTool } from "@/hooks/use-agent-profiles"
 import { resolveProjectAgentSession } from "@/lib/api"
-import type { GroupEvent } from "@/lib/agent/berth-group"
+import type { GroupEvent, GroupLogLine } from "@/lib/agent/berth-group"
 import type { MessageTurn } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { trimSlash } from "@/sessions/project/open-project-session"
@@ -28,11 +28,7 @@ const LOG_LINES = 3
 /** 这么久没有新记录就提示可能卡住（或停在确认框）。 */
 const QUIET_MS = 90_000
 
-export interface LogLine {
-  text: string
-  error?: boolean
-  thinking?: boolean
-}
+export type LogLine = GroupLogLine
 
 const firstLine = (text: string | null | undefined, max = 120) =>
   (text ?? "")
@@ -199,17 +195,7 @@ function LiveLog({
   )
   const quiet = updatedAt != null && now - updatedAt > QUIET_MS
   return (
-    <div
-      data-pending-log
-      className="min-w-0 flex-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] leading-5 text-muted-foreground"
-    >
-      {lines.length === 0 ? (
-        <p>{t("waitingLog")}</p>
-      ) : (
-        lines
-          .slice(-LOG_LINES)
-          .map((line, index) => <LogRow key={index} line={line} />)
-      )}
+    <RecentLines lines={lines}>
       {updatedAt != null ? (
         <p
           className={cn(
@@ -224,13 +210,39 @@ function LiveLog({
               })}
         </p>
       ) : null}
+    </RecentLines>
+  )
+}
+
+/** 最近几行日志；还没有时说在等。 */
+function RecentLines({
+  lines,
+  children,
+}: {
+  lines: readonly LogLine[]
+  children?: React.ReactNode
+}) {
+  const t = useTranslations("BerthTasks.group.pending")
+  return (
+    <div
+      data-pending-log
+      className="min-w-0 flex-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] leading-5 text-muted-foreground"
+    >
+      {lines.length === 0 ? (
+        <p>{t("waitingLog")}</p>
+      ) : (
+        lines
+          .slice(-LOG_LINES)
+          .map((line, index) => <LogRow key={index} line={line} />)
+      )}
+      {children}
     </div>
   )
 }
 
 /**
  * 提问下「还没有结果」的那一行：左边计时（排队 / 思考中），右边它会话日志的最近几行，
- * 看得出它在动、报错了还是停住了。窄屏上下排。
+ * 看得出它在动、报错了还是停住了。窄屏上下排。没有会话可读的成员（Berth）直接给 `lines`。
  */
 export function PendingAnswer({
   ask,
@@ -238,6 +250,7 @@ export function PendingAnswer({
   label,
   agent,
   session,
+  lines,
   bare,
 }: {
   ask: GroupEvent
@@ -245,6 +258,7 @@ export function PendingAnswer({
   label: string
   agent: string | null
   session: LiveSession | null
+  lines?: readonly LogLine[] | null
   /** 挂在群发回答卡里：不画头像。 */
   bare?: boolean
 }) {
@@ -275,7 +289,9 @@ export function PendingAnswer({
         {t(state)}
         <span className="tabular-nums">{elapsed(now - ask.timestamp_ms)}</span>
       </div>
-      {conversationId != null ? (
+      {lines ? (
+        <RecentLines lines={lines} />
+      ) : conversationId != null ? (
         <LiveLog
           conversationId={conversationId}
           since={ask.timestamp_ms}
@@ -288,18 +304,22 @@ export function PendingAnswer({
 
 /**
  * 已完成回答的过程日志（默认折叠，展开时才读会话）：从提问到这条回答之间它做了什么。
+ * 过程随回答存下的（Berth）直接给 `lines`。
  */
 export function ProcessLog({
   session,
+  lines,
   since,
   until,
 }: {
-  session: LiveSession
+  session?: LiveSession
+  lines?: readonly LogLine[]
   since: number
   until: number
 }) {
   const t = useTranslations("BerthTasks.group.pending")
-  const conversationId = useConversationId(session)
+  const conversationId = useConversationId(session ?? null)
+  if (lines) return <AllLines lines={lines} empty={t("noLog")} />
   return conversationId == null ? (
     <p className="text-xs text-muted-foreground">{t("waitingLog")}</p>
   ) : (
@@ -323,12 +343,24 @@ function FullLog({
     [detail, since, until]
   )
   return (
+    <AllLines lines={lines} empty={detail ? t("noLog") : t("waitingLog")} />
+  )
+}
+
+function AllLines({
+  lines,
+  empty,
+}: {
+  lines: readonly LogLine[]
+  empty: string
+}) {
+  return (
     <div
       data-process-log
       className="max-h-60 overflow-y-auto rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] leading-5 text-muted-foreground"
     >
       {lines.length === 0 ? (
-        <p>{detail ? t("noLog") : t("waitingLog")}</p>
+        <p>{empty}</p>
       ) : (
         lines.map((line, index) => <LogRow key={index} line={line} />)
       )}

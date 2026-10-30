@@ -1175,66 +1175,6 @@ export interface GitHubTokenValidation {
   message: string | null
 }
 
-export interface GithubStarredOwner {
-  login: string
-  avatar_url: string
-}
-
-export interface GithubStarredRepo {
-  id: number
-  name: string
-  full_name: string
-  description: string | null
-  html_url: string
-  clone_url: string | null
-  stargazers_count: number
-  forks_count: number
-  language: string | null
-  created_at: string | null
-  updated_at: string | null
-  pushed_at: string | null
-  starred_at: string | null
-  owner: GithubStarredOwner
-  topics: string[]
-  license: string | null
-  archived: boolean
-}
-
-export interface GithubStarredResult {
-  repos: GithubStarredRepo[]
-  synced_at: string | null
-  account_id: string | null
-  readme: string | null
-  rate_limit_remaining: number | null
-}
-
-export type TrendingTimeRange = "daily" | "weekly" | "monthly"
-
-export interface GithubTrendingOwner {
-  login: string
-  avatar_url: string
-}
-
-export interface GithubTrendingRepo {
-  rank: number
-  name: string
-  full_name: string
-  description: string | null
-  html_url: string
-  stargazers_count: number | null
-  forks_count: number | null
-  language: string | null
-  license?: string | null
-  owner: GithubTrendingOwner
-}
-
-export interface GithubTrendingResult {
-  repos: GithubTrendingRepo[]
-  fetched_at: string
-  time_range: TrendingTimeRange
-  rate_limit_remaining: number | null
-}
-
 export interface FolderCommand {
   id: number
   folder_id: number

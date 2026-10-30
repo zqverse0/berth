@@ -1,5 +1,5 @@
 //! `tool_assets(request)` — 查看 Tool Asset（列表含停用插件 + 详情 + 包内
-//! 文档）、启用 / 停用插件，与把插件打包成 zip 分发。
+//! 文档）、启用 / 停用插件、从官方插件仓库安装，与把插件打包成 zip 分发。
 //!
 //! 复用 `berth-tool-core` 的发现、开放投影与启用状态；本层只补充适合前端
 //! 展示的摘要与包内 `usage.md`。本命令不启动进程。
@@ -34,6 +34,16 @@ pub enum ToolAssetsRequest {
         id: String,
         path: String,
     },
+    /// 官方插件仓库里可安装的插件（会联网克隆）。
+    Catalog,
+    /// 从 git 来源（`<仓库>#<子目录>`）安装插件，返回刷新后的列表。
+    Install {
+        source: String,
+    },
+    /// 删除插件目录与它的状态条目，返回刷新后的列表。
+    Remove {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +63,24 @@ pub enum ToolAssetsResponse {
     Packed {
         path: String,
     },
+    Catalog {
+        repository: String,
+        plugins: Vec<ToolCatalogEntry>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCatalogEntry {
+    /// 传给 `install` 的来源。
+    pub source: String,
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    /// 包内 `icon.svg|icon.png` 的 data URL。
+    pub icon: Option<String>,
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,7 +134,53 @@ pub async fn tool_assets(
             pack(&package, &id, Path::new(&path))?;
             Ok(ToolAssetsResponse::Packed { path })
         }
+        ToolAssetsRequest::Catalog => blocking(catalog).await,
+        ToolAssetsRequest::Install { source } => {
+            blocking(move || {
+                berth_tool_core::plugins::install(&source)
+                    .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
+                list()
+            })
+            .await
+        }
+        ToolAssetsRequest::Remove { id } => {
+            berth_tool_core::plugins::remove(&id)
+                .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
+            crate::preview_watch::stop_watches_without_provider();
+            list()
+        }
     }
+}
+
+/// git 克隆是阻塞的网络操作，不占 async 运行时线程。
+async fn blocking(
+    operation: impl FnOnce() -> Result<ToolAssetsResponse, AppCommandError> + Send + 'static,
+) -> Result<ToolAssetsResponse, AppCommandError> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
+}
+
+fn catalog() -> Result<ToolAssetsResponse, AppCommandError> {
+    let repo = berth_tool_core::plugins::OFFICIAL_REPO;
+    let installed = crate::tool::asset_repository::list_installed_tool_asset_ids();
+    let plugins = berth_tool_core::plugins::catalog(repo, |name, dir, raw| {
+        let id = raw.get("id").and_then(Value::as_str).unwrap_or(name).to_string();
+        ToolCatalogEntry {
+            source: format!("{repo}#{name}"),
+            name: localized_text(raw.pointer("/identity/name")).unwrap_or_else(|| id.clone()),
+            description: localized_text(raw.pointer("/identity/description")),
+            version: version_text(&raw),
+            icon: crate::commands::launchbar::icon_data_url(dir).ok().flatten(),
+            installed: installed.contains(&id),
+            id,
+        }
+    })
+    .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
+    Ok(ToolAssetsResponse::Catalog {
+        repository: repo.to_string(),
+        plugins,
+    })
 }
 
 /// 打包插件目录（跳过 `.git` 与符号链接，保留文件权限），条目都放在 `<id>/` 下。
@@ -157,6 +231,9 @@ fn pack(package: &Path, id: &str, dest: &Path) -> Result<(), AppCommandError> {
 }
 
 fn list() -> Result<ToolAssetsResponse, AppCommandError> {
+    // 新装用户还没有插件目录：先建好，「打开目录」才打得开。
+    let directory = crate::tool::path::cli_tools_directory();
+    std::fs::create_dir_all(&directory).map_err(AppCommandError::io)?;
     let tools = crate::tool::asset_repository::list_installed_tool_asset_ids()
         .into_iter()
         .map(
@@ -169,9 +246,7 @@ fn list() -> Result<ToolAssetsResponse, AppCommandError> {
         .collect();
     Ok(ToolAssetsResponse::List {
         tools,
-        directory: crate::tool::path::cli_tools_directory()
-            .to_string_lossy()
-            .into_owned(),
+        directory: directory.to_string_lossy().into_owned(),
     })
 }
 
@@ -209,14 +284,7 @@ fn summary(id: &str, asset: &crate::tool::asset::ToolAsset) -> ToolAssetSummary 
         id: id.to_string(),
         name: localized_text(raw.pointer("/identity/name")).unwrap_or_else(|| id.to_string()),
         description: localized_text(raw.pointer("/identity/description")),
-        version: ["/version", "/revision"]
-            .iter()
-            .find_map(|pointer| raw.pointer(pointer))
-            .map(|value| {
-                value
-                    .as_str()
-                    .map_or_else(|| value.to_string(), str::to_string)
-            }),
+        version: version_text(raw),
         protocol: asset.protocol().map(str::to_string),
         contributes: dir
             .map(|dir| berth_tool_core::package::contributions(&dir, raw))
@@ -224,6 +292,17 @@ fn summary(id: &str, asset: &crate::tool::asset::ToolAsset) -> ToolAssetSummary 
         enabled: berth_tool_core::plugins::is_enabled(id),
         diagnostics,
     }
+}
+
+fn version_text(raw: &Value) -> Option<String> {
+    ["/version", "/revision"]
+        .iter()
+        .find_map(|pointer| raw.pointer(pointer))
+        .map(|value| {
+            value
+                .as_str()
+                .map_or_else(|| value.to_string(), str::to_string)
+        })
 }
 
 fn broken_summary(id: String, message: String) -> ToolAssetSummary {

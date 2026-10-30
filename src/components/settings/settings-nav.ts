@@ -36,6 +36,7 @@ export const GENERAL_SECTIONS = {
   advanced: [
     "version",
     "proxy",
+    "git",
     "runtime",
     "backup",
     "translate",

@@ -289,3 +289,58 @@ describe("GroupTimeline turn files", () => {
     expect(screen.getByText("old.md").closest("button")).toBeDisabled()
   })
 })
+
+describe("GroupTimeline Berth process", () => {
+  const ask: GroupEvent = { ...event(1), author: "user", to: "berth" }
+  const lines = [
+    { text: "→ bash berth tools list" },
+    { text: "✗ old_text not found", error: true },
+  ]
+
+  it("shows Berth's steps under the question while it works", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <GroupTimeline
+          events={[ask]}
+          delivery={{ 1: "delivered" }}
+          agentOf={() => null}
+          onContext={() => {}}
+          liveLogOf={(event) => (event.seq === 1 ? lines : null)}
+        />
+      </NextIntlClientProvider>
+    )
+    const log = document.querySelector("[data-pending-log]")
+    expect(log).toHaveTextContent("→ bash berth tools list")
+    expect(screen.getByText("✗ old_text not found")).toHaveClass(
+      "text-destructive"
+    )
+  })
+
+  it("keeps the steps with the answer, folded until opened", () => {
+    const answer: GroupEvent = {
+      ...event(2),
+      author: "berth",
+      source: "transcript",
+      reply_to: 1,
+      steps: lines,
+    }
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <GroupTimeline
+          events={[ask, answer]}
+          delivery={{ 1: "delivered" }}
+          agentOf={() => null}
+          onContext={() => {}}
+          processOf={(event) =>
+            event.steps ? { lines: event.steps, since: ask.timestamp_ms } : null
+          }
+        />
+      </NextIntlClientProvider>
+    )
+    expect(document.querySelector("[data-process-log]")).toBeNull()
+    fireEvent.click(document.querySelector("[data-process-toggle='2']")!)
+    expect(document.querySelector("[data-process-log]")).toHaveTextContent(
+      "→ bash berth tools list"
+    )
+  })
+})

@@ -2,36 +2,50 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "gh",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "requires": {
+    "process": 1,
+    "http": 1,
+    "storage": 1
+  },
+  "permissions": ["process", "network"],
   "contributes": {
     "identity": {
       "name": "Git & GitHub",
       "roles": [],
-      "tags": [
-        "cli",
-        "github",
-        "git"
-      ],
+      "tags": ["cli", "github", "git"],
       "description": "Git plus GitHub's official CLI (gh). Settings here hold Berth's Git program and the accounts used for git push/pull and Discover; agents use gh to open PRs, watch CI checks and address review feedback without leaving Berth.",
       "homepage": "https://cli.github.com"
     },
     "install": {
       "bin": "gh",
       "paths": {
-        "unix": [
-          "~/.local/bin/gh"
-        ],
-        "windows": [
-          "%ProgramFiles%/GitHub CLI/gh.exe"
-        ]
+        "unix": ["~/.local/bin/gh"],
+        "windows": ["%ProgramFiles%/GitHub CLI/gh.exe"]
       },
-      "version": [
-        "--version"
-      ],
+      "version": ["--version"],
       "latest": {
         "github": "cli/cli"
       }
-    }
+    },
+    "view": [
+      {
+        "id": "discover",
+        "title": {
+          "en": "Discover",
+          "zh-CN": "发现"
+        },
+        "icon": "views/discover.svg",
+        "location": "sidebar",
+        "script": "views/discover.js"
+      },
+      {
+        "id": "readme",
+        "title": "README",
+        "location": "tab",
+        "script": "views/readme.js"
+      }
+    ]
   },
   "resources": {},
   "knowledge": {

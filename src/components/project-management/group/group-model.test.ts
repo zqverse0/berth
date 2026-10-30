@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { type GroupEvent, type GroupMember } from "@/lib/agent/berth-group"
+import {
+  builtinMember,
+  type GroupEvent,
+  type GroupMember,
+} from "@/lib/agent/berth-group"
 import type { AgentPaneRow } from "@/lib/terminal/agent-panes"
 import {
   activeDelegations,
@@ -63,6 +67,13 @@ function message(
 }
 
 describe("memberRows", () => {
+  it("shows the built-in Berth member as working or idle without a terminal", () => {
+    const status = (busy: boolean) =>
+      memberRows([builtinMember({ name: "berth", busy })], [], [], {})[0].status
+    expect(status(true)).toBe("working")
+    expect(status(false)).toBe("idle")
+  })
+
   it("joins members to their panes, marks unread attention and sorts by urgency", () => {
     const rows = memberRows(
       [
@@ -214,26 +225,17 @@ describe("group activity", () => {
     { ...at, seq: 5, kind: "left", author: "c" },
   ]
 
-  it("keeps joins, leaves and commits out of the group timeline", () => {
-    expect(
-      timelineItems(events).map((item) =>
-        item.kind === "event" ? item.event.seq : item.events[0].seq
-      )
-    ).toEqual([2, 4])
-  })
-
-  it("hides system notices unless asked", () => {
+  it("shows only messages: joins, leaves, commits and system notices stay in the ledger", () => {
     const withNotices: GroupEvent[] = [
       ...events,
       { ...at, seq: 6, kind: "system", event: "started", branch: "b" },
       { ...at, seq: 7, kind: "spec", rev: 2 },
     ]
-    const seqs = (showSystem: boolean) =>
-      timelineItems(withNotices, showSystem).map((item) =>
+    expect(
+      timelineItems(withNotices).map((item) =>
         item.kind === "event" ? item.event.seq : item.events[0].seq
       )
-    expect(seqs(false)).toEqual([2, 4])
-    expect(seqs(true)).toEqual([2, 4, 6, 7])
+    ).toEqual([2, 4])
   })
 
   it("lists queued and working delegations newest first", () => {

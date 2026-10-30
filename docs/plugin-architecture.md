@@ -76,6 +76,20 @@
 
 两种环境说同一种消息。页面的「后端」逻辑写成脚本，用 `scripts.run` 调用。
 
+### 2.5 界面两层
+
+插件的界面只有两种写法，按需要选，能用第 1 层就不用第 2 层：
+
+| 层 | 插件提供 | 谁来画 | 适合 |
+|---|---|---|---|
+| 1. 声明式视图 | 脚本返回视图数据（§4.1） | 宿主用自己的组件 | 列表、详情、少量操作——绝大多数工具 |
+| 2. 页面 | 包内 `.html`（§2.4 页面环境） | 插件自己 | 需要自绘的界面（画布、编辑器） |
+
+第 1 层与宿主原生界面无差别（主题、快捷键、右键菜单、焦点都是宿主的），插件只依赖 §4.1
+的数据格式。第 2 层宿主负责把割裂压到最低：注入宿主 CSS 变量、字体与基础样式，iframe 无边框
+透明背景；主题变化经 `ui.onTheme` 推送；iframe 内按键转发给宿主快捷键；菜单、确认框、通知由
+宿主画（`ui` 命名空间）。插件不进主窗口的 JS 环境（不做 Obsidian 式进程内加载）。
+
 ## 3. 命名空间
 
 第一批（全部 @1）。方法清单以 `plugins/api/<命名空间>.schema.json` 为准，`berth-plugin.d.ts` 由它生成。
@@ -93,6 +107,7 @@
 | `ui` | 页面 | 无 | 主题、通知、标签标题、打开本插件的其他页面 |
 | `env` | 两者 | 无 | 平台、Berth 版本、当前项目 |
 | `data` | 脚本 | 无 | TOML 解析 / 生成（JSON 用内置 `JSON`） |
+| `http` | 脚本 | `network` | 发 HTTP 请求（`fetch`），拿状态、响应头与文本 |
 
 ## 4. 接入点（`contributes`）
 
@@ -101,7 +116,7 @@
 | `identity` | 名字、描述、图标、主页、标签 | — | 设置页、列表展示 |
 | `agent` | 启动栏（`launchbar`）、会话格式、用量、服务商注入、登录、能力目录、首条 prompt、打断键；入口 `launch.js` | `agent.args`、`agent.launch`、`agent.isNativePlugin` | 输入校验、专家、服务商档案、能力索引、hook、终端 |
 | `command` | 标题、脚本 | `command.run` | 命令面板 |
-| `view` | 标题、图标、页面入口 | — | 侧栏 / 命令面板入口、标签页 |
+| `view` | 标题、图标、位置；`script`（第 1 层）或 `page`（第 2 层）二选一 | `view.render`（第 1 层） | 侧栏 / 标签页入口、加载与错误态、刷新、执行动作（§4.1） |
 | `editor` | 后缀、页面入口、可选「新建」模板 | `editor.externalChange` | 读写文件、保存、脏标记、外部修改冲突 |
 | `preview` | 后缀、程序参数、协议 `watch/1` | — | 只读预览、元素拾取 |
 | `extract` | 后缀、程序参数 | — | 文档文本进 Agent 上下文 |
@@ -110,9 +125,64 @@
 
 新增接入点 = 新增一个键 + 宿主一处消费，不动已有键。
 
+### 4.1 视图（`view`）
+
+```json
+"contributes": {
+  "view": [
+    {
+      "id": "discover",
+      "title": { "en": "Discover", "zh-CN": "发现" },
+      "icon": "icon.svg",
+      "location": "sidebar",
+      "script": "views/discover.js"
+    }
+  ]
+}
+```
+
+| 键 | 含义 |
+|---|---|
+| `id` | 包内唯一，`[a-z0-9-]+` |
+| `title` | 字符串，或按语言的对象（缺当前语言取 `en`） |
+| `icon` | 包内 svg / png；省略用插件图标 |
+| `location` | `sidebar`：侧栏活动栏一个入口；`tab`：只能被 `open-view` 动作打开，在工作区标签页显示 |
+| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层 |
+
+`script` 默认导出 `render(req)`，返回下列视图之一（类型见 `berth-plugin.d.ts` `ViewResult`）：
+
+- `req`：`{ view, params, filter, dropdown, locale, refresh }`——`params` 来自 `open-view` 动作，`filter` / `dropdown`
+  是当前选中的筛选项 / 下拉项 id（没选过为 null，插件按第一个渲染），`locale` 是界面语言（`zh-CN`、`en`），插件据此
+  给出文字；`refresh` 为真表示用户点了刷新，插件应绕过自己的缓存。
+- `list`：`filters?`（顶栏分段）、`dropdown?`（`{ items: [{ id, title }] }`，正文顶部的下拉选择）、`note?`（下拉旁的
+  一行小字，如更新时间）、`searchable?`（宿主按标题 / 副标题本地筛选）、`items`、`empty?`。
+  每项 `{ id, title, subtitle?, icon?, accessories?, actions? }`：`accessories` 每个 `{ text, icon?, tooltip? }`；
+  点击行执行第一个动作，带 `inline` 的动作画成行尾图标按钮（`hover` 悬停时出现、`always` 常驻），其余进行尾「…」菜单。
+- `detail`：`{ title?, markdown, actions? }`，Markdown 由宿主渲染。
+
+图标（`icon`，行尾信息与动作共用）只能取宿主的固定名字，由宿主用自己的图标画（随主题）；只增不改：
+`star`、`star-filled`、`fork`、`external-link`、`copy`、`book`、`download`、`folder-input`、`link`、`send`。未知名字不画图标。
+
+宿主按「视图 + 筛选 + 下拉」记住上次的渲染结果：切回时先显示它，同时在后台重新渲染。
+- `detail`：`{ title?, markdown, actions? }`，Markdown 由宿主渲染。
+
+动作（只增不改）：
+
+| `type` | 字段 | 宿主行为 |
+|---|---|---|
+| `open-url` | `url` | 系统浏览器打开 |
+| `open-view` | `view`、`params?` | 在工作区标签页打开本插件的另一个视图 |
+| `script` | `script`、`input?`、`refresh?` | 运行包内脚本（默认导出函数收 `input`）；`refresh` 为真时完成后重新渲染当前视图 |
+| `copy` | `text` | 复制到剪贴板 |
+| `clone` | `url`、`pickDirectory?` | 用 Berth 的 Git 账号把仓库 clone 到「记住的目录/仓库名」（第一次或 `pickDirectory` 时先选目录），完成后作为项目打开 |
+| `send-to-agent` | `text` | 把文字放进当前 Agent 终端的输入框（不提交）；没有 Agent 时复制到剪贴板。菜单文字由宿主给（带 Agent 名） |
+
+每个动作还有 `title`，可选 `icon`、`inline`。脚本抛错时宿主显示错误与重试；渲染期间显示加载态；视图标题栏带刷新按钮。
+未知的视图 `type` / 动作 `type` 宿主忽略并在 `tools check` 报出。
+
 ## 5. 权限
 
-`process`、`fs`、`project.files`、`tasks`、`knowledge`、`agent`、`network`（页面联网；默认 CSP 禁止）。
+`process`、`fs`、`project.files`、`tasks`、`knowledge`、`agent`、`network`（脚本的 `http`、页面联网；默认 CSP 禁止）。
 - 安装 / 启用时列给用户；新版本申请了新权限，更新时再确认一次。
 - 未申请的调用一律回 `denied`。官方插件同样声明，不走后门。
 - 权限名只增不改。
@@ -145,6 +215,7 @@
 |---|---|
 | 2026-10-25 | 初版：第一批命名空间 @1，接入点 identity / agent / command / view / editor / preview / extract / install / guide |
 | 2026-10-26 | process@1 加 `open`（常驻程序逐行对话）；fs@1 加 `mkdir`、`readText` 的 `tailBytes`；`ProviderModel` 加 `endpoint` |
+| 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
 
 ## 8. 与现状的迁移
 
@@ -154,3 +225,5 @@
 - Python `launch.py` 与 `runtime/berth_launch.py` → `launch.js` 与 `agent.*` 钩子，`berth_launch.py`
   的逻辑并入宿主。2026-10-26 已完成，宿主不再运行 `launch.py`（`docs/REMOVED.md`）。
 - 内置 Excalidraw → 官方 `editor` 插件，迁出后删除内置代码与依赖。
+- 内置「发现」（GitHub 趋势 / 星标）→ 官方 `gh` 插件的 `view`（第 1 层），平台第一个实验；2026-10-30 用户确认后
+  删除内置代码（`docs/REMOVED.md`）。

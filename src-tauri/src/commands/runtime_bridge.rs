@@ -66,6 +66,7 @@ pub async fn runtime_bridge_operation(
                         },
                     )
             };
+            let launch_env = launch.as_ref().map(|launch| launch.env.clone());
             return match crate::berth_tasks::collaboration::call(
                 &method,
                 &project_root,
@@ -74,7 +75,22 @@ pub async fn runtime_bridge_operation(
             )
             .await
             {
-                Ok(result) => Ok(json!({
+                Ok(result) => {
+                    // 发给内置成员 Berth 的消息：宿主在后台回答（没带模型则回一句说明）。
+                    use crate::berth_tasks::collaboration::berth_member;
+                    if method == "group.post"
+                        && params.get("to").and_then(Value::as_str)
+                            == Some(berth_group::builtin::BERTH)
+                    {
+                        berth_member::start(
+                            db.conn.clone(),
+                            &project_root,
+                            result.clone(),
+                            berth_member::Choice::from_params(&params),
+                            launch_env.unwrap_or_default(),
+                        );
+                    }
+                    Ok(json!({
                     "ok": true,
                     "result": result,
                     "meta": {
@@ -83,7 +99,8 @@ pub async fn runtime_bridge_operation(
                         "durationMs": started.elapsed().as_millis(),
                         "method": method,
                     }
-                })),
+                    }))
+                }
                 Err(message) => Ok(json!({
                     "ok": false,
                     "error": {
@@ -96,8 +113,12 @@ pub async fn runtime_bridge_operation(
         }
 
         // 会话分类、`decision.*`（Jev）与 `device.*` 要异步、要数据库，不走下面的阻塞分发。
-        const CLASSIFY_METHODS: &[&str] =
-            &["knowledge.classify", "knowledge.experts", "knowledge.classifier", "knowledge.setClassifier"];
+        const CLASSIFY_METHODS: &[&str] = &[
+            "knowledge.classify",
+            "knowledge.experts",
+            "knowledge.classifier",
+            "knowledge.setClassifier",
+        ];
         if CLASSIFY_METHODS.contains(&method.as_str())
             || method.starts_with("decision.")
             || method.starts_with("device.")
@@ -117,7 +138,9 @@ pub async fn runtime_bridge_operation(
                 let mount_root = app
                     .path()
                     .app_data_dir()
-                    .map(|dir| crate::platform::paths::resolve_effective_data_dir(&dir).join("remote"))
+                    .map(|dir| {
+                        crate::platform::paths::resolve_effective_data_dir(&dir).join("remote")
+                    })
                     .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
                 let emitter = crate::event_bridge::EventEmitter::Tauri(app.clone());
                 crate::devices::dispatch(&db, &emitter, &mount_root, &method, &params).await
@@ -217,12 +240,23 @@ fn expert_operation(method: &str, params: &Value) -> Result<Value, String> {
     match method {
         "expert.catalog" => experts::catalog(&home),
         "expert.save" => {
-            let expert = serde_json::from_value(params["expert"].clone()).map_err(|error| format!("专家无效：{error}"))?;
-            experts::save(&home, id, &expert, params["promptText"].as_str(), params["modified"].as_u64())
-                .map(|()| Value::Null)
+            let expert = serde_json::from_value(params["expert"].clone())
+                .map_err(|error| format!("专家无效：{error}"))?;
+            experts::save(
+                &home,
+                id,
+                &expert,
+                params["promptText"].as_str(),
+                params["modified"].as_u64(),
+            )
+            .map(|()| Value::Null)
         }
-        "expert.asset" => experts::asset(&home, params["kind"].as_str().unwrap_or_default(), id).map(Value::from),
-        "expert.create" => experts::create(&home, id, params["name"].as_str().unwrap_or(id)).map(|()| Value::Null),
+        "expert.asset" => {
+            experts::asset(&home, params["kind"].as_str().unwrap_or_default(), id).map(Value::from)
+        }
+        "expert.create" => {
+            experts::create(&home, id, params["name"].as_str().unwrap_or(id)).map(|()| Value::Null)
+        }
         "expert.delete" => experts::delete(&home, id).map(|()| Value::Null),
         _ => Err(format!("Unsupported expert operation: {method}")),
     }

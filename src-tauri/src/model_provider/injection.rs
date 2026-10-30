@@ -35,11 +35,35 @@ pub async fn resolve_for_launch(
     let Some(project_type) = profile.project_type.as_deref() else {
         return Ok(Vec::new());
     };
-    let Some(launch) = model_provider_launch::load(conn, provider_id, project_type)
+    let Some(launch_profile) = launch_profile(
+        conn,
+        provider_id,
+        project_type,
+        spec.apis.as_deref(),
+        model_id,
+    )
+    .await?
+    else {
+        return Ok(Vec::new());
+    };
+    provider_injection::write_launch_profile(&launch_profile)
+        .map_err(AppCommandError::configuration_invalid)
+}
+
+/// 服务商档案 → 启动档案（各模型选定的接口与端点、各端点的地址与 Key，经代理时为代理地址）。
+/// 官方档案或找不到为 `None`。`agent_type` 决定叠加哪个 Agent 的模型清单；Berth 群成员也用它。
+pub async fn launch_profile(
+    conn: &DatabaseConnection,
+    provider_id: i32,
+    agent_type: &str,
+    apis: Option<&[String]>,
+    model_id: Option<&str>,
+) -> Result<Option<provider_injection::LaunchProfile>, AppCommandError> {
+    let Some(launch) = model_provider_launch::load(conn, provider_id, agent_type)
         .await
         .map_err(AppCommandError::from)?
     else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let provider = &launch.provider;
     let api_key = crate::model_provider::secrets::load_api_key(conn, provider)
@@ -78,10 +102,9 @@ pub async fn resolve_for_launch(
                 .as_ref()
                 .map(|(base_url, token)| ProxyRoute { base_url, token }),
         },
-        spec.apis.as_deref(),
+        apis,
         model_id,
     )
     .map_err(AppCommandError::configuration_invalid)?;
-    provider_injection::write_launch_profile(&launch_profile)
-        .map_err(AppCommandError::configuration_invalid)
+    Ok(Some(launch_profile))
 }

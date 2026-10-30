@@ -5,13 +5,6 @@ use tauri::State;
 use crate::app_error::AppCommandError;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
-use crate::git::github_starred;
-#[cfg(feature = "tauri-runtime")]
-use crate::git::github_starred::GithubStarredResult;
-#[cfg(feature = "tauri-runtime")]
-use crate::git::github_trending;
-#[cfg(feature = "tauri-runtime")]
-use crate::git::github_trending::GithubTrendingResult;
 use crate::models::GitDetectResult;
 #[cfg(feature = "tauri-runtime")]
 use crate::models::GitHubAccountsSettings;
@@ -254,6 +247,19 @@ struct GitHubUserResponse {
     avatar_url: Option<String>,
 }
 
+/// github.com → api.github.com；企业实例 → `{url}/api/v3`。
+fn github_api_base(server_url: &str) -> String {
+    let trimmed = server_url.trim().trim_end_matches('/');
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("https://github.com")
+        || trimmed.eq_ignore_ascii_case("http://github.com")
+    {
+        "https://api.github.com".to_string()
+    } else {
+        format!("{trimmed}/api/v3")
+    }
+}
+
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn validate_github_token(
     server_url: String,
@@ -266,7 +272,7 @@ pub async fn validate_github_token(
         return Err(AppCommandError::invalid_input("Token cannot be empty"));
     }
 
-    let api_url = format!("{}/user", github_starred::github_api_base(trimmed_url));
+    let api_url = format!("{}/user", github_api_base(trimmed_url));
 
     let response = reqwest::Client::new()
         .get(&api_url)
@@ -320,33 +326,4 @@ pub async fn validate_github_token(
         avatar_url: user.avatar_url,
         message: None,
     })
-}
-
-// ---------------------------------------------------------------------------
-// GitHub starred repos（启动器星标管理，净增 1 个聚合命令）
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn github_starred(
-    op: String,
-    owner: Option<String>,
-    name: Option<String>,
-    db: State<'_, AppDatabase>,
-) -> Result<GithubStarredResult, AppCommandError> {
-    github_starred::github_starred_core(&db.conn, &op, owner.as_deref(), name.as_deref()).await
-}
-
-// ---------------------------------------------------------------------------
-// GitHub trending repos（启动器发现）
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn github_trending(
-    time_range: String,
-    force: Option<bool>,
-    db: State<'_, AppDatabase>,
-) -> Result<GithubTrendingResult, AppCommandError> {
-    github_trending::github_trending_core(&db.conn, &time_range, force.unwrap_or(false)).await
 }

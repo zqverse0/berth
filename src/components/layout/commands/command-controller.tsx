@@ -32,10 +32,7 @@ import {
   type WorkspaceCommandAction,
 } from "@/components/layout/commands/command-palette"
 import { workspaceTabKey } from "@/lib/workspace/workspace-tab-placement"
-import {
-  GIT_ACCOUNTS_TOOL_ID,
-  useToolsSettingsStore,
-} from "@/stores/tools-settings-store"
+import { useGeneralSectionStore } from "@/components/settings/settings-nav"
 
 /** 所有工作区命令和键盘路由的唯一入口。 */
 export function WorkspaceCommandController() {
@@ -201,9 +198,7 @@ export function WorkspaceCommandController() {
       { id: "open_git", run: () => openView("git") },
       { id: "open_berth_tasks", run: () => openView("tasks") },
       { id: "open_group", run: () => openView("group") },
-      { id: "open_sessions", run: () => openView("sessions") },
       { id: "open_memory", run: () => openView("memory") },
-      { id: "open_discover", run: () => openView("discover") },
       {
         id: "open_settings_appearance",
         run: () => openSettings("appearance"),
@@ -214,10 +209,10 @@ export function WorkspaceCommandController() {
       },
       {
         id: "open_settings_version_control",
-        // Git 程序与账号合并进 工具 → GitHub CLI（GIT_ACCOUNTS_TOOL_ID）。
+        // Git 程序与账号在 高级 → Git。
         run: () => {
-          useToolsSettingsStore.getState().selectTool(GIT_ACCOUNTS_TOOL_ID)
-          openSettings("tools")
+          useGeneralSectionStore.setState({ section: "git" })
+          openSettings("advanced")
         },
       },
       {

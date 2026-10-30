@@ -57,7 +57,8 @@ mod tauri_app {
         editor_language_packs as editor_language_pack_commands, file_io, folder_commands, folders,
         git, launchbar as launchbar_commands, logging as logging_commands,
         model_provider as model_provider_commands, notification,
-        pdf_preview as pdf_preview_commands, preview_tools as preview_tools_commands, primary_tabs,
+        pdf_preview as pdf_preview_commands, plugin_views as plugin_view_commands,
+        preview_tools as preview_tools_commands, primary_tabs,
         quick_messages as quick_messages_commands, runtime_bridge as runtime_bridge_commands,
         system_settings, terminal as terminal_commands, tool_assets as tool_asset_commands,
         translate as translate_commands, version_control, windows, workspace_files,
@@ -243,6 +244,15 @@ mod tauri_app {
                 // override.
                 unsafe {
                     std::env::set_var("BERTH_DATA_DIR", &effective_data_dir);
+                }
+
+                // 内置资产（群组成员 Berth 的提示词）缺什么补什么，已存在不动。
+                match berth_tool_core::builtin::ensure() {
+                    Ok(written) if !written.is_empty() => {
+                        tracing::info!("[builtin] installed {}", written.join(", "))
+                    }
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!("[builtin] cannot install built-in assets: {error}"),
                 }
 
                 // HOME 是用户资产（tools/experts/skills），DATA 是应用数据
@@ -714,10 +724,9 @@ mod tauri_app {
                 version_control::save_account_token,
                 version_control::get_account_token,
                 version_control::delete_account_token,
-                version_control::github_starred,
-                version_control::github_trending,
                 launchbar_commands::launchbar,
                 tool_asset_commands::tool_assets,
+                plugin_view_commands::plugin_views,
                 automation_commands::automations,
                 preview_tools_commands::install_preview_tool,
                 preview_tools_commands::preview_tool_status,

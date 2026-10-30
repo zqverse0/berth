@@ -73,10 +73,11 @@ Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
 ## 快速开始
 
 1. **安装 Berth**：从 [Releases](https://github.com/zqverse0/berth/releases) 下载对应平台的安装包。
-2. **安装 Agent 插件**（Berth 不自带插件，按需装你在用的）：
+2. **安装 Agent 插件**（Berth 不自带插件，按需装你在用的）：在「设置 → 插件 → 插件仓库」里点选，
+   或在终端运行（从 [berth-plugins](https://github.com/zqverse0/berth-plugins) 仓库安装，需要本机有 `git`）：
    ```bash
-   berth tools install https://github.com/zqverse0/berth#plugins/claude
-   berth tools install https://github.com/zqverse0/berth#plugins/codex
+   berth tools install claude
+   berth tools install codex
    ```
    也可以把 [`plugins/`](plugins/) 下的目录直接拷进 `~/.berth/tools/`，再到「设置 → 插件」里刷新。
 3. **打开项目**：选一个本地文件夹，或者从 GitHub 星标里克隆。

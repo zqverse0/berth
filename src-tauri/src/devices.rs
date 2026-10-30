@@ -611,9 +611,10 @@ mod tests {
                 .output()
                 .unwrap()
         };
-        let out = run(&root);
-        assert!(out.status.success());
+        // macOS 的临时目录在符号链接 /var 下，用规范路径执行，pwd 才与期望一致。
         let canonical = root.canonicalize().unwrap();
+        let out = run(&canonical);
+        assert!(out.status.success());
         let expected = format!("{}\na\nit's b\n", canonical.display());
         assert_eq!(String::from_utf8_lossy(&out.stdout), expected);
         assert!(!run(&root.join("missing")).status.success());

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -62,7 +62,11 @@ describe("ToolsSettingsPage", () => {
     toolAssets.mockImplementation(
       (request: { type: string; enabled?: boolean }) => {
         if (request.type === "pack") return Promise.resolve({ type: "packed" })
-        if (request.type === "list" || request.type === "set_enabled") {
+        if (
+          request.type === "list" ||
+          request.type === "set_enabled" ||
+          request.type === "remove"
+        ) {
           return Promise.resolve({
             type: "list",
             directory: "/home/user/.berth/tools",
@@ -123,8 +127,9 @@ describe("ToolsSettingsPage", () => {
     expect(screen.getByText("Agents")).toBeInTheDocument()
     expect(screen.getByText("/home/user/.berth/tools")).toBeInTheDocument()
     expect(screen.getByText("2 capabilities")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "For agents" }))
     expect(
-      screen.getByText(/Run Codex from the launch bar/)
+      await screen.findByText(/Run Codex from the launch bar/)
     ).toBeInTheDocument()
   })
 
@@ -138,7 +143,8 @@ describe("ToolsSettingsPage", () => {
     )
 
     expect(await screen.findByText("v1.0.0")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Pack" }))
+    await user.click(screen.getByRole("tab", { name: "Develop" }))
+    await user.click(await screen.findByRole("button", { name: "Pack" }))
     expect(saveFileDialog).toHaveBeenCalledWith(
       expect.objectContaining({ defaultPath: "codex-1.0.0.zip" })
     )
@@ -286,5 +292,81 @@ describe("ToolsSettingsPage", () => {
     )
     expect(await screen.findByText("Up to date")).toBeInTheDocument()
     expect(checkToolUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it("opens the plugin repository when nothing is installed and installs from it", async () => {
+    const pi = {
+      id: "pi",
+      name: "Pi",
+      contributes: ["agent"],
+      enabled: true,
+      diagnostics: [],
+    }
+    let tools: unknown[] = []
+    toolAssets.mockImplementation((request: { type: string }) => {
+      if (request.type === "catalog") {
+        return Promise.resolve({
+          type: "catalog",
+          repository: "https://github.com/zqverse0/berth-plugins",
+          plugins: [
+            {
+              source: "https://github.com/zqverse0/berth-plugins#pi",
+              id: "pi",
+              name: "Pi",
+              description: "Pi coding agent",
+              version: "1.0.0",
+              icon: "data:image/svg+xml;base64,PHN2Zy8+",
+              installed: false,
+            },
+          ],
+        })
+      }
+      if (request.type === "install") tools = [pi]
+      if (request.type === "detail" || request.type === "load") {
+        return Promise.resolve({
+          type: "detail",
+          detail: { summary: pi, directory: "/t/pi", raw: {} },
+        })
+      }
+      return Promise.resolve({ type: "list", directory: "/t", tools })
+    })
+    const user = userEvent.setup()
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <ToolsSettingsPage />
+      </NextIntlClientProvider>
+    )
+
+    expect(await screen.findByText("Pi coding agent")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Install" }))
+    expect(toolAssets).toHaveBeenCalledWith({
+      type: "install",
+      source: "https://github.com/zqverse0/berth-plugins#pi",
+    })
+    expect(
+      await screen.findByRole("button", { name: "Installed" })
+    ).toBeInTheDocument()
+  })
+
+  it("removes a plugin only after confirming", async () => {
+    const user = userEvent.setup()
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <ToolsSettingsPage />
+      </NextIntlClientProvider>
+    )
+
+    await user.click(await screen.findByRole("tab", { name: "Develop" }))
+    await user.click(await screen.findByRole("button", { name: "Remove" }))
+    expect(toolAssets).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "remove" })
+    )
+    expect(screen.getByText("Remove Codex CLI?")).toBeInTheDocument()
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove",
+      })
+    )
+    expect(toolAssets).toHaveBeenCalledWith({ type: "remove", id: "codex" })
   })
 })

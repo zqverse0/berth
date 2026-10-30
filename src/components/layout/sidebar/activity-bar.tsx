@@ -1,7 +1,7 @@
 "use client"
 
-import { memo, useEffect, useRef } from "react"
-import { PanelLeft, Settings } from "lucide-react"
+import { memo, useEffect, useRef, type ReactNode } from "react"
+import { PanelLeft, Puzzle, Settings } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { useAppUiStore } from "@/stores/app-ui-store"
@@ -14,6 +14,10 @@ import type { SettingsPageId } from "@/lib/workspace/settings-tab"
 import { useWorkbenchLayout } from "@/hooks/workspace/use-workbench-layout"
 import { SETTINGS_NAV, settingsNavOf } from "@/components/settings/settings-nav"
 import { commandHint } from "@/components/layout/commands/commands"
+import {
+  pluginSidebarViewId,
+  usePluginViewsStore,
+} from "@/lib/plugins/plugin-views"
 import {
   SIDEBAR_VIEWS,
   useSidebarViewLabel,
@@ -36,14 +40,35 @@ export function SidebarViewNav({ className }: { className?: string }) {
   const toggleSidebar = useAppUiStore((state) => state.toggleSidebar)
   const getLabel = useSidebarViewLabel()
   const { isActive: settingsActive, closeSettings } = useSettingsWorkspace()
+  const loadPluginViews = usePluginViewsStore((state) => state.load)
+  const pluginViews = usePluginViewsStore((state) => state.views)
+  // 离开设置时重读：可能刚在「工具」里启停了插件。
+  useEffect(() => {
+    if (!settingsActive) void loadPluginViews()
+  }, [settingsActive, loadPluginViews])
+
+  const items: {
+    id: SidebarView
+    icon: ReactNode
+  }[] = [
+    ...SIDEBAR_VIEWS.map((item) => ({
+      id: item.id,
+      icon: <item.icon className="size-[1.125rem]" />,
+    })),
+    ...pluginViews
+      .filter((view) => view.location === "sidebar")
+      .map((view) => ({
+        id: pluginSidebarViewId(view),
+        icon: <PluginViewIcon src={view.icon} />,
+      })),
+  ]
 
   return (
     <nav
       aria-label={t("views")}
       className={cn("flex flex-col items-center gap-1.5", className)}
     >
-      {SIDEBAR_VIEWS.map((item) => {
-        const Icon = item.icon
+      {items.map((item) => {
         const active = sidebarOpen && view === item.id
         const label = getLabel(item.id)
         return (
@@ -66,12 +91,29 @@ export function SidebarViewNav({ className }: { className?: string }) {
             aria-label={label}
             aria-pressed={active}
           >
-            <Icon className="size-[1.125rem]" />
+            {item.icon}
             {item.id === "projects" ? <AttentionBadge /> : null}
           </Button>
         )
       })}
     </nav>
+  )
+}
+
+/** 插件视图图标：用作遮罩、填当前文字色，与内置图标一样随主题与激活态变色。 */
+function PluginViewIcon({ src }: { src?: string | null }) {
+  if (!src) return <Puzzle className="size-[1.125rem]" />
+  return (
+    <span
+      aria-hidden="true"
+      className="size-[1.125rem] bg-current"
+      style={{
+        maskImage: `url("${src}")`,
+        maskSize: "contain",
+        maskRepeat: "no-repeat",
+        maskPosition: "center",
+      }}
+    />
   )
 }
 

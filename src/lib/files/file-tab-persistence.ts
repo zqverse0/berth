@@ -20,6 +20,7 @@ export type PersistedFileReaderTab =
       folderId: number
     }
   | { kind: "task"; taskDirName: string; title: string; folderId: number }
+  | { kind: "berth-session"; session: string; title: string; folderId: number }
 
 export interface PersistedFileReaderState {
   version: 2
@@ -88,6 +89,20 @@ function parseTab(value: unknown): PersistedFileReaderTab | null {
     }
   }
 
+  if (
+    tab.kind === "berth-session" &&
+    typeof tab.session === "string" &&
+    typeof tab.title === "string" &&
+    typeof tab.folderId === "number"
+  ) {
+    return {
+      kind: "berth-session",
+      session: tab.session,
+      title: tab.title,
+      folderId: tab.folderId,
+    }
+  }
+
   // 历史 localStorage 里可能残留 web reader tab(模块已删除);
   // parseTab 对未知 kind 返回 null,由调用侧 flatMap 静默丢弃。
 
@@ -122,6 +137,16 @@ export function serializeFileReaderState(
             kind: "transcript",
             conversationId: tab.conversationId,
             agentType: tab.agentType,
+            title: tab.title,
+            folderId: tab.folderId,
+          },
+        ]
+      }
+      if (tab.kind === "berth-session") {
+        return [
+          {
+            kind: "berth-session",
+            session: tab.session,
             title: tab.title,
             folderId: tab.folderId,
           },

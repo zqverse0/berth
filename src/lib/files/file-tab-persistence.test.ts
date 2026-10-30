@@ -130,4 +130,33 @@ describe("file reader persistence", () => {
       activeTabIdByFolder: {},
     })
   })
+
+  it("restores a Berth session tab", () => {
+    const state = serializeFileReaderState(
+      [
+        {
+          id: "berth-session:7:20261030-090000",
+          kind: "berth-session",
+          folderId: 7,
+          session: "20261030-090000",
+          title: "Berth · what changed?",
+          description: "20261030-090000",
+          path: null,
+          loading: false,
+          readonly: true,
+          saveState: "idle",
+          saveError: null,
+        },
+      ],
+      null
+    )
+    expect(parseFileReaderState(JSON.stringify(state)).tabs).toEqual([
+      {
+        kind: "berth-session",
+        session: "20261030-090000",
+        title: "Berth · what changed?",
+        folderId: 7,
+      },
+    ])
+  })
 })

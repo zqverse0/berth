@@ -95,10 +95,8 @@ fn build(index: usize, prompt: Option<&Turn>, body: &[&Turn]) -> Exchange {
                 Block::Text { .. } if turn.role == "assistant" && answer_at != Some((t, b)) => {
                     steps.extend(text(block).map(str::to_owned));
                 }
-                Block::ToolUse { tool_use_id, tool_name, input_preview } => {
-                    if let Some(id) = tool_use_id {
-                        calls.insert(id, (tool_name, input_preview.as_deref().unwrap_or_default()));
-                    }
+                Block::ToolUse { tool_use_id: Some(id), tool_name, input_preview } => {
+                    calls.insert(id, (tool_name, input_preview.as_deref().unwrap_or_default()));
                 }
                 Block::ToolResult { tool_use_id, output_preview, is_error: true } => {
                     let (tool, input) = tool_use_id.as_deref().and_then(|id| calls.get(id).copied()).unwrap_or(("?", ""));

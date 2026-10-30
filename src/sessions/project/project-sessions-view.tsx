@@ -7,7 +7,6 @@ import { toast } from "@/lib/notify"
 import {
   SidebarHeaderActions,
   SidebarHeaderButton,
-  SidebarHeaderTabs,
 } from "@/components/layout/sidebar/sidebar-header"
 import { useSidebarViewStore } from "@/components/layout/sidebar/views"
 import {
@@ -25,7 +24,13 @@ import type { ProjectSessionOverviewItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { PROJECT_GROUP } from "@/lib/agent/berth-group"
+import {
+  BERTH_MEMBER,
+  listBerthSessions,
+  PROJECT_GROUP,
+} from "@/lib/agent/berth-group"
+import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
 import {
   folderIdFor,
@@ -72,22 +77,29 @@ function saveFilters(folderId: number, filters: SavedFilters): void {
 }
 
 /**
- * 侧栏「会话」视图，两级：本项目全部群目录下的 Agent 会话列表 → 当前焦点会话的
- * 大纲（阅读标签的目录 / Agent 终端的实时会话）。列表在第二级时保持挂载，返回时
- * 筛选与滚动位置不丢。
+ * 群组视图的「会话」页，两级：本项目全部群目录下的 Agent 会话（含 Berth 的会话：`agent` 为 `berth`，
+ * 开成 Berth 会话标签）列表 → 当前焦点会话的
+ * 大纲（阅读标签的目录 / Agent 终端的实时会话）。列表在第二级时保持挂载，返回时筛选与滚动位置不丢。
+ * 「在群里看它」切回成员页（`onShowMember`）。
  */
 export function ProjectSessionsView({
   folderId,
   active,
+  onShowMember,
 }: {
   folderId: number
   active: boolean
+  onShowMember?: () => void
 }) {
   const t = useTranslations("Folder.sessionsView")
   const format = useFormatter()
   const now = useNow({ updateInterval: 30_000 })
   const { agents } = useAgentProfiles()
   const openSession = useOpenProjectSession(folderId)
+  const workspace = useWorkspaceRuntimeActions()
+  const projectPath = useAppWorkspaceStore(
+    (state) => state.allFolders.find((folder) => folder.id === folderId)?.path
+  )
   const [filters, setFilters] = useState(() => ({
     ...NO_FILTERS,
     ...readSavedFilters()[folderId],
@@ -128,9 +140,37 @@ export function ProjectSessionsView({
   useEffect(() => {
     if (!active) return
     let cancelled = false
-    listProjectSessionOverview(folderId, limit)
-      .then((result) => {
-        if (!cancelled) setPage({ key: requestKey, ...result, error: null })
+    // Berth 的会话不在总览里（不是插件 Agent）：并进来按时间排。
+    Promise.all([
+      listProjectSessionOverview(folderId, limit),
+      listBerthSessions(folderId).then((response) =>
+        response.ok ? response.result : []
+      ),
+    ])
+      .then(([result, berth]) => {
+        if (cancelled) return
+        const dir = projectPath ?? ""
+        const items: ProjectSessionOverviewItem[] = [
+          ...result.items,
+          ...berth.map((session) => ({
+            agent: BERTH_MEMBER,
+            sessionId: session.name,
+            cwd: dir,
+            updatedAt: session.updatedAt ?? 0,
+            title: session.title,
+            group: PROJECT_GROUP,
+            groupName: dir.split(/[\\/]/).filter(Boolean).pop() ?? "",
+            groupDir: dir,
+            origin: "berth" as const,
+            liveMember: null,
+          })),
+        ].sort((a, b) => b.updatedAt - a.updatedAt)
+        setPage({
+          key: requestKey,
+          items,
+          hasMore: result.hasMore,
+          error: null,
+        })
       })
       .catch((error) => {
         if (!cancelled)
@@ -143,10 +183,12 @@ export function ProjectSessionsView({
     return () => {
       cancelled = true
     }
-  }, [active, folderId, limit, requestKey])
+  }, [active, folderId, limit, requestKey, projectPath])
 
   const agentName = (id: string) =>
-    agents.find((agent) => agent.id === id)?.name ?? id
+    id === BERTH_MEMBER
+      ? "Berth"
+      : (agents.find((agent) => agent.id === id)?.name ?? id)
   const choices = useMemo(
     () => ({
       // 记住的筛选值即使本页暂时没有对应会话，也留在选项里，免得显示成「任意」却在过滤。
@@ -176,6 +218,7 @@ export function ProjectSessionsView({
 
   /** 不能打开时的原因；能打开为 null。 */
   const blocked = (item: ProjectSessionOverviewItem) => {
+    if (item.agent === BERTH_MEMBER) return null
     const projectType = agents.find((a) => a.id === item.agent)?.projectType
     if (!item.sessionId || !projectType) return t("cannotOpenAgent")
     if (trimSlash(item.cwd) !== trimSlash(item.groupDir))
@@ -184,6 +227,14 @@ export function ProjectSessionsView({
   }
 
   const open = (item: ProjectSessionOverviewItem) => {
+    if (item.agent === BERTH_MEMBER && item.sessionId) {
+      workspace.openBerthSessionTab({
+        folderId,
+        session: item.sessionId,
+        title: `Berth · ${item.title ?? item.sessionId}`,
+      })
+      return
+    }
     const reason = blocked(item)
     if (reason || !item.sessionId) {
       if (reason) toast(reason)
@@ -209,6 +260,7 @@ export function ProjectSessionsView({
       store.setFocusedMember(item.liveMember)
       useAppUiStore.getState().showAuxView("group")
       useSidebarViewStore.getState().setView("group")
+      onShowMember?.()
     } catch (error) {
       toast.error(t("openFailed", { error: toErrorMessage(error) }))
     }
@@ -235,14 +287,6 @@ export function ProjectSessionsView({
         </div>
       ) : (
         <>
-          <SidebarHeaderTabs
-            tabs={[
-              { id: "all", label: t("all") },
-              { id: "live", label: t("live") },
-            ]}
-            value={filters.live ? "live" : "all"}
-            onChange={(id) => setFilter({ live: id === "live" })}
-          />
           <SidebarHeaderActions>
             <SidebarHeaderButton
               icon={RefreshCw}
@@ -272,13 +316,28 @@ export function ProjectSessionsView({
           </button>
         ) : null}
         <div className="space-y-1.5 border-b border-border/50 px-2 py-2">
-          <Input
-            value={filters.query}
-            placeholder={t("search")}
-            aria-label={t("search")}
-            className="h-7 text-xs"
-            onChange={(event) => setFilter({ query: event.target.value })}
-          />
+          <div className="flex gap-1">
+            <Input
+              value={filters.query}
+              placeholder={t("search")}
+              aria-label={t("search")}
+              className="h-7 text-xs"
+              onChange={(event) => setFilter({ query: event.target.value })}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={filters.live}
+              data-sessions-live
+              className={cn(
+                "h-7 shrink-0 px-2 text-xs",
+                filters.live && "border-primary/50 bg-primary/10"
+              )}
+              onClick={() => setFilter({ live: !filters.live })}
+            >
+              {t("live")}
+            </Button>
+          </div>
           <div className="flex gap-1">
             <select
               aria-label={t("agent")}
@@ -354,8 +413,12 @@ export function ProjectSessionsView({
                 >
                   <span className="relative">
                     <MemberAvatar
-                      agent={item.agent}
-                      name={agentName(item.agent)}
+                      agent={item.agent === BERTH_MEMBER ? null : item.agent}
+                      name={
+                        item.agent === BERTH_MEMBER
+                          ? BERTH_MEMBER
+                          : agentName(item.agent)
+                      }
                     />
                     {item.liveMember ? (
                       <span

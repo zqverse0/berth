@@ -299,7 +299,8 @@ mod tests {
         ];
         let (messages, latest) = condense(&turns, DateTime::<Utc>::UNIX_EPOCH);
         let texts = messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>();
-        assert_eq!(texts, ["ask", "a", "b", "可以", "done", "可以", "again"]);
+        // 原样重发只留最后一次：两次 "ask"、两次 "可以" 都只剩后一轮。
+        assert_eq!(texts, ["ask", "a", "b", "可以", "again"]);
         assert_eq!(latest, Some(turns[9].timestamp));
     }
 

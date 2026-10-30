@@ -19,6 +19,7 @@ pub mod notification;
 pub(crate) mod path_guard;
 #[cfg(feature = "tauri-runtime")]
 pub mod pdf_preview;
+pub mod plugin_views;
 pub mod preview_tools;
 pub mod primary_tabs;
 pub mod quick_messages;

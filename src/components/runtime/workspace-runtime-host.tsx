@@ -26,6 +26,7 @@ import {
 } from "@/lib/files/file-tab-persistence"
 import { buildFileTabId } from "@/lib/files/file-tab-id"
 import {
+  buildBerthSessionTabId,
   buildTaskTabId,
   buildTranscriptTabId,
 } from "@/lib/files/file-workspace-tab"
@@ -52,6 +53,21 @@ function fileRef(id: string, type?: FileWorkspaceTab["kind"]): WorkspaceTabRef {
 }
 
 function restoreTab(tab: PersistedFileReaderTab): FileWorkspaceTab {
+  if (tab.kind === "berth-session") {
+    return {
+      id: buildBerthSessionTabId(tab.folderId, tab.session),
+      kind: "berth-session",
+      folderId: tab.folderId,
+      session: tab.session,
+      title: tab.title,
+      description: tab.session,
+      path: null,
+      readonly: true,
+      loading: false,
+      saveState: "idle",
+      saveError: null,
+    }
+  }
   if (tab.kind === "task") {
     return {
       id: buildTaskTabId(tab.folderId, tab.taskDirName),

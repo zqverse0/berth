@@ -13,7 +13,6 @@ import {
 import { useTranslations } from "next-intl"
 import {
   AlertCircle,
-  Archive,
   ArrowDown,
   Check,
   ChevronRight,
@@ -21,13 +20,9 @@ import {
   Copy,
   Clock,
   GitCommitHorizontal,
-  Ban,
   Layers,
   MoreHorizontal,
-  Pencil,
   Reply,
-  Rocket,
-  ScrollText,
   SquareTerminal,
   CornerDownRight,
   FileMinus,
@@ -47,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  BERTH_MEMBER,
   type GroupEvent,
   GROUP_USER,
   type DeliveryState,
@@ -54,7 +50,12 @@ import {
 import { toast } from "@/lib/notify"
 import { joinRootRel } from "@/lib/files/file-open-target"
 import { isAbsoluteFilePath } from "@/lib/files/file-path-display"
-import { PendingAnswer, ProcessLog, type LiveSession } from "./group-pending"
+import {
+  PendingAnswer,
+  ProcessLog,
+  type LiveSession,
+  type LogLine,
+} from "./group-pending"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 import {
   delegationProgress,
@@ -120,7 +121,10 @@ export function MemberAvatar({
         className
       )}
     >
-      {agent ? (
+      {name === BERTH_MEMBER ? (
+        // eslint-disable-next-line @next/next/no-img-element -- 静态导出，直接引用软件图标
+        <img src="/icon-32x32.png" alt="" className="size-4" />
+      ) : agent ? (
         <AgentProfileIcon
           agentId={agent}
           name={name}
@@ -198,26 +202,6 @@ export function ProgressBadge({
     <span data-delivery={state} title={title} className={className}>
       {content}
     </span>
-  )
-}
-
-function SystemPill({
-  icon: Icon,
-  children,
-  time,
-}: {
-  icon: typeof Rocket
-  children: React.ReactNode
-  time: number
-}) {
-  return (
-    <div className="flex justify-center py-1">
-      <span className="flex max-w-[90%] items-center gap-1.5 rounded-full bg-muted/70 px-2.5 py-0.5 text-[11px] text-muted-foreground">
-        <Icon aria-hidden="true" className="size-3 shrink-0" />
-        <span className="min-w-0 truncate">{children}</span>
-        <span className="shrink-0 tabular-nums opacity-70">{clock(time)}</span>
-      </span>
-    </div>
   )
 }
 
@@ -533,11 +517,7 @@ const MemberMessage = memo(function MemberMessage({
             </button>
             {showProcess ? (
               <div className="mt-1">
-                <ProcessLog
-                  session={process.session}
-                  since={process.since}
-                  until={event.timestamp_ms}
-                />
+                <ProcessLog {...process} until={event.timestamp_ms} />
               </div>
             ) : null}
           </div>
@@ -635,10 +615,16 @@ function elapsedLabel(ms: number): string {
     : `${seconds}s`
 }
 
-/** 汇报的过程来源：它的会话与提问时间（过程日志从提问读到这条汇报）。 */
+/** 汇报的过程来源：它的会话或随回答存下的日志行，与提问时间（过程日志从提问读到这条汇报）。 */
 export type ProcessSource = (
   event: GroupEvent
-) => { session: LiveSession; since: number } | null
+) =>
+  | { session: LiveSession; since: number }
+  | { lines: readonly LogLine[]; since: number }
+  | null
+
+/** 提问 → 没有会话可读的成员（Berth）正在回答它时的执行过程。 */
+export type LiveLogOf = (ask: GroupEvent) => readonly LogLine[] | null
 
 const FILE_ICON = {
   added: { Icon: FilePlus, className: "text-emerald-600" },
@@ -737,9 +723,11 @@ function AnswerGroup({
   progressOf,
   onOpen,
   liveSessionOf,
+  liveLogOf,
   ...actions
 }: {
   liveSessionOf?: (member: string) => LiveSession | null
+  liveLogOf?: LiveLogOf
   processOf?: ProcessSource
   onOpenFile?: (path: string) => void
   asks: readonly GroupEvent[]
@@ -794,6 +782,7 @@ function AnswerGroup({
           label={labelOf(name)}
           agent={agentOf(name)}
           session={liveSessionOf?.(name) ?? null}
+          lines={liveLogOf?.(current)}
         />
       </div>
     )
@@ -881,6 +870,7 @@ function AnswerGroup({
                   label={labelOf(ask.to ?? "")}
                   agent={agentOf(ask.to ?? "")}
                   session={liveSessionOf?.(ask.to ?? "") ?? null}
+                  lines={liveLogOf?.(ask)}
                   bare
                 />
               ) : (
@@ -922,8 +912,8 @@ export const GroupTimeline = memo(function GroupTimeline({
   onOpenTerminal,
   forwardTo = [],
   onForward,
-  showSystem = false,
   liveSessionOf,
+  liveLogOf,
   processOf,
   onOpenFile,
 }: {
@@ -946,10 +936,10 @@ export const GroupTimeline = memo(function GroupTimeline({
   forwardTo?: readonly string[]
   /** 把一条回答转给另一位成员（引用它发过去）。 */
   onForward?: (event: GroupEvent, member: string) => void
-  /** 显示开工 / 收尾、改名、契约升版等系统事件。 */
-  showSystem?: boolean
   /** 成员正在用的会话：进行中的提问下显示它的会话日志。 */
   liveSessionOf?: (member: string) => LiveSession | null
+  /** 没有会话可读的成员（Berth）正在回答时的执行过程。 */
+  liveLogOf?: LiveLogOf
   /** 汇报的过程日志来源（默认折叠）。 */
   processOf?: ProcessSource
   /** 在工作区打开一个文件（汇报里改了的文件）。 */
@@ -973,10 +963,7 @@ export const GroupTimeline = memo(function GroupTimeline({
     () => delegationProgress(allEvents, delivery),
     [allEvents, delivery]
   )
-  const items = useMemo(
-    () => timelineItems(events, showSystem),
-    [events, showSystem]
-  )
+  const items = useMemo(() => timelineItems(events), [events])
   const heads = useMemo(
     () =>
       items.map((item) => (item.kind === "ask" ? item.events[0] : item.event)),
@@ -1180,6 +1167,7 @@ export const GroupTimeline = memo(function GroupTimeline({
                       progressOf={progressOf}
                       onOpen={onContext}
                       liveSessionOf={liveSessionOf}
+                      liveLogOf={liveLogOf}
                       {...actions}
                     />
                   </div>
@@ -1206,52 +1194,6 @@ export const GroupTimeline = memo(function GroupTimeline({
                 </RelayLine>
               ) : (
                 message
-              )
-            } else if (event.kind === "system" && event.event === "started") {
-              node = (
-                <SystemPill icon={Rocket} time={event.timestamp_ms}>
-                  {t(event.resumed ? "event.resumed" : "event.started", {
-                    branch: event.branch ?? "",
-                    base: event.base ?? "",
-                  })}
-                </SystemPill>
-              )
-            } else if (event.kind === "system" && event.event === "finished") {
-              node = event.abandoned ? (
-                <SystemPill icon={Ban} time={event.timestamp_ms}>
-                  {event.branch
-                    ? t(
-                        event.branchDeleted
-                          ? "event.abandonedDeleted"
-                          : "event.abandonedKept",
-                        {
-                          branch: event.branch,
-                          commit: event.commit?.slice(0, 7) ?? "",
-                        }
-                      )
-                    : t("event.abandoned")}
-                </SystemPill>
-              ) : (
-                <SystemPill icon={Archive} time={event.timestamp_ms}>
-                  {t("event.finished", { branch: event.branch ?? "" })}
-                </SystemPill>
-              )
-            } else if (event.kind === "renamed" && event.member) {
-              node = (
-                <SystemPill icon={Pencil} time={event.timestamp_ms}>
-                  {event.label
-                    ? t("event.renamed", {
-                        name: event.member,
-                        label: event.label,
-                      })
-                    : t("event.renamedBack", { name: event.member })}
-                </SystemPill>
-              )
-            } else if (event.kind === "spec") {
-              node = (
-                <SystemPill icon={ScrollText} time={event.timestamp_ms}>
-                  {t("event.spec", { rev: event.rev ?? 0 })}
-                </SystemPill>
               )
             }
             return node ? (

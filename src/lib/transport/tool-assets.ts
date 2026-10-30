@@ -25,16 +25,33 @@ export type ToolAssetDetail = {
   usage?: string | null
 }
 
+/** 官方插件仓库里的一个插件。 */
+export type ToolCatalogEntry = {
+  /** 传给 `install` 的来源。 */
+  source: string
+  id: string
+  name: string
+  description?: string | null
+  version?: string | null
+  /** 包内 `icon.svg|icon.png` 的 data URL。 */
+  icon?: string | null
+  installed: boolean
+}
+
 export type ToolAssetsRequest =
   | { type: "list" }
   | { type: "load"; id: string }
   | { type: "set_enabled"; id: string; enabled: boolean }
   | { type: "pack"; id: string; path: string }
+  | { type: "catalog" }
+  | { type: "install"; source: string }
+  | { type: "remove"; id: string }
 
 export type ToolAssetsResponse =
   | { type: "list"; tools: ToolAssetSummary[]; directory: string }
   | { type: "detail"; detail: ToolAssetDetail }
   | { type: "packed"; path: string }
+  | { type: "catalog"; repository: string; plugins: ToolCatalogEntry[] }
 
 export function toolAssets(
   request: ToolAssetsRequest

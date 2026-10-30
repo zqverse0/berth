@@ -1,0 +1,18 @@
+[package]
+name = "berth-agent"
+version.workspace = true
+description = "Berth's built-in coding agent: a minimal loop (read / bash / edit / write) over genai. The system prompt is only what the caller passes; no built-in prompt. No clap / Tauri dependencies."
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+futures = "0.3"
+genai = "=0.7.2"
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

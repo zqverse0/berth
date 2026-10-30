@@ -1,5 +1,6 @@
 import { registerBackendScopedStoreReset } from "./backend-scoped-store-reset"
 import { create } from "zustand"
+import { BERTH_MEMBER } from "@/lib/agent/berth-group"
 import { useAppUiStore } from "./app-ui-store"
 import { useWorkspaceLayoutStore } from "./workspace-layout-store"
 
@@ -9,6 +10,7 @@ export const useGroupWorkspaceStore = create<{
   group: string | null
   previewTabId: string | null
   emptyMember: string | null
+  /** 单聊的成员；null 为群聊。进群默认和 Berth 单聊。 */
   focusedMember: string | null
   setFocusedMember: (name: string | null) => void
   selectGroup: (folderId: number, group: string) => void
@@ -38,7 +40,7 @@ export const useGroupWorkspaceStore = create<{
       group,
       previewTabId: null,
       emptyMember: null,
-      focusedMember: null,
+      focusedMember: BERTH_MEMBER,
     })
   },
   preview: (previewTabId, emptyMember) => {

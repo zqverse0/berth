@@ -41,12 +41,12 @@ describe("group viewing context", () => {
     useGroupWorkspaceStore.getState().selectGroup(7, "b")
     expect(useAppUiStore.getState().auxPanelOpen).toBe(true)
   })
-  it("preserves filtering in the same group and clears it when changing groups", () => {
+  it("preserves filtering in the same group and opens Berth's chat when changing groups", () => {
     const store = useGroupWorkspaceStore.getState()
     store.setFocusedMember("agent-1")
     store.selectGroup(7, "a")
     expect(useGroupWorkspaceStore.getState().focusedMember).toBe("agent-1")
     store.selectGroup(8, "a")
-    expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
+    expect(useGroupWorkspaceStore.getState().focusedMember).toBe("berth")
   })
 })

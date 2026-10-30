@@ -64,6 +64,7 @@
       "background": "Workspace background",
       "version": "Version & updates",
       "proxy": "Network proxy",
+      "git": "Git",
       "runtime": "System runtime",
       "backup": "Backup",
       "translate": "Translate",
@@ -325,7 +326,10 @@
       "serverRequired": "Server URL is required.",
       "usernameRequired": "Username is required.",
       "passwordRequired": "Password is required."
-    }
+    },
+    "programTitle": "Git program",
+    "accountsTitle": "Accounts",
+    "accountsNote": "Berth uses these accounts itself: credentials for git push/pull, and stars and trending in Discover. The gh CLI has its own login (run `gh auth login` in a terminal); the two are independent."
   },
   "ShortcutControlPanel": {
     "sectionTitle": "Shortcuts",
@@ -1428,7 +1432,6 @@
         "group": "Group",
         "tasks": "Tasks",
         "memory": "Memory",
-        "discover": "Discover",
         "collaboration": "Collaboration",
         "terminal": "Terminal"
       },
@@ -2852,9 +2855,7 @@
       "cloneFailed": "Failed to clone repository"
     },
     "sessionsView": {
-      "current": "Current session",
       "back": "Back to sessions",
-      "all": "All",
       "live": "Running",
       "refresh": "Refresh",
       "search": "Search title or session id",
@@ -2864,6 +2865,8 @@
       "anyOrigin": "All origins",
       "group": "Group",
       "anyGroup": "All groups",
+      "memberInGroup": "Show in group",
+      "current": "Current session",
       "origins": {
         "berth": "Berth",
         "external": "External",
@@ -2873,7 +2876,6 @@
       "untitled": "(no user message)",
       "open": "Open session",
       "liveAs": "running as {member}",
-      "memberInGroup": "Show in group",
       "loadMore": "Load more",
       "cannotOpenAgent": "This Agent's sessions cannot be opened in Berth",
       "cannotOpenSubdir": "Sessions started in a subdirectory cannot be opened yet",
@@ -2890,75 +2892,6 @@
       "viewModes": "Repository views",
       "trending": "Trending",
       "starred": "Starred"
-    },
-    "githubStars": {
-      "sync": "Sync",
-      "syncing": "Syncing…",
-      "syncedAt": "Last synced {time}",
-      "neverSynced": "Not synced yet",
-      "search": "Search starred repos",
-      "sort": "Sort",
-      "sortStars": "Stars",
-      "sortUpdated": "Updated",
-      "sortStarred": "Starred",
-      "sortName": "Name",
-      "allLanguages": "All languages",
-      "allTopics": "All topics",
-      "allLicenses": "All licenses",
-      "noLicense": "No license",
-      "emptyAccount": "Add a GitHub account to sync starred repositories.",
-      "addAccount": "Add GitHub account",
-      "emptyCache": "No starred cache yet. Sync to pull your GitHub stars.",
-      "emptyFilter": "No repositories match the current filters.",
-      "otherAccountCache": "This list was synced with another GitHub account. Sync again to refresh.",
-      "openGithub": "Open on GitHub",
-      "clone": "Clone",
-      "readmeEmpty": "No README found.",
-      "readmeFailed": "Failed to load README: {error}",
-      "filter": "Filter",
-      "cloneTo": "Clone to another folder…",
-      "cloneInto": "Clone into {dir}",
-      "clonePickDir": "Clone (choose a folder first)",
-      "cloneExists": "{path} already exists",
-      "openFolder": "Open",
-      "copyLink": "Copy link",
-      "copyCloneCommand": "Copy clone command",
-      "more": "More actions",
-      "undo": "Undo",
-      "readmeLoading": "Loading README…",
-      "archived": "Archived",
-      "syncFailed": "Sync failed",
-      "cloneFailed": "Clone failed",
-      "cloneOk": "Cloned to {path}",
-      "title": "Stars"
-    },
-    "githubTrending": {
-      "title": "GitHub Trending",
-      "description": "Discover repositories gaining momentum on GitHub.",
-      "range": "Time range",
-      "rangeDaily": "Today",
-      "rangeWeekly": "This week",
-      "rangeMonthly": "This month",
-      "search": "Search trending repositories",
-      "refresh": "Refresh",
-      "refreshing": "Refreshing…",
-      "loading": "Loading trends…",
-      "updatedAt": "Updated {time}",
-      "rateLimit": "API remaining: {count}",
-      "empty": "No trending repositories found.",
-      "emptySearch": "No repositories match your search.",
-      "loadFailed": "Couldn't load GitHub trending.",
-      "tryAgain": "Try again",
-      "openGithub": "Open on GitHub",
-      "star": "Star",
-      "unstar": "Unstar",
-      "starred": "Starred",
-      "notStarred": "Not starred",
-      "starSuccess": "Starred {name}",
-      "unstarSuccess": "Unstarred {name}",
-      "stars": "{count} stars",
-      "forks": "{count} forks",
-      "source": "Source: GitHub Trending RSS"
     },
     "config": {
       "createProject": "Create Project"
@@ -3475,12 +3408,11 @@
     "description": "Installed tools and what they provide in Berth.",
     "refresh": "Refresh",
     "loading": "Loading tools…",
-    "empty": "No plugins in the plugin folder yet. Put a plugin folder (with tool.json) there or unzip a plugin package into it, then click Refresh.",
+    "empty": "No plugins installed yet. Pick some from the Plugin repository above.",
     "selectTool": "Select a tool to see what it does.",
     "noContributions": "contributes nothing",
     "enabled": "Enabled",
     "disabledBadge": "Disabled",
-    "raw": "Manifest (tool.json)",
     "unexpectedResponse": "The tool asset service returned an unexpected response.",
     "capabilityCount": "{count, plural, one {# capability} other {# capabilities}}",
     "issueCount": "{count, plural, one {# issue} other {# issues}}",
@@ -3505,8 +3437,6 @@
     "programInstall": "Install",
     "programInstalling": "Installing…",
     "programMissingManual": "Not installed; the features above won't work yet. Install it following the official instructions, then Refresh.",
-    "gitAccountsTitle": "Accounts",
-    "gitAccountsNote": "These accounts are used by Berth itself (credentials for git push/pull, stars and trending in Discover). gh keeps its own login (run `gh auth login` in a terminal); the two are independent.",
     "updateChecking": "Checking for updates…",
     "updateCheckFailed": "Couldn't check for updates: {error}",
     "updateAvailable": "{version} available",
@@ -3525,12 +3455,8 @@
     "launchNote": "Pick a session, model, expert and more in the launch bar, then start.",
     "launchDisabled": "The plugin is disabled, so it is not in the launch bar.",
     "openLaunchbar": "Open launch bar",
-    "agentGuideTitle": "Usage for agents",
     "agentGuideOn": "Agents started from Berth are told about this tool and read the usage below with `berth tools show {id}` when they need it.",
     "agentGuideOff": "Disabled: agents are not told about this tool.",
-    "showUsage": "Show usage",
-    "filesTitle": "Files",
-    "advanced": "Advanced",
     "packageDir": "Plugin directory",
     "contributes": "Contribution points",
     "shelfMissing": "This agent's program was not found, so launching will fail.",
@@ -3539,7 +3465,29 @@
     "pack": "Pack",
     "packTitle": "Save plugin package",
     "packed": "Packed {name}",
-    "revealPacked": "Show in folder"
+    "revealPacked": "Show in folder",
+    "catalog": "Plugin repository",
+    "catalogLoading": "Reading the plugin repository…",
+    "catalogAlreadyInstalled": "Installed",
+    "catalogInstalled": "Installed {name}",
+    "catalogDescription": "Official Berth plugins. Click Install to use one; requires git on this machine.",
+    "remove": "Remove",
+    "removed": "Removed {name}",
+    "removeTitle": "Remove {name}?",
+    "removeBody": "This deletes the plugin's folder and its enabled state. You can reinstall it from the plugin repository.",
+    "cancel": "Cancel",
+    "tabOverview": "Overview",
+    "tabDefaults": "Launch defaults",
+    "tabAgent": "For agents",
+    "tabDevelop": "Develop",
+    "capabilitiesTitle": "Provides in Berth",
+    "goModelProviders": "Model providers",
+    "goExperts": "Experts",
+    "defaultsNote": "Values preselected each time you open the launch bar. They are the same values the launch bar remembers, so a change in either place shows up in both.",
+    "agentGuideAgent": "This guide is given to the agent when it starts.",
+    "openPackageDir": "Open folder",
+    "openManifest": "Open tool.json",
+    "dangerTitle": "Remove plugin"
   },
   "ExpertsPlaceholder": {
     "title": "Experts",
@@ -3919,6 +3867,22 @@
         "jump": "Jump to its terminal",
         "mention": "@ mention",
         "interrupt": "Interrupt",
+        "pageMembers": "Members",
+        "pageSessions": "Sessions",
+        "sessions": {
+          "toggle": "Sessions",
+          "loading": "Loading",
+          "current": "Current",
+          "live": "Running",
+          "own": "Its own"
+        },
+        "recordView": {
+          "loading": "Loading",
+          "empty": "No conversation with Berth yet.",
+          "incomplete": "This turn was stopped or failed; only the question and this answer were kept.",
+          "noOutput": "(no output yet)",
+          "usage": "{calls} calls · input {input} · output {output} · cached {cached} · context {context}"
+        },
         "needsYou": "Needs you",
         "leftCount": "Left ({count})",
         "status": {
@@ -3993,18 +3957,16 @@
         "dismiss": "Dismiss",
         "keysHint": "Enter to send · Shift+Enter newline",
         "attach": "Insert file paths",
-        "attachTitle": "Choose files to reference"
-      },
-      "event": {
-        "started": "Started · branch {branch} (from {base})",
-        "resumed": "Restarted · reusing branch {branch}",
-        "spec": "Contract bumped to rev {rev}",
-        "finished": "Finished · branch {branch} and its worktree removed",
-        "abandoned": "Task abandoned",
-        "abandonedKept": "Task abandoned · worktree removed, branch {branch} kept",
-        "abandonedDeleted": "Task abandoned · branch {branch} deleted (last commit {commit}; restore with git branch {branch} {commit})",
-        "renamed": "{name} renamed to {label}",
-        "renamedBack": "{name} back to its original name"
+        "attachTitle": "Choose files to reference",
+        "berthProvider": "Provider",
+        "berthModel": "Model",
+        "berthNoProvider": "Add a model provider with an API key in Settings → Model providers so Berth can answer",
+        "berthPlaceholder": "Message Berth (type / for commands)",
+        "berthStop": "Stop Berth",
+        "commandsLabel": "Commands",
+        "commands": {
+          "new": "Start a new session (earlier turns are left out)"
+        }
       },
       "fromTerminal": "From terminal #{number}; click to open",
       "terminalClosed": "That terminal is closed",
@@ -4023,8 +3985,7 @@
       "copied": "Copied",
       "more": "More",
       "chat": {
-        "all": "All",
-        "system": "Show system events"
+        "all": "All"
       },
       "pending": {
         "queued": "Queued",
@@ -4122,7 +4083,7 @@
     },
     "open_settings_version_control": {
       "title": "Settings: Git & GitHub accounts",
-      "description": "Open Tools → GitHub CLI to manage the Git program and accounts"
+      "description": "Open Advanced → Git to manage the Git program and accounts"
     },
     "open_settings_advanced": {
       "title": "Settings: Advanced",
@@ -4136,17 +4097,9 @@
       "title": "Open group",
       "description": "Show the project group chat"
     },
-    "open_sessions": {
-      "title": "Open sessions",
-      "description": "Show agent sessions of the project"
-    },
     "open_memory": {
       "title": "Open memory",
       "description": "Show the project knowledge base"
-    },
-    "open_discover": {
-      "title": "Open discover",
-      "description": "Show the discover view"
     }
   },
   "CommandPalette": {
@@ -4219,5 +4172,23 @@
     "decisionModel": "The decision model is set under 「Model providers」: open a model's decision panel on a decision profile and click 「Use as Berth's decision model」. Without one, the first decision profile is used.",
     "fileHint": "Questions, criteria and thresholds are the prompts Jev receives; the defaults come from testing on real sessions. To tune them, edit classifier.json. What Jev answered for each round is under 「Memory → Jev activity → Calls」.",
     "revealFile": "Show file"
+  },
+  "PluginViews": {
+    "refresh": "Refresh",
+    "retry": "Try again",
+    "loading": "Loading…",
+    "empty": "Nothing here",
+    "search": "Filter",
+    "more": "More actions",
+    "failed": "Failed to load: {error}",
+    "tabNeedsDetail": "This view can only be shown in the sidebar."
+  },
+  "RepoClone": {
+    "cloneInto": "Clone into {dir}",
+    "clonePickDir": "Clone (choose a folder first)",
+    "cloned": "Cloned to {path}",
+    "exists": "{path} already exists",
+    "open": "Open",
+    "failed": "Clone failed"
   }
 }

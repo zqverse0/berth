@@ -1,7 +1,7 @@
 {
   "name": "berth",
   "private": true,
-  "version": "0.36.12",
+  "version": "0.36.13",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev --turbopack",

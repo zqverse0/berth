@@ -982,7 +982,9 @@ mod tests {
     #[tokio::test]
     async fn add_folder_to_history_core_upserts_on_duplicate_path() {
         let db = fresh_in_memory_db().await;
-        let path = "/tmp/codeg-dup-test".to_string();
+        // 历史列表只返回仍存在的目录，所以用真实的临时目录。
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().to_string_lossy().into_owned();
         let first = add_folder_to_history_core(&db, path.clone())
             .await
             .expect("add 1st");

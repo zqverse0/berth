@@ -305,7 +305,7 @@ fn write_overview(root: &Path) -> io::Result<()> {
         let modified = fs::metadata(&index).and_then(|meta| meta.modified()).ok();
         rows.push((modified, format!("- **{folder}**（[索引]({folder}/{INDEX})）：{latest}")));
     }
-    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.0));
     let lines: Vec<_> = rows.into_iter().map(|(_, line)| line).collect();
     journal::write_file(
         &root.join(INDEX),

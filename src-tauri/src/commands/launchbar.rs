@@ -96,20 +96,39 @@ fn load_icon(agent: &str) -> Result<Option<String>, AppCommandError> {
             "icon agent directory must match [a-z0-9][a-z0-9._-]* (max 128 chars)",
         ));
     }
-    let dir = cli_tools_directory().join(agent);
-    for (file_name, mime) in ICON_FILES {
-        let path = dir.join(file_name);
-        let Ok(metadata) = std::fs::metadata(&path) else {
-            continue;
-        };
-        if !metadata.is_file() || metadata.len() > MAX_ICON_BYTES {
-            continue;
+    icon_data_url(&cli_tools_directory().join(agent))
+}
+
+/// 插件目录里的 `icon.svg|icon.png` 转成 data URL；没有或过大时为 None。
+pub(crate) fn icon_data_url(dir: &std::path::Path) -> Result<Option<String>, AppCommandError> {
+    for (file_name, _) in ICON_FILES {
+        if let Some(url) = image_data_url(&dir.join(file_name))? {
+            return Ok(Some(url));
         }
-        let bytes = std::fs::read(&path).map_err(AppCommandError::io)?;
-        let encoded = base64_encode(&bytes);
-        return Ok(Some(format!("data:{mime};base64,{encoded}")));
     }
     Ok(None)
+}
+
+/// svg / png 图片文件转成 data URL；不存在、不是这两种或过大时为 None。
+pub(crate) fn image_data_url(path: &std::path::Path) -> Result<Option<String>, AppCommandError> {
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let Some((_, mime)) = ICON_FILES
+        .iter()
+        .find(|(file_name, _)| file_name.ends_with(&format!(".{extension}")))
+    else {
+        return Ok(None);
+    };
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return Ok(None);
+    };
+    if !metadata.is_file() || metadata.len() > MAX_ICON_BYTES {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(path).map_err(AppCommandError::io)?;
+    Ok(Some(format!(
+        "data:{mime};base64,{}",
+        base64_encode(&bytes)
+    )))
 }
 
 fn base64_encode(bytes: &[u8]) -> String {

@@ -1,4 +1,12 @@
-import { realpathSync } from "node:fs"
+import {
+  existsSync,
+  lstatSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
+} from "node:fs"
 import { homedir } from "node:os"
 import { basename, dirname, join, resolve, sep } from "node:path"
 
@@ -102,4 +110,26 @@ export function configureDevInstance(env, home = homedir()) {
   ]) {
     delete env[name]
   }
+}
+
+// dev 实例的插件目录就是本 checkout 的 plugins/：在 dev 里改插件即改 git 源码，
+// 提交后 scripts/publish-plugins 同步到 GitHub。原有的插件副本改名保留，不删。
+export function linkDevPlugins(env, repoRoot) {
+  const tools = join(env.BERTH_HOME, "tools")
+  const plugins = join(repoRoot, "plugins")
+  let stat = null
+  try {
+    stat = lstatSync(tools)
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error
+  }
+  if (stat?.isSymbolicLink()) {
+    if (resolve(dirname(tools), readlinkSync(tools)) === plugins) return
+    unlinkSync(tools)
+  } else if (stat) {
+    let backup = `${tools}.copies`
+    for (let n = 2; existsSync(backup); n++) backup = `${tools}.copies-${n}`
+    renameSync(tools, backup)
+  }
+  symlinkSync(plugins, tools, "junction")
 }

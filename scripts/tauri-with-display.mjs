@@ -15,7 +15,7 @@ import { dirname, join } from "node:path"
 import { chmodSync, mkdirSync } from "node:fs"
 import process from "node:process"
 import { ensureLinuxDisplay } from "./ensure-linux-display.mjs"
-import { configureDevInstance } from "./dev-instance-env.mjs"
+import { configureDevInstance, linkDevPlugins } from "./dev-instance-env.mjs"
 
 ensureLinuxDisplay()
 
@@ -45,11 +45,13 @@ const isDev = args[0] === "dev"
 if (isDev) {
   try {
     configureDevInstance(process.env)
+    linkDevPlugins(process.env, join(import.meta.dirname, ".."))
   } catch (error) {
     console.error(`[tauri-with-display] ${error.message}`)
     process.exit(1)
   }
   console.log(`[tauri-with-display] dev assets at ${process.env.BERTH_HOME}`)
+  console.log(`[tauri-with-display] dev plugins at ${join(import.meta.dirname, "..", "plugins")}`)
   console.log(
     `[tauri-with-display] dev database at ${process.env.BERTH_DATA_DIR}/${process.env.BERTH_DATA_FILE}`
   )

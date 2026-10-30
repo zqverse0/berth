@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import enMessages from "@/i18n/messages/en.json"
 import { ActivityBar } from "@/components/layout/sidebar/activity-bar"
 import { RightEdgeChrome } from "@/components/layout/chrome/right-edge-chrome"
-import { useSidebarViewStore } from "@/components/layout/sidebar/views"
 
 const openSettingsMock = vi.fn()
 
@@ -60,18 +59,6 @@ describe("window edge chrome components", () => {
     expect(screen.getByRole("button", { name: /Sidebar/i })).toBeDefined()
     expect(screen.queryByRole("button", { name: /Open Folder/i })).toBeNull()
     expect(screen.getByRole("button", { name: "Git" })).toBeDefined()
-  })
-
-  it("hosts the terminal as a sidebar view in the ActivityBar", async () => {
-    const user = userEvent.setup()
-    render(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ActivityBar />
-      </NextIntlClientProvider>
-    )
-
-    await user.click(screen.getByRole("button", { name: "Terminal" }))
-    expect(useSidebarViewStore.getState().view).toBe("terminal")
   })
 
   it("keeps only the aux panel toggle on RightEdgeChrome", () => {

@@ -64,6 +64,7 @@
       "background": "工作区背景",
       "version": "版本与更新",
       "proxy": "网络代理",
+      "git": "Git",
       "runtime": "系统运行时",
       "backup": "备份",
       "translate": "翻译",
@@ -325,7 +326,10 @@
       "serverRequired": "请输入服务器地址。",
       "usernameRequired": "请输入用户名。",
       "passwordRequired": "请输入密码。"
-    }
+    },
+    "programTitle": "Git 程序",
+    "accountsTitle": "账号",
+    "accountsNote": "Berth 自己使用这些账号：git push/pull 的凭据，以及发现页的星标与趋势。gh 命令行有自己的登录（在终端运行 `gh auth login`），两边互不影响。"
   },
   "ShortcutControlPanel": {
     "sectionTitle": "快捷键",
@@ -1407,7 +1411,6 @@
         "group": "群组",
         "tasks": "任务",
         "memory": "记忆",
-        "discover": "发现",
         "collaboration": "协同",
         "terminal": "终端"
       },
@@ -2831,9 +2834,7 @@
       "cloneFailed": "克隆仓库失败"
     },
     "sessionsView": {
-      "current": "当前会话",
       "back": "返回会话列表",
-      "all": "全部",
       "live": "在跑",
       "refresh": "刷新",
       "search": "搜索标题或会话 id",
@@ -2843,6 +2844,8 @@
       "anyOrigin": "全部来源",
       "group": "群",
       "anyGroup": "全部群",
+      "memberInGroup": "在群里看它",
+      "current": "当前会话",
       "origins": {
         "berth": "Berth",
         "external": "外部",
@@ -2852,7 +2855,6 @@
       "untitled": "（没有用户发言）",
       "open": "打开会话",
       "liveAs": "在跑 · {member}",
-      "memberInGroup": "在群里看它",
       "loadMore": "加载更多",
       "cannotOpenAgent": "这个 Agent 的会话不能在 Berth 里打开",
       "cannotOpenSubdir": "在子目录里启动的会话暂时不能打开",
@@ -2869,75 +2871,6 @@
       "viewModes": "仓库视图",
       "trending": "趋势",
       "starred": "星标"
-    },
-    "githubStars": {
-      "sync": "同步",
-      "syncing": "同步中…",
-      "syncedAt": "上次同步 {time}",
-      "neverSynced": "尚未同步",
-      "search": "搜索星标仓库",
-      "sort": "排序",
-      "sortStars": "Star 数",
-      "sortUpdated": "更新时间",
-      "sortStarred": "收藏时间",
-      "sortName": "名称",
-      "allLanguages": "全部语言",
-      "allTopics": "全部话题",
-      "allLicenses": "全部许可证",
-      "noLicense": "无许可证",
-      "emptyAccount": "请添加 GitHub 账号以同步星标仓库。",
-      "addAccount": "添加 GitHub 账号",
-      "emptyCache": "还没有星标缓存，点同步从 GitHub 拉取。",
-      "emptyFilter": "没有符合筛选条件的仓库。",
-      "otherAccountCache": "当前列表来自另一个 GitHub 账号，请重新同步。",
-      "openGithub": "在 GitHub 打开",
-      "clone": "克隆",
-      "readmeEmpty": "没有 README。",
-      "readmeFailed": "README 加载失败：{error}",
-      "filter": "筛选",
-      "cloneTo": "克隆到其他目录…",
-      "cloneInto": "克隆到 {dir}",
-      "clonePickDir": "克隆（先选择目录）",
-      "cloneExists": "{path} 已存在",
-      "openFolder": "打开",
-      "copyLink": "复制链接",
-      "copyCloneCommand": "复制 clone 命令",
-      "more": "更多操作",
-      "undo": "撤销",
-      "readmeLoading": "正在加载 README…",
-      "archived": "已归档",
-      "syncFailed": "同步失败",
-      "cloneFailed": "克隆失败",
-      "cloneOk": "已克隆到 {path}",
-      "title": "星标"
-    },
-    "githubTrending": {
-      "title": "GitHub 趋势",
-      "description": "发现正在 GitHub 上获得关注的仓库。",
-      "range": "时间范围",
-      "rangeDaily": "今天",
-      "rangeWeekly": "本周",
-      "rangeMonthly": "本月",
-      "search": "搜索趋势仓库",
-      "refresh": "刷新",
-      "refreshing": "刷新中…",
-      "loading": "正在加载趋势…",
-      "updatedAt": "更新于 {time}",
-      "rateLimit": "API 剩余次数：{count}",
-      "empty": "暂时没有找到趋势仓库。",
-      "emptySearch": "没有符合搜索条件的仓库。",
-      "loadFailed": "GitHub 趋势加载失败。",
-      "tryAgain": "重试",
-      "openGithub": "在 GitHub 打开",
-      "star": "加入星标",
-      "unstar": "取消星标",
-      "starred": "已加入星标",
-      "notStarred": "未加入星标",
-      "starSuccess": "已将 {name} 加入星标",
-      "unstarSuccess": "已取消 {name} 的星标",
-      "stars": "{count} 个 Star",
-      "forks": "{count} 个 Fork",
-      "source": "数据源：GitHub Trending RSS"
     },
     "config": {
       "createProject": "创建项目"
@@ -3454,12 +3387,11 @@
     "description": "已安装的工具，以及它们在 Berth 中提供的能力。",
     "refresh": "刷新",
     "loading": "正在加载工具…",
-    "empty": "插件目录里还没有插件。把插件文件夹（含 tool.json）放进去或解压插件包到这里，再点「刷新」。",
+    "empty": "还没有安装插件，去上方「插件仓库」挑选。",
     "selectTool": "选择一个工具查看它能做什么。",
     "noContributions": "未接入任何位置",
     "enabled": "启用",
     "disabledBadge": "已停用",
-    "raw": "清单原文（tool.json）",
     "unexpectedResponse": "工具资产服务返回了意外结果。",
     "capabilityCount": "{count} 项能力",
     "issueCount": "{count} 个问题",
@@ -3484,8 +3416,6 @@
     "programInstall": "安装",
     "programInstalling": "正在安装…",
     "programMissingManual": "未安装，相关功能暂时不可用。请按官方说明安装后点「刷新」。",
-    "gitAccountsTitle": "账号",
-    "gitAccountsNote": "这些账号由 Berth 自己使用（git push/pull 的凭据、发现页的 star 与趋势）。gh 有自己的登录（在终端运行 `gh auth login`），两边互不影响。",
     "updateChecking": "正在检查更新…",
     "updateCheckFailed": "无法检查更新：{error}",
     "updateAvailable": "有新版本 {version}",
@@ -3504,12 +3434,8 @@
     "launchNote": "在启动栏选择会话、模型、专家等选项后启动。",
     "launchDisabled": "插件已停用，启动栏里不会出现它。",
     "openLaunchbar": "打开启动栏",
-    "agentGuideTitle": "给 Agent 的用法",
     "agentGuideOn": "经 Berth 启动的 Agent 会被告知这个工具，需要时运行 `berth tools show {id}` 读取下面的用法。",
     "agentGuideOff": "已停用：Agent 不会被告知这个工具。",
-    "showUsage": "查看用法",
-    "filesTitle": "文件",
-    "advanced": "高级",
     "packageDir": "插件目录",
     "contributes": "接入点",
     "shelfMissing": "未检测到这个 Agent 的程序，启动会失败。",
@@ -3518,7 +3444,29 @@
     "pack": "打包",
     "packTitle": "保存插件包",
     "packed": "已打包 {name}",
-    "revealPacked": "在文件夹中显示"
+    "revealPacked": "在文件夹中显示",
+    "catalog": "插件仓库",
+    "catalogLoading": "正在读取插件仓库…",
+    "catalogAlreadyInstalled": "已安装",
+    "catalogInstalled": "已安装 {name}",
+    "catalogDescription": "Berth 官方插件，点「安装」即可使用；需要本机已安装 git。",
+    "remove": "移除",
+    "removed": "已移除 {name}",
+    "removeTitle": "移除 {name}？",
+    "removeBody": "会删除这个插件的目录和启用状态。之后可以从插件仓库重新安装。",
+    "cancel": "取消",
+    "tabOverview": "概览",
+    "tabDefaults": "默认启动选项",
+    "tabAgent": "给 Agent",
+    "tabDevelop": "开发",
+    "capabilitiesTitle": "在 Berth 中提供",
+    "goModelProviders": "模型服务商",
+    "goExperts": "专家",
+    "defaultsNote": "每次打开启动栏时预先选好的值，和启动栏记住的是同一份；在启动栏里改了，这里也会跟着变。",
+    "agentGuideAgent": "启动这个 Agent 时，下面的说明会交给它。",
+    "openPackageDir": "打开目录",
+    "openManifest": "打开 tool.json",
+    "dangerTitle": "移除插件"
   },
   "ExpertsPlaceholder": {
     "title": "专家",
@@ -3898,6 +3846,22 @@
         "jump": "跳到它的终端",
         "mention": "@ 它",
         "interrupt": "打断",
+        "pageMembers": "成员",
+        "pageSessions": "会话",
+        "sessions": {
+          "toggle": "会话",
+          "loading": "读取中",
+          "current": "当前",
+          "live": "在跑",
+          "own": "它的"
+        },
+        "recordView": {
+          "loading": "读取中",
+          "empty": "还没有和 Berth 的对话。",
+          "incomplete": "这一轮被停下或出错，只存了提问和这句回答。",
+          "noOutput": "（还没有输出）",
+          "usage": "调用 {calls} 次 · 输入 {input} · 输出 {output} · 缓存 {cached} · 上下文 {context}"
+        },
         "needsYou": "需要你",
         "leftCount": "已离开（{count}）",
         "status": {
@@ -3972,18 +3936,16 @@
         "dismiss": "关闭",
         "keysHint": "Enter 发送 · Shift+Enter 换行",
         "attach": "插入文件路径",
-        "attachTitle": "选择要发给成员的文件"
-      },
-      "event": {
-        "started": "开工 · 分支 {branch}（基于 {base}）",
-        "resumed": "重新开工 · 接着用分支 {branch}",
-        "spec": "契约升到 rev {rev}",
-        "finished": "已收尾 · 分支 {branch} 和 worktree 已删除",
-        "abandoned": "已放弃任务",
-        "abandonedKept": "已放弃任务 · worktree 已删除，分支 {branch} 保留",
-        "abandonedDeleted": "已放弃任务 · 分支 {branch} 已删除（最后提交 {commit}，可用 git branch {branch} {commit} 找回）",
-        "renamed": "{name} 改名为 {label}",
-        "renamedBack": "{name} 改回原名"
+        "attachTitle": "选择要发给成员的文件",
+        "berthProvider": "服务商",
+        "berthModel": "模型",
+        "berthNoProvider": "先在「设置 → 模型服务商」添加一个填了 Key 的服务商，Berth 才能回答",
+        "berthPlaceholder": "发给 Berth（输入 / 选指令）",
+        "berthStop": "停止 Berth",
+        "commandsLabel": "指令",
+        "commands": {
+          "new": "开始新会话（之前的对话不再带入）"
+        }
       },
       "fromTerminal": "来自终端 #{number}，点击跳转",
       "terminalClosed": "这个终端已经关闭",
@@ -4002,8 +3964,7 @@
       "copied": "已复制",
       "more": "更多",
       "chat": {
-        "all": "全部",
-        "system": "显示系统事件"
+        "all": "全部"
       },
       "pending": {
         "queued": "排队中",
@@ -4101,7 +4062,7 @@
     },
     "open_settings_version_control": {
       "title": "设置：Git 与 GitHub 账号",
-      "description": "打开 工具 → GitHub CLI，管理 Git 程序与账号"
+      "description": "打开 高级 → Git，管理 Git 程序与账号"
     },
     "open_settings_advanced": {
       "title": "设置：高级",
@@ -4115,17 +4076,9 @@
       "title": "打开群组",
       "description": "显示项目群聊"
     },
-    "open_sessions": {
-      "title": "打开会话",
-      "description": "显示项目的 Agent 会话"
-    },
     "open_memory": {
       "title": "打开记忆",
       "description": "显示项目知识库"
-    },
-    "open_discover": {
-      "title": "打开发现",
-      "description": "显示发现视图"
     }
   },
   "CommandPalette": {
@@ -4219,5 +4172,23 @@
     "decisionModel": "决策模型在「模型服务商」里设置：打开决策档案某个模型的决策面板，点「设为 Berth 决策模型」；没设时自动用第一个决策档案。",
     "fileHint": "问法、判定标准和阈值是交给 Jev 的题目，默认值来自真实会话实测；要调就改 classifier.json。每轮 Jev 怎么答的，在「记忆 → Jev 动态 → 调用」里看。",
     "revealFile": "在文件夹中显示"
+  },
+  "PluginViews": {
+    "refresh": "刷新",
+    "retry": "重试",
+    "loading": "加载中…",
+    "empty": "暂无内容",
+    "search": "筛选",
+    "more": "更多操作",
+    "failed": "加载失败：{error}",
+    "tabNeedsDetail": "这个视图只能在侧栏显示。"
+  },
+  "RepoClone": {
+    "cloneInto": "克隆到 {dir}",
+    "clonePickDir": "克隆（先选择目录）",
+    "cloned": "已克隆到 {path}",
+    "exists": "{path} 已存在",
+    "open": "打开",
+    "failed": "克隆失败"
   }
 }

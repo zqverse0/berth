@@ -1,12 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { lazy, Suspense, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
+import { SidebarHeaderTabs } from "@/components/layout/sidebar/sidebar-header"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { memberAgent, memberLabel } from "@/lib/agent/berth-group"
+import {
+  BERTH_MEMBER,
+  memberAgent,
+  memberLabel,
+  stopBerth,
+} from "@/lib/agent/berth-group"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useTaskGroup } from "../group/use-task-group"
@@ -26,6 +32,7 @@ import { launchExpert, usePaneActions } from "../group/pane-actions"
 import type { AgentPaneRow } from "@/lib/terminal/agent-panes"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { EnableBerthNotice } from "../enable-berth-notice"
+import { MemberSessions } from "../group/member-sessions"
 
 function Members({ folderId }: { folderId: number }) {
   const t = useTranslations("BerthTasks.group.members")
@@ -35,7 +42,7 @@ function Members({ folderId }: { folderId: number }) {
   const selected = useGroupWorkspaceStore((state) =>
     state.folderId === folderId && state.group === group.name
       ? state.focusedMember
-      : null
+      : BERTH_MEMBER
   )
   const panes = useAllAgentPanes()
   const seen = useAgentPaneStore((state) => state.seen)
@@ -96,7 +103,8 @@ function Members({ folderId }: { folderId: number }) {
   const agentName = (id: string) =>
     agents.find((agent) => agent.id === id)?.name ?? id
   const interrupt = (row: MemberRow) => {
-    if (row.pane) void actions.interrupt(row.pane)
+    if (row.member.builtin) void stopBerth(folderId)
+    else if (row.pane) void actions.interrupt(row.pane)
   }
   const present = rows.filter(
     (row) => row.status !== "left" && row.status !== "offline"
@@ -190,6 +198,13 @@ function Members({ folderId }: { folderId: number }) {
             })
           }
           onInterrupt={interrupt}
+          sessions={(row) => (
+            <MemberSessions
+              row={row}
+              folderId={folderId}
+              events={group.events}
+            />
+          )}
           empty={
             group.loaded ? (
               <p className="px-2 text-xs text-muted-foreground">
@@ -211,7 +226,52 @@ function Members({ folderId }: { folderId: number }) {
   )
 }
 
-/** 侧栏群组视图：成员与进行中的委托；直接读当前目录的群，不依赖群页的选中状态。 */
-export function GroupMembersPanel({ folderId }: { folderId: number }) {
-  return <Members key={folderId} folderId={folderId} />
+const LazySessionsView = lazy(() =>
+  import("@/sessions/project/project-sessions-view").then((m) => ({
+    default: m.ProjectSessionsView,
+  }))
+)
+
+type Page = "members" | "sessions"
+
+/**
+ * 侧栏群组视图，顶栏两页：成员（卡片展开看各自的会话）与进行中的委托；会话（本项目全部 Agent 与 Berth 的
+ * 会话，按 Agent / 来源 / 群筛选）。直接读当前目录的群，不依赖群页的选中状态。
+ */
+export function GroupMembersPanel({
+  folderId,
+  active = true,
+}: {
+  folderId: number
+  /** 侧栏打开且停在群组视图：会话页据此才去读。 */
+  active?: boolean
+}) {
+  const t = useTranslations("BerthTasks.group.members")
+  const [page, setPage] = useState<Page>("members")
+  return (
+    <>
+      <SidebarHeaderTabs<Page>
+        tabs={[
+          { id: "members", label: t("pageMembers") },
+          { id: "sessions", label: t("pageSessions") },
+        ]}
+        value={page}
+        onChange={setPage}
+      />
+      {page === "members" ? (
+        <div className="h-full min-h-0 overflow-auto py-1">
+          <Members key={folderId} folderId={folderId} />
+        </div>
+      ) : (
+        <Suspense fallback={null}>
+          <LazySessionsView
+            key={folderId}
+            folderId={folderId}
+            active={active}
+            onShowMember={() => setPage("members")}
+          />
+        </Suspense>
+      )}
+    </>
+  )
 }

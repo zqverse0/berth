@@ -2993,7 +2993,7 @@ mod tests {
     }
 
     #[test]
-    fn session_registry_uses_only_declared_known_assets() {
+    fn session_registry_registers_every_declared_asset() {
         let lock = berth_tool_core::paths::TEST_ENV_LOCK.get_or_init(|| std::sync::Mutex::new(()));
         let _guard = lock.lock().unwrap();
         let previous = std::env::var_os("BERTH_HOME");
@@ -3044,11 +3044,17 @@ mod tests {
         );
         std::env::set_var("BERTH_HOME", home.path());
 
-        assert_eq!(declared_agent_types(), vec![AgentType::new("claude_code")]);
+        // 注册表没有 Agent 白名单：声明了 sessions 的包都登记，按包 id 排序。
+        assert_eq!(
+            declared_agent_types(),
+            vec![AgentType::new("antigravity"), AgentType::new("claude_code")]
+        );
         let sources = declared_session_sources();
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].tool_id, "claude");
-        assert_eq!(sources[0].root, home.path().join("claude-sessions"));
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].tool_id, "agy");
+        assert_eq!(sources[0].root, home.path().join("agy-sessions"));
+        assert_eq!(sources[1].tool_id, "claude");
+        assert_eq!(sources[1].root, home.path().join("claude-sessions"));
 
         match previous {
             Some(value) => std::env::set_var("BERTH_HOME", value),

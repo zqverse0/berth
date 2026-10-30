@@ -254,8 +254,10 @@ berth tools run <id> private/x.js [参数]                 # 单独跑包内脚�
 - 最简单：插件目录放进 `$BERTH_HOME/tools/` 就能用，设置 → 工具点「刷新」即出现；没有 `plugins.json` 条目即启用。
   设置 → 工具 → 某插件「打包」生成 `<id>-<version>.zip`（条目都在 `<id>/` 下，保留文件权限，跳过 `.git`），
   对方解压进插件目录（页头「打开插件目录」）即可。
-- 官方插件：源码在 berth 仓库 `plugins/<id>/`；Berth 不自带插件，用户用
-  `berth tools install <berth 仓库>#plugins/<id>` 安装（`#<子目录>` 适用于任何一个仓库放多个插件的情况）。
+- 官方插件：源码在 berth 仓库 `plugins/<id>/`，`scripts/publish-plugins` 同步到公开的插件仓库
+  zqverse0/berth-plugins（根下每个子目录一个插件）。Berth 不自带插件，用户在设置 → 工具「插件仓库」点选，
+  或 `berth tools install <id>`（= `<插件仓库>#<id>`；`#<子目录>` 适用于任何一个仓库放多个插件的情况）。
+  改了 `plugins/` 并发布 Berth 后要再跑一次 `scripts/publish-plugins`。
 - 第三方：插件目录放进一个 git 仓库，用户 `berth tools install <git 地址>`；`berth tools update` / `remove` /
   `enable` / `disable` 管理生命周期，状态记在 `$BERTH_HOME/plugins.json`。
 - 发布前：`berth tools check` clean；`requires` 写全；密钥不进包（MCP 里写 `$ENV_NAME`）。

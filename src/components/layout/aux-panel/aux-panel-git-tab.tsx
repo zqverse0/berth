@@ -19,7 +19,6 @@ type GitTabView = GitPanelView
  * tab 条渲染在侧栏顶栏（`SidebarHeaderTabs`）。变更/提交/
  * 推送/新建分支/新建工作树/贮藏视图已按主线收敛移除（git 日常操作走终端
  * CLI 或聊天分支 chip）；分支切换/合并/变基仍在分支 tab 的列表里。
- * 趋势/星标已独立为「发现」视图（aux-panel-discover-tab）。
  * 提交记录/管理远程只在 git 仓库可见——非 repo 文件夹点它们会让后端
  * git 命令必然失败，tab 直接隐藏（分支 tab 仍提供初始化入口）。
  */

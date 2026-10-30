@@ -49,6 +49,7 @@ const KNOWN_EXTENSIONS: &[&str] = &[
     crate::file_tools::PREVIEW,
     crate::file_tools::EXTRACT,
     crate::file_tools::INSTALL,
+    crate::views::VIEW,
 ];
 
 /// 文件工具接入点：与宿主同一个判定（`file_tools::parse`：非空 `argv` + `install.bin`）。
@@ -85,6 +86,9 @@ pub fn contributions(dir: &Path, raw: &Value) -> Vec<String> {
     }
     if dir.join("usage.md").is_file() {
         points.push("guide".to_string());
+    }
+    if !crate::views::parse(raw).0.is_empty() {
+        points.push("view".to_string());
     }
     points
 }
@@ -129,7 +133,7 @@ fn unknown_contributions(raw: &Value) -> Vec<AssetDiagnostic> {
 }
 
 /// tool.json `resources.*.locator` 中 `base: package` 的路径，加上预览脚本
-/// （`org.berth.preview.script`）。
+/// （`org.berth.preview.script`）与视图的脚本、图标。
 fn declared_package_paths(raw: &Value) -> Vec<&str> {
     raw.get("resources")
         .and_then(Value::as_object)
@@ -142,6 +146,7 @@ fn declared_package_paths(raw: &Value) -> Vec<&str> {
             raw.pointer("/extensions/org.berth.preview/script")
                 .and_then(Value::as_str),
         )
+        .chain(crate::views::package_paths(raw))
         .collect()
 }
 
@@ -177,6 +182,7 @@ pub fn check_package(dir: &Path, raw: &Value) -> Vec<AssetDiagnostic> {
         message: format!("not loaded: {message}"),
     }));
     findings.extend(unknown_contributions(raw));
+    findings.extend(crate::views::parse(raw).1);
     findings.extend(
         FILE_TOOL_POINTS
             .iter()
@@ -228,7 +234,10 @@ pub fn check_package(dir: &Path, raw: &Value) -> Vec<AssetDiagnostic> {
     findings
 }
 
-/// 检查 tools 根：只应有带 tool.json 的包目录。
+/// 插件脚本用 `/// <reference path="../berth-plugin.d.ts" />` 引用的类型声明，可放在 tools 根。
+const ROOT_TYPES_FILE: &str = "berth-plugin.d.ts";
+
+/// 检查 tools 根：只应有带 tool.json 的包目录（与类型声明文件）。
 pub fn check_root(root: &Path) -> Vec<AssetDiagnostic> {
     let mut findings = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
@@ -241,7 +250,9 @@ pub fn check_root(root: &Path) -> Vec<AssetDiagnostic> {
             continue;
         };
         let path = entry.path();
-        let message = if !path.is_dir() {
+        let message = if name == ROOT_TYPES_FILE && path.is_file() {
+            continue;
+        } else if !path.is_dir() {
             "stray file in tools root: plugins are directories with a tool.json"
         } else if !path.join("tool.json").is_file() {
             "directory has no tool.json, so it is not a plugin"
@@ -371,6 +382,7 @@ mod tests {
         std::fs::write(dir.join("ok/tool.json"), "{}").unwrap();
         std::fs::create_dir_all(dir.join("empty")).unwrap();
         std::fs::write(dir.join("index.json"), "{}").unwrap();
+        std::fs::write(dir.join("berth-plugin.d.ts"), "").unwrap();
         assert_eq!(locations(&check_root(&dir)), ["empty", "index.json"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }

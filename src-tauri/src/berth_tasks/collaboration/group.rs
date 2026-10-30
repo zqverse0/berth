@@ -53,7 +53,12 @@ pub fn save(root: &Path, params: &Value) -> Result<Value, String> {
         .transpose()
         .map_err(|error| format!("Invalid steps: {error}"))?;
     let raw = |key: &str| params.get(key).and_then(Value::as_str);
-    let body = raw("body").map(|body| (raw("baseBody").unwrap_or_default().to_owned(), body.to_owned()));
+    let body = raw("body").map(|body| {
+        (
+            raw("baseBody").unwrap_or_default().to_owned(),
+            body.to_owned(),
+        )
+    });
     tasks::save(root, required(params, "task")?, steps, body).map_err(|error| error.message)
 }
 
@@ -112,7 +117,9 @@ pub fn unread(root: &Path, params: &Value) -> Result<Value, String> {
     };
     let seen = params.get("seen");
     let seen_group = seen.and_then(|seen| text(seen, "group"));
-    let seen_seq = seen.and_then(|seen| seen.get("seq")).and_then(Value::as_u64);
+    let seen_seq = seen
+        .and_then(|seen| seen.get("seq"))
+        .and_then(Value::as_u64);
     let name = group::MAIN_GROUP;
     let seen = seen_seq.filter(|_| seen_group == Some(name));
     let count = group::unread(&main, name, seen).map_err(|error| error.message)?;
@@ -147,21 +154,34 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
             // 各终端绑定的 Agent 会话：收集器确认的，否则它最近一次入群或汇报带的。
             if left_at.is_none() {
                 for (index, body) in member.bodies.iter().enumerate() {
-                    row["bodies"][index]["sessionId"] =
-                        json!(group::bound_session_in(&main, &name, &events, &body.target_ref));
+                    row["bodies"][index]["sessionId"] = json!(group::bound_session_in(
+                        &main,
+                        &name,
+                        &events,
+                        &body.target_ref
+                    ));
                 }
             }
             row
         })
         .collect();
-    let delivery: serde_json::Map<String, Value> = group::delivery_states(&main, &name, &events)
-        .into_iter()
-        .map(|(seq, state)| (seq.to_string(), json!(state)))
-        .collect();
+    let mut delivery: serde_json::Map<String, Value> =
+        group::delivery_states(&main, &name, &events)
+            .into_iter()
+            .map(|(seq, state)| (seq.to_string(), json!(state)))
+            .collect();
+    super::berth_member::mark_delivered(&main, &events, &mut delivery);
     let mut read = group::read(&events, after, None);
     read["name"] = json!(name);
     read["members"] = json!(members);
     read["delivery"] = Value::Object(delivery);
+    // 内置成员 Berth：没有终端，前端固定显示；`busy` 为它正在回答（或有消息排队），
+    // `log` 为正在回答的提问与执行过程。
+    read["builtin"] = json!({
+        "name": berth_group::builtin::BERTH,
+        "busy": super::berth_member::busy(&main),
+        "log": super::berth_member::live_log(&main),
+    });
     read["env"] = group::env(&main, &name)
         .map_err(|error| error.message)?
         .map(|env| json!({"branch": env.branch, "baseBranch": env.base_branch, "worktree": env.worktree}))

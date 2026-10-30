@@ -7,6 +7,7 @@
 //! 成员不在一轮里时当场送达；一轮中排队的消息与成员派生由每个主项目一个的后台进程
 //! `berth group watch` 负责（[`watch`]），hook 一轮结束时叫醒它。
 
+pub mod builtin;
 mod deliver;
 mod hook;
 mod identity;

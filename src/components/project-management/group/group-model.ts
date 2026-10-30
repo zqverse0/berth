@@ -68,8 +68,11 @@ export function memberRows(
       null
     const pane = primary?.pane ?? null
     // 看过的这一轮「需要关注」按空闲显示；Agent 再提醒（`since` 变了）才重新需要你。
-    const status: MemberStatus =
-      member.leftAt != null
+    const status: MemberStatus = member.builtin
+      ? member.busy
+        ? "working"
+        : "idle"
+      : member.leftAt != null
         ? "left"
         : !pane || pane.state === "exited"
           ? "offline"
@@ -116,27 +119,6 @@ export function addressable(rows: readonly MemberRow[]): {
   }
 }
 
-const GIT_EVENTS = ["commits", "head", "merged"]
-
-/** 入群 / 离群 / git 动作：账本照记，GUI 不显示（成员卡片的终端小标与结果卡片的提交已覆盖）。 */
-export function isActivity(event: GroupEvent): boolean {
-  return (
-    event.kind === "joined" ||
-    event.kind === "left" ||
-    (event.kind === "system" && GIT_EVENTS.includes(event.event ?? ""))
-  )
-}
-
-/** 开工 / 收尾、改名、契约升版：默认不显示，打开「系统事件」才显示。 */
-export function isSystemNotice(event: GroupEvent): boolean {
-  return (
-    event.kind === "renamed" ||
-    event.kind === "spec" ||
-    (event.kind === "system" &&
-      (event.event === "started" || event.event === "finished"))
-  )
-}
-
 /** Agent 之间的委托与结果（群主不在其中）：群聊里折成一行，单聊里不出现。 */
 export function isRelay(event: GroupEvent): boolean {
   return (
@@ -147,17 +129,9 @@ export function isRelay(event: GroupEvent): boolean {
   )
 }
 
-/** 群时间线上显示的事件：消息，`showSystem` 时加上系统事件（频道创建、入群离群与 git 动作不显示）。 */
-export function timelineEvents(
-  events: readonly GroupEvent[],
-  showSystem = false
-): GroupEvent[] {
-  return events.filter(
-    (event) =>
-      event.kind !== "created" &&
-      !isActivity(event) &&
-      (showSystem || !isSystemNotice(event))
-  )
+/** 群时间线上只显示消息（开工收尾、改名、契约升版、入群离群与 git 动作账本照记，不显示）。 */
+export function timelineEvents(events: readonly GroupEvent[]): GroupEvent[] {
+  return events.filter((event) => event.kind === "message")
 }
 
 /**
@@ -245,13 +219,10 @@ export type TimelineItem =
   | { kind: "event"; event: GroupEvent }
   | { kind: "ask"; events: GroupEvent[]; answers: GroupEvent[] }
 
-export function timelineItems(
-  events: readonly GroupEvent[],
-  showSystem = false
-): TimelineItem[] {
+export function timelineItems(events: readonly GroupEvent[]): TimelineItem[] {
   const items: TimelineItem[] = []
   let batch: string | null = null
-  for (const event of timelineEvents(events, showSystem)) {
+  for (const event of timelineEvents(events)) {
     const ask = event.kind === "message" && event.author === GROUP_USER
     const key = ask ? sendBatchOf(event.idempotency_key) : null
     const last = items[items.length - 1]

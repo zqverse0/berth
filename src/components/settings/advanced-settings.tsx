@@ -19,6 +19,7 @@ import { ClassifierSettings } from "@/components/settings/classifier-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { SystemRuntimeSettings } from "@/components/settings/system-runtime-settings"
 import { TranslateSettings } from "@/components/settings/translate-settings"
+import { GitSettingsSection } from "@/components/settings/git-settings"
 import { useGeneralSectionShown } from "@/components/settings/settings-nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -518,6 +519,7 @@ export function AdvancedSettings() {
           </section>
         )}
 
+        {shown("git") && <GitSettingsSection />}
         {shown("runtime") && <SystemRuntimeSettings />}
         {shown("backup") && <BackupSettings />}
         {shown("translate") && <TranslateSettings />}

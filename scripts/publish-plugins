@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# 把私有仓库某个提交的 plugins/ 发布到公开插件仓库（根下每个子目录一个插件），
+# 「设置 → 插件 → 插件仓库」和 `berth tools install <id>` 从这里取。源码只在 plugins/ 维护。
+#
+#   scripts/publish-plugins [<ref>，默认 main]
+set -euo pipefail
+
+PLUGINS=git@github.com:zqverse0/berth-plugins.git
+
+ref=${1:-main}
+repo=$(git rev-parse --show-toplevel)
+rev=$(git -C "$repo" rev-parse --short "$ref")
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+git clone -q "$PLUGINS" "$work"
+find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+git -C "$repo" archive "$ref" plugins | tar -x -C "$work" --strip-components=1
+cd "$work"
+
+{
+  echo "# Berth 插件"
+  echo
+  echo "Berth 的官方插件，源码在 [zqverse0/berth](https://github.com/zqverse0/berth) 的 \`plugins/\`，此仓库由发布脚本同步。"
+  echo
+  echo "在 Berth「设置 → 插件 → 插件仓库」里点选安装，或在终端运行 \`berth tools install <id>\`："
+  echo
+  for manifest in */tool.json; do echo "- \`${manifest%/tool.json}\`"; done
+} >README.md
+
+if grep -rnIE "$HOME/|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[po]_[A-Za-z0-9]{30,}" . --exclude-dir=.git; then
+  echo "publish-plugins: 上面的内容不能公开，已中止" >&2
+  exit 1
+fi
+
+git add -A
+if git diff --cached --quiet; then
+  echo "publish-plugins: 与插件仓库没有差异"
+else
+  git -c user.name="$(git -C "$repo" config user.name)" -c user.email="$(git -C "$repo" config user.email)" \
+    commit -q -m "Plugins from $rev"
+  git push -q origin HEAD:main
+  echo "publish-plugins: 已发布 plugins/（$rev）"
+fi

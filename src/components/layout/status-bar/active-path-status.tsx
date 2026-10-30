@@ -24,7 +24,6 @@ import { useTabStore } from "@/stores/tab-store"
 import { useTerminalRuntimeStore } from "@/stores/terminal-runtime-store"
 import { copyTextToClipboard } from "@/lib/utils"
 import { isVirtualPreviewPath } from "@/lib/files/file-open-target"
-import { githubStarredPreviewMetaFromPath } from "@/lib/git/github-starred-preview"
 import type { WorkspaceLayoutProjection } from "@/lib/workspace/workspace-layout-projection"
 import { isTextFileTab } from "@/lib/files/file-workspace-tab"
 import { FileStatusInfo } from "@/components/layout/status-bar/file-status-info"
@@ -141,14 +140,13 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
       const filePath = activeFile.path ?? ""
       // 内存预览（README、专家产出）的虚拟路径对用户无意义：显示来源，复制来源
       if (isVirtualPreviewPath(filePath)) {
-        const githubUrl = githubStarredPreviewMetaFromPath(filePath)?.html_url
-        const label = githubUrl ?? activeFile.title ?? "Preview"
+        const label = activeFile.title ?? "Preview"
         return {
           icon: FileCode,
           projectName: null,
           projectPath: null,
           subInfo: label.replace(/^https:\/\//, ""),
-          rawPath: githubUrl ?? null,
+          rawPath: null,
           relativePath: null,
           tooltip: label,
           kind: "file",

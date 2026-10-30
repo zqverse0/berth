@@ -55,6 +55,105 @@ declare module "berth" {
     run(params: Readonly<Record<string, string>>): void | Promise<void>
   }
 
+  /** `contributes.view` 第 1 层 `script` 的默认导出：返回视图数据，宿主用原生组件渲染。 */
+  export interface ViewHooks {
+    render(req: ViewRequest): ViewResult | Promise<ViewResult>
+  }
+
+  export interface ViewRequest {
+    readonly view: string
+    /** `open-view` 动作带来的参数。 */
+    readonly params: Readonly<Record<string, string>>
+    /** 当前选中的筛选项 id；没选过（或视图没有 `filters`）为 null，按第一个渲染。 */
+    readonly filter: string | null
+    /** 当前选中的下拉项 id；没选过为 null，按第一个渲染。 */
+    readonly dropdown: string | null
+    /** 界面语言，如 `zh-CN`、`en`。 */
+    readonly locale: string
+    /** 用户点了刷新：插件应绕过自己的缓存。 */
+    readonly refresh: boolean
+  }
+
+  export type ViewResult = ListView | DetailView
+
+  export interface ListView {
+    type: "list"
+    /** 顶栏分段筛选；选中项 id 进下一次 `render` 的 `req.filter`。 */
+    filters?: { id: string; title: string }[]
+    /** 正文顶部的下拉选择；选中项 id 进 `req.dropdown`。 */
+    dropdown?: { items: { id: string; title: string }[] }
+    /** 下拉旁的一行小字（如更新时间）。 */
+    note?: string
+    /** 宿主按 title / subtitle 本地筛选。 */
+    searchable?: boolean
+    items: ListItem[]
+    /** 没有条目时显示的文字。 */
+    empty?: string
+  }
+
+  export interface ListItem {
+    id: string
+    title: string
+    subtitle?: string
+    /** https 地址或包内路径。 */
+    icon?: string
+    /** 行下方的短信息，如星标数、语言。 */
+    accessories?: { text: string; icon?: ViewIcon; tooltip?: string }[]
+    /** 点击行执行第一个；带 `inline` 的画成行尾按钮，其余进「…」菜单。 */
+    actions?: ViewAction[]
+  }
+
+  export interface DetailView {
+    type: "detail"
+    title?: string
+    markdown: string
+    actions?: ViewAction[]
+  }
+
+  /** 宿主的固定图标名（只增不改），由宿主画、随主题。 */
+  export type ViewIcon =
+    | "star"
+    | "star-filled"
+    | "fork"
+    | "external-link"
+    | "copy"
+    | "book"
+    | "download"
+    | "folder-input"
+    | "link"
+    | "send"
+
+  /** 每个动作的公共字段。 */
+  interface ViewActionBase {
+    title: string
+    icon?: ViewIcon
+    /** 画成行尾图标按钮：`hover` 悬停时出现，`always` 常驻。 */
+    inline?: "hover" | "always"
+  }
+
+  export type ViewAction = ViewActionBase &
+    (
+      | { type: "open-url"; url: string }
+      | {
+          type: "open-view"
+          view: string
+          params?: Record<string, string>
+        }
+      | {
+          type: "script"
+          /** 包内脚本，默认导出函数收 `input`。 */
+          script: string
+          input?: unknown
+          /** 完成后重新渲染当前视图。 */
+          refresh?: boolean
+        }
+      | { type: "copy"; text: string }
+      /** Berth 的 Git 账号 clone 到记住的目录（或先选），完成后作为项目打开。 */
+      | { type: "clone"; url: string; pickDirectory?: boolean }
+      /** 放进当前 Agent 的输入框（不提交）；菜单文字由宿主给。 */
+      | { type: "send-to-agent"; text: string }
+    )
+
   export type LaunchInputs = Readonly<Record<string, string | number | boolean>>
 
   export interface LaunchContext {
@@ -264,6 +363,23 @@ declare module "berth" {
     readonly dir: string | null
   }
 
+  /** http@1 · 脚本 · 权限 `network` */
+  export interface HttpApi {
+    fetch(
+      url: string,
+      options?: {
+        method?: string
+        headers?: Record<string, string>
+        body?: string
+        timeoutMs?: number
+      }
+    ): Promise<{
+      status: number
+      headers: Record<string, string>
+      text: string
+    }>
+  }
+
   /** scripts@1 · 页面 · 无需权限。运行本包脚本，返回它默认导出函数的返回值。 */
   export interface ScriptsApi {
     run<T = unknown>(script: string, input?: unknown): Promise<T>
@@ -328,6 +444,7 @@ declare module "berth" {
     readonly ui: UiApi
     readonly env: EnvApi
     readonly data: DataApi
+    readonly http: HttpApi
   }
 }
 

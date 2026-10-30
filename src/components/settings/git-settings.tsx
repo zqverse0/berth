@@ -275,6 +275,27 @@ function AccountRow({
 }
 
 /** GitHub 与其他 Git 服务器账号：Berth 的 git 凭据助手与发现页使用。 */
+/** 设置 → 高级 → Git：Berth 自己用的 Git 程序与账号（与 gh 插件无关）。 */
+export function GitSettingsSection() {
+  const t = useTranslations("VersionControlSettings")
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-4">
+      <div className="space-y-1">
+        <h2 className="text-sm font-semibold">{t("programTitle")}</h2>
+        <p className="text-xs text-muted-foreground">{t("gitDescription")}</p>
+      </div>
+      <div className="text-sm">
+        <GitProgramStatus />
+      </div>
+      <div className="space-y-1 border-t pt-4">
+        <h2 className="text-sm font-semibold">{t("accountsTitle")}</h2>
+        <p className="text-xs text-muted-foreground">{t("accountsNote")}</p>
+      </div>
+      <GitAccountsSettings />
+    </section>
+  )
+}
+
 export function GitAccountsSettings() {
   const t = useTranslations("VersionControlSettings")
 

@@ -105,6 +105,9 @@
       parseToml: (text) => call("data.parseToml", { text }),
       stringifyToml: (value) => call("data.stringifyToml", { value }),
     }),
+    http: Object.freeze({
+      fetch: (url, options) => call("http.fetch", { url, ...options }),
+    }),
     files: unavailable("files"),
     tasks: unavailable("tasks"),
     knowledge: unavailable("knowledge"),

@@ -1,3 +1,4 @@
+pub mod berth_member;
 pub mod group;
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,10 @@ pub async fn call(
             group::ensure_watch(&root, &cli()?, &launch)
         }
         "group.post" => post(&root, &params, launch.as_ref()),
+        "group.stopBerth" => berth_member::stop(&root),
+        "group.berthSessions" => berth_member::sessions(&root),
+        "group.berthRecord" => berth_member::record(&root, &params),
+        "group.berthNew" => berth_member::new_session(&root),
         _ => Err(format!("unsupported method: {method}")),
     })
     .await

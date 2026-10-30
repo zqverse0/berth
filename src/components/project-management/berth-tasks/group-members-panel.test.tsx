@@ -15,9 +15,21 @@ const mocks = vi.hoisted(() => ({
   delivery: {} as Record<string, string>,
   members: [] as unknown[],
 }))
+// 成员的会话列表另有测试；这里只看成员栏。
+vi.mock("../group/member-sessions", () => ({
+  MemberSessions: ({ row }: { row: { member: { name: string } } }) => (
+    <p>sessions of {row.member.name}</p>
+  ),
+}))
 vi.mock("@/lib/agent/berth-group", async (original) => ({
   ...(await original<object>()),
   listGroups: (...args: unknown[]) => mocks.listGroups(...args),
+}))
+// 只需要 trimSlash；真模块会连带加载整个 workspace-runtime
+vi.mock("@/sessions/project/open-project-session", () => ({
+  trimSlash: (path: string) => path.replace(/[\\/]+$/, ""),
+  folderIdFor: vi.fn(),
+  useOpenProjectSession: () => vi.fn(),
 }))
 vi.mock("@/hooks/workspace/use-workspace-runtime", () => ({
   useWorkspaceRuntimeActions: () => ({}),
@@ -180,6 +192,15 @@ describe("GroupMembersPanel", () => {
     fireEvent.click(screen.getByText("Frontend"))
     expect(useGroupWorkspaceStore.getState().focusedMember).toBe("agent-1")
     expect(useAppUiStore.getState().auxView).toBe("group")
+  })
+  it("expands a member card into its sessions", async () => {
+    renderPanel()
+    await screen.findByText("Frontend")
+    expect(screen.queryByText("sessions of agent-1")).toBeNull()
+    fireEvent.click(
+      document.querySelector('[data-member-sessions-toggle="agent-1"]')!
+    )
+    expect(screen.getByText("sessions of agent-1")).toBeVisible()
   })
   it("loads checkout members without selecting or opening a group", () => {
     useGroupWorkspaceStore.setState({ folderId: null, group: null })

@@ -676,10 +676,10 @@ pub fn file_uri_path(value: &Value) -> Option<Value> {
 }
 
 pub fn select_path(path: &Path, selector: &str) -> Option<Value> {
-    let mut operations = selector.strip_prefix("@path.")?.split('.');
+    let operations = selector.strip_prefix("@path.")?.split('.');
     let mut current = path.to_path_buf();
     let mut decode = false;
-    while let Some(operation) = operations.next() {
+    for operation in operations {
         match operation {
             "parent" => current = current.parent()?.to_path_buf(),
             "name" => {

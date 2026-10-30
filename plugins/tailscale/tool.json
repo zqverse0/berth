@@ -1,0 +1,24 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "tailscale",
+  "revision": "1",
+  "identity": {
+    "name": "Tailscale",
+    "roles": [],
+    "tags": ["cli", "network", "ssh", "devices"],
+    "description": "Private network between your devices. Agents use it to see which devices are online, drive Berth on another device over SSH (terminals, agents, tasks) and copy files.",
+    "homepage": "https://tailscale.com"
+  },
+  "resources": {},
+  "knowledge": {
+    "berth-loop": { "kind": "guide", "title": "Working across devices", "path": "usage.md" }
+  },
+  "extensions": {
+    "org.berth.install": {
+      "bin": "tailscale",
+      "paths": { "unix": ["/usr/bin/tailscale", "/usr/local/bin/tailscale"], "windows": ["%ProgramFiles%/Tailscale/tailscale.exe"] },
+      "version": ["version"]
+    }
+  }
+}

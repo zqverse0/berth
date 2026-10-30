@@ -13,8 +13,16 @@ const layoutSource = readFileSync(
 )
 
 describe("workspace page and global surfaces", () => {
-  it("renders conversation details in page without global settings surface", () => {
-    expect(pageSource).toContain("<ConversationDetailPanel />")
+  it("renders conversation details through the pane content, not the page", () => {
+    const paneSource = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/workspace/workspace-pane-content.tsx"
+      ),
+      "utf8"
+    )
+    expect(paneSource).toContain("<ConversationDetailPanel pane={pane} />")
+    expect(pageSource).toContain("return null")
     expect(pageSource).not.toContain("SETTINGS_GLOBAL_TAB_ID")
     expect(pageSource).not.toContain("LazySettingsWorkspaceView")
   })

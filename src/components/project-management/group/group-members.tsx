@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   AtSign,
   ChevronRight,
+  MessagesSquare,
   OctagonX,
   Pencil,
   Plus,
@@ -180,8 +181,11 @@ function MemberCard({
   onSelect,
   selected,
   current,
+  sessions,
 }: {
   row: MemberRow
+  /** 展开的会话列表；不给时没有「会话」按钮。 */
+  sessions?: (row: MemberRow) => React.ReactNode
   /** 它正在做的委托（排队或处理中）；没有为 null。 */
   current?: GroupEvent | null
   agentName: (agentId: string) => string
@@ -200,6 +204,7 @@ function MemberCard({
   const format = useFormatter()
   const now = useNow({ updateInterval: 30_000 })
   const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const { member, status, pane } = row
   const live = status !== "left" && status !== "offline"
   const iconButton = "size-6 text-muted-foreground hover:text-foreground"
@@ -324,7 +329,7 @@ function MemberCard({
               <Pencil aria-hidden="true" className="size-3.5" />
             </Button>
           ) : null}
-          {onAddBody ? (
+          {onAddBody && !member.builtin ? (
             <Button
               variant="ghost"
               size="icon"
@@ -337,16 +342,33 @@ function MemberCard({
               <Plus aria-hidden="true" className="size-3.5" />
             </Button>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={iconButton}
-            title={t("jump")}
-            aria-label={t("jump")}
-            onClick={() => onJump(row)}
-          >
-            <SquareTerminal aria-hidden="true" className="size-3.5" />
-          </Button>
+          {sessions ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={iconButton}
+              title={t("sessions.toggle")}
+              aria-label={t("sessions.toggle")}
+              aria-expanded={expanded}
+              data-member-sessions-toggle={member.name}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <MessagesSquare aria-hidden="true" className="size-3.5" />
+            </Button>
+          ) : null}
+          {/* 内置成员 Berth 没有终端。 */}
+          {member.builtin ? null : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={iconButton}
+              title={t("jump")}
+              aria-label={t("jump")}
+              onClick={() => onJump(row)}
+            >
+              <SquareTerminal aria-hidden="true" className="size-3.5" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -360,12 +382,15 @@ function MemberCard({
           </Button>
         </div>
       ) : null}
+      {expanded && sessions ? (
+        <div className="mt-1 pl-[2.375rem]">{sessions(row)}</div>
+      ) : null}
     </div>
   )
 }
 
 /**
- * 成员栏：在群成员卡片（头像 + 状态灯、显示名、状态与最后活动、悬停操作：改名、@、跳到终端、打断），
+ * 成员栏：在群成员卡片（头像 + 状态灯、显示名、状态与最后活动、悬停操作：改名、@、展开会话、跳到终端、打断），
  * 需要关注且未读的高亮；传入 onSelect 时点击成员查看相关消息，终端入口保留为独立按钮。
  * 只显示运行中的成员，历史仍留在时间线。没有成员时显示 `empty`。没有 `onRename` 时不能改名。
  */
@@ -382,6 +407,7 @@ export function GroupMembers({
   selected,
   empty,
   currentOf,
+  sessions,
 }: {
   rows: readonly MemberRow[]
   agentName: (agentId: string) => string
@@ -396,6 +422,7 @@ export function GroupMembers({
   selected?: string | null
   empty?: React.ReactNode
   currentOf?: (name: string) => GroupEvent | null
+  sessions?: (row: MemberRow) => React.ReactNode
 }) {
   const present = rows.filter(
     (row) => row.status !== "left" && row.status !== "offline"
@@ -414,6 +441,7 @@ export function GroupMembers({
       onRename={onRename}
       onSelect={onSelect}
       selected={selected}
+      sessions={sessions}
     />
   )
   return (

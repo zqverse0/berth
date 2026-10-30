@@ -103,6 +103,15 @@ export interface TaskWorkspaceTab extends BaseWorkspaceTab {
   readonly: true
 }
 
+/** 内置成员 Berth 的一个会话（`experts/sessions/<项目>/<会话>.jsonl`）的对话记录。 */
+export interface BerthSessionWorkspaceTab extends BaseWorkspaceTab {
+  kind: "berth-session"
+  folderId: number
+  session: string
+  path: null
+  readonly: true
+}
+
 export interface WorkspaceFileRef {
   rootPath: string
   path: string
@@ -116,6 +125,13 @@ export function buildTaskTabId(folderId: number, taskDirName: string): string {
   return `task:${folderId}:${taskDirName}`
 }
 
+export function buildBerthSessionTabId(
+  folderId: number,
+  session: string
+): string {
+  return `berth-session:${folderId}:${session}`
+}
+
 export type FileWorkspaceTab =
   | TextFileWorkspaceTab
   | ResourceFileWorkspaceTab
@@ -123,6 +139,7 @@ export type FileWorkspaceTab =
   | RichDiffWorkspaceTab
   | TranscriptWorkspaceTab
   | TaskWorkspaceTab
+  | BerthSessionWorkspaceTab
 
 export function isTextFileTab(
   tab: FileWorkspaceTab

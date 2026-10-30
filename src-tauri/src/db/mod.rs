@@ -69,8 +69,14 @@ pub async fn init_database(
 
 #[cfg(test)]
 mod tests {
+    // debug 桌面构建（含 cargo test）用独立的 dev 库，不碰正式数据。
     #[test]
-    fn release_database_uses_berth_name() {
-        assert_eq!(super::database_file_name(), "berth.db");
+    fn database_name_separates_dev_from_release() {
+        let expected = if cfg!(all(debug_assertions, feature = "tauri-runtime")) {
+            "berth-dev.db"
+        } else {
+            "berth.db"
+        };
+        assert_eq!(super::database_file_name(), expected);
     }
 }

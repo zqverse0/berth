@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod asset;
+pub mod builtin;
 pub mod error;
 pub mod experts;
 pub mod file_tools;
@@ -19,3 +20,4 @@ pub mod provider_injection;
 pub mod repository;
 pub mod session_files;
 pub mod sessions;
+pub mod views;

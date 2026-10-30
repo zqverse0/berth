@@ -74,6 +74,7 @@ const NAMESPACES: &[(&str, u64, Option<&str>)] = &[
     ("storage", 1, None),
     ("env", 1, None),
     ("data", 1, None),
+    ("http", 1, Some("network")),
 ];
 
 /// 一次脚本运行的宿主侧上下文。
@@ -118,6 +119,7 @@ impl Host {
             "storage" => ns::storage::call(self, name, &params).unwrap_or_else(|| Err(unknown())),
             "env" => ns::env::call(self, name).unwrap_or_else(|| Err(unknown())),
             "data" => ns::data::call(name, &params).unwrap_or_else(|| Err(unknown())),
+            "http" => ns::http::call(name, &params).unwrap_or_else(|| Err(unknown())),
             _ => Err(unknown()),
         }
     }

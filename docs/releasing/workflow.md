@@ -31,12 +31,14 @@ git merge dev && git push       # → origin/main（私有，不对外）
 # 3. 发布到公开仓库（在 berth 目录）
 scripts/publish-public          # 去掉内部资料后作为一个快照提交推到公开 main → 触发公开 Test
 scripts/publish-public --tag    # 同上，再推 v<package.json 版本> tag → 触发 Release 构建全平台安装包
+scripts/publish-plugins         # 把 plugins/ 同步到公开插件仓库 zqverse0/berth-plugins（设置页「插件仓库」从这里取）；改了插件后跑
 ```
 
 ## 注意
 
-- **私有仓库不跑 CI**：push 到 `origin/main` 没有任何检查，问题要到 `publish-public` 后才在公开仓库的 Test 暴露。发布前本地先过一遍要改动的 crate 的 clippy 和相关测试（规则见 `docs/verification.md`）。
+- **私有仓库不跑 CI**：私有仓库的 Actions 已关闭，只存代码；push 到 `origin` 没有任何检查，问题要到 `publish-public` 后才在公开仓库的 Test 暴露。发布前本地先过一遍要改动的 crate 的 clippy 和相关测试（规则见 `docs/verification.md`）。
 - **Windows clippy 更严**：公开 Test 在 windows-latest 跑 `cargo clippy`，曾因 Linux 本地没报的 lint 失败；看 `gh run list -R zqverse0/berth` 确认是绿的。
+- **什么时候构建安装包**：只有 `--tag`（推版本 tag）才触发 Release，6 个平台约 35 分钟；不带 `--tag` 只更新公开代码、跑 Test，不出安装包。
 - **先改版本再 `--tag`**：版本取自 `package.json`（`scripts/set-version.mjs`），重复版本会撞已有 tag。
 - **Release 失败**：公开仓库会留下一个 draft release，修好后重推 tag 或手动删掉 draft，不要留着。
 - **不公开的内容**：`scripts/publish-public` 的 `EXCLUDE` 决定哪些路径不进公开仓库，新增内部资料目录时加进去；脚本还会拦截本机路径和密钥。

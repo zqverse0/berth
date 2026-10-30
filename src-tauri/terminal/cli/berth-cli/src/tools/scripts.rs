@@ -1,4 +1,4 @@
-//! `berth tools launch <launch.js> …`、`berth tools run <id> <脚本> …`：用内嵌引擎运行插件脚本
+//! `berth tools launch <launch.js> …`、`berth tools run|call <id> <脚本> …`：用内嵌引擎运行插件脚本
 //! （berth-plugin-api，docs/plugin-architecture.md）。退出码就是脚本 / Agent 的退出码。
 
 use std::path::Path;
@@ -29,6 +29,29 @@ pub(crate) fn run(tool: &str, script: &str, args: &[String]) -> ! {
         args,
         Box::new(current_project),
     ))
+}
+
+/// 调用包内脚本，返回值 JSON 打在 stdout 最后一行（脚本自己的 console.log 在它前面）。
+pub(crate) fn call(tool: &str, script: &str, hook: Option<&str>, input: &str) -> ! {
+    let result = berth_tool_core::plugins::ensure_enabled(tool)
+        .map_err(|error| error.to_string())
+        .and_then(|_| {
+            serde_json::from_str::<Value>(input).map_err(|error| format!("--input: {error}"))
+        })
+        .and_then(|input| {
+            let package = berth_tool_core::paths::tools_root().join(tool);
+            berth_plugin_api::call_script(&package, script, hook, &input, Box::new(current_project))
+        });
+    match result {
+        Ok(value) => {
+            println!("{value}");
+            std::process::exit(0)
+        }
+        Err(error) => {
+            eprintln!("berth tools call: {error}");
+            std::process::exit(2)
+        }
+    }
 }
 
 /// Berth 能力索引（`berth guide --brief`，与本 CLI 同一版本）；取不到或超过 5 秒就为空，不挡启动。

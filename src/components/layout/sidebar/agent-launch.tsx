@@ -39,7 +39,10 @@ import {
   useToolsSettingsStore,
 } from "@/stores/tools-settings-store"
 
-/** 选中 Agent 的启动栏表单与启动按钮；新建协作对话框也复用它。 */
+/**
+ * 选中 Agent 的启动栏表单与启动按钮；新建协作对话框也复用它。
+ * `defaultsOnly`：设置页的「默认启动选项」，只改记住的取值（与启动栏同一份），不启动、不选会话。
+ */
 export function AgentLaunchShelfContent({
   agentId,
   workingDirectory,
@@ -47,6 +50,7 @@ export function AgentLaunchShelfContent({
   expert,
   onClose,
   prepareLaunch,
+  defaultsOnly = false,
 }: {
   agentId: string
   workingDirectory: string
@@ -54,6 +58,7 @@ export function AgentLaunchShelfContent({
   expert?: string | null
   onClose: () => void
   prepareLaunch?: () => Promise<Record<string, string | boolean>>
+  defaultsOnly?: boolean
 }) {
   const tProjectSessions = useTranslations("Folder.projectSessions")
 
@@ -82,6 +87,7 @@ export function AgentLaunchShelfContent({
 
   // 按 Enter 键触发启动
   useEffect(() => {
+    if (defaultsOnly) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Enter") {
         const target = e.target instanceof Element ? e.target : null
@@ -105,55 +111,59 @@ export function AgentLaunchShelfContent({
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [showLaunchButton, busy, handleLaunchCli])
+  }, [defaultsOnly, showLaunchButton, busy, handleLaunchCli])
 
   return (
     <>
       {/* 中间：单列参数表单，开关/输入自带标签 */}
       <div className="flex flex-col gap-3">
-        {(renderedItems ?? []).map((item) => {
-          const Component = LAUNCHBAR_COMPONENTS[item.component]
-          if (!Component) return null
-          const value =
-            item.optionsFrom === "providerVendor"
-              ? (binding?.vendor ?? "")
-              : launchbarValues[item.id] || null
-          const onChange =
-            item.optionsFrom === "providerVendor"
-              ? handleVendorChange
-              : item.optionsFrom === "providerModels"
-                ? (next: string) => void handleModelChange(next)
-                : (next: string) => handleValueChange(item.id, next)
-          const isSelect = item.component === "select"
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "flex min-w-0 flex-col gap-1",
-                !isSelect && "justify-end"
-              )}
-            >
-              {isSelect && (
-                <span className="text-[11px] font-medium text-muted-foreground select-none">
-                  {item.label}
-                </span>
-              )}
-              <div className="w-full [&_button[role=combobox]]:w-full [&_button[role=combobox]]:max-w-full [&_button[role=combobox]]:h-8 [&_button[role=combobox]]:justify-between [&_label]:w-full [&_label]:justify-between [&_label_input]:h-8 [&_span[class*='border-border']]:w-full [&_span[class*='border-border']]:h-8 [&_span[class*='border-border']]:justify-between">
-                <Component
-                  item={item}
-                  inline
-                  value={value}
-                  onChange={onChange}
-                  onInspect={
-                    item.optionsFrom === "projectSessions"
-                      ? (next) => void handleInspectSession(next)
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
+        {(renderedItems ?? [])
+          .filter(
+            (item) => !defaultsOnly || item.optionsFrom !== "projectSessions"
           )
-        })}
+          .map((item) => {
+            const Component = LAUNCHBAR_COMPONENTS[item.component]
+            if (!Component) return null
+            const value =
+              item.optionsFrom === "providerVendor"
+                ? (binding?.vendor ?? "")
+                : launchbarValues[item.id] || null
+            const onChange =
+              item.optionsFrom === "providerVendor"
+                ? handleVendorChange
+                : item.optionsFrom === "providerModels"
+                  ? (next: string) => void handleModelChange(next)
+                  : (next: string) => handleValueChange(item.id, next)
+            const isSelect = item.component === "select"
+            return (
+              <div
+                key={item.id}
+                className={cn(
+                  "flex min-w-0 flex-col gap-1",
+                  !isSelect && "justify-end"
+                )}
+              >
+                {isSelect && (
+                  <span className="text-[11px] font-medium text-muted-foreground select-none">
+                    {item.label}
+                  </span>
+                )}
+                <div className="w-full [&_button[role=combobox]]:w-full [&_button[role=combobox]]:max-w-full [&_button[role=combobox]]:h-8 [&_button[role=combobox]]:justify-between [&_label]:w-full [&_label]:justify-between [&_label_input]:h-8 [&_span[class*='border-border']]:w-full [&_span[class*='border-border']]:h-8 [&_span[class*='border-border']]:justify-between">
+                  <Component
+                    item={item}
+                    inline
+                    value={value}
+                    onChange={onChange}
+                    onInspect={
+                      item.optionsFrom === "projectSessions"
+                        ? (next) => void handleInspectSession(next)
+                        : undefined
+                    }
+                  />
+                </div>
+              </div>
+            )
+          })}
         {launchbarDiagnostics.map((message) => (
           <p
             key={message}
@@ -166,7 +176,7 @@ export function AgentLaunchShelfContent({
       </div>
 
       {/* 底部：通栏启动按钮，Enter 同效 */}
-      {showLaunchButton && (
+      {showLaunchButton && !defaultsOnly && (
         <div className="shrink-0 pt-2.5 border-t border-border/60">
           <Button
             variant="default"

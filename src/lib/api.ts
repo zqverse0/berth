@@ -54,9 +54,6 @@ import type {
   GitSettings,
   GitHubAccountsSettings,
   GitHubTokenValidation,
-  GithubStarredResult,
-  GithubTrendingResult,
-  TrendingTimeRange,
   ModelProviderInfo,
   UpdateModelProviderResult,
   QuickMessage,
@@ -305,28 +302,6 @@ export async function getAccountToken(
 
 export async function deleteAccountToken(accountId: string): Promise<void> {
   return getTransport().call("delete_account_token", { accountId })
-}
-
-export async function githubStarred(params: {
-  op: "list" | "sync" | "readme" | "star" | "unstar"
-  owner?: string | null
-  name?: string | null
-}): Promise<GithubStarredResult> {
-  return getTransport().call("github_starred", {
-    op: params.op,
-    owner: params.owner ?? null,
-    name: params.name ?? null,
-  })
-}
-
-export async function githubTrending(
-  timeRange: TrendingTimeRange,
-  force?: boolean
-): Promise<GithubTrendingResult> {
-  return getTransport().call("github_trending", {
-    timeRange,
-    force: force ?? false,
-  })
 }
 
 export async function getFolder(folderId: number): Promise<FolderDetail> {

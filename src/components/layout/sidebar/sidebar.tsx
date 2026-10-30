@@ -20,6 +20,10 @@ import {
   useSidebarViewStore,
 } from "@/components/layout/sidebar/views"
 import { SidebarHeader } from "@/components/layout/sidebar/sidebar-header"
+import {
+  pluginSidebarViewId,
+  usePluginViewsStore,
+} from "@/lib/plugins/plugin-views"
 import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
 import {
   SettingsSidebar,
@@ -41,20 +45,15 @@ const LazyGroupPanel = lazy(() =>
     (m) => ({ default: m.GroupMembersPanel })
   )
 )
-const LazySessionsView = lazy(() =>
-  import("@/sessions/project/project-sessions-view").then((m) => ({
-    default: m.ProjectSessionsView,
-  }))
-)
 const LazyMemoryPage = lazy(() =>
   import("@/knowledge/pages/knowledge-sidebar").then((m) => ({
     default: m.KnowledgeSidebar,
   }))
 )
 
-const LazyDiscoverTab = lazy(() =>
-  import("@/components/layout/aux-panel/aux-panel-discover-tab").then((m) => ({
-    default: m.AuxPanelDiscoverTab,
+const LazyPluginViewPanel = lazy(() =>
+  import("@/components/plugins/plugin-view-panel").then((m) => ({
+    default: m.PluginViewPanel,
   }))
 )
 
@@ -90,6 +89,15 @@ export const Sidebar = memo(function Sidebar() {
   useEffect(() => {
     if (fileSearchRequest > 0) setView("files")
   }, [fileSearchRequest, setView])
+
+  // 插件视图：插件被停用或删掉后回到项目视图。
+  const pluginViews = usePluginViewsStore((s) => s.views)
+  const pluginView = currentView.startsWith("plugin:")
+    ? pluginViews.find((view) => pluginSidebarViewId(view) === currentView)
+    : undefined
+  useEffect(() => {
+    if (currentView.startsWith("plugin:") && !pluginView) setView("projects")
+  }, [currentView, pluginView, setView])
 
   // A pending file-tree reveal also targets the file pane.
   const pendingRevealPath = useAppUiStore((s) => s.pendingRevealPath)
@@ -158,25 +166,12 @@ export const Sidebar = memo(function Sidebar() {
           )}
 
           {currentView === "group" && (
-            <div className="h-full min-h-0 overflow-auto py-1">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden">
               {activeFolder ? (
                 <Suspense fallback={tabFallback}>
-                  <LazyGroupPanel folderId={activeFolder.id} />
-                </Suspense>
-              ) : (
-                <AuxPanelNoFolderEmpty />
-              )}
-            </div>
-          )}
-
-          {currentView === "sessions" && (
-            <div className="h-full min-h-0 overflow-hidden">
-              {activeFolder ? (
-                <Suspense fallback={tabFallback}>
-                  <LazySessionsView
-                    key={activeFolder.id}
+                  <LazyGroupPanel
                     folderId={activeFolder.id}
-                    active={isOpen && currentView === "sessions"}
+                    active={isOpen && currentView === "group"}
                   />
                 </Suspense>
               ) : (
@@ -222,10 +217,14 @@ export const Sidebar = memo(function Sidebar() {
 
           {currentView === "settings" && <SettingsSidebar open={isOpen} />}
 
-          {currentView === "discover" && (
+          {pluginView && (
             <div className="h-full min-h-0 overflow-hidden">
               <Suspense fallback={tabFallback}>
-                <LazyDiscoverTab />
+                <LazyPluginViewPanel
+                  key={currentView}
+                  plugin={pluginView.plugin}
+                  view={pluginView.id}
+                />
               </Suspense>
             </div>
           )}

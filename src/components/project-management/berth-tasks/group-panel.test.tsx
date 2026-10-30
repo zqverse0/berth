@@ -50,6 +50,7 @@ vi.mock("@/lib/agent/berth-project", () => ({
 vi.mock("@/lib/api", () => ({
   terminateTerminalSession: (...args: unknown[]) =>
     terminateTerminalSession(...args),
+  listModelProviders: () => Promise.resolve([]),
 }))
 vi.mock("@/lib/terminal/agent-panes", () => ({
   useAllAgentPanes: () => [
@@ -73,6 +74,12 @@ vi.mock("@/components/project-management/group/pane-actions", () => ({
 }))
 vi.mock("@/hooks/use-agent-profiles", () => ({
   useAgentProfiles: () => ({ agents: [{ id: "claude", name: "Claude Code" }] }),
+}))
+// 只需要 trimSlash；真模块会连带加载整个 workspace-runtime
+vi.mock("@/sessions/project/open-project-session", () => ({
+  trimSlash: (path: string) => path.replace(/[\\/]+$/, ""),
+  folderIdFor: vi.fn(),
+  useOpenProjectSession: () => vi.fn(),
 }))
 vi.mock("@/hooks/workspace/use-workspace-runtime", () => ({
   useWorkspaceRuntimeActions: () => ({
@@ -182,6 +189,7 @@ function group(extra: Record<string, unknown> = {}) {
       name: "10-01-demo",
       nextAfter: 4,
       members: [member],
+      builtin: { name: "berth", busy: false },
       delivery: { "3": "queued" },
       events: [
         {
@@ -291,44 +299,50 @@ describe("GroupPanel", () => {
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
     await waitFor(() => expect(readTaskGroup).toHaveBeenCalledWith(7, 0))
-    expect(await screen.findByText(/Started · branch demo/)).toBeVisible()
+    // 进群默认和 Berth 单聊。
+    await waitFor(() =>
+      expect(document.querySelector('[data-chat="berth"]')).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    )
+    expect(screen.queryByText("please do S1")).toBeNull()
+    expect(
+      screen.getByPlaceholderText("Message Berth (type / for commands)")
+    ).toBeVisible()
   })
   it("shows the group timeline with delivery state, members and its tasks", async () => {
     getTaskView.mockResolvedValue(view())
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
+    await openChat("all")
     expect(await screen.findByText("please do S1")).toBeVisible()
-    expect(screen.getByText("Queued")).toBeVisible()
+    expect(screen.getAllByText("Queued").length).toBeGreaterThan(0)
     expect(screen.getByText("S1 done")).toBeVisible()
     expect(document.querySelector('[data-member="claude-1"]')).toBeNull()
     expect(screen.getAllByText("feat: x").length).toBeGreaterThan(0)
     await waitFor(() => expect(ensureGroupWatch).toHaveBeenCalledWith(7))
   })
 
-  /** 收件人只在输入框左下角的 @ 菜单里选。 */
-  async function pickRecipient(name: string) {
-    const trigger = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>("[data-composer-to]")
+  /** 顶部成员条：「全部」是群聊，点成员是单聊，收件人跟随当前会话。 */
+  async function openChat(member: string) {
+    const tab = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        `[data-chat="${member}"]`
+      )
       expect(found).not.toBeNull()
       return found!
     })
-    fireEvent.keyDown(trigger, { key: "Enter" })
-    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name }))
-    fireEvent.keyDown(document.activeElement ?? document.body, {
-      key: "Escape",
-    })
+    fireEvent.click(tab)
   }
 
-  it("requires explicit selection even for the only member", async () => {
+  it("sends a 1:1 message to the member whose chat is open", async () => {
     getTaskView.mockResolvedValue(view())
     readTaskGroup.mockResolvedValue(group())
     postToMember.mockResolvedValue({ ok: true, result: {} })
     renderDetail()
-    const input = await screen.findByPlaceholderText(/Pick recipients/)
-    fireEvent.change(input, { target: { value: "merge it" } })
-    fireEvent.keyDown(input, { key: "Enter" })
-    expect(postToMember).not.toHaveBeenCalled()
-    await pickRecipient("claude-1")
+    await openChat("claude-1")
+    const input = screen.getByPlaceholderText("Message claude-1…")
     fireEvent.change(input, { target: { value: "merge it" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() =>
@@ -361,7 +375,7 @@ describe("GroupPanel", () => {
     )
     postToMember.mockResolvedValue({ ok: true, result: {} })
     renderDetail()
-    await pickRecipient("Everyone")
+    await openChat("all")
     const input = screen.getByPlaceholderText(/Message everyone/)
     fireEvent.change(input, { target: { value: "sync up" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -376,13 +390,14 @@ describe("GroupPanel", () => {
       group({ members: [{ ...member, label: "front" }] })
     )
     renderDetail()
-    await pickRecipient("front")
+    await openChat("claude-1")
     expect(screen.getByRole("button", { name: "Send to front" })).toBeVisible()
     expect(document.querySelector('[data-member="claude-1"]')).toBeNull()
   })
   it("addresses the composer to a member focused from the sidebar", async () => {
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
+    await openChat("all")
     await screen.findByText("please do S1")
     act(() => useGroupWorkspaceStore.getState().setFocusedMember("claude-1"))
     expect(
@@ -409,6 +424,7 @@ describe("GroupPanel", () => {
     readTaskGroup.mockResolvedValue(result)
     postToMember.mockResolvedValue({ ok: true, result: {} })
     renderDetail()
+    await openChat("all")
     await screen.findByText("B report")
     fireEvent.click(document.querySelector('[data-reply-seq="4"]')!)
     act(() => useGroupWorkspaceStore.getState().setFocusedMember("codex-1"))
@@ -448,10 +464,9 @@ describe("GroupPanel", () => {
     )
     postToMember.mockResolvedValue({ ok: true, result: {} })
     renderDetail()
+    await openChat("all")
     await screen.findByText("S1 done")
-    const trigger = document.querySelector<HTMLElement>(
-      '[data-forward-seq="4"]'
-    )!
+    const trigger = document.querySelector<HTMLElement>('[data-more-seq="4"]')!
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
     fireEvent.click(await screen.findByRole("menuitem", { name: "@codex-1" }))
     expect(screen.getByText("Quoting claude-1")).toBeVisible()
@@ -473,11 +488,11 @@ describe("GroupPanel", () => {
   it("shows who is waiting for you above the composer", async () => {
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
+    await openChat("all")
     await screen.findByText("S1 done")
     const live = document.querySelector('[data-live-member="claude-1"]')!
     expect(live).toHaveAttribute("data-live-state", "attention")
     expect(live).toHaveTextContent("Waiting for you")
-    expect(live).toHaveTextContent("1 queued")
     fireEvent.click(screen.getByRole("button", { name: "Handle" }))
     expect(jump).toHaveBeenCalled()
   })
@@ -485,6 +500,7 @@ describe("GroupPanel", () => {
   it("does not add a second member list or search field inside the group page", async () => {
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
+    await openChat("all")
     await screen.findByText("S1 done")
     expect(document.querySelector("[data-focus-member]")).toBeNull()
     expect(document.querySelector("[data-member]")).toBeNull()
@@ -493,17 +509,16 @@ describe("GroupPanel", () => {
   it("uses the existing toolbar for filtering without a separate All messages row", async () => {
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
+    await openChat("all")
     await screen.findByText("S1 done")
     const main = document.querySelector("[data-group-panel] main")!
     expect(main.querySelector("[data-group-member-bar]")).toBeNull()
     expect(main.querySelector("[data-group-timeline]")).not.toBeNull()
     expect(screen.queryByText("All messages")).toBeNull()
-    act(() => useGroupWorkspaceStore.getState().setFocusedMember("claude-1"))
-    expect(screen.getByText(/Related to claude-1/)).toBeVisible()
-    fireEvent.click(screen.getByRole("button", { name: "All messages" }))
+    await openChat("claude-1")
+    expect(useGroupWorkspaceStore.getState().focusedMember).toBe("claude-1")
+    await openChat("all")
     expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
-    expect(screen.getByText(/Started · branch demo/)).toBeVisible()
-    expect(screen.queryByText(/Related to claude-1/)).toBeNull()
   })
   it("offers the enable button instead of an error when Berth is not initialized", async () => {
     readTaskGroup.mockResolvedValue({
@@ -518,6 +533,7 @@ describe("GroupPanel", () => {
     readTaskGroup.mockResolvedValue(group())
     fireEvent.click(button)
     await waitFor(() => expect(enableBerth).toHaveBeenCalledWith(7))
-    expect(await screen.findByText(/Started · branch demo/)).toBeVisible()
+    await openChat("all")
+    expect(await screen.findByText("please do S1")).toBeVisible()
   })
 })

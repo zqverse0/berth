@@ -28,6 +28,7 @@ Berth 插件（`$BERTH_HOME/tools/<id>/`）只能往本表列出的位置接入�
 | `preview` | `extensions["org.berth.preview"]`：`extensions`（后缀）、`argv`、`protocol`、可选 `script`（包内文件） | 文件标签页实时预览（`src-tauri/src/preview_watch/`） |
 | `extract` | `extensions["org.berth.extract"]`：`extensions`、`argv` | 当前文档文本抽取，给 Agent 的上下文（`workspace_state/current_document.rs`） |
 | `install` | `extensions["org.berth.install"]`：`bin`、`paths.unix/windows`、`version`，可选 `update`、`latest`；包内 `install.sh` / `install.ps1` | 预览缺程序时的一键安装；设置 → 工具 的安装状态、检查更新与更新（`commands/preview_tools.rs`） |
+| `view` | `contributes.view`：`id`、`title`、`icon`、`location`（`sidebar` / `tab`）、`script`（第 1 层；`page` 尚未实现） | 侧栏活动栏入口与原生渲染（`src-tauri/src/commands/plugin_views.rs`、`src/components/plugins/plugin-view-panel.tsx`）；视图数据格式见 `docs/plugin-architecture.md` §4.1，调试用 `berth tools call <id> <脚本> --hook render` |
 
 封闭键表在 `berth-tool-core/src/package.rs` 的 `AGENT_KEYS` / `KNOWN_EXTENSIONS`，改动时与本表同步。
 

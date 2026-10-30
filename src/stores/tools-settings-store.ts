@@ -114,10 +114,3 @@ export function programReady(entry: ProgramEntry | undefined): boolean {
     !!entry && !("error" in entry) && entry.installed && !entry.runtimeError
   )
 }
-
-/**
- * Git 程序检测与 GitHub / Git 服务器账号显示在这个插件的详情里。账号是 Berth
- * 自己的（git 凭据助手、发现页），gh 不读；停用或删掉该插件后这里就没有入口了。
- */
-// ponytail: 写死一个插件 id；第二个插件也要挂宿主设置时，改成插件声明的接入点。
-export const GIT_ACCOUNTS_TOOL_ID = "gh"

@@ -43,7 +43,8 @@ pub(crate) enum ToolsCommand {
     Disable(lifecycle::TargetArgs),
     /// 从 git 仓库（URL 或本地仓库路径）安装插件；校验失败不留残留。
     Install {
-        /// git 来源；仓库里有多个插件时加 `#<子目录>`，如 `<berth 仓库>#plugins/claude`。
+        /// git 来源；仓库里有多个插件时加 `#<子目录>`，如 `<berth 仓库>#plugins/claude`；
+        /// 只写插件 id（如 `claude`）则从官方插件仓库 zqverse0/berth-plugins 安装。
         source: String,
         /// 输出一个机器可读的 JSON 对象。
         #[arg(long)]
@@ -71,6 +72,20 @@ pub(crate) enum ToolsCommand {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// 调用包内脚本的默认导出（`--hook` 时调它的同名方法，如视图的 render），把返回值 JSON 打在最后一行。
+    /// 调试视图：`berth tools call gh views/discover.js --hook render --input '{"view":"discover","params":{},"filter":null}'`。
+    Call {
+        /// 工具 id。
+        tool: String,
+        /// 包内脚本的相对路径。
+        script: String,
+        /// 默认导出对象上的方法名；省略时默认导出本身是函数。
+        #[arg(long)]
+        hook: Option<String>,
+        /// 传给函数的参数（JSON），默认 null。
+        #[arg(long, default_value = "null")]
+        input: String,
+    },
     /// 用 $EDITOR 编辑已注册的 tool.json，然后报告重载检查结果。
     #[command(hide = true)]
     Edit {
@@ -94,6 +109,12 @@ pub(crate) fn run(command: ToolsCommand) -> Result<(), CliError> {
         ToolsCommand::Remove(args) => lifecycle::remove(args),
         ToolsCommand::Launch { script, args } => scripts::launch(&script, &args),
         ToolsCommand::Run { tool, script, args } => scripts::run(&tool, &script, &args),
+        ToolsCommand::Call {
+            tool,
+            script,
+            hook,
+            input,
+        } => scripts::call(&tool, &script, hook.as_deref(), &input),
     }
 }
 

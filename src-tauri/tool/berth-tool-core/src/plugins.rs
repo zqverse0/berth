@@ -19,6 +19,9 @@ use crate::repository::{tool_asset_file_path, MAX_TOOL_JSON_BYTES};
 const STATE_FILE: &str = "plugins.json";
 const STAGING_DIR: &str = ".plugin-staging";
 
+/// 官方插件仓库：根下每个子目录一个插件（由 `scripts/publish-plugins` 从 `plugins/` 同步）。
+pub const OFFICIAL_REPO: &str = "https://github.com/zqverse0/berth-plugins";
+
 fn state_path() -> PathBuf {
     berth_home_dir().join(STATE_FILE)
 }
@@ -211,15 +214,20 @@ fn read_staged_id(dir: &Path) -> Result<String, ToolCoreError> {
     Ok(id)
 }
 
-/// 克隆并校验到 staging；返回 (目录, id, rev)。失败时已清理目录。
-fn stage(source: &str) -> Result<(PathBuf, String, String), ToolCoreError> {
+/// staging 下一个不重名的新路径（尚未创建）。
+fn staging_path(prefix: &str) -> Result<PathBuf, ToolCoreError> {
     let staging = berth_home_dir().join(STAGING_DIR);
     std::fs::create_dir_all(&staging)?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or_default();
-    let dir = staging.join(format!("clone-{}-{nanos}", std::process::id()));
+    Ok(staging.join(format!("{prefix}-{}-{nanos}", std::process::id())))
+}
+
+/// 克隆并校验到 staging；返回 (目录, id, rev)。失败时已清理目录。
+fn stage(source: &str) -> Result<(PathBuf, String, String), ToolCoreError> {
+    let dir = staging_path("clone")?;
     let checkout = dir.with_extension("checkout");
     let checkout_text = checkout.to_string_lossy().into_owned();
     let (repo, subdir) = split_source(source);
@@ -270,9 +278,44 @@ fn record_source(installed: &Installed) -> Result<(), ToolCoreError> {
     })
 }
 
-/// 从 git 仓库（URL 或本地仓库路径，可带 `#<子目录>`）安装一个新插件。
+/// 仓库里可安装的插件：对每个带 tool.json 的子目录调用 `inspect(子目录名, 目录, 归一后的
+/// tool.json)`，按子目录名排序返回；克隆用完即删。只读清单，包内资源留给 [`install`] 校验。
+pub fn catalog<T>(
+    repo: &str,
+    mut inspect: impl FnMut(&str, &Path, Value) -> T,
+) -> Result<Vec<T>, ToolCoreError> {
+    let checkout = staging_path("catalog")?;
+    let checkout_text = checkout.to_string_lossy().into_owned();
+    let result = (|| {
+        git(&["clone", "--depth", "1", "--quiet", "--", repo, &checkout_text])?;
+        let mut dirs: Vec<_> = std::fs::read_dir(&checkout)?.flatten().collect();
+        dirs.sort_by_key(|entry| entry.file_name());
+        let mut entries = Vec::new();
+        for entry in dirs {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(bytes) = std::fs::read(entry.path().join("tool.json")) else {
+                continue;
+            };
+            let Ok(mut raw) = serde_json::from_slice::<Value>(&bytes) else {
+                continue;
+            };
+            crate::manifest::normalize(&mut raw);
+            entries.push(inspect(&name, &entry.path(), raw));
+        }
+        Ok(entries)
+    })();
+    let _ = std::fs::remove_dir_all(&checkout);
+    result
+}
+
+/// 从 git 仓库（URL 或本地仓库路径，可带 `#<子目录>`）安装一个新插件；
+/// 只给插件 id（且不是本地路径）时从 [`OFFICIAL_REPO`] 安装。
 pub fn install(source: &str) -> Result<Installed, ToolCoreError> {
-    let source = normalize_source(source);
+    let source = if is_valid_manifest_id(source) && !Path::new(source).exists() {
+        format!("{OFFICIAL_REPO}#{source}")
+    } else {
+        normalize_source(source)
+    };
     let (dir, id, rev) = stage(&source)?;
     let target = tools_root().join(&id);
     let placed = if target.exists() {
@@ -473,6 +516,32 @@ mod tests {
             for bad in ["#../mono", "#plugins/missing", "#/etc"] {
                 assert!(install(&format!("{repo}{bad}")).is_err(), "{bad}");
             }
+            assert!(staging_is_empty(home));
+        });
+    }
+
+    #[test]
+    fn catalog_lists_plugin_subdirectories_and_cleans_up() {
+        with_home(|home| {
+            for id in ["b", "a"] {
+                let dir = home.join("market").join(id);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(
+                    dir.join("tool.json"),
+                    format!(r#"{{"id":"{id}","contributes":{{"identity":{{"name":"N{id}"}}}}}}"#),
+                )
+                .unwrap();
+            }
+            std::fs::write(home.join("market/README.md"), "x").unwrap();
+            commit(&home.join("market"));
+            let entries = catalog(&home.join("market").to_string_lossy(), |name, dir, raw| {
+                assert!(dir.join("tool.json").is_file());
+                (name.to_string(), raw)
+            })
+            .unwrap();
+            let names: Vec<_> = entries.iter().map(|(name, _)| name.as_str()).collect();
+            assert_eq!(names, ["a", "b"]);
+            assert_eq!(entries[0].1.pointer("/identity/name"), Some(&json!("Na")));
             assert!(staging_is_empty(home));
         });
     }

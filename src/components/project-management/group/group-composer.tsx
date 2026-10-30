@@ -2,13 +2,21 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { useTranslations } from "next-intl"
-import { Loader2, Paperclip, SendHorizontal, X } from "lucide-react"
+import { Loader2, Paperclip, SendHorizontal, Square, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { type GroupEvent, memberLabel } from "@/lib/agent/berth-group"
+import {
+  BERTH_MEMBER,
+  type BerthModel,
+  type GroupEvent,
+  memberLabel,
+  newBerthSession,
+  stopBerth,
+} from "@/lib/agent/berth-group"
 import { isLocalDesktop, openFileDialog } from "@/lib/platform"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { cn } from "@/lib/utils"
+import { BerthModelPicker } from "./berth-model-picker"
 import { addressable, type MemberRow } from "./group-model"
 
 /** 项目内的文件写相对路径（各成员在自己的工作目录里解析），项目外写绝对路径。 */
@@ -20,9 +28,15 @@ function displayPath(path: string, root: string | undefined): string {
     : path
 }
 
+/** 单聊 Berth 时的指令：整条为 `/<名字>` 时执行，不作消息发送；说明在 `composer.commands.<名字>`。 */
+const BERTH_COMMANDS = { new: newBerthSession }
+type BerthCommand = keyof typeof BERTH_COMMANDS
+const COMMAND_NAMES = Object.keys(BERTH_COMMANDS) as BerthCommand[]
+
 /**
  * 群输入框：收件人由群顶部的会话条决定（单聊是那位成员，群聊是全体在线成员；回复 / 转给时是对方）。
- * 正文就是正文：`@`、`/` 不当指令。左下角按钮插入文件路径。Enter 发送、Shift+Enter 换行。
+ * 正文就是正文：`@`、`/` 不当指令；例外是单聊 Berth 时的 {@link BERTH_COMMANDS}（输入 `/` 弹出补全）。
+ * 左下角按钮插入文件路径。Enter 发送、Shift+Enter 换行。
  */
 export function GroupComposer({
   rows,
@@ -63,14 +77,35 @@ export function GroupComposer({
   // 不丢弃失效目标或自动改投；用户必须明确重选。
   const to = [...targets]
   const unavailable = to.filter((name) => !reachable.includes(name))
-  const everyone = names.length > 1 && names.every((name) => to.includes(name))
+  const crowd = names.filter((name) => name !== BERTH_MEMBER)
+  const everyone = crowd.length > 1 && crowd.every((name) => to.includes(name))
   const body = text.trim()
+  // 发给 Berth 要先选好模型：它用所选模型在 Berth 里直接回答。
+  const toBerth = to.includes(BERTH_MEMBER)
+  const [berthModel, setBerthModel] = useState<BerthModel | null>(null)
+  const onlyBerth = to.length === 1 && toBerth
+  // 单聊 Berth 时整条为指令就执行它（不需要选模型）。
+  const command = onlyBerth
+    ? (COMMAND_NAMES.find((name) => body === `/${name}`) ?? null)
+    : null
+  // 正在输入指令（`/` 开头、没有空白）：列出匹配的指令，Esc 关掉。
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  const [picked, setPicked] = useState(0)
+  const suggestions =
+    onlyBerth && /^\/\S*$/.test(text) && text !== dismissed
+      ? COMMAND_NAMES.filter((name) => `/${name}`.startsWith(text))
+      : []
+  const active = Math.min(picked, suggestions.length - 1)
+  const berthBusy = rows.some(
+    (row) => row.member.name === BERTH_MEMBER && row.member.busy
+  )
   const canSend =
     to.length > 0 &&
     Boolean(body) &&
     !sending &&
     !disabled &&
-    unavailable.length === 0
+    unavailable.length === 0 &&
+    (!toBerth || berthModel !== null || command != null)
   const labelOf = (name: string) =>
     memberLabel(
       rows.find((row) => row.member.name === name)?.member ?? { name }
@@ -105,8 +140,24 @@ export function GroupComposer({
     insert(paths.map((path) => `\`${displayPath(path, root)}\``).join(" "))
   }
 
+  const run = async (name: BerthCommand) => {
+    setSending(true)
+    setError(null)
+    try {
+      const response = await BERTH_COMMANDS[name](folderId)
+      if (!response.ok) throw new Error(response.error.message)
+      setText("")
+    } catch {
+      setError(t("sendFailed"))
+    } finally {
+      setSending(false)
+    }
+    inputRef.current?.focus()
+  }
+
   const send = async () => {
     if (!canSend) return
+    if (command) return run(command)
     setSending(true)
     setError(null)
     try {
@@ -132,6 +183,29 @@ export function GroupComposer({
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestions.length && !event.nativeEvent.isComposing) {
+      const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
+      if (step) {
+        event.preventDefault()
+        setPicked((active + step + suggestions.length) % suggestions.length)
+        return
+      }
+      if (event.key === "Tab") {
+        event.preventDefault()
+        setText(`/${suggestions[active]}`)
+        return
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault()
+        if (!sending && !disabled) void run(suggestions[active])
+        return
+      }
+      if (event.key === "Escape") {
+        event.preventDefault()
+        setDismissed(text)
+        return
+      }
+    }
     if (
       event.key === "Enter" &&
       !event.shiftKey &&
@@ -200,10 +274,39 @@ export function GroupComposer({
       <div
         data-composer-box
         className={cn(
-          "rounded-xl border bg-card shadow-sm transition-colors focus-within:border-primary/60",
+          "relative rounded-xl border bg-card shadow-sm transition-colors focus-within:border-primary/60",
           disabled && "opacity-60"
         )}
       >
+        {suggestions.length ? (
+          <ul
+            role="listbox"
+            aria-label={t("commandsLabel")}
+            className="absolute inset-x-0 bottom-full mb-1 overflow-hidden rounded-lg border bg-popover p-1 text-sm shadow-md"
+          >
+            {suggestions.map((name, index) => (
+              <li
+                key={name}
+                role="option"
+                aria-selected={index === active}
+                data-composer-command={name}
+                className={cn(
+                  "flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1",
+                  index === active && "bg-accent"
+                )}
+                onMouseEnter={() => setPicked(index)}
+                // 按下时不让输入框失焦。
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void run(name)}
+              >
+                <span className="font-mono">/{name}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {t(`commands.${name}`)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {reply ? (
           <div className="mx-2 mt-2 flex items-center gap-2 rounded-md border-l-2 border-primary bg-muted/50 px-2 py-1 text-xs">
             <div className="min-w-0 flex-1">
@@ -233,12 +336,17 @@ export function GroupComposer({
           placeholder={
             everyone
               ? t("placeholderAll")
-              : to.length
-                ? t("placeholderTo", { name: to.map(labelOf).join(", ") })
-                : t("placeholderPick")
+              : onlyBerth
+                ? t("berthPlaceholder")
+                : to.length
+                  ? t("placeholderTo", { name: to.map(labelOf).join(", ") })
+                  : t("placeholderPick")
           }
           className="max-h-48 min-h-14 w-full resize-none rounded-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-relaxed shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground/70"
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value)
+            setPicked(0)
+          }}
           onKeyDown={onKeyDown}
         />
         <div className="flex items-center gap-1 px-2 pb-2">
@@ -253,6 +361,19 @@ export function GroupComposer({
               onClick={() => void attach()}
             >
               <Paperclip aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : null}
+          {toBerth ? <BerthModelPicker onChange={setBerthModel} /> : null}
+          {toBerth && berthBusy ? (
+            <button
+              type="button"
+              data-berth-stop
+              title={t("berthStop")}
+              aria-label={t("berthStop")}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => void stopBerth(folderId)}
+            >
+              <Square aria-hidden="true" className="size-3.5" />
             </button>
           ) : null}
           <span className="ml-auto hidden select-none truncate text-[11px] text-muted-foreground/70 @sm:inline">

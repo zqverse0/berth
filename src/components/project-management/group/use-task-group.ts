@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import {
+  builtinMember,
   mergeGroupEvents,
   type GroupEvent,
   ensureGroupWatch,
@@ -125,17 +126,20 @@ async function readOnce(feed: GroupFeed) {
   if (feed.data.uninitialized) patch.uninitialized = false
   // 群组页是项目主页、常开；轮询多数时候什么都没变，内容相同就不更新，
   // 否则每 2 秒都会把整条时间线重画一遍。
+  const members = result.builtin
+    ? [builtinMember(result.builtin), ...result.members]
+    : result.members
   const snapshot = JSON.stringify([
     result.name,
     result.env ?? null,
-    result.members,
+    members,
     result.delivery,
   ])
   if (feed.snapshot !== snapshot) {
     feed.snapshot = snapshot
     patch.name = result.name
     patch.env = result.env ?? null
-    patch.members = result.members
+    patch.members = members
     patch.delivery = result.delivery
   }
   if (switched) patch.events = []

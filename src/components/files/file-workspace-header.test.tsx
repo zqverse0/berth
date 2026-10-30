@@ -14,8 +14,6 @@ import {
 import type { FileViewerToolbarState } from "@/lib/files/file-viewer-definition"
 import type { FileWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
-import { VIRTUAL_PREVIEW_ROOT } from "@/lib/files/file-open-target"
-import { useGithubStarredStore } from "@/stores/git/github-starred-store"
 
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string) => key }))
 vi.mock("@/hooks/use-appearance", () => ({
@@ -186,64 +184,5 @@ describe("FileWorkspaceHeader viewer controls", () => {
     // 快照），但 capability 没有声明 → 按钮不渲染（消失，不是灰按钮）。
     expect(screen.queryByLabelText("previewElementGrab")).toBeNull()
     expect(grab).not.toHaveBeenCalled()
-  })
-
-  it("renders repo stats and the star toggle for a github starred tab", () => {
-    useGithubStarredStore.setState({
-      hydrated: true,
-      repos: [
-        {
-          id: 1,
-          name: "alpha",
-          full_name: "acme/alpha",
-          description: null,
-          html_url: "https://github.com/acme/alpha",
-          clone_url: null,
-          stargazers_count: 1234,
-          forks_count: 5,
-          language: "Rust",
-          created_at: null,
-          updated_at: null,
-          pushed_at: null,
-          starred_at: null,
-          owner: { login: "acme", avatar_url: "" },
-          topics: [],
-          license: "MIT",
-          archived: false,
-        },
-      ],
-    })
-    const virtualPath = `${VIRTUAL_PREVIEW_ROOT}/${encodeURIComponent("github-starred:acme/alpha")}/README.md`
-    const tab: FileWorkspaceTab = {
-      kind: "file",
-      dataMode: "text",
-      id: `file:${virtualPath}`,
-      folderId: null,
-      title: "acme/alpha",
-      description: "README.md",
-      path: virtualPath,
-      loading: false,
-      saveState: "idle",
-      saveError: null,
-      language: "markdown",
-      content: "# Hello",
-      savedContent: "# Hello",
-      isDirty: false,
-      etag: null,
-      mtimeMs: null,
-      readonly: true,
-      lineEnding: "lf",
-      previewKind: "markdown",
-      lifetime: "global",
-    }
-    useWorkspaceFileStore.getState().insertFileTab(tab)
-
-    render(<FileWorkspaceHeader tabId={tab.id} />)
-
-    expect(screen.getByLabelText("stars")).toBeTruthy()
-    expect(screen.getByText("MIT")).toBeTruthy()
-    // 已在星标里 → 显示「取消星标」；打开 GitHub / 克隆不再重复出现
-    expect(screen.getByLabelText("unstar")).toBeTruthy()
-    expect(screen.queryByLabelText("clone")).toBeNull()
   })
 })

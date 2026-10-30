@@ -31,11 +31,9 @@ import {
   type FileViewerZoomController,
 } from "@/lib/files/file-viewer-definition"
 import { isTextFileTab } from "@/lib/files/file-workspace-tab"
-import { lazy, Suspense, useMemo } from "react"
+import { lazy, Suspense } from "react"
 import { useEditorFont } from "@/hooks/use-appearance"
 import { useOptionalFileViewerRuntime } from "@/components/files/file-viewer-runtime"
-import { githubStarredPreviewMetaFromPath } from "@/lib/git/github-starred-preview"
-import { GithubStarredHeaderActions } from "@/components/files/github-starred-reader-bar"
 import { useSendToAgent } from "@/hooks/use-send-to-agent"
 import { isVirtualPreviewPath } from "@/lib/files/file-open-target"
 import { sourceKindFromTab } from "@/lib/content-reference/source-kind"
@@ -251,10 +249,6 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
       ? (fileTabs.find((tab) => tab.id === tabId) ?? null)
       : fallbackActiveFileTab
   const activeFileTabId = activeFileTab?.id ?? storeActiveFileTabId
-  const starredMeta = useMemo(
-    () => githubStarredPreviewMetaFromPath(activeFileTab?.path),
-    [activeFileTab?.path]
-  )
   const definition: FileViewerDefinition | null = runtime
     ? runtime.definition
     : activeFileTab?.kind === "file"
@@ -397,7 +391,6 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
-        {starredMeta && <GithubStarredHeaderActions meta={starredMeta} />}
         {activeFileTab.kind === "file" &&
           activeFileTab.path &&
           !isVirtualPreviewPath(activeFileTab.path) && (

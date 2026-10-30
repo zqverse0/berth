@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "agent/berth-agent",
     "control/berth-control-proto",
     "project/berth-project-core",
     "project/berth-group",
@@ -21,7 +22,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.36.12"
+version = "0.36.13"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -99,7 +100,6 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 reqwest = { version = "0.13", features = ["stream", "json", "query", "form"] }
-scraper = "0.22"
 flate2 = "1"
 # 远程访问页的 HTTP 服务（`src/remote/`）；与 provider proxy 同一套，不另起依赖。
 hyper = { version = "1", features = ["http1", "server"] }
@@ -144,9 +144,12 @@ tracing-appender = "0.2"
 # 关闭 available：GUI 只编译当前生产调用闭包，不编入未用 SDK 能力。
 berth-term-sdk = { path = "terminal/sdk/berth-term-sdk", default-features = false }
 berth-control-proto = { path = "control/berth-control-proto" }
+berth-agent = { path = "agent/berth-agent" }
 berth-group = { path = "project/berth-group" }
 berth-project-core = { path = "project/berth-project-core" }
 berth-tool-core = { path = "tool/berth-tool-core" }
+# 插件视图脚本（plugin_views）在 GUI 进程内运行，与 berth-cli 同一实现。
+berth-plugin-api = { path = "tool/berth-plugin-api" }
 berth-provider-proxy = { path = "provider/berth-provider-proxy" }
 berth-term-ipc = { path = "terminal/shared/berth-term-ipc" }
 berth-term-os = { path = "terminal/shared/berth-term-os" }

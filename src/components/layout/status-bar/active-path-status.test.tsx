@@ -147,19 +147,19 @@ describe("ActivePathStatus component", () => {
     )
   })
 
-  it("shows the GitHub address instead of the virtual README path", () => {
+  it("shows the tab title instead of the virtual preview path", () => {
     layoutMocks.activeWorkspaceTab = { kind: "file", id: "f-1" }
     fileStoreMocks.fileTabs = [
       {
         id: "f-1",
-        path: `/__berth_preview__/${encodeURIComponent("github-starred:acme/demo")}/README.md`,
+        path: `/__berth_preview__/${encodeURIComponent("plugin-view:gh/readme?repo=acme%2Fdemo")}/readme.md`,
         title: "acme/demo",
       },
     ]
 
     render(<ActivePathStatus />)
 
-    expect(screen.getByText("github.com/acme/demo")).toBeTruthy()
+    expect(screen.getByText("acme/demo")).toBeTruthy()
     expect(screen.queryByText(/__berth_preview__/)).toBeNull()
   })
 

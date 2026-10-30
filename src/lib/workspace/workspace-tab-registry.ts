@@ -46,6 +46,11 @@ export const WORKSPACE_TAB_REGISTRY = {
     defaultPane: "files",
     section: "regular",
   },
+  "berth-session": {
+    collection: "file",
+    defaultPane: "files",
+    section: "regular",
+  },
   conversation: {
     collection: "primary",
     defaultPane: "files",
