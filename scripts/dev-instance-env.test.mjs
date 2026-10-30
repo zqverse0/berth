@@ -266,7 +266,10 @@ test("dev plugins dir links to the checkout's plugins/ and keeps old copies", (t
   const tools = join(env.BERTH_HOME, "tools")
   assert.equal(readlinkSync(tools), join(repo, "plugins"))
   assert.equal(
-    readFileSync(join(env.BERTH_HOME, "tools.copies", "old", "tool.json"), "utf8"),
+    readFileSync(
+      join(env.BERTH_HOME, "tools.copies", "old", "tool.json"),
+      "utf8"
+    ),
     "{}"
   )
 

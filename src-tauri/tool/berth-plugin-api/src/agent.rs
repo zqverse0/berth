@@ -465,6 +465,7 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.subsec_nanos());
         let path = std::env::temp_dir().join(format!("berth-{id}-{}-{nanos}", std::process::id()));
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);

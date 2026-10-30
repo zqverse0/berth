@@ -93,6 +93,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// 这个锁只用来串行化环境变量，一个用例 panic 不该让后面每个拿锁的用例都变成 PoisonError。
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 const GENERATION_GUARD: &str = "sdk.pane.generation_guard";
 
 #[test]
@@ -178,7 +185,7 @@ impl Drop for EnvironmentGuard {
 
 #[test]
 fn fallible_list_distinguishes_unavailable_runtime_from_empty_inventory() {
-    let _lock = ENV_LOCK.lock().expect("env lock");
+    let _lock = env_lock();
     let temp = tempfile::tempdir().expect("tempdir");
     let _env = EnvironmentGuard::set(temp.path(), temp.path().join("missing-terminald"));
     let manager = TerminalSessionManager::new();
@@ -285,7 +292,7 @@ async fn gui_project_owner_rejects_cloned_catalog_on_shared_daemon() {
     use berth_project_core::service::catalog::{list_catalog, CatalogScope};
     use berth_project_core::service::folder_service;
 
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
         .expect("owner regression requires the test berth-termd binary");
@@ -405,7 +412,7 @@ async fn gui_project_owner_keeps_legacy_unresolved_and_never_reuses_or_closes_it
     use super::super::model::TerminalOwnership;
     use berth_term_sdk::berth::{EnsureSession, SessionName};
 
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
         .expect("owner regression requires the test berth-termd binary");
@@ -482,7 +489,7 @@ async fn gui_project_owner_keeps_legacy_unresolved_and_never_reuses_or_closes_it
 async fn gui_duplicate_terminal_ids_are_ambiguous_without_rebinding() {
     use berth_term_sdk::berth::{EnsureSession, SessionName};
 
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
         .expect("duplicate-id regression requires the test berth-termd binary");
@@ -558,7 +565,7 @@ fn is_test_daemon_binary(path: &Path) -> bool {
 
 #[tokio::test(flavor = "current_thread")]
 async fn folder_id_reuses_one_terminal_session_and_folder_close_kills_all_windows() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -620,7 +627,7 @@ async fn folder_id_reuses_one_terminal_session_and_folder_close_kills_all_window
 
 #[tokio::test(flavor = "current_thread")]
 async fn active_pane_inventory_refresh_keeps_snapshot_on_original_binding() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -716,7 +723,7 @@ async fn active_pane_inventory_refresh_keeps_snapshot_on_original_binding() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_folder_terminals_get_distinct_terminal_windows() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -767,7 +774,7 @@ async fn concurrent_folder_terminals_get_distinct_terminal_windows() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn closing_after_window_reindex_resolves_the_bound_pane_first() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -815,7 +822,7 @@ async fn closing_after_window_reindex_resolves_the_bound_pane_first() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn restarted_daemon_epoch_rejects_captured_binding_without_rebinding() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -913,7 +920,7 @@ async fn restarted_daemon_epoch_rejects_captured_binding_without_rebinding() {
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn reattaching_the_same_client_survives_cleanup_of_the_previous_attachment() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -981,7 +988,7 @@ async fn reattaching_the_same_client_survives_cleanup_of_the_previous_attachment
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn attach_snapshot_restores_a_full_screen_app_and_its_modes() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -1038,7 +1045,7 @@ async fn attach_snapshot_restores_a_full_screen_app_and_its_modes() {
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn gui_attach_round_trip_and_detach_preserve_bound_pane() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))
@@ -1204,7 +1211,7 @@ async fn gui_attach_round_trip_and_detach_preserve_bound_pane() {
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn respawned_pane_rejects_stale_gui_operations_without_touching_new_process() {
-    let _env_lock = ENV_LOCK.lock().expect("environment lock");
+    let _env_lock = env_lock();
     let daemon = env::var_os("BERTH_TERMINALD_PATH")
         .map(PathBuf::from)
         .filter(|path| is_test_daemon_binary(path))

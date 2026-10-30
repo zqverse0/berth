@@ -51,7 +51,9 @@ if (isDev) {
     process.exit(1)
   }
   console.log(`[tauri-with-display] dev assets at ${process.env.BERTH_HOME}`)
-  console.log(`[tauri-with-display] dev plugins at ${join(import.meta.dirname, "..", "plugins")}`)
+  console.log(
+    `[tauri-with-display] dev plugins at ${join(import.meta.dirname, "..", "plugins")}`
+  )
   console.log(
     `[tauri-with-display] dev database at ${process.env.BERTH_DATA_DIR}/${process.env.BERTH_DATA_FILE}`
   )

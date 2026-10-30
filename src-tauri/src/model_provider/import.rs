@@ -418,9 +418,11 @@ mod tests {
         let (url, key, model) = extract_codex(&config).unwrap();
         assert_eq!(url, "https://coding.example.com/v1");
         assert_eq!(key, "sk-codex");
+        // 比结构不比字符串：序列化后的键序受 serde_json 的 preserve_order 特性合并影响。
+        let model: Value = serde_json::from_str(model.as_deref().unwrap()).unwrap();
         assert_eq!(
-            model.as_deref(),
-            Some(r#"[{"id":"qwen3.7-plus","name":"qwen3.7-plus"}]"#)
+            model,
+            serde_json::json!([{ "id": "qwen3.7-plus", "name": "qwen3.7-plus" }])
         );
     }
 
