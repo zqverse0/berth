@@ -18,7 +18,7 @@ const settingsOpen = () =>
     .globalTabs.some((tab) => tab.id === "settings")
 
 describe("ActivityBar settings mode", () => {
-  it("expands settings pages above the gear and leaves settings from the gear or another view", async () => {
+  it("keeps settings pages under the views, opens General from the gear and leaves from the current page", async () => {
     const user = userEvent.setup()
     render(
       <NextIntlClientProvider locale="en" messages={en}>
@@ -27,18 +27,27 @@ describe("ActivityBar settings mode", () => {
       </NextIntlClientProvider>
     )
     const gear = screen.getByRole("button", { name: "Open Settings" })
-    expect(screen.queryByRole("button", { name: "Experts" })).toBeNull()
+    const experts = screen.getByRole("button", { name: "Experts" })
+    expect(screen.queryByRole("button", { name: "General" })).toBeNull()
 
-    await user.click(gear)
+    await user.click(experts)
     expect(settingsOpen()).toBe(true)
     expect(useSidebarViewStore.getState().view).toBe("settings")
-    await user.click(screen.getByRole("button", { name: "Experts" }))
     expect(screen.getByRole("status").textContent).toBe("experts")
+    expect(experts.getAttribute("aria-pressed")).toBe("true")
+
+    await user.click(gear)
+    expect(screen.getByRole("status").textContent).toBe("appearance")
+    expect(gear.getAttribute("aria-pressed")).toBe("true")
+    expect(experts.getAttribute("aria-pressed")).toBe("false")
 
     await user.click(gear)
     expect(settingsOpen()).toBe(false)
     expect(useSidebarViewStore.getState().view).toBe("projects")
-    expect(screen.queryByRole("button", { name: "Experts" })).toBeNull()
+
+    await user.click(experts)
+    await user.click(experts)
+    expect(settingsOpen()).toBe(false)
 
     await user.click(gear)
     await user.click(screen.getByRole("button", { name: "Git" }))

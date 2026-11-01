@@ -92,6 +92,27 @@ function makeWriter(writes: string[]) {
 describe("createTerminalSnapshotPainter", () => {
   afterEach(() => vi.useRealTimers())
 
+  it("follows the bottom when the snapshot history no longer reaches the old position", async () => {
+    // 初始离底部 7 行（viewportY 3 / baseY 10）；程序清过 scrollback 后快照只剩 5 行历史
+    const term = makeTerminal()
+    const writes: string[] = []
+    const { writer, callbacks, fences } = makeWriter(writes)
+    const painter = createTerminalSnapshotPainter(term, writer)
+
+    const painted = painter.paintSnapshot(makeSnapshot(1), {
+      sourceGeneration: 1,
+    })
+    fences.shift()?.()
+    await Promise.resolve()
+    term.setAfterWrite(5)
+    callbacks.shift()?.()
+    await painted
+
+    expect(term.scrollToLine).not.toHaveBeenCalled()
+    expect(term.operations[term.operations.length - 1]).toBe("scroll:bottom")
+    painter.dispose()
+  })
+
   it("pauses live output and paints the latest queued snapshot", async () => {
     const term = makeTerminal()
     const writes: string[] = []

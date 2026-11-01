@@ -311,7 +311,7 @@ file tree / open request
   → FileWorkspacePanel → file viewer
 ```
 
-文本进入 CodeMirror；PDF、Office、Image、HTML、Excalidraw 画板共享 file workspace tab 和
+文本进入 CodeMirror；PDF、Office、Image、HTML、插件编辑器（如 Excalidraw 画板）共享 file workspace tab 和
 Header/runtime seam。详细分类见 `.trellis/spec/frontend/file-viewers.md`。
 
 ### 7.10 CLI 请求桌面动作

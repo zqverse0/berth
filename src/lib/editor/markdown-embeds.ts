@@ -298,7 +298,7 @@ export function imageBlocks(resolve: (src: string) => Promise<string | null>) {
   })
 }
 
-// Obsidian 式 `![[目标|宽度]]` 嵌入（独占一行）：图片或 Excalidraw 画板，光标不在该行时
+// Obsidian 式 `![[目标|宽度]]` 嵌入（独占一行）：图片或插件编辑器渲染的文件（如 Excalidraw 画板），光标不在该行时
 // 整行替换为渲染结果。目标由宿主解析成可显示的 URL；带 openPath 的（画板）点击即打开。
 export type WikiEmbedLoader = (
   target: string

@@ -12,6 +12,7 @@ import {
   useAppWorkspaceStore,
 } from "./app-workspace-store"
 import type { TabItemInternal } from "./tab-store"
+import { useAppUiStore } from "./app-ui-store"
 import type { FolderDetail } from "@/lib/types"
 import { saveLastActiveContext } from "@/lib/workspace/last-active-context-storage"
 
@@ -321,5 +322,26 @@ describe("folderless terminal scope", () => {
 
     expect(useAppWorkspaceStore.getState().activeFolderId).toBeNull()
     expect(useTabStore.getState().activeTabId).toBe(tab.id)
+  })
+})
+
+describe("switchTab", () => {
+  it("opens the aux panel only when the tab lives there", () => {
+    const terminal = { ...terminalTab(1, "term-1"), isPinned: false }
+    useTabStore.setState({ rawTabs: [terminal], activeTabId: null })
+    useAppWorkspaceStore.setState({ activeFolderId: 1 })
+    let pane: "conversation" | "files" = "files"
+    useTabStore.getState().setSideEffects({
+      activateConversationPane: () => pane,
+    })
+
+    // 被拖到主区的终端：点它不展开辅助面板（手机上面板会盖住主区）。
+    useAppUiStore.setState({ auxPanelOpen: false })
+    useTabStore.getState().switchTab(terminal.id)
+    expect(useAppUiStore.getState().auxPanelOpen).toBe(false)
+
+    pane = "conversation"
+    useTabStore.getState().switchTab(terminal.id)
+    expect(useAppUiStore.getState().auxPanelOpen).toBe(true)
   })
 })

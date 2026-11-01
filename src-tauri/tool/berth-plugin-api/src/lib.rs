@@ -1,9 +1,10 @@
 //! Berth 插件宿主接口（docs/plugin-architecture.md）：JSON-RPC 命名空间（[`rpc`]、`ns/`）与
 //! 内嵌 QuickJS 的脚本环境（[`script`]）。入口：berth-cli 的 `tools launch` / `tools run` /
-//! `tools call`，以及 GUI 渲染插件视图（[`call_script`]）。
+//! `tools call`，以及 GUI 渲染插件视图（[`call_script`]）与插件页面（[`page`]）。
 
 pub mod agent;
 mod ns;
+pub mod page;
 pub mod rpc;
 pub mod script;
 

@@ -31,10 +31,7 @@ export interface BaseWorkspaceTab {
 export interface TextFileWorkspaceTab extends BaseWorkspaceTab {
   kind: "file"
   dataMode: "text"
-  previewKind: Extract<
-    FileViewerKind,
-    "text" | "markdown" | "html" | "excalidraw"
-  >
+  previewKind: Extract<FileViewerKind, "text" | "markdown" | "html">
   path: string
   language: string
   content: string

@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod asset;
+pub mod editors;
 pub mod builtin;
 pub mod error;
 pub mod experts;

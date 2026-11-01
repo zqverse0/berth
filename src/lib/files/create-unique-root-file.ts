@@ -21,8 +21,3 @@ export async function createUniqueRootFile(
   }
   throw new Error(`Could not create a unique ${ext} file`)
 }
-
-/** 空画板 `drawing.excalidraw`；空文件即空画板。 */
-export function createProjectDrawingFile(rootPath: string): Promise<string> {
-  return createUniqueRootFile(rootPath, "drawing", ".excalidraw")
-}

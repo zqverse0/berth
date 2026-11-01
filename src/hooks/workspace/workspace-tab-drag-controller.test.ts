@@ -53,6 +53,7 @@ it("always ends the drag, even when committing the drop throws", () => {
   const tab = document.createElement("div")
   strip.append(tab)
   document.body.append(strip)
+  document.elementFromPoint = () => tab
   useWorkspaceLayoutStore.setState({
     dropWorkspaceTab: () => {
       throw new Error("boom")
@@ -83,4 +84,66 @@ it("always ends the drag, even when committing the drop throws", () => {
   expect(document.documentElement.hasAttribute("data-berth-tab-dragging")).toBe(
     false
   )
+})
+
+it("drops on the topmost strip, not one hidden underneath at the same spot", () => {
+  // 手机：主区的 tab 条在 DOM 前面、被全屏辅助面板盖住，两条同一高度。
+  const rect = () =>
+    ({ left: 0, right: 500, top: 0, bottom: 40, width: 500 }) as DOMRect
+  const hidden = document.createElement("div")
+  hidden.dataset.workspaceTabStrip = "files"
+  hidden.getBoundingClientRect = rect
+  const aux = document.createElement("div")
+  aux.dataset.workspaceTabStrip = "conversation"
+  aux.getBoundingClientRect = rect
+  const tab = document.createElement("div")
+  aux.append(tab)
+  document.body.append(hidden, aux)
+  document.elementFromPoint = () => tab
+  const drop = vi.fn()
+  useWorkspaceLayoutStore.setState({ dropWorkspaceTab: drop })
+
+  startWorkspaceTabDrag(
+    {
+      button: 0,
+      target: tab,
+      currentTarget: tab,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+      pointerType: "mouse",
+    } as unknown as ReactPointerEvent<HTMLElement>,
+    ref
+  )
+  window.dispatchEvent(pointer("pointermove", 40))
+  window.dispatchEvent(pointer("pointerup", 40))
+  vi.runAllTimers()
+
+  expect(drop).toHaveBeenCalledWith(ref, "conversation", expect.any(Number))
+})
+
+it("never drags on touch: a long press belongs to the tab menu", () => {
+  const tab = document.createElement("div")
+  document.body.append(tab)
+  startWorkspaceTabDrag(
+    {
+      button: 0,
+      target: tab,
+      currentTarget: tab,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+      pointerType: "touch",
+    } as unknown as ReactPointerEvent<HTMLElement>,
+    ref
+  )
+  vi.runAllTimers()
+  window.dispatchEvent(
+    Object.assign(new MouseEvent("pointermove", { clientX: 80, clientY: 10 }), {
+      pointerId: 1,
+      pointerType: "touch",
+    })
+  )
+  expect(useWorkspaceLayoutStore.getState().dragging).toBeNull()
+  expect(document.querySelector("[data-tab-drag-ghost]")).toBeNull()
 })

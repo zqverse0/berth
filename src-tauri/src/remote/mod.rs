@@ -127,6 +127,10 @@ struct Remote {
     clients: Mutex<HashMap<String, Arc<Client>>>,
     /// 已挂 `listen_any` 的事件名；不卸载，每个名字一个闭包。
     hooked: Mutex<HashSet<String>>,
+    /// 主窗口 URL，只用来让 IPC 按本地来源鉴权，来源不变就取一次。`webview.url()` 在 Linux 上
+    /// 同步等主线程回话：每条命令都取的话，主线程一忙，命令连接的收发循环就跟着停住，
+    /// 页面 10 秒收不到 pong 判定断线重连（日志里成串的 `drop silent silent=10001ms`）。
+    main_url: std::sync::OnceLock<tauri::Url>,
 }
 
 /// 一个浏览器页面（shim 生成的随机 id）。
@@ -233,6 +237,7 @@ pub async fn host(app: AppHandle) {
         app,
         clients: Mutex::default(),
         hooked: Mutex::default(),
+        main_url: std::sync::OnceLock::new(),
     });
     tokio::spawn(reap(remote.clone()));
     loop {
@@ -421,6 +426,9 @@ async fn handle(remote: &Arc<Remote>, request: Request<Incoming>) -> Response<Bo
         return plain(StatusCode::METHOD_NOT_ALLOWED, "GET only");
     }
     let headers = request.headers().clone();
+    if let Some(rest) = path.strip_prefix("/__berth/plugin") {
+        return plugin_page(rest, &headers).await;
+    }
     // 静态导出的路由跳转先取 `<页面>.txt`（RSC 载荷），失败时 Next 整页导航到这个 URL，
     // 浏览器就把 `workspace.txt` 当文件下载。Next 的 RSC 请求（导航与预取）一律带 `RSC: 1`，
     // 不带的就是整页导航，送回页面本身；不靠 `Sec-Fetch-Dest`（老 iOS / App 内置浏览器不发）。
@@ -737,9 +745,12 @@ fn invoke(remote: &Arc<Remote>, client: &Arc<Client>, meta: &Meta, body: Bytes) 
             "The Berth desktop main window is not open on the host.".into(),
         ));
     };
-    let url = match webview.url() {
-        Ok(url) => url,
-        Err(error) => return ready(failure(error.to_string())),
+    let url = match remote.main_url.get() {
+        Some(url) => url.clone(),
+        None => match webview.url() {
+            Ok(url) => remote.main_url.get_or_init(|| url).clone(),
+            Err(error) => return ready(failure(error.to_string())),
+        },
     };
     let mut headers = HeaderMap::new();
     for (name, value) in &meta.h {
@@ -1123,7 +1134,15 @@ fn send_response(
     etag: Option<&str>,
 ) {
     if let InvokeResponse::Err(InvokeError(error)) = &response {
-        tracing::warn!("[remote] {cmd} failed: {error}");
+        // 轮询命令（如 termd 未启动时的 terminal_list_sessions）每 2 秒同样失败一次：
+        // 只在失败内容变化时记，连续重复不刷屏。
+        static LAST_FAILURE: Mutex<String> = Mutex::new(String::new());
+        let line = format!("{cmd} failed: {error}");
+        let mut last = LAST_FAILURE.lock().unwrap_or_else(|e| e.into_inner());
+        if *last != line {
+            tracing::warn!("[remote] {line}");
+            *last = line;
+        }
     }
     let snapshot = cmd == "terminal_attach_channel" || cmd == "terminal_resize_attached";
     let frames = response_frames(id, response, took, etag, snapshot);
@@ -1225,6 +1244,38 @@ fn inject_shim(html: Vec<u8>) -> Vec<u8> {
     injected.push_str("</script>");
     injected.push_str(&text[at..]);
     injected.into_bytes()
+}
+
+/// 插件页面资源（docs/plugin-architecture.md §2.4）。与本页同源，所以页面 iframe 不带
+/// allow-same-origin（不透明源，碰不到宿主）；它取自己的资源成了跨源请求，回 CORS 头。
+async fn plugin_page(path: &str, headers: &HeaderMap) -> Response<Body> {
+    // 不透明源下 CSP 的 'self' 不可靠，写明本服务的地址
+    let origin = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .map(|host| format!("http://{host} https://{host}"))
+        .unwrap_or_else(|| "'self'".to_owned());
+    let path = path.to_owned();
+    let asset = tokio::task::spawn_blocking(move || {
+        crate::commands::plugin_views::page_asset(&path, &origin)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()));
+    match asset {
+        Ok(asset) => {
+            let mut response = respond(headers, StatusCode::OK, asset.mime, asset.bytes, false);
+            let target = response.headers_mut();
+            target.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
+            );
+            if let Some(csp) = asset.csp.and_then(|csp| HeaderValue::from_str(&csp).ok()) {
+                target.insert(header::CONTENT_SECURITY_POLICY, csp);
+            }
+            response
+        }
+        Err(error) => plain(StatusCode::NOT_FOUND, &error),
+    }
 }
 
 /// dev 转发 devUrl（Next dev server）；正式版读内嵌资源（自动补 `.html` / `index.html`）。

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use berth_project_core::tasks::{self, group, group::{Body, Member}};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(unix)]
 use sha2::{Digest, Sha256};
 
 use crate::term::{self, Fail, Terminals};
@@ -26,6 +27,7 @@ use crate::term::PaneProbe;
 const TICK: Duration = Duration::from_secs(2);
 const IDLE_EXIT: Duration = Duration::from_secs(600);
 /// 被 hook 叫醒后稍等：一轮结束的 hook 还没返回，Agent 回到输入框还要一瞬。
+#[cfg(unix)]
 const KICK_SETTLE: Duration = Duration::from_millis(300);
 
 fn lock_path(ctx: &Ctx) -> Option<PathBuf> {
@@ -33,6 +35,7 @@ fn lock_path(ctx: &Ctx) -> Option<PathBuf> {
 }
 
 /// 叫醒后台进程的 socket：放在临时目录（Unix socket 路径有长度上限，项目路径可能很深）。
+#[cfg(unix)]
 fn kick_path(ctx: &Ctx) -> Option<PathBuf> {
     let socket = ctx.socket.as_ref()?;
     let digest = Sha256::digest(format!("{}\0{}", ctx.main.display(), socket.display()).as_bytes());
@@ -48,6 +51,8 @@ pub(crate) fn kick(ctx: &Ctx) {
 
 /// 只叫醒已在跑的后台进程，不负责拉起（GUI 带自己的启动环境另行拉起）。
 pub(crate) fn nudge(ctx: &Ctx) {
+    #[cfg(not(unix))]
+    let _ = ctx;
     #[cfg(unix)]
     if let Some(path) = kick_path(ctx) {
         if let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() {

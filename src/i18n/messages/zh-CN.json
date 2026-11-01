@@ -1522,7 +1522,13 @@
         "up": "上",
         "down": "下",
         "left": "左",
-        "right": "右"
+        "right": "右",
+        "paste": "粘贴",
+        "pastePrompt": "长按输入框粘贴",
+        "pasteMultiline": "当前程序不支持多行粘贴",
+        "select": "选择",
+        "selectHint": "长按文字选择并拷贝",
+        "done": "完成"
       },
       "inputNormal": "普通",
       "inputInsert": "输入",
@@ -1674,9 +1680,7 @@
       "dismissSelection": "取消发送选中内容",
       "changeCount": "{count} 处变更",
       "original": "原始",
-      "modified": "修改后",
-      "excalidrawParseError": "不是有效的 Excalidraw 场景文件（JSON 解析失败）。",
-      "drawingCreateFailed": "无法创建画板"
+      "modified": "修改后"
     },
     "branchDropdown": {
       "toasts": {
@@ -2093,8 +2097,6 @@
       },
       "createDialog": {
         "markdown": "Markdown 笔记",
-        "excalidrawMd": "Excalidraw 画板（Obsidian）",
-        "excalidraw": "Excalidraw 画板",
         "presetHint": "填了文件名就用它，否则用默认名",
         "newFile": "新建文件",
         "newDirectory": "新建目录",
@@ -4035,10 +4037,6 @@
     "new_terminal": {
       "title": "新建终端",
       "description": "打开当前项目的终端创建入口"
-    },
-    "new_canvas": {
-      "title": "新建画板",
-      "description": "在项目根目录创建一个 Excalidraw 画板（.excalidraw）"
     },
     "open_settings": {
       "title": "打开设置",

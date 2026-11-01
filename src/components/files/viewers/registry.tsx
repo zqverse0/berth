@@ -1,7 +1,8 @@
 "use client"
 
-import { lazy, Suspense, type ReactNode } from "react"
-import dynamic from "next/dynamic"
+import { lazy, Suspense, useMemo, type ReactNode } from "react"
+import { useLocale } from "next-intl"
+import { toast } from "@/lib/notify"
 import type { FileViewerKind } from "@/lib/files/file-viewer-definition"
 import {
   isImageResourceFileTab,
@@ -10,7 +11,11 @@ import {
   type FileWorkspaceTab,
   type TextFileWorkspaceTab,
 } from "@/lib/files/file-workspace-tab"
-import { splitAbsPath } from "@/lib/files/file-open-target"
+import { findOwningFolder, splitAbsPath } from "@/lib/files/file-open-target"
+import { editorForPath, usePluginViewsStore } from "@/lib/plugins/plugin-views"
+import type { PageHost } from "@/lib/plugins/plugin-page"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { PluginPageFrame } from "@/components/plugins/plugin-page-frame"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { ImagePreview } from "@/components/files/image-preview"
 import { PreviewSelectionLayer } from "@/components/content-reference/preview-selection-layer"
@@ -19,13 +24,6 @@ import { useFileReveal } from "./use-file-reveal"
 import { useFileTabSave } from "./use-file-tab-save"
 import { viewerFallback, ViewerLoading } from "./viewer-states"
 
-const ExcalidrawFileSurface = dynamic(
-  () =>
-    import("@/components/files/excalidraw-file-surface").then(
-      (module) => module.ExcalidrawFileSurface
-    ),
-  { ssr: false }
-)
 // 文本 / Markdown / HTML 都要 CodeMirror（约 100KB gz），打开文件时才加载，不进首屏。
 const LazyTextFileViewer = lazy(() =>
   import("./text-file-viewer").then((m) => ({ default: m.TextFileViewer }))
@@ -74,25 +72,88 @@ function OfficeFileViewer({ tab, visible }: FileViewerProps) {
   )
 }
 
-function ExcalidrawFileViewer({ tab, visible, active }: FileViewerProps) {
+function PluginEditorViewer({ tab, visible, active }: FileViewerProps) {
   useFileReveal({ tab, visible, textBuffer: true, revealLine: null })
   if (!isTextFileTab(tab)) return null
-  return <ExcalidrawTextViewer tab={tab} visible={visible} active={active} />
+  return <PluginEditorTextViewer tab={tab} visible={visible} active={active} />
 }
 
-function ExcalidrawTextViewer({
+/**
+ * 插件编辑器（§4.2）：页面只收发内容，读写 / 自动保存 / Ctrl+S / 外部修改走文本 tab 的链路。
+ * `files.*` 的根是文件所在项目，不在项目里时是文件所在目录。
+ */
+function PluginEditorTextViewer({
   tab,
   visible,
   active,
 }: FileViewerProps & { tab: TextFileWorkspaceTab }) {
-  const { updateFileTabContent } = useWorkspaceRuntimeActions()
+  const { updateFileTabContent, openFilePreview } = useWorkspaceRuntimeActions()
   useFileTabSave(tab, { active })
-  if (!visible) return null
+  const editors = usePluginViewsStore((state) => state.editors)
+  const editor = editorForPath(editors, tab.path)
+  const allFolders = useAppWorkspaceStore((state) => state.allFolders)
+  const locale = useLocale()
+  const { root, project } = useMemo(() => {
+    const folder = findOwningFolder(tab.path, allFolders)
+    const owner = folder
+      ? allFolders.find((item) => item.id === folder.folderId)
+      : undefined
+    return {
+      root: folder?.rootPath ?? splitAbsPath(tab.path)?.rootPath ?? null,
+      project: owner
+        ? { id: String(owner.id), name: owner.name, root: owner.path }
+        : null,
+    }
+  }, [allFolders, tab.path])
+  const relPath =
+    root && tab.path.length > root.length
+      ? tab.path.slice(root.replace(/[\\/]+$/, "").length + 1)
+      : tab.title
+  const host = useMemo<PageHost | null>(
+    () =>
+      editor
+        ? {
+            plugin: editor.plugin,
+            permissions: editor.permissions,
+            root,
+            project,
+            locale,
+            context: {
+              kind: "editor",
+              id: editor.id,
+              mode: "edit",
+              path: relPath,
+              readOnly: tab.readonly,
+              content: tab.content,
+            },
+            onChange: (content) => updateFileTabContent(tab.id, content),
+            openFile: (path) => void openFilePreview(path),
+            notify: (message, kind) =>
+              kind === "error" ? toast.error(message) : toast(message),
+          }
+        : null,
+    [
+      editor,
+      root,
+      project,
+      locale,
+      relPath,
+      tab.readonly,
+      tab.content,
+      tab.id,
+      updateFileTabContent,
+      openFilePreview,
+    ]
+  )
+  if (!visible || !editor || !host) return null
   if (tab.loading && !tab.content) return <ViewerLoading />
   return (
-    <ExcalidrawFileSurface
-      tab={tab}
-      onContentChange={(value) => updateFileTabContent(tab.id, value)}
+    <PluginPageFrame
+      page={editor.page}
+      host={host}
+      externalContent={tab.content}
+      acceptFileDrop={!tab.readonly}
+      title={tab.title}
     />
   )
 }
@@ -124,7 +185,7 @@ const FILE_VIEWERS: Record<
         <LazyTextFileViewer {...props} tab={props.tab} kind="html" />
       </Suspense>
     ) : null,
-  excalidraw: (props) => <ExcalidrawFileViewer {...props} />,
+  plugin: (props) => <PluginEditorViewer {...props} />,
   image: (props) => <ImageFileViewer {...props} />,
   office: (props) => <OfficeFileViewer {...props} />,
   pdf: (props) =>

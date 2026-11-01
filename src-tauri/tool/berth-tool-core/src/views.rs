@@ -2,7 +2,7 @@
 //! `extensions["org.berth.view"]`）是视图声明数组。
 //!
 //! 第 1 层 `script`：宿主运行它的 `render(req)` 拿视图数据，用自己的组件渲染；第 2 层 `page`
-//! （包内 html）宿主尚未实现，声明了只报诊断。坏声明逐条跳过，不拖累同包其他视图。
+//! 是包内 html，宿主在沙箱 iframe 里显示（§2.4 页面环境）。坏声明逐条跳过，不拖累同包其他视图。
 
 use std::path::Path;
 
@@ -12,7 +12,7 @@ use crate::asset::AssetDiagnostic;
 
 pub const VIEW: &str = "org.berth.view";
 
-/// 一条可用的视图声明（只含宿主能渲染的第 1 层）。
+/// 一条可用的视图声明。
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
     pub id: String,
@@ -21,8 +21,16 @@ pub struct View {
     /// 包内图标的相对路径。
     pub icon: Option<String>,
     pub location: Location,
-    /// 包内脚本的相对路径。
-    pub script: String,
+    pub source: Source,
+}
+
+/// 视图内容从哪来（包内相对路径）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// 第 1 层：脚本的 `render(req)` 返回视图数据。
+    Script(String),
+    /// 第 2 层：包内 html 页面。
+    Page(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +50,7 @@ impl Location {
     }
 }
 
-fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id
@@ -51,7 +59,7 @@ fn valid_id(id: &str) -> bool {
 }
 
 /// 包内相对路径：拒绝绝对路径与 `..`。
-fn package_path(value: Option<&Value>) -> Option<&str> {
+pub(crate) fn package_path(value: Option<&Value>) -> Option<&str> {
     let text = value?.as_str()?;
     let path = Path::new(text);
     (!text.is_empty()
@@ -62,7 +70,7 @@ fn package_path(value: Option<&Value>) -> Option<&str> {
     .then_some(text)
 }
 
-fn valid_title(title: &Value) -> bool {
+pub(crate) fn valid_title(title: &Value) -> bool {
     match title {
         Value::String(text) => !text.trim().is_empty(),
         Value::Object(map) => {
@@ -121,19 +129,20 @@ pub fn parse(raw: &Value) -> (Vec<View>, Vec<AssetDiagnostic>) {
                 continue;
             }
         };
-        let script = package_path(item.get("script"));
-        let page = item.get("page").is_some();
-        let script = match (script, page) {
-            (Some(script), false) => script,
-            (None, true) => {
-                fail("page views are not supported by this Berth yet; use script");
-                continue;
-            }
-            _ => {
-                fail("declare exactly one of script / page, as a path inside the package");
-                continue;
-            }
+        let source = match (item.get("script"), item.get("page")) {
+            (Some(_), None) => package_path(item.get("script")).map(|p| Source::Script(p.into())),
+            (None, Some(_)) => package_path(item.get("page")).map(|p| Source::Page(p.into())),
+            _ => None,
         };
+        let Some(source) = source else {
+            fail("declare exactly one of script / page, as a path inside the package");
+            continue;
+        };
+        // ponytail: 标签页里的页面视图要一种新的工作区文档，等有插件需要再做
+        if matches!(source, Source::Page(_)) && place == Location::Tab {
+            fail("page views can only be in the sidebar for now");
+            continue;
+        }
         let icon = match item.get("icon") {
             None => None,
             icon => match package_path(icon) {
@@ -149,20 +158,20 @@ pub fn parse(raw: &Value) -> (Vec<View>, Vec<AssetDiagnostic>) {
             title: title.clone(),
             icon,
             location: place,
-            script: script.to_owned(),
+            source,
         });
     }
     (views, findings)
 }
 
-/// 视图声明引用的包内文件（脚本与图标），供包边界检查放行。
+/// 视图声明引用的包内文件（脚本、页面与图标），供包边界检查放行。
 pub fn package_paths(raw: &Value) -> Vec<&str> {
     raw.get("extensions")
         .and_then(|ext| ext.get(VIEW))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .flat_map(|item| [item.get("script"), item.get("icon")])
+        .flat_map(|item| [item.get("script"), item.get("page"), item.get("icon")])
         .filter_map(|value| package_path(value))
         .collect()
 }
@@ -184,19 +193,23 @@ mod tests {
             { "id": "readme", "title": "README", "location": "tab", "script": "views/readme.js" },
             { "id": "Bad", "title": "x", "location": "tab", "script": "a.js" },
             { "id": "escape", "title": "x", "location": "tab", "script": "../a.js" },
-            { "id": "page", "title": "x", "location": "tab", "page": "a.html" },
+            { "id": "page", "title": "x", "location": "sidebar", "page": "page/index.html" },
+            { "id": "tabpage", "title": "x", "location": "tab", "page": "page/index.html" },
+            { "id": "both", "title": "x", "location": "tab", "page": "a.html", "script": "a.js" },
             { "id": "where", "title": "x", "location": "statusbar", "script": "a.js" },
             { "id": "readme", "title": "dup", "location": "tab", "script": "a.js" },
         ])));
         assert_eq!(
             views.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(),
-            ["discover", "readme"]
+            ["discover", "readme", "page"]
         );
         assert_eq!(views[0].location, Location::Sidebar);
         assert_eq!(views[0].icon.as_deref(), Some("icon.svg"));
-        assert_eq!(views[1].script, "views/readme.js");
-        assert_eq!(findings.len(), 5);
-        assert!(findings[2].message.contains("not supported"));
+        assert_eq!(views[1].source, Source::Script("views/readme.js".into()));
+        assert_eq!(views[2].source, Source::Page("page/index.html".into()));
+        assert_eq!(findings.len(), 6);
+        assert!(findings[2].message.contains("sidebar"));
+        assert!(findings[3].message.contains("exactly one"));
     }
 
     #[test]
@@ -210,8 +223,12 @@ mod tests {
     fn package_paths_cover_scripts_and_icons_but_not_escapes() {
         let value = raw(json!([
             { "script": "views/a.js", "icon": "icons/a.svg" },
+            { "page": "page/index.html" },
             { "script": "../x.js" },
         ]));
-        assert_eq!(package_paths(&value), ["views/a.js", "icons/a.svg"]);
+        assert_eq!(
+            package_paths(&value),
+            ["views/a.js", "icons/a.svg", "page/index.html"]
+        );
     }
 }

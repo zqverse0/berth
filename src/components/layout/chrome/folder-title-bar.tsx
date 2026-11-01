@@ -1,14 +1,12 @@
 "use client"
 
-import { useCallback } from "react"
-import { Menu, PanelRight, Settings } from "lucide-react"
+import { Menu, PanelRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { usePlatform } from "@/hooks/use-platform"
 import { Button } from "@/components/ui/button"
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { useSettingsWorkspace } from "@/contexts/settings-workspace-context"
 import {
   MAC_TRAFFIC_LIGHT_INSET,
   hasNativeWindowChrome,
@@ -27,7 +25,7 @@ import { TerminalCommandsMenu } from "@/components/layout/aux-panel/terminal-com
  * are `Sheet` overlays that need a compact bar to summon them.
  *
  * It mirrors the desktop chrome directly (rather than via `AppTitleBar`): the
- * left holds the sidebar toggle and settings.
+ * left holds the sidebar toggle (settings sit at the bottom of the sidebar icon column).
  * The right holds shortcut commands and the aux toggle. The empty middle is a
  * full-height `data-tauri-drag-region` filler so the window drags by it — plus a macOS
  * traffic-light inset and the Windows/Linux caption buttons (`WindowControls`
@@ -39,14 +37,10 @@ export function FolderTitleBar() {
   const toggle = useAppUiStore((state) => state.toggleSidebar)
   const auxPanelOpen = useAppUiStore((state) => state.auxPanelOpen)
   const toggleAuxPanel = useAppUiStore((state) => state.toggleAuxPanel)
-  const { openSettings } = useSettingsWorkspace()
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
   const { isMac } = usePlatform()
   const showMacInset = isMac && hasNativeWindowChrome()
-  const handleOpenSettings = useCallback(() => {
-    openSettings()
-  }, [openSettings])
 
   return (
     <div className="flex h-10 shrink-0 items-stretch border-b border-border ws-chrome-border bg-muted/70 select-none">
@@ -59,8 +53,7 @@ export function FolderTitleBar() {
           style={{ width: MAC_TRAFFIC_LIGHT_INSET }}
         />
       )}
-      {/* Settings stays beside the sidebar toggle on mobile, mirroring the
-        desktop ActivityBar controls (which no longer carry a folder entry). */}
+      {/* 设置在侧栏图标列底部（与桌面活动栏一致），这里只留侧栏开关。 */}
       <div className="flex shrink-0 items-center gap-1 pl-2">
         <Button
           variant="ghost"
@@ -71,16 +64,6 @@ export function FolderTitleBar() {
           aria-label={tTitleBar(sidebarOpen ? "hideSidebar" : "showSidebar")}
         >
           <Menu className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 hover:bg-foreground/10 hover:text-foreground/80 dark:hover:bg-foreground/10"
-          onClick={handleOpenSettings}
-          title={tTitleBar("openSettings")}
-          aria-label={tTitleBar("openSettings")}
-        >
-          <Settings className="h-4 w-4" />
         </Button>
       </div>
       {/* Empty middle is a full-height window-drag region. */}

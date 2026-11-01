@@ -35,6 +35,7 @@ import {
   type FileViewerKind,
 } from "@/lib/files/file-viewer-definition"
 import { FileViewerHost } from "@/components/files/viewers/registry"
+import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 import {
   viewerFallback,
   ViewerLoading,
@@ -455,8 +456,11 @@ export function FileWorkspacePanel({
   const activeFileTab = tabId
     ? (fileTabs.find((tab) => tab.id === tabId) ?? null)
     : contextActiveFileTab
+  const editorSuffixes = usePluginViewsStore((state) => state.editorSuffixes)
   const activeFileViewerKind: FileViewerKind | null =
-    activeFileTab?.kind === "file" ? fileViewerKindFromTab(activeFileTab) : null
+    activeFileTab?.kind === "file"
+      ? fileViewerKindFromTab(activeFileTab, editorSuffixes)
+      : null
   const liveEditorDocumentIds = useMemo(
     () => new Set(fileTabs.map((tab) => `file-tab:${tab.id}`)),
     [fileTabs]

@@ -10,11 +10,11 @@ Static classification lives in `src/lib/file-viewer-definition.ts`:
 
 ```ts
 type FileViewerKind =
-  | "text" | "markdown" | "html" | "excalidraw"
+  | "text" | "markdown" | "html" | "plugin"
   | "image" | "office" | "pdf"
 
-fileViewerKindFromPath(path: string): FileViewerKind
-fileViewerDefinitionFromTab(tab: FileWorkspaceTab): FileViewerDefinition | null
+fileViewerKindFromPath(path: string, editorSuffixes?: readonly string[]): FileViewerKind
+fileViewerDefinitionFromTab(tab: FileWorkspaceTab, editorSuffixes?: readonly string[]): FileViewerDefinition | null
 ```
 
 Dynamic toolbar state is bridged locally:
@@ -30,7 +30,7 @@ interface FileViewerProps { tab: FileWorkspaceTab; visible: boolean; active: boo
 useFileReveal({ tab, visible, textBuffer, revealLine, waitForLine? }): () => void
 ```
 
-Each Viewer owns its loading state (`viewers/viewer-states.tsx`), selection reporting, reveal completion (`useFileReveal`) and toolbar controller. `TextFileViewer` owns all CodeMirror state (IME, language packs, git markers). Saving (autosave, blur save, Ctrl+S) is `viewers/use-file-tab-save.ts`, shared by every text-buffer viewer (text and Excalidraw). `FileWorkspacePanel` only resolves the active tab, registers the document context, and dispatches non-file documents (transcript / task / diff).
+Each Viewer owns its loading state (`viewers/viewer-states.tsx`), selection reporting, reveal completion (`useFileReveal`) and toolbar controller. `TextFileViewer` owns all CodeMirror state (IME, language packs, git markers). Saving (autosave, blur save, Ctrl+S) is `viewers/use-file-tab-save.ts`, shared by every text-buffer viewer (text and plugin editors). `FileWorkspacePanel` only resolves the active tab, registers the document context, and dispatches non-file documents (transcript / task / diff).
 
 ## 3. Contracts
 
@@ -49,7 +49,8 @@ Each Viewer owns its loading state (`viewers/viewer-states.tsx`), selection repo
 | Condition | Required behavior |
 | --- | --- |
 | Unknown extension | Classify as `text` |
-| `*.excalidraw` / Obsidian `*.excalidraw.md` | Classify as `excalidraw` before the markdown check |
+| Path ends with an enabled plugin editor suffix (`usePluginViewsStore().editorSuffixes`, e.g. `.excalidraw.md`) | Classify as `plugin` before every built-in check; the viewer picks the editor by longest suffix |
+| Persisted tab carries a removed `previewKind` | Classify as `text` |
 | Viewer controller kind differs from active definition | Ignore the controller |
 | Viewer unmounts or tab changes | Unregister stale controller |
 | Capability exists but runtime action is unavailable | Hide the action; never render a dead button |
@@ -64,7 +65,7 @@ Each Viewer owns its loading state (`viewers/viewer-states.tsx`), selection repo
 
 ## 6. Tests Required
 
-- Classification: every supported extension, uppercase paths, unknown fallback, and the compound `.excalidraw.md` suffix.
+- Classification: every supported extension, uppercase paths, unknown fallback, and plugin editor suffixes (compound `.excalidraw.md` beats `.md`).
 - Registry: `FILE_VIEWER_KINDS` covers every `FileViewerKind` exactly once (the `Record` type enforces one renderer per kind).
 - Runtime: registration, snapshot update, unregistration, tab/kind mismatch.
 - Header: each capability invokes the Viewer action; unavailable actions are absent.

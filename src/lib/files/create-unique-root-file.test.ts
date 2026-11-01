@@ -8,7 +8,7 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import { createUniqueRootFile } from "./create-drawing-file"
+import { createUniqueRootFile } from "./create-unique-root-file"
 
 describe("createUniqueRootFile", () => {
   it("numbers the name until it is free", async () => {

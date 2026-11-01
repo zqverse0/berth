@@ -9,7 +9,7 @@
 - 接口稳定：宿主内部重构不影响插件；能力只增不破。
 - 改动局部：任何一次改动只落在一个命名空间或一个接入点上。
 
-不做：npm 依赖、插件之间互相调用、插件直接访问 Tauri IPC 或宿主 React。
+不做：运行时装 npm 依赖（页面可以在构建时把 npm 包打进 `page/`）、插件之间互相调用、插件直接访问 Tauri IPC 或宿主 React。
 
 ## 2. 永不改变的三样
 
@@ -72,9 +72,21 @@
 | 环境 | 是什么 | 生命周期 | 可用命名空间 |
 |---|---|---|---|
 | 脚本 | berth-cli 内嵌 QuickJS（ES2023），包内 `.js` 模块 | 每次调用一个进程，跑完退出 | 除 `ui` 外全部 |
-| 页面 | 工作区标签页里的沙箱 iframe，包内 `.html` | 随标签页 | 除 `process`、`fs` 外全部 |
+| 页面 | 工作区标签页 / 侧栏里的沙箱 iframe，包内 `.html` | 随标签页 | 除 `process`、`fs`、`http` 外全部 |
 
 两种环境说同一种消息。页面的「后端」逻辑写成脚本，用 `scripts.run` 调用。
+
+页面环境：
+- 地址：桌面 `berth-plugin://localhost/<id>/<包内路径>`（Windows `http://berth-plugin.localhost/…`），与主窗口不同源，
+  iframe `sandbox="allow-scripts allow-same-origin"`；远程浏览器经同源的 `/__berth/plugin/<id>/…`，iframe 只给
+  `allow-scripts`（不透明源，资源响应带 CORS；`localStorage` 由桥换成内存实现）。插件停用后地址即失效。
+- 宿主在 html 的 `<head>` 最前注入桥脚本（`berth-plugin-api/src/page.js`），页面里的 `window.berth` 就是它；
+  页面 CSP 只许加载包内资源与 data / blob，不许联网、不许再嵌 frame。
+- 桥与宿主经 postMessage 说 §2.2 的 JSON-RPC：页面发 `page.hello`，宿主回通知 `page.init`（上下文、主题变量、语言），
+  之后 `berth.ready` resolve。宿主发通知 `ui.theme`、`editor.externalChange`、`editor.drop`，调钩子 `editor.render`；
+  页面发通知 `editor.change`、`ui.key`（带修饰键的按键，宿主当作自己的快捷键处理；Ctrl/⌘+S 归宿主保存）。
+- 宿主实现的方法：`files.readText` / `readBase64` / `open`（相对 files 根，权限 `project.files`）、`ui.notify` /
+  `openUrl`、`env.project`、`scripts.run`；`storage`、`data` 经接口层后端执行。
 
 ### 2.5 界面两层
 
@@ -117,7 +129,7 @@
 | `agent` | 启动栏（`launchbar`）、会话格式、用量、服务商注入、登录、能力目录、首条 prompt、打断键；入口 `launch.js` | `agent.args`、`agent.launch`、`agent.isNativePlugin` | 输入校验、专家、服务商档案、能力索引、hook、终端 |
 | `command` | 标题、脚本 | `command.run` | 命令面板 |
 | `view` | 标题、图标、位置；`script`（第 1 层）或 `page`（第 2 层）二选一 | `view.render`（第 1 层） | 侧栏 / 标签页入口、加载与错误态、刷新、执行动作（§4.1） |
-| `editor` | 后缀、页面入口、可选「新建」模板 | `editor.externalChange` | 读写文件、保存、脏标记、外部修改冲突 |
+| `editor` | 后缀、页面、可选「新建」项与 `embed` | `editor.externalChange`、`editor.drop`、`editor.render` | 读写文件、保存、脏标记、外部修改、新建菜单、Markdown 嵌入（§4.2） |
 | `preview` | 后缀、程序参数、协议 `watch/1` | — | 只读预览、元素拾取 |
 | `extract` | 后缀、程序参数 | — | 文档文本进 Agent 上下文 |
 | `install` | 程序名、路径、版本参数、更新来源；包内安装脚本 | — | 一键安装 / 更新 |
@@ -147,7 +159,7 @@
 | `title` | 字符串，或按语言的对象（缺当前语言取 `en`） |
 | `icon` | 包内 svg / png；省略用插件图标 |
 | `location` | `sidebar`：侧栏活动栏一个入口；`tab`：只能被 `open-view` 动作打开，在工作区标签页显示 |
-| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层 |
+| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层（目前只能 `location: "sidebar"`，页面 `ui.context` 是 `ViewContext`） |
 
 `script` 默认导出 `render(req)`，返回下列视图之一（类型见 `berth-plugin.d.ts` `ViewResult`）：
 
@@ -180,6 +192,42 @@
 每个动作还有 `title`，可选 `icon`、`inline`。脚本抛错时宿主显示错误与重试；渲染期间显示加载态；视图标题栏带刷新按钮。
 未知的视图 `type` / 动作 `type` 宿主忽略并在 `tools check` 报出。
 
+### 4.2 编辑器（`editor`）
+
+```json
+"contributes": {
+  "editor": [
+    {
+      "id": "drawing",
+      "title": { "en": "Excalidraw", "zh-CN": "Excalidraw 画板" },
+      "suffixes": [".excalidraw", ".excalidraw.md"],
+      "page": "page/index.html",
+      "embed": true,
+      "new": [{ "title": "Excalidraw drawing", "name": "drawing.excalidraw" }]
+    }
+  ]
+}
+```
+
+| 键 | 含义 |
+|---|---|
+| `id` | 包内唯一，`[a-z0-9-]+` |
+| `title` | 字符串或按语言的对象 |
+| `suffixes` | 以 `.` 开头的文件名后缀，可多段；不分大小写。多个编辑器都匹配时后缀最长者得 |
+| `page` | 包内 html；页面所在的顶层目录整个属于插件包 |
+| `new` | 可选，新建文件菜单项 `{ title, name }`：在项目根建空文件 `name`（重名加序号）并打开 |
+| `embed` | 可选，为真时 Markdown 里 `![[x]]` / `![](x)` 引用这类文件由页面出图（省略后缀的 `![[x]]` 按 `suffixes` 补全） |
+
+- 文件仍是宿主的文本 tab：读写、脏标记、停笔自动保存、失焦保存、Ctrl/⌘+S、外部修改重载都由宿主做；页面经
+  `berth.ui.context`（`EditorContext`）拿到 `content` / `readOnly`，改动用 `change(内容)` 交回，防抖中的改动在
+  `onFlush` 里交出（宿主转发快捷键、失焦、隐藏前调用）。
+- `files.*` 的根是文件所在项目，文件不在任何项目里时是文件所在目录；`context.path` 相对这个根。
+- 从文件树拖进编辑器：宿主接住拖放，发 `editor.drop {name, kind, path, x, y}`（`path` 相对根，根外是绝对路径；
+  `x` / `y` 是页面视口坐标）。
+- `embed`：宿主为每个（插件, 编辑器, 根）开一个隐藏页面，`context.mode` 为 `"embed"`，页面在 `onRender` 里把
+  `{ path, content, theme }` 渲染成图片 data URL。
+- 插件停用或没装时，这些后缀按宿主自己的分类打开（文本 / Markdown）。
+
 ## 5. 权限
 
 `process`、`fs`、`project.files`、`tasks`、`knowledge`、`agent`、`network`（脚本的 `http`、页面联网；默认 CSP 禁止）。
@@ -191,7 +239,7 @@
 
 | 位置 | 内容 |
 |---|---|
-| `plugins/<id>/` | 官方插件（随安装包发布，用户 `~/.berth/tools/<id>` 可覆盖） |
+| `plugins/<id>/` | 官方插件源码（经插件仓库发布，`berth tools install` 安装）；页面插件的 `src/` 由 `pnpm build:plugins` 构建到 `page/` |
 | `plugins/api/<命名空间>.schema.json` | 接口唯一来源：方法、参数、返回、错误 |
 | `plugins/api/fixtures/<命名空间>/` | 契约样例：请求 → 回复，CI 校验 |
 | `plugins/berth-plugin.d.ts` | 由 schema 生成，给插件作者补全 |
@@ -215,6 +263,7 @@
 |---|---|
 | 2026-10-25 | 初版：第一批命名空间 @1，接入点 identity / agent / command / view / editor / preview / extract / install / guide |
 | 2026-10-26 | process@1 加 `open`（常驻程序逐行对话）；fs@1 加 `mkdir`、`readText` 的 `tailBytes`；`ProviderModel` 加 `endpoint` |
+| 2026-10-31 | 页面环境落地（§2.4：`berth-plugin` 协议、桥脚本、JSON-RPC 通知与钩子）；`editor` 接入点（§4.2：`suffixes` / `page` / `new` / `embed`，钩子 `editor.externalChange` / `editor.drop` / `editor.render`）；`view.page`（第 2 层，目前只在侧栏）；`ui` 加 `openUrl`、`locale`，`EditorContext` 加 `mode` / `content` / `onFlush` / `onDrop` / `onRender`，页面加 `berth.ready` |
 | 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
 
 ## 8. 与现状的迁移
@@ -224,6 +273,7 @@
   `engines.berth` 不满足的插件不加载，`tools check` 与设置页显示原因。
 - Python `launch.py` 与 `runtime/berth_launch.py` → `launch.js` 与 `agent.*` 钩子，`berth_launch.py`
   的逻辑并入宿主。2026-10-26 已完成，宿主不再运行 `launch.py`（`docs/REMOVED.md`）。
-- 内置 Excalidraw → 官方 `editor` 插件，迁出后删除内置代码与依赖。
+- 内置 Excalidraw → 官方 `excalidraw` 插件的 `editor`（第 2 层第一个用例）；2026-10-31 删除内置代码，
+  Excalidraw 与字体不再进安装包（`docs/REMOVED.md`）。
 - 内置「发现」（GitHub 趋势 / 星标）→ 官方 `gh` 插件的 `view`（第 1 层），平台第一个实验；2026-10-30 用户确认后
   删除内置代码（`docs/REMOVED.md`）。

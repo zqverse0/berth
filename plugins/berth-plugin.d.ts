@@ -301,7 +301,10 @@ declare module "berth" {
     resolve(path: string): Promise<string>
   }
 
-  /** files@1 · 两者 · 权限 `project.files`。路径相对项目根，不能越出项目。 */
+  /**
+   * files@1 · 两者 · 权限 `project.files`。路径相对项目根，不能越出项目（编辑器页面的根见 `EditorContext.path`）。
+   * 页面里目前只有 `readText`、`readBase64`、`open`，其余 reject `unsupported`。
+   */
   export interface FilesApi {
     readText(path: string): Promise<string>
     readBase64(path: string): Promise<string>
@@ -385,15 +388,19 @@ declare module "berth" {
     run<T = unknown>(script: string, input?: unknown): Promise<T>
   }
 
-  /** ui@1 · 页面 · 无需权限。颜色用 `var(--berth-*)` CSS 变量即与宿主主题一致。 */
+  /**
+   * ui@1 · 页面 · 无需权限。颜色用 `var(--berth-*)` CSS 变量即与宿主主题一致（`--berth-background`、
+   * `--berth-foreground`、`--berth-primary`、`--berth-border`、`--berth-font-sans` …）；暗色时 `<html>` 带 `dark` 类。
+   */
   export interface UiApi {
     theme(): Promise<"light" | "dark">
     onTheme(listener: (theme: "light" | "dark") => void): Unsubscribe
     notify(message: string, kind?: "info" | "error"): Promise<void>
-    setTitle(title: string): Promise<void>
-    /** 打开本插件的另一个 view。 */
-    openView(id: string, params?: Record<string, string>): Promise<void>
-    /** 本页面是哪个入口打开的。 */
+    /** 用系统浏览器打开 http(s) / mailto 链接。 */
+    openUrl(url: string): Promise<void>
+    /** 界面语言（`zh-CN`、`en`）。 */
+    readonly locale: string
+    /** 本页面是哪个入口打开的；`berth.ready` 之后才有值。 */
     readonly context: ViewContext | EditorContext
   }
 
@@ -404,17 +411,42 @@ declare module "berth" {
   }
 
   /**
-   * 编辑器：宿主负责读写、保存、脏标记、外部修改冲突；插件只管内容。
+   * 编辑器（§4.2）：宿主负责读写、保存、脏标记、自动保存、Ctrl/⌘+S、外部修改；插件只管内容。
    * `load()` 取内容 → 编辑时 `change(新内容)` → 宿主保存；外部改写时触发 `onExternalChange`。
+   * 防抖攒着的改动在 `onFlush` 里交出（宿主转发快捷键、失焦、隐藏前调用）。
+   * `mode: "embed"` 是 `embed: true` 的编辑器为 Markdown 嵌入开的隐藏页面：不画界面，只在 `onRender` 里出图。
    */
   export interface EditorContext {
     readonly kind: "editor"
     readonly id: string
+    readonly mode: "edit" | "embed"
+    /** 文件相对 `files.*` 根的路径（根是所在项目，不在项目里时是文件所在目录）。 */
     readonly path: string
     readonly readOnly: boolean
+    /** 打开时的内容；之后以 `load()` / `onExternalChange` 为准。 */
+    readonly content: string
     load(): Promise<string>
     change(content: string): void
     onExternalChange(listener: (content: string) => void): Unsubscribe
+    onFlush(flush: () => void): Unsubscribe
+    /** 从文件树拖进来：`path` 相对根（根外是绝对路径），`x` / `y` 是页面视口坐标。 */
+    onDrop(
+      listener: (item: {
+        name: string
+        kind: "file" | "dir"
+        path: string
+        x: number
+        y: number
+      }) => void
+    ): Unsubscribe
+    /** `embed` 模式：把文件渲染成图片 data URL（null = 空）。 */
+    onRender(
+      render: (input: {
+        path: string
+        content: string
+        theme: "light" | "dark"
+      }) => Promise<string | null> | string | null
+    ): Unsubscribe
   }
 
   /** env@1 · 两者 · 无需权限 */
@@ -433,6 +465,8 @@ declare module "berth" {
   }
 
   export interface Berth {
+    /** 仅页面：宿主送来上下文、主题之后 resolve；读 `ui.context` / `ui.locale` 前先 await。 */
+    readonly ready?: Promise<void>
     readonly process: ProcessApi
     readonly fs: FsApi
     readonly files: FilesApi

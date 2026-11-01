@@ -18,6 +18,7 @@ import { AppWorkspaceProvider } from "@/contexts/app-workspace-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { AppUiRuntime } from "@/components/runtime/app-ui-runtime"
 import { useAppUiStore } from "@/stores/app-ui-store"
+import { foldPlacementsForMobile } from "@/stores/workspace-layout-store"
 import { TabProvider } from "@/contexts/tab-context"
 import { PointerProvider } from "@/pointer"
 import { GitCredentialProvider } from "@/contexts/git-credential-context"
@@ -367,6 +368,7 @@ function MobileFolderWorkspaceShell() {
   const auxOpen = useAppUiStore((state) => state.auxPanelOpen)
   const auxRestored = useAppUiStore((state) => state.auxPanelRestored)
   const toggleAux = useAppUiStore((state) => state.toggleAuxPanel)
+  useEffect(foldPlacementsForMobile, [])
   // 手机上侧栏与辅助面板互斥：后打开的关掉另一个。否则从侧栏打开 Agent 时侧栏还压在面板底下，
   // 面板从标题栏下沿画起，顶上露出侧栏头和它的黑色遮罩。
   useEffect(

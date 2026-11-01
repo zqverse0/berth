@@ -12,6 +12,6 @@ describe("workspace commands", () => {
     expect(commandForKey("B")).toBe("toggle_sidebar")
     expect(commandForKey("?")).toBeUndefined()
     expect(commandHint("toggle_sidebar")).toBe("Ctrl+Space B")
-    expect(commandHint("new_canvas")).toBe("")
+    expect(commandHint("close_all_file_tabs")).toBe("")
   })
 })

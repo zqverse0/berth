@@ -15,6 +15,10 @@ import {
   recordTermResizeLatency,
 } from "@/lib/terminal/terminal-performance-metrics"
 import {
+  bindMobileKeyboardPan,
+  clearImeTextareaAfterCommit,
+  followBottomOnHistoryReset,
+  sendDeferredKeyCode229Inserts,
   skipUnchangedXtermStyleWrites,
   waitForTerminalFont,
 } from "@/lib/terminal/terminal-surface"
@@ -37,12 +41,13 @@ import { useSplitLayoutTransaction } from "@/lib/workspace/split-layout-transact
 import { useZoomLevel, useTerminalFont } from "@/hooks/use-appearance"
 import { detectPlatform } from "@/hooks/use-platform"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { sanitizeTerminalPaste } from "@/lib/content-reference/serialize"
 import {
   MOBILE_TERMINAL_KEYS_HEIGHT,
   MobileTerminalKeys,
+  MobileTerminalSelectSheet,
 } from "@/components/terminal/mobile-terminal-keys"
 import { TerminalBackgroundOverlay } from "@/components/terminal/terminal-background-overlay"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   getTerminalRuntimeActions,
   selectTerminalSession,
@@ -127,7 +132,12 @@ function isDarkMode() {
   return document.documentElement.classList.contains("dark")
 }
 
-type ProjectThemeToken = "--card" | "--foreground" | "--selection"
+type ProjectThemeToken =
+  | "--card"
+  | "--foreground"
+  | "--selection"
+  | "--border"
+  | "--muted-foreground"
 
 function resolveCssColor(property: ProjectThemeToken): string | null {
   const raw = getComputedStyle(document.documentElement)
@@ -156,6 +166,31 @@ function resolveCssColor(property: ProjectThemeToken): string | null {
     : `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3)})`
 }
 
+/**
+ * 整个 buffer 的文本，以视口顶行为界分成前后两段（选择面板据此定位到当前位置）；
+ * 软换行的行拼回一行，复制出来不带折行处的换行。
+ */
+function readBufferText(term: XTermTerminal): {
+  before: string
+  after: string
+} {
+  const buffer = term.buffer.active
+  const before: string[] = []
+  const after: string[] = []
+  for (let y = 0; y < buffer.length; y++) {
+    const line = buffer.getLine(y)
+    if (!line) break
+    const target = y < buffer.viewportY ? before : after
+    const text = line.translateToString(true)
+    if (line.isWrapped && target.length > 0) target[target.length - 1] += text
+    else target.push(text)
+  }
+  return {
+    before: before.length > 0 ? `${before.join("\n")}\n` : "",
+    after: after.join("\n").trimEnd(),
+  }
+}
+
 function getTerminalTheme(): ITheme {
   const dark = isDarkMode()
   const baseTheme = dark ? DARK_THEME : LIGHT_THEME
@@ -173,6 +208,16 @@ function getTerminalTheme(): ITheme {
     selectionBackground: color(
       "--selection",
       baseTheme.selectionBackground ?? baseTheme.background
+    ),
+    // 滚动条与全局 os-theme-berth 同色
+    scrollbarSliderBackground: color("--border", "rgba(128, 128, 128, 0.4)"),
+    scrollbarSliderHoverBackground: color(
+      "--muted-foreground",
+      "rgba(128, 128, 128, 0.7)"
+    ),
+    scrollbarSliderActiveBackground: color(
+      "--muted-foreground",
+      "rgba(128, 128, 128, 0.7)"
     ),
   }
 }
@@ -232,6 +277,34 @@ export function TerminalView({
   const pointerRef = useRef(pointer)
   pointerRef.current = pointer
 
+  // 桌面「发送到终端」与手机粘贴键共用：走 xterm paste，带 bracketed paste 包裹。
+  const pasteIntoSurface = useCallback((text: string): boolean => {
+    const term = termRef.current
+    if (!term) return false
+    // 未开 bracketed paste 时 xterm 把换行转成回车，多行会被逐行提交
+    if (text.includes("\n") && !term.modes.bracketedPasteMode) return false
+    term.paste(text)
+    // 粘贴后把焦点交给终端，用户接着补充要求再自己回车
+    term.focus()
+    return true
+  }, [])
+
+  // 手机上 xterm 选不了字：「选择」把整个 buffer 铺成原生可选文本（iOS 长按选字 + 系统拷贝菜单）。
+  const [selectText, setSelectText] = useState<{
+    before: string
+    after: string
+  } | null>(null)
+  const openSelect = useCallback(() => {
+    const term = termRef.current
+    if (!term) return
+    term.blur()
+    setSelectText(readBufferText(term))
+  }, [])
+  const closeSelect = useCallback(() => {
+    setSelectText(null)
+    termRef.current?.focus()
+  }, [])
+
   // The terminal surface is always an attachment to the Berth runtime.
   const attachSession = useTerminalRuntimeStore(
     selectTerminalSession(terminalId)
@@ -243,6 +316,8 @@ export function TerminalView({
   const attachErrorMessage = attachSession?.errorMessage ?? null
   const lastResyncReason = attachSession?.lastResyncReason ?? null
   const isMobile = useIsMobile()
+  const isMobileRef = useRef(isMobile)
+  isMobileRef.current = isMobile
   // 手机额外键行的 Ctrl：按下后软键盘打的下一个字母按 Ctrl 组合键发送。
   const [mobileCtrl, setMobileCtrl] = useState(false)
   const mobileCtrlRef = useRef(false)
@@ -257,67 +332,6 @@ export function TerminalView({
   const dirtyRecoveryPendingRef = useRef(false)
   const requestDirtyRecoveryRef = useRef<(() => void) | null>(null)
   const exitReportedRef = useRef(false)
-  const overlayViewportRef = useRef<HTMLElement | null>(null)
-  const scrollDummyRef = useRef<HTMLDivElement | null>(null)
-  const isScrollSyncingRef = useRef(false)
-  /** 权威 reflow 窗口内暂停 scroll/布局同步,结束后同步终态一次。 */
-  const reflowSuppressingScrollRef = useRef(false)
-
-  const syncScrollFromTerm = useCallback(() => {
-    const term = termRef.current
-    const viewport = overlayViewportRef.current
-    const dummy = scrollDummyRef.current
-    const container = containerRef.current
-    if (!term || !viewport || !dummy || !container) return
-
-    const buffer = term.buffer.active
-    const baseY = buffer.baseY
-    const rows = term.rows
-    const viewportY = buffer.viewportY
-    const containerHeight = container.clientHeight
-    if (containerHeight <= 0 || rows <= 0) return
-
-    const lineHeight = containerHeight / rows
-    const totalLines = baseY + rows
-    const totalHeight = baseY > 0 ? totalLines * lineHeight : containerHeight
-    const scrollTop = baseY > 0 ? viewportY * lineHeight : 0
-
-    const currentHeightPx = `${Math.ceil(totalHeight)}px`
-    if (dummy.style.height !== currentHeightPx) {
-      dummy.style.height = currentHeightPx
-    }
-
-    if (!isScrollSyncingRef.current) {
-      isScrollSyncingRef.current = true
-      viewport.scrollTop = scrollTop
-      requestAnimationFrame(() => {
-        isScrollSyncingRef.current = false
-      })
-    }
-  }, [])
-
-  const handleOverlayScroll = useCallback((event: Event) => {
-    if (isScrollSyncingRef.current) return
-    const target = event.target as HTMLElement
-    if (!target) return
-    const term = termRef.current
-    const container = containerRef.current
-    if (!term || !container) return
-
-    const rows = term.rows
-    const containerHeight = container.clientHeight
-    if (containerHeight <= 0 || rows <= 0) return
-
-    const lineHeight = containerHeight / rows
-    const targetLine = Math.round(target.scrollTop / lineHeight)
-
-    isScrollSyncingRef.current = true
-    term.scrollToLine(targetLine)
-    requestAnimationFrame(() => {
-      isScrollSyncingRef.current = false
-    })
-  }, [])
-
   useEffect(() => {
     if (!lastKnownCwd) return
     useTabStore.getState().updateTerminalLastKnownCwd(terminalId, lastKnownCwd)
@@ -404,6 +418,9 @@ export function TerminalView({
         // Agent 输出里的非法转义序列 xterm 会跳过并 console.error，dev 下被 Next 弹成错误浮层；
         // 解析本身不受影响，关掉 xterm 自身日志。
         logLevel: "off",
+        // xterm 滚动条宽度与 FitAddon 的右侧预留都读这个值（默认 14px）；
+        // 8px 对齐全局 os-theme-berth 悬停宽度，滑块平时 6px 见 globals.css。
+        overviewRuler: { width: 8 },
       })
 
       term.loadAddon(fitAddon)
@@ -436,6 +453,8 @@ export function TerminalView({
         isLinux: detectPlatform() === "linux",
         isTauri: isDesktop(),
       })
+      const disposeDeferredInserts = sendDeferredKeyCode229Inserts(term)
+      const disposeImeTextarea = clearImeTextareaAfterCommit(term)
 
       // WebKitGTK 下 xterm 内建滚轮有时滚不动 scrollback。
       // 在容器捕获阶段强制 scrollLines；alternate-screen 或应用启用 mouse
@@ -545,10 +564,21 @@ export function TerminalView({
       }
       hostEl.addEventListener("touchstart", onHostTouchStart, { passive: true })
       hostEl.addEventListener("touchmove", onHostTouchMove, { passive: false })
+      const disposeHistoryFollow = followBottomOnHistoryReset(term)
+      const disposeKeyboardPan = hostEl.parentElement
+        ? bindMobileKeyboardPan({
+            host: hostEl,
+            frame: hostEl.parentElement,
+            term,
+            isEnabled: () => isMobileRef.current,
+          })
+        : null
       const disposeHostWheel = () => {
         hostEl.removeEventListener("wheel", onHostWheel)
         hostEl.removeEventListener("touchstart", onHostTouchStart)
         hostEl.removeEventListener("touchmove", onHostTouchMove)
+        disposeHistoryFollow.dispose()
+        disposeKeyboardPan?.dispose()
       }
 
       const outputWriter = createTerminalWriteAdapter({
@@ -572,18 +602,6 @@ export function TerminalView({
           isVisible: () => isVisibleRef.current,
           onTermResizeLatency: (durationMs) =>
             recordTermResizeLatency(terminalId, performanceMode, durationMs),
-          onTermReflowStart: () => {
-            reflowSuppressingScrollRef.current = true
-          },
-          onTermReflowEnd: () => {
-            // reflow 中间态不渲染;终态在下一帧统一同步一次。
-            requestAnimationFrame(() => {
-              reflowSuppressingScrollRef.current = false
-              if (!cancelled && termRef.current === term) {
-                syncScrollFromTerm()
-              }
-            })
-          },
         }
       )
       const writeLiveOutput = snapshotPainter.writeLive
@@ -591,6 +609,10 @@ export function TerminalView({
       liveOutputRef.current = writeLiveOutput
       let resizeEnabled = false
       let resizeAwaitingSnapshot = false
+      // PTY resize 失败时 xterm 已先改了本地网格，两边行数不一致（TUI 只画半屏）；
+      // 隔一会儿重试，终端已退出等持续失败的情况封顶。
+      let resizeRetryTimer: ReturnType<typeof setTimeout> | null = null
+      let resizeRetries = 0
       let snapshotLiveOverflowed = false
       let previewFrame: ReturnType<typeof requestAnimationFrame> | null = null
       let cancelRestoreFrame: ReturnType<typeof requestAnimationFrame> | null =
@@ -766,6 +788,17 @@ export function TerminalView({
               )
               if (cancelled || !snapshot) {
                 resizeAwaitingSnapshot = true
+                if (
+                  !cancelled &&
+                  resizeRetryTimer === null &&
+                  resizeRetries < 3
+                ) {
+                  resizeRetries += 1
+                  resizeRetryTimer = setTimeout(() => {
+                    resizeRetryTimer = null
+                    if (!cancelled) requestResize()
+                  }, 500)
+                }
                 return false
               }
               const currentSession =
@@ -778,6 +811,7 @@ export function TerminalView({
                 return false
               }
               resizeAwaitingSnapshot = false
+              resizeRetries = 0
               return true
             }
           )
@@ -944,13 +978,7 @@ export function TerminalView({
         terminalId,
         (text) => {
           if (termRef.current !== term) return
-          // 未开 bracketed paste 时 xterm 把换行转成回车，多行会被逐行提交
-          if (text.includes("\n") && !term.modes.bracketedPasteMode) {
-            return false
-          }
-          term.paste(text)
-          // 粘贴后把焦点交给终端，用户接着补充要求再自己回车
-          term.focus()
+          return pasteIntoSurface(text)
         }
       )
 
@@ -1051,19 +1079,6 @@ export function TerminalView({
         actions.sendInput(terminalId, data)
       })
 
-      const onScrollDisposable = term.onScroll(() => {
-        if (reflowSuppressingScrollRef.current) return
-        syncScrollFromTerm()
-      })
-      const onWriteParsedDisposable = term.onWriteParsed(() => {
-        if (reflowSuppressingScrollRef.current) return
-        syncScrollFromTerm()
-      })
-      const onResizeDisposable = term.onResize(() => {
-        if (reflowSuppressingScrollRef.current) return
-        syncScrollFromTerm()
-      })
-
       try {
         setLocalAttachError(null)
         await actions.attachTerminal(terminalId, { freshSnapshot: true })
@@ -1083,10 +1098,7 @@ export function TerminalView({
         if (!cancelled) {
           resizeEnabled = true
           requestAnimationFrame(() => {
-            if (!cancelled) {
-              requestResize()
-              syncScrollFromTerm()
-            }
+            if (!cancelled) requestResize()
           })
         }
       } catch (err) {
@@ -1100,7 +1112,6 @@ export function TerminalView({
         if (!cancelled) {
           setLoading(false)
           focusWhenReady()
-          syncScrollFromTerm()
         }
       }
 
@@ -1114,9 +1125,6 @@ export function TerminalView({
         liveOutputRef.current = null
         themeObserver.disconnect()
         onDataDisposable.dispose()
-        onScrollDisposable.dispose()
-        onWriteParsedDisposable.dispose()
-        onResizeDisposable.dispose()
         resizeObserver.disconnect()
         cancelFrame(previewFrame)
         cancelFrame(cancelRestoreFrame)
@@ -1127,9 +1135,12 @@ export function TerminalView({
         disposeLayoutCommit?.()
         disposeLayoutCancel?.()
         resizeCoordinator.dispose()
+        if (resizeRetryTimer !== null) clearTimeout(resizeRetryTimer)
         requestDirtyRecoveryRef.current = null
         disposeHostWheel()
         disposeLinuxWebKitIme()
+        disposeDeferredInserts.dispose()
+        disposeImeTextarea.dispose()
         disposePointer()
         term.dispose()
         return
@@ -1146,9 +1157,6 @@ export function TerminalView({
         liveOutputRef.current = null
         themeObserver.disconnect()
         onDataDisposable.dispose()
-        onScrollDisposable.dispose()
-        onWriteParsedDisposable.dispose()
-        onResizeDisposable.dispose()
         resizeObserver.disconnect()
         cancelFrame(previewFrame)
         cancelFrame(cancelRestoreFrame)
@@ -1159,9 +1167,12 @@ export function TerminalView({
         disposeLayoutCommit?.()
         disposeLayoutCancel?.()
         resizeCoordinator.dispose()
+        if (resizeRetryTimer !== null) clearTimeout(resizeRetryTimer)
         requestDirtyRecoveryRef.current = null
         disposeHostWheel()
         disposeLinuxWebKitIme()
+        disposeDeferredInserts.dispose()
+        disposeImeTextarea.dispose()
         disposePointer()
         term.dispose()
         termRef.current = null
@@ -1179,10 +1190,10 @@ export function TerminalView({
     }
   }, [
     layoutTransaction,
+    pasteIntoSurface,
     requestResize,
     requestResizeNow,
     requestResizeStable,
-    syncScrollFromTerm,
     terminalId,
   ])
 
@@ -1196,12 +1207,11 @@ export function TerminalView({
       if (!surfaceWasDirty && el && el.clientWidth > 0 && el.clientHeight > 0) {
         requestResize()
       }
-      syncScrollFromTerm()
       if (isActive) {
         termRef.current?.focus()
       }
     })
-  }, [isActive, isVisible, requestResize, syncScrollFromTerm, terminalId])
+  }, [isActive, isVisible, requestResize, terminalId])
 
   // React to zoom / font-family / font-size changes. Updates refs synchronously so
   // async init() always reads the latest values, then requests one coordinated fit.
@@ -1297,19 +1307,15 @@ export function TerminalView({
           className="absolute inset-0 h-full min-h-0 w-full min-w-0"
         />
         <TerminalBackgroundOverlay visible={isVisible} />
-        <ScrollArea
-          onViewportRef={(element) => {
-            overlayViewportRef.current = element
-            syncScrollFromTerm()
-          }}
-          onScroll={handleOverlayScroll}
-          className="pointer-events-none absolute inset-0 h-full w-full [&_.os-scrollbar]:pointer-events-auto"
-        >
-          <div
-            ref={scrollDummyRef}
-            style={{ width: "1px", height: "100%", pointerEvents: "none" }}
+        {selectText && (
+          <MobileTerminalSelectSheet
+            before={selectText.before}
+            after={selectText.after}
+            fontFamily={terminalFontStack}
+            fontSize={termRef.current?.options.fontSize}
+            onClose={closeSelect}
           />
-        </ScrollArea>
+        )}
       </div>
       {showMobileKeys && (
         <div className="absolute inset-x-0 bottom-0 z-10">
@@ -1317,6 +1323,8 @@ export function TerminalView({
             terminalId={terminalId}
             ctrlArmed={mobileCtrl}
             onCtrlArmedChange={setMobileCtrl}
+            onPaste={(text) => pasteIntoSurface(sanitizeTerminalPaste(text))}
+            onSelect={openSelect}
           />
         </div>
       )}

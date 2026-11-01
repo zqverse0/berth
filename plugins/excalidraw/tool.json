@@ -1,0 +1,38 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "excalidraw",
+  "version": "1.0.0",
+  "permissions": ["project.files"],
+  "contributes": {
+    "identity": {
+      "name": "Excalidraw",
+      "roles": [],
+      "tags": ["drawing", "whiteboard", "obsidian"],
+      "description": "Edit .excalidraw scenes and Obsidian .excalidraw.md drawings in a Berth tab; drawings embedded in Markdown with ![[name]] show as images.",
+      "homepage": "https://excalidraw.com"
+    },
+    "editor": [
+      {
+        "id": "drawing",
+        "title": { "en": "Excalidraw", "zh-CN": "Excalidraw 画板" },
+        "suffixes": [".excalidraw", ".excalidraw.md"],
+        "page": "page/index.html",
+        "embed": true,
+        "new": [
+          {
+            "title": {
+              "en": "Excalidraw drawing (Obsidian)",
+              "zh-CN": "Excalidraw 画板（Obsidian）"
+            },
+            "name": "drawing.excalidraw.md"
+          },
+          {
+            "title": { "en": "Excalidraw drawing", "zh-CN": "Excalidraw 画板" },
+            "name": "drawing.excalidraw"
+          }
+        ]
+      }
+    ]
+  }
+}

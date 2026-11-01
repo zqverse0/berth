@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 字体随包放在 page/fonts/，画板与导出 SVG 都从这里取 -->
+    <script>
+      window.EXCALIDRAW_ASSET_PATH = new URL("./", location.href).href
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+      }
+      .berth-error {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+        text-align: center;
+        font: 14px var(--berth-font-sans, sans-serif);
+        color: var(--berth-destructive, #c00);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.jsx"></script>
+  </body>
+</html>

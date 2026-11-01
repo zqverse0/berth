@@ -191,6 +191,10 @@ mod tauri_app {
             // Source of truth for an in-flight app self-update so the upgrade
             // UI can survive navigation while download progress continues.
             .manage(crate::update::new_update_state_handle())
+            // 插件页面的包内资源（docs/plugin-architecture.md §2.4），与主窗口不同源。
+            .register_asynchronous_uri_scheme_protocol("berth-plugin", |_ctx, request, responder| {
+                crate::commands::plugin_views::page_protocol(request, responder)
+            })
             .setup(|app| {
                 let setup_started = std::time::Instant::now();
                 let app_data_dir = app.path().app_data_dir()?;
@@ -246,13 +250,13 @@ mod tauri_app {
                     std::env::set_var("BERTH_DATA_DIR", &effective_data_dir);
                 }
 
-                // 内置资产（群组成员 Berth 的提示词）缺什么补什么，已存在不动。
+                // 内置专家「Berth 助手」（群组成员 Berth 用）：缺失补上，用户没改过的随版本更新，改过的不动。
                 match berth_tool_core::builtin::ensure() {
                     Ok(written) if !written.is_empty() => {
-                        tracing::info!("[builtin] installed {}", written.join(", "))
+                        tracing::info!("[builtin] wrote {}", written.join(", "))
                     }
                     Ok(_) => {}
-                    Err(error) => tracing::warn!("[builtin] cannot install built-in assets: {error}"),
+                    Err(error) => tracing::warn!("[builtin] cannot write built-in assets: {error}"),
                 }
 
                 // HOME 是用户资产（tools/experts/skills），DATA 是应用数据

@@ -59,13 +59,6 @@ export interface TerminalSnapshotPainterHooks {
    * 与松手 commit 共用该路径;供性能指标区分两侧量级。
    */
   onTermResizeLatency?: (durationMs: number, cols: number, rows: number) => void
-  /**
-   * 权威 reflow(commit) 的开始/结束。reflow 内部 xterm 会触发多轮
-   * scroll 事件;同步滚动条/DOM 高度应在此窗口内暂停,结束后按终态
-   * 同步一次,避免中间态逐帧渲染(视觉闪烁)。
-   */
-  onTermReflowStart?: () => void
-  onTermReflowEnd?: () => void
 }
 
 export interface TerminalSnapshotPainter {
@@ -169,10 +162,8 @@ export function createTerminalSnapshotPainter(
   const sameGrid = (left: SnapshotPaintSize, right: SnapshotPaintSize) =>
     left.cols === right.cols && left.rows === right.rows
 
-  /** reflow 窗口内 view 侧暂停 scroll 同步,结束后同步终态一次。 */
   const resizeTermIfNeeded = (nextSize: SnapshotPaintSize): boolean => {
     if (currentGrid && sameGrid(currentGrid, nextSize)) return false
-    hooks.onTermReflowStart?.()
     const startedAt = performance.now()
     term.resize(nextSize.cols, nextSize.rows)
     if (hooks.onTermResizeLatency) {
@@ -182,7 +173,6 @@ export function createTerminalSnapshotPainter(
         nextSize.rows
       )
     }
-    hooks.onTermReflowEnd?.()
     currentGrid = { ...nextSize }
     return true
   }
@@ -610,9 +600,11 @@ export function createTerminalSnapshotPainter(
 
   const restoreViewport = (viewport: ReturnType<typeof captureViewport>) => {
     if (disposed || term.buffer.active.type === "alternate") return
-    if (viewport.preserve) {
-      const nextBaseY = term.buffer.active.baseY
-      term.scrollToLine(Math.max(0, nextBaseY - viewport.offsetFromBottom))
+    const nextBaseY = term.buffer.active.baseY
+    // 按离底部的行数恢复；历史变短到原位置已不存在（如程序清过 scrollback）时
+    // 回到跟随底部，不退到第 0 行停住。
+    if (viewport.preserve && nextBaseY >= viewport.offsetFromBottom) {
+      term.scrollToLine(nextBaseY - viewport.offsetFromBottom)
     } else {
       term.scrollToBottom()
     }

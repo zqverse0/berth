@@ -220,13 +220,13 @@ describe("TerminalView renderer contract", () => {
     )
   })
 
-  it("delegates the only visible terminal scrollbar to shared ScrollArea", () => {
-    expect(terminalViewSource).toMatch(
-      /import \{ ScrollArea \} from "@\/components\/ui\/scroll-area"/
-    )
-    expect(terminalViewSource.match(/<ScrollArea/g)).toHaveLength(1)
-    expect(globalsCss).toMatch(
-      /\[data-terminal-surface="true"\][^{]*\.xterm-scrollable-element\s*>\s*\.scrollbar\s*\{[^}]*display:\s*none\s*!important/s
+  it("keeps xterm's own scrollbar as the only terminal scroll owner", () => {
+    // 外部滚动条与 xterm 双向同步时，清 scrollback 的 TUI 会把视口回写到第 0 行。
+    expect(terminalViewSource).not.toMatch(/<ScrollArea/)
+    expect(terminalViewSource).not.toMatch(/scrollToLine\(/)
+    expect(terminalViewSource).toMatch(/scrollbarSliderBackground/)
+    expect(globalsCss).not.toMatch(
+      /\.xterm-scrollable-element\s*>\s*\.scrollbar\s*\{[^}]*display:\s*none/s
     )
   })
 })

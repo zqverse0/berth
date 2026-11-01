@@ -994,8 +994,9 @@ mod tests {
         assert_eq!(first.id, second.id, "duplicate path must reuse id");
 
         let history = load_folder_history_core(&db).await.expect("history");
+        // 比返回的 path：服务端会规范化路径，macOS 上 /var 是 /private/var 的软链。
         assert_eq!(
-            history.iter().filter(|f| f.path == path).count(),
+            history.iter().filter(|f| f.path == first.path).count(),
             1,
             "no duplicate rows for same path"
         );

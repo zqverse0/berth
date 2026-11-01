@@ -16,6 +16,21 @@ trap 'rm -rf "$work"' EXIT
 git clone -q "$PLUGINS" "$work"
 find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 git -C "$repo" archive "$ref" plugins | tar -x -C "$work" --strip-components=1
+
+# 页面插件（带 src/vite.config.mjs）：page/ 是构建产物，在工作区构建后带上，源码不发布。
+# 工作区的 plugins/ 必须与 <ref> 一致，否则发出去的产物不是这个提交的。
+if compgen -G "$work/*/src/vite.config.mjs" >/dev/null; then
+  if ! git -C "$repo" diff --quiet "$ref" -- plugins; then
+    echo "publish-plugins: 工作区的 plugins/ 与 $ref 不同，先提交或切到 $ref" >&2
+    exit 1
+  fi
+  (cd "$repo" && pnpm -s build:plugins)
+  for config in "$work"/*/src/vite.config.mjs; do
+    id=$(basename "$(dirname "$(dirname "$config")")")
+    rm -rf "$work/$id/src"
+    cp -R "$repo/plugins/$id/page" "$work/$id/page"
+  done
+fi
 cd "$work"
 
 {

@@ -10,6 +10,11 @@ import {
   splitAbsPath,
 } from "@/lib/files/file-open-target"
 import { fileViewerKindFromPath } from "@/lib/files/file-viewer-definition"
+import {
+  embedEditorForPath,
+  embedEditors,
+  renderPluginEmbed,
+} from "@/lib/plugins/plugin-embed"
 import { readFileForEdit } from "@/lib/api"
 import { loadLocalImageDataUrl } from "@/lib/files/local-image"
 import { openUrl } from "@/lib/platform"
@@ -149,16 +154,15 @@ export function useMarkdownLivePreview({
         ).pathname
       )
     }
-    // 本地画板文件渲染成 SVG（引擎按需加载）；读不到 → null
-    const renderDrawing = async (absPath: string) => {
+    // 插件编辑器接管的文件（`embed: true`）由插件页面渲染成图片；读不到 → null
+    const renderEmbed = async (absPath: string) => {
+      const editor = embedEditorForPath(absPath)
       const split = splitAbsPath(absPath)
-      if (!split) return null
+      if (!editor || !split) return null
       try {
-        const [{ content }, assets] = await Promise.all([
-          readFileForEdit(split.rootPath, split.ioPath),
-          import("@/lib/files/excalidraw-assets"),
-        ])
-        return await assets.excalidrawSvgDataUrl(
+        const { content } = await readFileForEdit(split.rootPath, split.ioPath)
+        return await renderPluginEmbed(
+          editor,
           absPath,
           content,
           context.current.projectRoot
@@ -194,18 +198,21 @@ export function useMarkdownLivePreview({
             if (isRemote(src)) return null
             const target = resolveLocal(src)
             if (!target) return null
-            return fileViewerKindFromPath(target) === "excalidraw"
-              ? renderDrawing(target)
+            return embedEditorForPath(target)
+              ? renderEmbed(target)
               : loadLocalImageDataUrl(target)
           },
-          // `![[x]]`：图片或画板；Obsidian 习惯省略画板后缀，相对文档目录找不到再相对项目根
+          // `![[x]]`：图片或插件能渲染的文件；Obsidian 习惯省略画板后缀（按插件后缀补全），
+          // 相对文档目录找不到再相对项目根
           wikiEmbed: {
             load: async (target) => {
               const kind = fileViewerKindFromPath(target)
               const names =
-                kind === "image" || kind === "excalidraw"
+                kind === "image" || embedEditorForPath(target)
                   ? [target]
-                  : [`${target}.excalidraw.md`, `${target}.excalidraw`]
+                  : embedEditors().flatMap((editor) =>
+                      editor.suffixes.map((suffix) => `${target}${suffix}`)
+                    )
               const root = context.current.projectRoot
               for (const name of names) {
                 for (const abs of [
@@ -218,7 +225,7 @@ export function useMarkdownLivePreview({
                     if (url) return { url }
                     continue
                   }
-                  const url = await renderDrawing(abs)
+                  const url = await renderEmbed(abs)
                   if (url) return { url, openPath: abs }
                 }
               }

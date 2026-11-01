@@ -56,6 +56,11 @@ const LazyPluginViewPanel = lazy(() =>
     default: m.PluginViewPanel,
   }))
 )
+const LazyPluginSidebarPage = lazy(() =>
+  import("@/components/plugins/plugin-page-frame").then((m) => ({
+    default: m.PluginSidebarPage,
+  }))
+)
 
 const tabFallback = (
   <div className="h-full w-full animate-pulse bg-card/40" aria-hidden="true" />
@@ -142,7 +147,7 @@ export const Sidebar = memo(function Sidebar() {
         {isMobile ? (
           <div className="flex w-12 shrink-0 flex-col items-center justify-between border-r border-border/50 py-2">
             <SidebarViewNav />
-            {currentView === "settings" ? <SettingsPageNav /> : null}
+            <SettingsPageNav />
           </div>
         ) : null}
 
@@ -220,11 +225,15 @@ export const Sidebar = memo(function Sidebar() {
           {pluginView && (
             <div className="h-full min-h-0 overflow-hidden">
               <Suspense fallback={tabFallback}>
-                <LazyPluginViewPanel
-                  key={currentView}
-                  plugin={pluginView.plugin}
-                  view={pluginView.id}
-                />
+                {pluginView.page ? (
+                  <LazyPluginSidebarPage key={currentView} view={pluginView} />
+                ) : (
+                  <LazyPluginViewPanel
+                    key={currentView}
+                    plugin={pluginView.plugin}
+                    view={pluginView.id}
+                  />
+                )}
               </Suspense>
             </div>
           )}

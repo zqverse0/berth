@@ -5,7 +5,7 @@ export type FileViewerKind =
   | "text"
   | "markdown"
   | "html"
-  | "excalidraw"
+  | "plugin"
   | "image"
   | "office"
   | "pdf"
@@ -125,8 +125,9 @@ export const FILE_VIEWER_DEFINITIONS: Readonly<
       elementGrab: true,
     },
   },
-  excalidraw: {
-    kind: "excalidraw",
+  // 插件编辑器（§4.2）：内容仍是文本 buffer，保存链路同文本；工具栏由插件页面自己画
+  plugin: {
+    kind: "plugin",
     dataMode: "text",
     reloadPolicy: "text-buffer",
     capabilities: {},
@@ -153,10 +154,16 @@ export const FILE_VIEWER_DEFINITIONS: Readonly<
   },
 }
 
-/** 不导入组件、不读取运行时状态，仅根据路径分类。 */
-export function fileViewerKindFromPath(path: string): FileViewerKind {
-  // Obsidian Excalidraw 的 `*.excalidraw.md` 先于 markdown 判定
-  if (/\.excalidraw(\.md)?$/i.test(path)) return "excalidraw"
+/**
+ * 不导入组件、不读取运行时状态，仅根据路径分类。`editorSuffixes` 是启用插件编辑器的后缀
+ * （小写，`usePluginViewsStore` 的 `editorSuffixes`），由调用方传入；命中即交给插件。
+ */
+export function fileViewerKindFromPath(
+  path: string,
+  editorSuffixes: readonly string[] = []
+): FileViewerKind {
+  const lower = path.toLowerCase()
+  if (editorSuffixes.some((suffix) => lower.endsWith(suffix))) return "plugin"
 
   const base = path.split(/[\\/]/).pop() ?? path
   const ext = base.split(".").pop()?.toLowerCase() ?? ""
@@ -175,27 +182,34 @@ export function fileViewerDefinitionForKind(
 }
 
 export function fileViewerDefinitionFromPath(
-  path: string
+  path: string,
+  editorSuffixes: readonly string[] = []
 ): FileViewerDefinition {
-  return fileViewerDefinitionForKind(fileViewerKindFromPath(path))
+  return fileViewerDefinitionForKind(
+    fileViewerKindFromPath(path, editorSuffixes)
+  )
 }
 
 /** Resolve a persisted/runtime tab to the same seven-kind local contract. */
 export function fileViewerKindFromTab(
-  tab: FileWorkspaceTab
+  tab: FileWorkspaceTab,
+  editorSuffixes: readonly string[] = []
 ): FileViewerKind | null {
   if (tab.kind !== "file") return null
   if (tab.dataMode === "resource") return tab.preview.kind
 
   // 路径分类兼容旧的/手工构造的文本 Tab；对于虚拟或无扩展名文档，
   // 持久化的 previewKind 作为后备结果。
-  const pathKind = fileViewerKindFromPath(tab.path)
-  return pathKind === "text" ? tab.previewKind : pathKind
+  const pathKind = fileViewerKindFromPath(tab.path, editorSuffixes)
+  if (pathKind !== "text") return pathKind
+  // 旧版持久化的 tab 可能带已删除的 kind（2026-10-31 前的 `excalidraw`），按文本打开
+  return tab.previewKind in FILE_VIEWER_DEFINITIONS ? tab.previewKind : "text"
 }
 
 export function fileViewerDefinitionFromTab(
-  tab: FileWorkspaceTab
+  tab: FileWorkspaceTab,
+  editorSuffixes: readonly string[] = []
 ): FileViewerDefinition | null {
-  const kind = fileViewerKindFromTab(tab)
+  const kind = fileViewerKindFromTab(tab, editorSuffixes)
   return kind ? fileViewerDefinitionForKind(kind) : null
 }

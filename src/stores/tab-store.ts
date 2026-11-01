@@ -16,6 +16,7 @@ import {
   type TerminalTab,
 } from "@/lib/workspace/primary-tabs"
 import { extractAppCommandError } from "@/lib/app-error"
+import type { WorkspacePane } from "@/lib/workspace/workspace-tab-registry"
 import { resolveDefaultAgent } from "@/lib/agent/resolve-default-agent"
 import {
   agentTypeForTool,
@@ -235,7 +236,9 @@ export interface TabStoreState {
   // ── Runtime dependency injection ─────────────────────────────────────────────
   setLabels: (labels: TabLabels) => void
   setSideEffects: (deps: {
-    activateConversationPane?: (preserveGlobalTab?: boolean) => void
+    activateConversationPane?: (
+      preserveGlobalTab?: boolean
+    ) => WorkspacePane | null
     applyFolderWorkspace?: (input: {
       folderId: number
       pane: FolderWorkspacePane
@@ -257,7 +260,10 @@ interface TabRuntime {
   labels: TabLabels
   // Close cleanup can preserve an active global workspace tab; user opens
   // continue to use the default false value and surface the primary tab.
-  activateConversationPane: (preserveGlobalTab?: boolean) => void
+  // 返回激活 tab 所在的组：只有落在辅助面板（conversation）才需要展开它。
+  activateConversationPane: (
+    preserveGlobalTab?: boolean
+  ) => WorkspacePane | null
   applyFolderWorkspace: (input: {
     folderId: number
     pane: FolderWorkspacePane
@@ -273,7 +279,7 @@ function defaultRuntime(): TabRuntime {
       newConversation: "newConversation",
       untitledConversation: "untitledConversation",
     },
-    activateConversationPane: () => {},
+    activateConversationPane: () => null,
     applyFolderWorkspace: () => {},
     sortedAvailableAgents: [],
     agentsFresh: false,
@@ -309,26 +315,26 @@ function adoptWorkspaceFolder(
   }
 }
 
-// Opening a terminal/agent tab must reveal the aux panel that hosts it.
-function revealAuxPanel() {
-  useAppUiStore.getState().setAuxPanelOpen(true)
+// 激活 tab 并展开承载它的辅助面板；tab 被拖到主区时不展开（手机上面板会盖住主区）。
+function activateAndReveal() {
+  if (runtime.activateConversationPane() === "conversation") {
+    useAppUiStore.getState().setAuxPanelOpen(true)
+  }
 }
 
 function focusOpenedTab(folderId: number) {
-  revealAuxPanel()
   if (useAppWorkspaceStore.getState().activeFolderId !== folderId) {
     adoptWorkspaceFolder(folderId, "conversation")
   }
-  runtime.activateConversationPane()
+  activateAndReveal()
 }
 
 /** 无项目终端不在任何项目里显示：打开它就离开当前项目，落到无项目 scope。 */
 function focusFolderlessTab(tab: { kind: string; isPinned?: boolean }) {
-  revealAuxPanel()
   if (tab.kind === "terminal" && tab.isPinned !== true) {
     useAppWorkspaceStore.getState().setActiveFolderId(null)
   }
-  runtime.activateConversationPane()
+  activateAndReveal()
 }
 
 let runtime: TabRuntime = defaultRuntime()

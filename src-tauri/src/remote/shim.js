@@ -35,6 +35,11 @@
   const ETAG_MAX_BODY = 2048
   // 超过这么久的命令记到宿主日志（总耗时 vs 宿主执行耗时），用来定位远程卡顿。
   const SLOW_IPC_MS = 3000
+  // 最近一次转入后台的时刻：期间挂起的调用不算慢（手机锁屏动辄几分钟）。
+  let hiddenAt = 0
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") hiddenAt = performance.now()
+  })
   const lastResult = new Map()
   // 断线前没送到的终端输入，重连时已过这么久就丢弃并提示：断线期间敲的键不在很久之后突然执行。
   const STALE_INPUT_MS = 10000
@@ -199,7 +204,7 @@
   async function finish(id, call, flags, took, etag) {
     calls.delete(id)
     const total = Math.round(performance.now() - call.started)
-    if (total > SLOW_IPC_MS) {
+    if (total > SLOW_IPC_MS && hiddenAt < call.started) {
       control(
         "__log",
         `slow ${call.cmd} total=${total}ms host=${took}ms reconnects=${call.line.connections - call.connection}`
@@ -770,7 +775,9 @@
 
   // 页面报错记到宿主日志：远端浏览器（iPad Safari 等）不便打开开发者工具。
   function report(kind, error) {
-    const text = error && error.stack ? error.stack : String(error)
+    // Safari 的 stack 不含 message，单独拼上，否则日志与下面的匹配都只剩位置。
+    const message = error && error.message ? `${error.message}\n` : ""
+    const text = error && error.stack ? message + error.stack : String(error)
     control(
       "__log",
       `${kind} ${location.pathname} ${navigator.userAgent}\n${text}`.slice(
@@ -779,8 +786,12 @@
       )
     )
     // dev 前端改过代码：本页没有热更新（见上方 WebSocket），按需加载的新代码块与旧模块对不上。
+    // 手机唤醒时网络未就绪或 chunk 已换代，按需加载会 `Failed to load chunk`，同样重载。
     // 整页重载拿新代码；60 秒内只重载一次，真有 bug 时不至于循环刷新。
-    if (text.includes("module factory is not available")) {
+    if (
+      text.includes("module factory is not available") ||
+      text.includes("Failed to load chunk")
+    ) {
       const last = Number(sessionStorage.getItem("berth-stale-reload") || 0)
       if (Date.now() - last > 60000) {
         sessionStorage.setItem("berth-stale-reload", String(Date.now()))

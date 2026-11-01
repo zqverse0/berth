@@ -4,6 +4,9 @@
 `docs/plugin-architecture.md`；每个接入点的字段见 `docs/contribution-points.md`；接口签名只以
 `plugins/berth-plugin.d.ts` 为准。本文与它们冲突时以它们为准。
 
+给用户与 Agent 的写插件说明随 CLI 发布：`berth guide plugins`（`src-tauri/terminal/cli/berth-cli/src/plugins.md`），
+`berth guide plugin-api` 直接输出 d.ts。改了约定（包边界、接入点字段、页面能力）时同步改 `plugins.md`。
+
 ## 1. 插件是什么
 
 一个目录，目录名 = `tool.json` 的 `id`：
@@ -32,11 +35,18 @@ plugins/<id>/
 ├── usage.md           # 给 Agent 看的用法（guide 接入点）
 ├── usage.json         # 用量窗口（可选）
 ├── sessions.json      # 会话来源声明（tool.json resources 引用）
-└── private/           # 包内辅助脚本与数据，只给本插件用
+├── private/           # 包内辅助脚本与数据，只给本插件用
+├── src/               # 页面插件的源码（宿主不读，不发布）：vite.config.mjs 构建到 page/
+└── page/              # 页面（view.page / editor.page 引用），构建产物，不进 git
 ```
 
-只允许约定文件和 `tool.json` `resources` 里 `base: "package"` 声明过的文件，其余 `berth tools check` 会报出。
-调研笔记写进知识库，不放进包。
+只允许约定文件和 `tool.json` `resources` 里 `base: "package"` 声明过的文件，以及视图 / 编辑器声明引用的
+脚本、页面（页面所在的顶层目录整个放行），其余 `berth tools check` 会报出。调研笔记写进知识库，不放进包。
+
+**页面插件**（第 2 层，`docs/plugin-architecture.md` §2.4）：页面就是普通网页，可以用 React 等 npm 包，
+在 `src/vite.config.mjs` 里构建到 `../page/`（例子 `plugins/excalidraw/src/`）。`pnpm build:plugins [<id>]`
+构建；dev 实例的插件目录链到本仓库 `plugins/`，构建后在 dev 里重开标签页即生效。页面里 `await berth.ready`
+后再读 `berth.ui.context`；没有 `fetch` 联网、没有 `process` / `fs`。
 
 ## 3. 清单 `tool.json`
 
@@ -257,7 +267,7 @@ berth tools run <id> private/x.js [参数]                 # 单独跑包内脚�
 - 官方插件：源码在 berth 仓库 `plugins/<id>/`，`scripts/publish-plugins` 同步到公开的插件仓库
   zqverse0/berth-plugins（根下每个子目录一个插件）。Berth 不自带插件，用户在设置 → 工具「插件仓库」点选，
   或 `berth tools install <id>`（= `<插件仓库>#<id>`；`#<子目录>` 适用于任何一个仓库放多个插件的情况）。
-  改了 `plugins/` 并发布 Berth 后要再跑一次 `scripts/publish-plugins`。
+  改了 `plugins/` 并发布 Berth 后要再跑一次 `scripts/publish-plugins`；页面插件由它先构建，发布 `page/`、去掉 `src/`。
 - 第三方：插件目录放进一个 git 仓库，用户 `berth tools install <git 地址>`；`berth tools update` / `remove` /
   `enable` / `disable` 管理生命周期，状态记在 `$BERTH_HOME/plugins.json`。
 - 发布前：`berth tools check` clean；`requires` 写全；密钥不进包（MCP 里写 `$ENV_NAME`）。

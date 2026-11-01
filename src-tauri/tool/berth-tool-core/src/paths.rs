@@ -108,6 +108,7 @@ fn launch_script_arg(command: &[String]) -> Option<&Path> {
 }
 
 /// 从 pane 启动命令取出 Agent 工具 `<id>`；宿主据此认出 Agent pane，门铃只往 Agent pane 粘贴正文。
+/// 只认 `tools/<id>/launch.js` 这个形状，所以 [`launch_script`] 给出的必须是 tools 根下的路径，不能是 canonical 路径。
 pub fn launch_tool_id(command: &[String]) -> Option<String> {
     let tool_dir = launch_script_arg(command)?.parent()?;
     if tool_dir.parent()?.file_name()? != "tools" {
@@ -165,14 +166,16 @@ pub fn launch_script(
     if !script.is_file() {
         return Ok(None);
     }
-    let script = std::fs::canonicalize(&script).map_err(|error| error.to_string())?;
+    let real = std::fs::canonicalize(&script).map_err(|error| error.to_string())?;
     let root = std::fs::canonicalize(tools_root).map_err(|error| error.to_string())?;
-    if !script.starts_with(&root) {
+    if !real.starts_with(&root) {
         return Err("launch script escapes the tools directory".into());
     }
     if let Some(tool_dir) = script.parent() {
         assign_launch_session(tool_dir, &mut inputs);
     }
+    // 返回 tools 根下的路径而非 canonical 路径：tools 是软链（dev 实例链到仓库 plugins/）时，
+    // canonical 路径的上级不叫 tools，launch_tool_id 认不出 Agent pane，tab 就没了 Agent 图标。
     let payload = serde_json::to_string(&inputs)
         .map_err(|error| format!("launch inputs are not JSON: {error}"))?;
     Ok(Some((script, payload)))
@@ -454,5 +457,20 @@ mod tests {
         assert_eq!(launch_tool_id(&argv(&["vim", "notes", "/x/tools/demo/launch.js"])), None);
         assert_eq!(launch_tool_id(&argv(&["python3", "/x/tools/demo/launch.py"])), None);
         assert_eq!(launch_tool_id(&argv(&["berth-cli", "tools", "run", "/x/tools/demo/launch.js"])), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_script_keeps_the_tools_path_when_tools_is_a_symlink() {
+        // dev 实例的 tools 软链到仓库 plugins/：启动命令仍要带 tools/<id>，否则认不出 Agent pane。
+        let dir = tempfile::tempdir().unwrap();
+        let plugins = dir.path().join("plugins");
+        std::fs::create_dir_all(plugins.join("demo")).unwrap();
+        std::fs::write(plugins.join("demo").join(LAUNCH_SCRIPT), "").unwrap();
+        let tools = dir.path().join("tools");
+        std::os::unix::fs::symlink(&plugins, &tools).unwrap();
+        let (script, _) = launch_script(&tools, "demo", Default::default()).unwrap().unwrap();
+        let command = vec!["berth-cli".into(), "tools".into(), "launch".into(), script.display().to_string()];
+        assert_eq!(launch_tool_id(&command).as_deref(), Some("demo"));
     }
 }

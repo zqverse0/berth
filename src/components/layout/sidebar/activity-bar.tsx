@@ -27,6 +27,8 @@ import {
 
 const ICON_BUTTON =
   "relative size-9 shrink-0 rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+const ACTIVE_ICON_BUTTON =
+  "bg-accent text-accent-foreground hover:bg-accent before:absolute before:-left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
 
 /**
  * One icon per sidebar view. On desktop, clicking the active view while the
@@ -76,11 +78,7 @@ export function SidebarViewNav({ className }: { className?: string }) {
             key={item.id}
             variant="ghost"
             size="icon"
-            className={cn(
-              ICON_BUTTON,
-              active &&
-                "bg-accent text-accent-foreground hover:bg-accent before:absolute before:-left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
-            )}
+            className={cn(ICON_BUTTON, active && ACTIVE_ICON_BUTTON)}
             onClick={() => {
               if (!sidebarOpen || view === item.id) toggleSidebar()
               setView(item.id)
@@ -154,38 +152,51 @@ export function useSettingsViewSync() {
   }, [isActive, closeSettings])
 }
 
-/** 设置模式下齿轮上方的页面图标：每个设置页像一个独立视图（手机在侧栏图标列底部）。 */
+/**
+ * 设置的页面图标与齿轮，常驻在视图图标下方（桌面在活动栏底部，手机在侧栏图标列底部）；
+ * 齿轮打开「通用」（外观 + 高级），不再单列。点当前页（含齿轮）退出设置。
+ */
 export function SettingsPageNav() {
   const t = useTranslations("Workbench.panels")
   const tShell = useTranslations("SettingsShell")
+  const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { selected } = useWorkbenchLayout()
-  const { openSettings } = useSettingsWorkspace()
+  const { isActive, openSettings, closeSettings } = useSettingsWorkspace()
   const current = settingsNavOf(
     (selected.settings ?? "model-providers") as SettingsPageId
   )
   return (
     <nav
       aria-label={tShell("title")}
-      className="flex flex-col items-center gap-1.5 border-b border-border/50 ws-chrome-border pb-1.5"
+      className="flex flex-col items-center gap-1.5"
     >
-      {SETTINGS_NAV.map((item) => {
+      {[
+        ...SETTINGS_NAV.filter((item) => item.id !== "general"),
+        {
+          id: "general" as const,
+          icon: Settings,
+          label: tTitleBar("openSettings"),
+          title: tTitleBar("withShortcut", {
+            label: tTitleBar("openSettings"),
+            shortcut: commandHint("open_settings"),
+          }),
+        },
+      ].map((item) => {
         const Icon = item.icon
-        const active = current === item.id
-        const label = t(item.labelKey)
+        const active = isActive && current === item.id
+        const label = "label" in item ? item.label : t(item.labelKey)
         return (
           <Button
             key={item.id}
             variant="ghost"
             size="icon"
-            className={cn(
-              ICON_BUTTON,
-              active &&
-                "bg-accent text-accent-foreground hover:bg-accent before:absolute before:-left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
-            )}
+            className={cn(ICON_BUTTON, active && ACTIVE_ICON_BUTTON)}
             onClick={() =>
-              openSettings(item.id === "general" ? "appearance" : item.id)
+              active
+                ? closeSettings()
+                : openSettings(item.id === "general" ? "appearance" : item.id)
             }
-            title={label}
+            title={"title" in item ? item.title : label}
             aria-label={label}
             aria-pressed={active}
           >
@@ -199,8 +210,8 @@ export function SettingsPageNav() {
 
 /**
  * Desktop activity bar: a fixed column left of the sidebar that stays visible
- * when the sidebar collapses. Top: sidebar toggle and views; bottom: settings
- * (its pages expand above the gear while settings is open). Adding a project lives in the
+ * when the sidebar collapses. Top: sidebar toggle and views; bottom: settings pages, then
+ * the gear, which opens General (appearance + advanced). Adding a project lives in the
  * project list header.
  */
 export const ActivityBar = memo(function ActivityBar() {
@@ -208,11 +219,6 @@ export const ActivityBar = memo(function ActivityBar() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const sidebarOpen = useAppUiStore((state) => state.sidebarOpen)
   const toggleSidebar = useAppUiStore((state) => state.toggleSidebar)
-  const {
-    isActive: settingsActive,
-    openSettings,
-    closeSettings,
-  } = useSettingsWorkspace()
   const { isMac } = usePlatform()
   // The macOS traffic lights sit over the top cell, so the toggle moves down.
   const macTrafficLights = isMac && hasNativeWindowChrome()
@@ -250,28 +256,7 @@ export const ActivityBar = memo(function ActivityBar() {
         <SidebarViewNav />
       </div>
       <div className="flex w-full shrink-0 flex-col items-center gap-1.5 pb-2">
-        {settingsActive ? <SettingsPageNav /> : null}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(ICON_BUTTON, settingsActive && "text-foreground")}
-          aria-pressed={settingsActive}
-          onClick={() => {
-            if (settingsActive) {
-              closeSettings()
-              return
-            }
-            openSettings()
-            if (!sidebarOpen) toggleSidebar()
-          }}
-          title={tTitleBar("withShortcut", {
-            label: tTitleBar("openSettings"),
-            shortcut: commandHint("open_settings"),
-          })}
-          aria-label={tTitleBar("openSettings")}
-        >
-          <Settings className="size-[1.125rem]" />
-        </Button>
+        <SettingsPageNav />
       </div>
     </div>
   )

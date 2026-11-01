@@ -38,6 +38,7 @@ import { useSendToAgent } from "@/hooks/use-send-to-agent"
 import { isVirtualPreviewPath } from "@/lib/files/file-open-target"
 import { sourceKindFromTab } from "@/lib/content-reference/source-kind"
 import type { FileWorkspaceTab } from "@/lib/files/file-workspace-tab"
+import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 
 const LazyTranscriptToolbar = lazy(() =>
   import("@/sessions/components/transcript-toolbar").then((m) => ({
@@ -236,6 +237,7 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
     (state) => state.setFileTabEditing
   )
   const { editorWordWrap, setEditorWordWrap } = useEditorFont()
+  const editorSuffixes = usePluginViewsStore((state) => state.editorSuffixes)
   const visibleFileTabs = fileTabsForFolderScope(
     fileTabs,
     activeFolderId,
@@ -252,7 +254,7 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
   const definition: FileViewerDefinition | null = runtime
     ? runtime.definition
     : activeFileTab?.kind === "file"
-      ? fileViewerDefinitionFromPath(activeFileTab.path)
+      ? fileViewerDefinitionFromPath(activeFileTab.path, editorSuffixes)
       : null
 
   if (!activeFileTab) return null

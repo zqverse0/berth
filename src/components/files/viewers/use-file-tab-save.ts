@@ -8,7 +8,7 @@ const AUTO_SAVE_DELAY_MS = 5000
 
 /**
  * 文本 buffer 类 tab 的落盘入口：停笔自动保存、窗口失焦 / 隐藏保存、Ctrl+S。
- * 文本编辑器与 Excalidraw 画板共用；`isComposing` 为 true（IME 组字中）时暂停自动保存。
+ * 文本编辑器与插件编辑器共用；`isComposing` 为 true（IME 组字中）时暂停自动保存。
  */
 export function useFileTabSave(
   tab: TextFileWorkspaceTab,
@@ -76,7 +76,7 @@ export function useFileTabSave(
     }
   }, [scope, saveFileTab])
 
-  // 捕获阶段：Excalidraw 自己处理 Ctrl+S（导出文件）并阻止冒泡，必须先于它接住
+  // 捕获阶段：先于编辑器自己的 Ctrl+S 处理接住（插件页面里的 Ctrl+S 由桥转发到这里）
   useEffect(() => {
     if (!active) return
     const onKeyDown = (event: KeyboardEvent) => {

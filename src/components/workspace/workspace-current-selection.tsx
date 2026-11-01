@@ -17,6 +17,7 @@ import { useSettingsWorkspace } from "@/contexts/settings-workspace-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
 import { useTabStore } from "@/stores/tab-store"
+import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 
 // 跨工作区挂载串行化 IPC，避免旧实例的迟到清空覆盖新实例的选择。
@@ -100,7 +101,10 @@ export function WorkspaceCurrentSelection() {
             (tab) => tab.id === ref.id
           )
         })[0] ?? null)
-  const viewerKind = fileTab ? fileViewerKindFromTab(fileTab) : null
+  const editorSuffixes = usePluginViewsStore((state) => state.editorSuffixes)
+  const viewerKind = fileTab
+    ? fileViewerKindFromTab(fileTab, editorSuffixes)
+    : null
   // 文本型预览直接复用已加载的源缓冲，不触发资源型 Viewer 的正文提取。
   const editor =
     fileTab &&

@@ -12,7 +12,7 @@ const expectedKinds = [
   "text",
   "markdown",
   "html",
-  "excalidraw",
+  "plugin",
   "image",
   "office",
   "pdf",
@@ -30,8 +30,8 @@ describe("local file viewer definitions", () => {
     ["README.MARKDOWN", "markdown"],
     ["docs/index.HTM", "html"],
     ["boards/roadmap.canvas.json", "text"],
-    ["notes/flow.Excalidraw", "excalidraw"],
-    ["vault/Drawing 2024.excalidraw.md", "excalidraw"],
+    ["notes/flow.Excalidraw", "text"],
+    ["vault/Drawing 2024.excalidraw.md", "markdown"],
     ["assets/logo.SVG", "image"],
     ["reports/budget.XLSX", "office"],
     ["reports/~$budget.xlsx", "text"],
@@ -42,9 +42,23 @@ describe("local file viewer definitions", () => {
     expect(fileViewerDefinitionFromPath(path).kind).toBe(kind)
   })
 
+  it("hands files to a plugin editor when its suffix matches, longest first", () => {
+    const suffixes = [".excalidraw", ".excalidraw.md"]
+    expect(fileViewerKindFromPath("vault/A.Excalidraw.md", suffixes)).toBe(
+      "plugin"
+    )
+    expect(fileViewerKindFromPath("notes/a.md", suffixes)).toBe("markdown")
+    expect(fileViewerDefinitionFromPath("b.excalidraw", suffixes)).toEqual({
+      kind: "plugin",
+      dataMode: "text",
+      reloadPolicy: "text-buffer",
+      capabilities: {},
+    })
+  })
+
   it("keeps the static contract free of renderer instances", () => {
-    expect(FILE_VIEWER_DEFINITIONS.excalidraw).toEqual({
-      kind: "excalidraw",
+    expect(FILE_VIEWER_DEFINITIONS.plugin).toEqual({
+      kind: "plugin",
       dataMode: "text",
       reloadPolicy: "text-buffer",
       capabilities: {},

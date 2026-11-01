@@ -6,36 +6,30 @@ import LZString from "lz-string"
  * 写回 `.excalidraw.md` 时只替换 Text Elements 正文与 Drawing 块，其余原样保留。
  */
 
-export function isObsidianExcalidrawPath(path: string): boolean {
+export function isObsidianExcalidrawPath(path) {
   return /\.excalidraw\.md$/i.test(path)
 }
 
 const DRAWING =
   /(\n##? Drawing\n[^`]*```(json|compressed-json)\n)([\s\S]*?)(```)/
 // 小节正文止于下一个 `#`/`##` 标题或 `%%` 行
-const sectionBody = (name: string) =>
+const sectionBody = (name) =>
   new RegExp(`(^##? ${name}\\n)([\\s\\S]*?)(?=^##? |^%%|(?![\\s\\S]))`, "m")
 const EMBEDDED_FILE = /^([\w-]+):\s*!?\[\[([^\]|]*)(?:\|[^\]]*)?\]\]/gm
 
-export interface ExcalidrawFileData {
-  /** 场景 JSON 对象；空文件 / 新建的 `.excalidraw.md` 为 null（空画板） */
-  scene: { files?: Record<string, unknown> } | null
-  /** Obsidian `## Embedded Files`：fileId → 库内路径（图片存为独立文件） */
-  embeddedFiles: Record<string, string>
-}
-
-/** 解析失败抛错（JSON 损坏 / 压缩数据损坏）。 */
-export function parseExcalidrawFile(
-  path: string,
-  text: string
-): ExcalidrawFileData {
+/**
+ * 解析失败抛错（JSON 损坏 / 压缩数据损坏）。返回 `scene`（场景 JSON；空文件 / 新建的
+ * `.excalidraw.md` 为 null，即空画板）与 `embeddedFiles`（Obsidian `## Embedded Files`：
+ * fileId → 库内路径，图片存为独立文件）。
+ */
+export function parseExcalidrawFile(path, text) {
   if (!isObsidianExcalidrawPath(path)) {
     return {
       scene: text.trim() ? JSON.parse(text) : null,
       embeddedFiles: {},
     }
   }
-  const embeddedFiles: Record<string, string> = {}
+  const embeddedFiles = {}
   const embedded = text.match(sectionBody("Embedded Files"))?.[2] ?? ""
   for (const [, id, target] of embedded.matchAll(EMBEDDED_FILE)) {
     embeddedFiles[id] = target.trim()
@@ -53,30 +47,13 @@ export function parseExcalidrawFile(
   }
 }
 
-interface SceneElement {
-  id: string
-  type: string
-  isDeleted?: boolean
-  text?: string
-  originalText?: string
-}
-
 /** 把场景 JSON 写回文件文本；`previous` 是当前文件内容（`.excalidraw.md` 保留其外壳）。 */
-export function serializeExcalidrawFile(
-  path: string,
-  previous: string,
-  sceneJson: string
-): string {
+export function serializeExcalidrawFile(path, previous, sceneJson) {
   if (!isObsidianExcalidrawPath(path)) return sceneJson
-  const scene = JSON.parse(sceneJson) as {
-    source?: string
-    elements?: SceneElement[]
-    files?: Record<string, unknown>
-  }
+  const scene = JSON.parse(sceneJson)
   const { embeddedFiles, scene: before } = parseExcalidrawFile(path, previous)
   // source 默认是页面 origin（dev 下是 localhost），沿用原文件的来源
-  scene.source =
-    (before as { source?: string } | null)?.source ?? OBSIDIAN_PLUGIN_SOURCE
+  scene.source = before?.source ?? OBSIDIAN_PLUGIN_SOURCE
   // 库内图片由 Embedded Files 引用，不写进场景 JSON
   if (scene.files) {
     for (const id of Object.keys(embeddedFiles)) delete scene.files[id]
@@ -95,20 +72,16 @@ export function serializeExcalidrawFile(
   return previous
     .replace(
       DRAWING,
-      (_m, head: string, _kind, _old, close: string) =>
-        `${head}${body}\n${close}`
+      (_m, head, _kind, _old, close) => `${head}${body}\n${close}`
     )
-    .replace(
-      sectionBody("Text Elements"),
-      (_m, head: string) => `${head}${textBody}`
-    )
+    .replace(sectionBody("Text Elements"), (_m, head) => `${head}${textBody}`)
 }
 
 const OBSIDIAN_PLUGIN_SOURCE =
   "https://github.com/zsviczian/obsidian-excalidraw-plugin"
 
 /** 与插件 compress 一致：base64 每 256 字符断一次空行。 */
-function compress(json: string): string {
+function compress(json) {
   const data = LZString.compressToBase64(json)
   let out = ""
   for (let i = 0; i < data.length; i += 256) {
@@ -117,7 +90,7 @@ function compress(json: string): string {
   return out.trim()
 }
 
-function obsidianTemplate(textBody: string, drawing: string): string {
+function obsidianTemplate(textBody, drawing) {
   return `---
 
 excalidraw-plugin: parsed

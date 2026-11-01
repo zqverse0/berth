@@ -57,7 +57,10 @@ export interface WorkspaceLayoutState {
 
   placementScope: (folderId: number | null) => string
   setActivePane: (pane: WorkspacePane) => void
-  activateConversationPane: (preserveGlobalTab?: boolean) => void
+  /** 返回激活 tab 所在的组；保留全局 tab 不切换时为 null。 */
+  activateConversationPane: (
+    preserveGlobalTab?: boolean
+  ) => WorkspacePane | null
   activateFilePane: () => void
   activateFileTab: (tabId: string) => boolean
   /** 只应用布局侧副作用：文件域激活已由 runtime 完成（经注入回调执行）。 */
@@ -291,21 +294,20 @@ export const useWorkspaceLayoutStore = create<WorkspaceLayoutState>()(
         : null
       if (state.activeWorkspaceTab?.kind === "global") {
         set({ globalTabReturn: nextTab })
-        if (preserveGlobalTab) return
+        if (preserveGlobalTab) return null
       }
-      set((current) => {
-        const pane = nextTab
-          ? paneForTab(nextTab, scopePlacement(current))
-          : "conversation"
-        return {
-          activeWorkspaceTab: nextTab,
-          globalTabReturn: null,
-          activePane: pane,
-          activeTabByPane: nextTab
-            ? { ...current.activeTabByPane, [pane]: nextTab }
-            : current.activeTabByPane,
-        }
-      })
+      const pane = nextTab
+        ? paneForTab(nextTab, scopePlacement(state))
+        : "conversation"
+      set((current) => ({
+        activeWorkspaceTab: nextTab,
+        globalTabReturn: null,
+        activePane: pane,
+        activeTabByPane: nextTab
+          ? { ...current.activeTabByPane, [pane]: nextTab }
+          : current.activeTabByPane,
+      }))
+      return pane
     },
 
     activateFilePane: () => set({ activePane: "files" }),
@@ -532,6 +534,32 @@ export function persistSplitFold(): void {
   )
   if (Object.entries(folded).every(([key, pane]) => raw[key] === pane)) return
   const placementByScope = { ...state.placementByScope, [scope]: folded }
+  useWorkspaceLayoutStore.setState({ placementByScope })
+  persistPlacement(placementByScope)
+}
+
+/**
+ * 手机布局固定：终端在辅助面板、其余在主区、没有右栏，两组也不同时可见，拖不回去。
+ * 清掉手机上显示不了的位置：右栏的一律回主区，被挪到主区的终端回辅助面板
+ * （`primary:` 存成 `files` 的只能是终端：对话 tab 默认就在 `files`，不会记这个位置）。
+ */
+export function foldPlacementsForMobile(): void {
+  const state = useWorkspaceLayoutStore.getState()
+  let changed = false
+  const placementByScope: WorkspaceTabPlacementByScope = {}
+  for (const [scope, placement] of Object.entries(state.placementByScope)) {
+    const kept = Object.fromEntries(
+      Object.entries(placement).filter(
+        ([key, pane]) =>
+          pane !== "files-split" &&
+          !(key.startsWith("primary:") && pane === "files")
+      )
+    )
+    if (Object.keys(kept).length !== Object.keys(placement).length)
+      changed = true
+    if (Object.keys(kept).length > 0) placementByScope[scope] = kept
+  }
+  if (!changed) return
   useWorkspaceLayoutStore.setState({ placementByScope })
   persistPlacement(placementByScope)
 }

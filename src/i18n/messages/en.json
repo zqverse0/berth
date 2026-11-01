@@ -1543,7 +1543,13 @@
         "up": "Up",
         "down": "Down",
         "left": "Left",
-        "right": "Right"
+        "right": "Right",
+        "paste": "Paste",
+        "pastePrompt": "Long-press to paste",
+        "pasteMultiline": "This program does not accept multi-line paste",
+        "select": "Select",
+        "selectHint": "Long-press text to select and copy",
+        "done": "Done"
       },
       "inputNormal": "NORMAL",
       "inputInsert": "INSERT",
@@ -1695,9 +1701,7 @@
       "dismissSelection": "Dismiss selection action",
       "changeCount": "{count} change(s)",
       "original": "Original",
-      "modified": "Modified",
-      "excalidrawParseError": "This file is not a valid Excalidraw scene (JSON parse failed).",
-      "drawingCreateFailed": "Could not create the drawing"
+      "modified": "Modified"
     },
     "branchDropdown": {
       "toasts": {
@@ -2114,8 +2118,6 @@
       },
       "createDialog": {
         "markdown": "Markdown note",
-        "excalidrawMd": "Excalidraw drawing (Obsidian)",
-        "excalidraw": "Excalidraw drawing",
         "presetHint": "Uses the name above, or a default one",
         "newFile": "New file",
         "newDirectory": "New directory",
@@ -4056,10 +4058,6 @@
     "new_terminal": {
       "title": "New terminal",
       "description": "Open terminal creation for the current project"
-    },
-    "new_canvas": {
-      "title": "New drawing",
-      "description": "Create an Excalidraw drawing (.excalidraw) in the project root"
     },
     "open_settings": {
       "title": "Open settings",

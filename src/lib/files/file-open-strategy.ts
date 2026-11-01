@@ -6,10 +6,7 @@ import {
 export type FileOpenStrategy =
   | {
       dataMode: "text"
-      previewKind: Extract<
-        FileViewerKind,
-        "text" | "markdown" | "html" | "excalidraw"
-      >
+      previewKind: Extract<FileViewerKind, "text" | "markdown" | "html">
       reloadPolicy: "text-buffer"
     }
   | {

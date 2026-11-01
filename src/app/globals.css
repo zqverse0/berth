@@ -376,10 +376,10 @@
   background-color: var(--card);
 }
 
-/* xterm 6 owns scroll state through `.xterm-scrollable-element`, while the
-   legacy `.xterm-viewport` still ships with `overflow-y: scroll`. Keep both
-   xterm-owned bars invisible: TerminalView projects the buffer into the same
-   shared ScrollArea used by file surfaces, so there is one visible scrollbar. */
+/* xterm 6 用 `.xterm-scrollable-element` 自带的滚动条（配色走终端主题），它是唯一的
+   滚动状态主人；旧的 `.xterm-viewport` 仍带 `overflow-y: scroll`，隐藏它的原生滚动条。
+   不要再叠一层外部滚动条与 xterm 双向同步：清 scrollback 的 TUI（pi 整屏重绘）会让
+   两边互相回写，把视口拽回第 0 行。 */
 [data-terminal-surface="true"] .xterm .xterm-viewport {
   background-color: var(--card);
   overflow: hidden !important;
@@ -394,13 +394,55 @@
   background: transparent !important;
 }
 
-[data-terminal-surface="true"] .xterm .xterm-scrollable-element > .scrollbar {
-  display: none !important;
+/* 对齐全局 os-theme-berth：轨道 8px，滑块平时 6px 贴右、悬停或拖动时 8px。
+   xterm 把宽度写在行内样式里，只能 !important 覆盖。 */
+[data-terminal-surface="true"]
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar
+  > .slider {
+  border-radius: 999px;
+  width: 6px !important;
+  left: 2px !important;
+}
+
+[data-terminal-surface="true"]
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar:hover
+  > .slider,
+[data-terminal-surface="true"]
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar
+  > .slider.active {
+  width: 8px !important;
+  left: 0 !important;
 }
 
 [data-terminal-surface="true"] .xterm .composition-view {
   background-color: var(--card);
   color: var(--foreground);
+}
+
+/* 输入法预览层（拼音选字前）：xterm 默认不换行、父层没宽度，长拼音撑出屏幕。让 helpers 铺满
+   终端宽度，预览层从光标列（xterm 行内 left）延伸到右边缘并折行；行内 height 只有一行高，放开。 */
+[data-terminal-surface="true"] .xterm .xterm-helpers {
+  left: 0;
+  right: 0;
+}
+
+/* 隐藏 textarea 组合期间与预览层同位同宽：同样折行，插入点不越过右边缘（iOS 会跟着平移整页）。 */
+[data-terminal-surface="true"] .xterm .xterm-helper-textarea {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+[data-terminal-surface="true"] .xterm .composition-view {
+  right: 0;
+  height: auto !important;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 [data-workspace-bg="on"] .ws-surface {
@@ -793,6 +835,8 @@
    background so it matches the tab arch / strip-line border (rule below). */
 .browser-tab-item {
   position: relative;
+  /* 触屏长按打开 tab 菜单：不让 iOS 弹系统的图片 / 链接菜单抢走手势。 */
+  -webkit-touch-callout: none;
 }
 .browser-tab-item::before {
   content: "";

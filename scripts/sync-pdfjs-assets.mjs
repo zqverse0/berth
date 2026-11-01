@@ -22,13 +22,5 @@ const worker = path.join(packageDir, "build", "pdf.worker.min.mjs")
 if (!fs.existsSync(worker)) throw new Error("Missing PDF.js worker")
 fs.copyFileSync(worker, path.join(outputDir, "pdf.worker.min.mjs"))
 
-// Excalidraw 手绘字体：CSP 只放行同源字体，画板经 EXCALIDRAW_ASSET_PATH 从这里取
-const excalidrawFonts = path.join(
-  path.dirname(require.resolve("@excalidraw/excalidraw")),
-  "fonts"
-)
-const excalidrawOutput = path.resolve("public", "excalidraw")
-fs.rmSync(excalidrawOutput, { recursive: true, force: true })
-fs.cpSync(excalidrawFonts, path.join(excalidrawOutput, "fonts"), {
-  recursive: true,
-})
+// 旧版拷到这里的 Excalidraw 字体（画板已移到 excalidraw 插件，字体随插件包）：删掉，免得打进安装包
+fs.rmSync(path.resolve("public", "excalidraw"), { recursive: true, force: true })

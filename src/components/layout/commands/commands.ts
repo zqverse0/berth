@@ -5,7 +5,6 @@ export const WORKSPACE_COMMANDS = [
   { id: "open_project", group: "project", key: "o" },
   { id: "new_conversation", group: "creation", key: "n" },
   { id: "new_terminal", group: "creation", key: "c" },
-  { id: "new_canvas", group: "creation" },
   { id: "open_files", group: "views", key: "f" },
   { id: "open_git", group: "views", key: "g" },
   { id: "open_berth_tasks", group: "views", key: "t" },

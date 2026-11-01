@@ -234,6 +234,8 @@ function reuseFolderDetails(
 // window — 512 deletions — far exceeds any realistic late/out-of-order event
 // delay, so a row can never be resurrected in practice while memory stays
 // bounded across a long-lived session.
+/** worktree 对账同时在飞的请求数上限。 */
+const RECONCILE_CONCURRENCY = 4
 const DELETED_TOMBSTONE_CAP = 512
 
 // Tombstones for soft-deleted ids: a stale/out-of-order `upsert` that lands
@@ -928,17 +930,18 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       // 对账可能增/删 folder（git 侧 worktree add/remove），结果以全量
       // 重拉为准。某个项目对账失败不能拦住重拉：其他项目已删的 worktree
       // 会一直留在列表里，点进去就是 `Folder does not exist`。
-      const results = await Promise.allSettled(
-        folderIds.map((id) => reconcileWorktreeFamily(id))
-      )
-      for (const result of results) {
-        if (result.status === "rejected") {
-          console.error(
-            "[AppWorkspace] refreshWorktreeFamily failed:",
-            result.reason
-          )
+      // 每个 root 一个 git 进程；项目多时一次全发会占满远程通道，挡住其他请求。
+      const queue = [...folderIds]
+      const worker = async () => {
+        for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+          try {
+            await reconcileWorktreeFamily(id)
+          } catch (err) {
+            console.error("[AppWorkspace] refreshWorktreeFamily failed:", err)
+          }
         }
       }
+      await Promise.all(Array.from({ length: RECONCILE_CONCURRENCY }, worker))
       await get().fetchFolders()
     },
 

@@ -14,6 +14,7 @@ import type {
   WorkspaceTabRef,
 } from "@/lib/workspace/workspace-tab-placement"
 import { SETTINGS_GLOBAL_TAB_ID } from "@/lib/workspace/settings-tab"
+import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 import { useTabStore, type TabItem } from "@/stores/tab-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { WorkspaceCurrentSelection } from "./workspace-current-selection"
@@ -295,14 +296,15 @@ it.each(["pdf", "office", "image"] as const)(
   }
 )
 
-it("不把 Excalidraw 画板当文本编辑器", async () => {
+it("不把插件编辑器接管的文件当文本编辑器", async () => {
+  usePluginViewsStore.setState({ editorSuffixes: [".excalidraw"] })
   selectFile({
     ...textTab("drawing", "{}"),
     path: "/synthetic/drawing.excalidraw",
-    previewKind: "excalidraw",
   })
   render(<WorkspaceCurrentSelection />)
   await flush()
+  usePluginViewsStore.setState({ editorSuffixes: [] })
   expect(mocks.setCurrentDocumentContext).toHaveBeenLastCalledWith({
     scope: "workspace",
     kind: "",

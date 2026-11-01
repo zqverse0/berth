@@ -13,7 +13,7 @@ use crate::asset::AssetDiagnostic;
 /// 宿主按文件名读取的约定文件（封闭列表）。`launch.js` 是 Agent 启动脚本
 /// （[`crate::paths::LAUNCH_SCRIPT`]）；`private/` 是启动脚本的私有辅助；`README.md` / `LICENSE` /
 /// `.gitignore` 是分发包（git 安装）的常规文件；`install.sh|ps1` 是 `org.berth.install`
-/// 的安装脚本。
+/// 的安装脚本；`src/` 是页面插件构建前的源码（宿主不读，发布时去掉）。
 pub const CONVENTION_ENTRIES: &[&str] = &[
     "tool.json",
     "launch.js",
@@ -28,6 +28,7 @@ pub const CONVENTION_ENTRIES: &[&str] = &[
     "README.md",
     "LICENSE",
     ".gitignore",
+    "src",
 ];
 
 /// `extensions["org.berth.agent"]` 里宿主会读的键（封闭列表，与
@@ -50,6 +51,7 @@ const KNOWN_EXTENSIONS: &[&str] = &[
     crate::file_tools::EXTRACT,
     crate::file_tools::INSTALL,
     crate::views::VIEW,
+    crate::editors::EDITOR,
 ];
 
 /// 文件工具接入点：与宿主同一个判定（`file_tools::parse`：非空 `argv` + `install.bin`）。
@@ -89,6 +91,9 @@ pub fn contributions(dir: &Path, raw: &Value) -> Vec<String> {
     }
     if !crate::views::parse(raw).0.is_empty() {
         points.push("view".to_string());
+    }
+    if !crate::editors::parse(raw).0.is_empty() {
+        points.push("editor".to_string());
     }
     points
 }
@@ -133,7 +138,7 @@ fn unknown_contributions(raw: &Value) -> Vec<AssetDiagnostic> {
 }
 
 /// tool.json `resources.*.locator` 中 `base: package` 的路径，加上预览脚本
-/// （`org.berth.preview.script`）与视图的脚本、图标。
+/// （`org.berth.preview.script`）、视图的脚本 / 页面 / 图标与编辑器页面。
 fn declared_package_paths(raw: &Value) -> Vec<&str> {
     raw.get("resources")
         .and_then(Value::as_object)
@@ -147,6 +152,7 @@ fn declared_package_paths(raw: &Value) -> Vec<&str> {
                 .and_then(Value::as_str),
         )
         .chain(crate::views::package_paths(raw))
+        .chain(crate::editors::package_paths(raw))
         .collect()
 }
 
@@ -183,6 +189,7 @@ pub fn check_package(dir: &Path, raw: &Value) -> Vec<AssetDiagnostic> {
     }));
     findings.extend(unknown_contributions(raw));
     findings.extend(crate::views::parse(raw).1);
+    findings.extend(crate::editors::parse(raw).1);
     findings.extend(
         FILE_TOOL_POINTS
             .iter()
@@ -385,5 +392,36 @@ mod tests {
         std::fs::write(dir.join("berth-plugin.d.ts"), "").unwrap();
         assert_eq!(locations(&check_root(&dir)), ["empty", "index.json"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 仓库里的官方插件（`plugins/`）都过包检查；页面插件的 `page/` 是构建产物，没构建时只缺它。
+    #[test]
+    fn official_plugins_pass_the_package_check() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&root).unwrap().flatten() {
+            let dir = entry.path();
+            let Ok(bytes) = std::fs::read(dir.join("tool.json")) else {
+                continue;
+            };
+            let mut raw: Value = serde_json::from_slice(&bytes).unwrap();
+            crate::manifest::normalize(&mut raw);
+            let findings: Vec<_> = check_package(&dir, &raw)
+                .into_iter()
+                .filter(|finding| {
+                    !(finding.location.starts_with("page/") && !dir.join("page").exists())
+                })
+                .collect();
+            assert!(findings.is_empty(), "{}: {findings:?}", dir.display());
+            checked += 1;
+        }
+        assert!(checked > 0);
+        let mut excalidraw: Value =
+            serde_json::from_slice(&std::fs::read(root.join("excalidraw/tool.json")).unwrap())
+                .unwrap();
+        crate::manifest::normalize(&mut excalidraw);
+        assert!(
+            contributions(&root.join("excalidraw"), &excalidraw).contains(&"editor".to_string())
+        );
     }
 }

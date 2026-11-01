@@ -15,6 +15,25 @@ export type PluginView = {
   /** data URL。 */
   icon?: string | null
   location: "sidebar" | "tab"
+  /** 第 2 层页面（包内路径）；null 时是第 1 层脚本视图。 */
+  page?: string | null
+  permissions: string[]
+}
+
+/** 启用插件声明的一个编辑器（§4.2）：按后缀接管文件，页面在 iframe 里编辑内容。 */
+export type PluginEditor = {
+  plugin: string
+  id: string
+  title: string | Record<string, string>
+  /** 小写、以 `.` 开头。 */
+  suffixes: string[]
+  /** 包内 html 路径。 */
+  page: string
+  /** 「新建文件」菜单项；新文件内容为空。 */
+  new: { title: string | Record<string, string>; name: string }[]
+  /** 页面能把文件渲染成图片（Markdown 嵌入）。 */
+  embed: boolean
+  permissions: string[]
 }
 
 /** 宿主的固定图标名（§4.1，只增不改）；图标组件在视图面板里对应。 */
@@ -102,9 +121,16 @@ type Request =
       input: unknown
       project: Project
     }
+  | {
+      type: "call"
+      plugin: string
+      method: string
+      params: unknown
+      project: Project
+    }
 
 type Response =
-  | { type: "list"; views: PluginView[] }
+  | { type: "list"; views: PluginView[]; editors?: PluginEditor[] }
   | { type: "rendered"; view: unknown }
   | { type: "done"; result: unknown }
 
@@ -138,8 +164,20 @@ export async function runPluginAction(options: {
   script: string
   input: unknown
   project: Project
-}): Promise<void> {
-  await pluginViews({ type: "action", ...options })
+}): Promise<unknown> {
+  const response = await pluginViews({ type: "action", ...options })
+  return response.type === "done" ? response.result : null
+}
+
+/** 页面调用经宿主后端执行的命名空间（`storage`、`data`）。 */
+export async function callPluginBackend(options: {
+  plugin: string
+  method: string
+  params: unknown
+  project: Project
+}): Promise<unknown> {
+  const response = await pluginViews({ type: "call", ...options })
+  return response.type === "done" ? response.result : null
 }
 
 const text = (value: unknown): string | undefined =>
@@ -302,19 +340,51 @@ export const renderCache = new Map<string, ViewResult>()
 export const pluginSidebarViewId = (view: { plugin: string; id: string }) =>
   `plugin:${view.plugin}/${view.id}` as const
 
-/** 启用插件的视图列表；进入应用与离开设置（可能刚启停插件）时刷新。 */
+const NO_SUFFIXES: string[] = []
+
+/** 启用插件的视图与编辑器；进入应用与离开设置（可能刚启停插件）时刷新。 */
 export const usePluginViewsStore = create<{
   views: PluginView[]
+  editors: PluginEditor[]
+  /** 所有编辑器的后缀（同一引用直到列表变化），给文件分类用。 */
+  editorSuffixes: string[]
   load: () => Promise<void>
 }>((set) => ({
   views: [],
+  editors: [],
+  editorSuffixes: NO_SUFFIXES,
   load: async () => {
     try {
       const response = await pluginViews({ type: "list" })
-      if (response.type === "list") set({ views: response.views })
+      if (response.type !== "list") return
+      const editors = response.editors ?? []
+      set({
+        views: response.views,
+        editors,
+        editorSuffixes: editors.flatMap((editor) => editor.suffixes),
+      })
     } catch {
       // 非桌面环境或命令不可用：没有插件视图。
-      set({ views: [] })
+      set({ views: [], editors: [], editorSuffixes: NO_SUFFIXES })
     }
   },
 }))
+
+/** 接管 `path` 的编辑器：后缀最长者优先（`.excalidraw.md` 先于 `.md`）。 */
+export function editorForPath(
+  editors: readonly PluginEditor[],
+  path: string
+): PluginEditor | null {
+  const lower = path.toLowerCase()
+  let best: PluginEditor | null = null
+  let bestLength = 0
+  for (const editor of editors) {
+    for (const suffix of editor.suffixes) {
+      if (suffix.length > bestLength && lower.endsWith(suffix)) {
+        best = editor
+        bestLength = suffix.length
+      }
+    }
+  }
+  return best
+}

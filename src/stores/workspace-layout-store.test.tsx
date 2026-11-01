@@ -4,6 +4,7 @@ import { projectWorkspaceLayout } from "@/lib/workspace/workspace-layout-project
 import {
   configureWorkspaceLayoutFileActivator,
   createInitialWorkspaceLayoutState,
+  foldPlacementsForMobile,
   useWorkspaceLayoutStore,
 } from "@/stores/workspace-layout-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
@@ -272,5 +273,22 @@ describe("workspace layout store", () => {
     expect(useTabStore.getState().activeTabId).toBe(foreignPinnedTab.id)
     // activeFolderId remains folder 1 without unnecessary project jumping
     expect(useAppWorkspaceStore.getState().activeFolderId).toBe(1)
+  })
+})
+
+it("mobile folds placements it cannot show back to the fixed layout", () => {
+  useWorkspaceLayoutStore.setState({
+    placementByScope: {
+      a: {
+        "primary:term": "files",
+        "primary:chat": "conversation",
+        "file:readme": "files-split",
+      },
+      b: { "file:x": "files-split" },
+    },
+  })
+  foldPlacementsForMobile()
+  expect(useWorkspaceLayoutStore.getState().placementByScope).toEqual({
+    a: { "primary:chat": "conversation" },
   })
 })

@@ -1,6 +1,7 @@
 //! `berth guide`：给 Agent 的操作说明，两层拼在一起。
 //!
-//! - 内置：随 CLI 发布（`brief.md`、`guide.md`、`knowledge.md`），最直白的命令、格式与步骤，与 CLI 版本一致。
+//! - 内置：随 CLI 发布（`brief.md`、`guide.md`、`knowledge.md`、`plugins.md`，以及插件接口类型
+//!   `plugins/berth-plugin.d.ts`），最直白的命令、格式与步骤，与 CLI 版本一致。
 //! - 用户补充：`~/.berth/guides/<主题>.md`（可没有），原样附在内置之后，用来优化 Agent 行为、补充理解；
 //!   与内置冲突时以内置为准。只有用户补充的文件也是一个主题。`brief.md` / `guide.md` 补充
 //!   `berth guide --brief` / `berth guide`。
@@ -12,7 +13,12 @@ use clap::Parser;
 use crate::{Cli, Command};
 
 /// 内置主题（不含 brief / guide 本身）。
-const BUILTIN: &[(&str, &str)] = &[("knowledge", include_str!("knowledge.md"))];
+const BUILTIN: &[(&str, &str)] = &[
+    ("knowledge", include_str!("knowledge.md")),
+    ("plugins", include_str!("plugins.md")),
+    // 接口签名只有这一份：与插件仓库、官方插件引用的是同一个文件
+    ("plugin-api", include_str!("../../../../../plugins/berth-plugin.d.ts")),
+];
 /// 补充默认输出、不作为主题列出的文件名。
 const DEFAULT_PARTS: [&str; 2] = ["brief", "guide"];
 
@@ -242,8 +248,14 @@ mod tests {
         let names = topics();
         assert_eq!(
             names,
-            [("knowledge".to_owned(), "内置 + 用户补充"), ("review".to_owned(), "用户")]
+            [
+                ("knowledge".to_owned(), "内置 + 用户补充"),
+                ("plugin-api".to_owned(), "内置"),
+                ("plugins".to_owned(), "内置"),
+                ("review".to_owned(), "用户")
+            ]
         );
+        assert!(topic("plugin-api").unwrap().contains("declare module \"berth\""));
         // 空补充当作没有。
         assert_eq!(with_supplement("brief", "x"), "x");
         let problems = check();

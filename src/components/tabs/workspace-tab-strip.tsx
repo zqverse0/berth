@@ -12,6 +12,7 @@ import {
 import { ChevronDown } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useAppUiStore } from "@/stores/app-ui-store"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
@@ -98,6 +99,7 @@ export function WorkspaceTabStrip({
   const allFolders = useAppWorkspaceStore((state) => state.allFolders)
   const { activeFolderId } = useActiveFolder()
   const branches = useAppWorkspaceStore((state) => state.branches)
+  const isMobile = useIsMobile()
 
   const entries = useMemo<WorkspaceTabEntry[]>(() => {
     const primaryById = new Map(primaryTabs.map((tab) => [tab.id, tab]))
@@ -237,8 +239,10 @@ export function WorkspaceTabStrip({
   )
 
   // A split needs a tab left behind, so a lone left tab can't split right.
-  const groupMove =
-    pane === "files" && orderedTabsByPane.files.length > 1
+  // 手机主区不渲染右栏，移过去的 tab 就看不见了。
+  const groupMove = isMobile
+    ? undefined
+    : pane === "files" && orderedTabsByPane.files.length > 1
       ? "files-split"
       : pane === "files-split"
         ? "files"

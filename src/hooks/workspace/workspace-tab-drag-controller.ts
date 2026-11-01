@@ -13,8 +13,6 @@ import {
 } from "@/lib/workspace/workspace-tab-placement"
 
 const DRAG_THRESHOLD_PX = 4
-const LONG_PRESS_MS = 400
-const LONG_PRESS_SLOP_PX = 8
 const SETTLE_MS = 140
 const AUTOSCROLL_EDGE_PX = 40
 const AUTOSCROLL_STEP_PX = 10
@@ -53,7 +51,6 @@ interface DragSession {
   slots: Map<Element, TabSlot[]>
   target: DragTarget | null
   frame: number | null
-  longPress: ReturnType<typeof setTimeout> | null
 }
 
 let session: DragSession | null = null
@@ -99,13 +96,12 @@ function resolveTarget(
   x: number,
   y: number
 ): { target: DragTarget | null; strip: Element | null } {
-  for (const strip of document.querySelectorAll<HTMLElement>(
-    "[data-workspace-tab-strip]"
-  )) {
-    const rect = strip.getBoundingClientRect()
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      continue
-    }
+  // 只认指针处最上层的 tab 条：手机上辅助面板盖在主区上，两条 tab 条同一高度，
+  // 按矩形挑会落进底下看不见的主区。
+  const strip = document
+    .elementFromPoint(x, y)
+    ?.closest<HTMLElement>("[data-workspace-tab-strip]")
+  if (strip) {
     let slots = current.slots.get(strip)
     if (!slots) {
       slots = measureSlots(strip, current.key)
@@ -241,7 +237,6 @@ function teardown(): void {
   const current = session
   if (!current) return
   removeListeners()
-  if (current.longPress) clearTimeout(current.longPress)
   if (current.frame !== null) cancelAnimationFrame(current.frame)
   current.ghost?.remove()
   document.documentElement.removeAttribute("data-berth-tab-dragging")
@@ -316,12 +311,7 @@ function onPointerMove(event: PointerEvent): void {
     event.clientX - current.start.x,
     event.clientY - current.start.y
   )
-  if (event.pointerType === "touch") {
-    // Moving before the long press elapses is a scroll, not a drag.
-    if (distance > LONG_PRESS_SLOP_PX) teardown()
-  } else if (distance > DRAG_THRESHOLD_PX) {
-    startDrag(current)
-  }
+  if (distance > DRAG_THRESHOLD_PX) startDrag(current)
 }
 
 function onPointerUp(event: PointerEvent): void {
@@ -350,15 +340,16 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 /**
- * Pointer-down on a workspace tab. A drag starts after a 4px move (mouse/pen)
- * or a long press (touch); a plain click, double-click, middle-click or
- * right-click never starts one.
+ * Pointer-down on a workspace tab. A drag starts after a 4px move (mouse/pen);
+ * a plain click, double-click, middle-click or right-click never starts one.
+ * 触屏不拖：长按交给 tab 的右键菜单（Radix ContextMenu 自带长按），与桌面右键一致；
+ * 手机上各 tab 组不同时可见，拖拽也没处可去。
  */
 export function startWorkspaceTabDrag(
   event: ReactPointerEvent<HTMLElement>,
   tab: WorkspaceTabRef
 ): void {
-  if (session || event.button !== 0) return
+  if (session || event.button !== 0 || event.pointerType === "touch") return
   if ((event.target as Element).closest("button")) return
   const point = { x: event.clientX, y: event.clientY }
   const current: DragSession = {
@@ -376,15 +367,8 @@ export function startWorkspaceTabDrag(
     slots: new Map(),
     target: null,
     frame: null,
-    longPress: null,
   }
   session = current
-  if (event.pointerType === "touch") {
-    current.longPress = setTimeout(() => {
-      current.longPress = null
-      if (session === current) startDrag(current)
-    }, LONG_PRESS_MS)
-  }
   window.addEventListener("pointermove", onPointerMove)
   window.addEventListener("pointerup", onPointerUp)
   window.addEventListener("pointercancel", onCancel)

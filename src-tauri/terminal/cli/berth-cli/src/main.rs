@@ -1057,7 +1057,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
     match &cli.command {
         Command::Group { .. } | Command::Expert { .. } => {
-            // `berth project . expert …` 是 `berth group expert …`（同一套群账本与终端探测）。
+            // `berth project . expert …` 由 group 子命令的 expert 实现（同一套群账本与终端探测）。
             let args: Vec<OsString> = match &cli.command {
                 Command::Expert { args } => std::iter::once(OsString::from("expert")).chain(args.iter().cloned()).collect(),
                 Command::Group { args } => args.clone(),
@@ -1708,6 +1708,7 @@ mod tests {
             ("brief.md", include_str!("brief.md")),
             ("guide.md", include_str!("guide.md")),
             ("knowledge.md", include_str!("knowledge.md")),
+            ("plugins.md", include_str!("plugins.md")),
             ("main.rs", include_str!("main.rs")),
             ("task.rs", include_str!("task.rs")),
             ("init.rs", include_str!("init.rs")),

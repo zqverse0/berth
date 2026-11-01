@@ -3,7 +3,8 @@
  * and payload shape are read by three independent drop targets:
  *  - the tree itself (drop a node onto a directory → move it there),
  *  - the message composer (drop a node onto the input → insert a file reference),
- *  - an open Excalidraw drawing (drop a file → add a card linking to it).
+ *  - an open plugin editor page (the host forwards the drop into its iframe;
+ *    Excalidraw adds a card linking to the file).
  *
  * The payload is serialized as JSON on a private MIME type so it can't be
  * confused with an OS file drop (`dataTransfer.files` / the `"Files"` type) or a

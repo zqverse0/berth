@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Plus } from "lucide-react"
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useSettingsWorkspace } from "@/contexts/settings-workspace-context"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
@@ -21,9 +21,14 @@ import {
 } from "@/components/ui/popover"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { createFileTreeEntry } from "@/lib/api"
-import { createUniqueRootFile } from "@/lib/files/create-drawing-file"
+import { createUniqueRootFile } from "@/lib/files/create-unique-root-file"
 import { toErrorMessage } from "@/lib/app-error"
 import { toast } from "@/lib/notify"
+import {
+  localizedTitle,
+  usePluginViewsStore,
+  type PluginEditor,
+} from "@/lib/plugins/plugin-views"
 import { workspaceTabKey } from "@/lib/workspace/workspace-tab-placement"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
@@ -92,12 +97,36 @@ export function FileWorkspaceTabBar() {
   )
 }
 
-// 一键新建的预设：空文件即空白笔记 / 空画板
+// 一键新建的预设：空文件即空白笔记；插件编辑器的 `new` 接在后面（空文件即空画板等）
 const FILE_PRESETS = [
   { key: "markdown", stem: "untitled", ext: ".md" },
-  { key: "excalidrawMd", stem: "drawing", ext: ".excalidraw.md" },
-  { key: "excalidraw", stem: "drawing", ext: ".excalidraw" },
 ] as const
+
+type FilePreset = { key: string; label: string; stem: string; ext: string }
+
+/** 插件编辑器的 `new`：文件名按编辑器后缀切成 stem + ext（`drawing.excalidraw.md`）。 */
+function pluginFilePresets(
+  editors: readonly PluginEditor[],
+  locale: string
+): FilePreset[] {
+  return editors.flatMap((editor) =>
+    editor.new.map((file) => {
+      const lower = file.name.toLowerCase()
+      const suffix =
+        editor.suffixes
+          .filter((candidate) => lower.endsWith(candidate))
+          .sort((a, b) => b.length - a.length)[0] ??
+        (file.name.includes(".") ? file.name.slice(file.name.indexOf(".")) : "")
+      return {
+        key: `${editor.plugin}/${editor.id}/${file.name}`,
+        label: localizedTitle(file.title, locale),
+        stem:
+          file.name.slice(0, file.name.length - suffix.length) || "untitled",
+        ext: file.name.slice(file.name.length - suffix.length),
+      }
+    })
+  )
+}
 
 /** 在当前项目根目录新建文件并打开：输入完整文件名，或点预设类型。 */
 function NewFileButton() {
@@ -108,9 +137,21 @@ function NewFileButton() {
   const [name, setName] = useState("")
   const [creating, setCreating] = useState(false)
   const { trackTrigger, content: paneContent } = usePaneBoundary()
+  const locale = useLocale()
+  const editors = usePluginViewsStore((state) => state.editors)
+  const presets = useMemo<FilePreset[]>(
+    () => [
+      ...FILE_PRESETS.map((preset) => ({
+        ...preset,
+        label: t(`createDialog.${preset.key}`),
+      })),
+      ...pluginFilePresets(editors, locale),
+    ],
+    [editors, locale, t]
+  )
   if (!activeFolder) return null
 
-  const create = async (preset?: (typeof FILE_PRESETS)[number]) => {
+  const create = async (preset?: FilePreset) => {
     const trimmed = name.trim()
     if (!trimmed && !preset) return
     setCreating(true)
@@ -170,7 +211,7 @@ function NewFileButton() {
           />
         </form>
         <div className="mt-1.5 flex flex-col">
-          {FILE_PRESETS.map((preset) => (
+          {presets.map((preset) => (
             <button
               key={preset.key}
               type="button"
@@ -179,9 +220,7 @@ function NewFileButton() {
               onClick={() => void create(preset)}
               className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
             >
-              <span className="truncate">
-                {t(`createDialog.${preset.key}`)}
-              </span>
+              <span className="truncate">{preset.label}</span>
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                 {preset.ext}
               </span>

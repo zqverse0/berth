@@ -6,7 +6,6 @@ import {
 } from "@/components/layout/sidebar/views"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
-import { toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useTabActions } from "@/contexts/tab-context"
@@ -20,8 +19,6 @@ import { useSettingsWorkspace } from "@/contexts/settings-workspace-context"
 import { useOpenFolderPicker } from "@/hooks/workspace/use-open-folder-picker"
 
 import { requestAgentLaunch } from "@/stores/agent-launch-store"
-import { createProjectDrawingFile } from "@/lib/files/create-drawing-file"
-import { toErrorMessage } from "@/lib/app-error"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
 import {
   OPEN_PROJECT_SWITCHER_EVENT,
@@ -72,10 +69,8 @@ export function WorkspaceCommandController() {
   const closeGlobalTab = useWorkspaceLayoutStore(
     (state) => state.closeGlobalTab
   )
-  const { closeFileTab, closeAllFileTabs, openFilePreview } =
-    useWorkspaceRuntimeActions()
+  const { closeFileTab, closeAllFileTabs } = useWorkspaceRuntimeActions()
   const tTerminal = useTranslations("Folder.terminal")
-  const tFiles = useTranslations("Folder.fileWorkspacePanel")
   const { openSettings } = useSettingsWorkspace()
   const { openFolderPicker } = useOpenFolderPicker()
   const requestFocus = useAppUiStore((state) => state.requestSearchFocus)
@@ -179,20 +174,6 @@ export function WorkspaceCommandController() {
           }
         },
       },
-      {
-        id: "new_canvas",
-        disabled: !activeFolder,
-        run: () => {
-          if (!activeFolder) return
-          void createProjectDrawingFile(activeFolder.path)
-            .then((absPath) => openFilePreview(absPath))
-            .catch((error) => {
-              toast.error(tFiles("drawingCreateFailed"), {
-                description: toErrorMessage(error),
-              })
-            })
-        },
-      },
       { id: "open_settings", run: openSettings },
       { id: "open_files", run: () => openView("files") },
       { id: "open_git", run: () => openView("git") },
@@ -227,9 +208,7 @@ export function WorkspaceCommandController() {
     closeGlobalTab,
     closeTab,
     isOpen,
-    openFilePreview,
     openFolderPicker,
-    tFiles,
     tTerminal,
     openView,
     openSettings,

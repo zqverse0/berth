@@ -19,6 +19,7 @@ import type { FileWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { fileTabsForFolderScope } from "@/lib/workspace/tab-scope"
+import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 
 interface RegisteredController {
@@ -72,9 +73,10 @@ export function FileViewerRuntimeProvider({
           )) ?? null,
     [activeFileTabId, fileTabs, tabId, visibleFileTabs]
   )
+  const editorSuffixes = usePluginViewsStore((state) => state.editorSuffixes)
   const definition = useMemo(
-    () => (tab ? fileViewerDefinitionFromTab(tab) : null),
-    [tab]
+    () => (tab ? fileViewerDefinitionFromTab(tab, editorSuffixes) : null),
+    [tab, editorSuffixes]
   )
   const currentTabId = tab?.id ?? tabId ?? ""
   const [registered, setRegistered] = useState<RegisteredController | null>(

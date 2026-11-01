@@ -1,6 +1,7 @@
 //! 群内置成员 Berth 的宿主侧：GUI 发给 `berth` 的消息（带服务商与模型）在后台跑 berth-agent，
 //! 回答写回群（账本一侧见 `berth_group::builtin`）。不开终端、不是插件；Key 只在本进程内存里用。
-//! 系统提示词只取内置专家「工具专家」的提示词文件（`$BERTH_HOME/prompts/`），不附加别的。
+//! 系统提示词只取内置专家「Berth 助手」（`berth_tool_core::builtin::EXPERT`，用户可在 设置 → 专家 里改）
+//! 的提示词文件（`$BERTH_HOME/prompts/`），读不到时用内置正文；不附加别的。
 //! 上下文只来自当前会话文件（`$BERTH_HOME/experts/sessions/<项目目录名>/<会话>.jsonl`，一轮一行）；
 //! 群账本只负责显示。输入框里发 `/new` 开始新会话。
 
@@ -20,8 +21,6 @@ use tokio::sync::watch;
 const APIS: [&str; 4] = ["anthropic", "openai-chat", "openai-responses", "gemini"];
 /// 服务商档案按这个 Agent 类型叠加模型清单。
 const AGENT_TYPE: &str = "berth";
-/// 提示词来源：内置的「工具专家」（`berth_tool_core::builtin` 缺失时补上）。
-const EXPERT: &str = "tool-expert";
 
 /// 被停下的消息的回答。
 const STOPPED: &str = "（已停止）";
@@ -312,7 +311,7 @@ async fn answer(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let system = system_prompt();
+    let system = Some(system_prompt());
     let cwd = main.to_path_buf();
     let log_main = main.to_path_buf();
     let env: Vec<(String, String)> = env.into_iter().collect();
@@ -429,18 +428,17 @@ pub fn record(project_root: &Path, params: &Value) -> Result<Value, String> {
     Ok(json!({ "session": chosen, "turns": turns }))
 }
 
-/// 工具专家的提示词；文件不在（用户删了）就不发系统提示词。
-fn system_prompt() -> Option<String> {
+/// 「Berth 助手」的提示词：专家表 → `prompts/<名>.md`；读不到（用户删了、写坏了）用内置正文。
+fn system_prompt() -> String {
     let home = crate::platform::paths::berth_home_dir();
-    let table: Value = serde_json::from_str(
-        &std::fs::read_to_string(home.join(format!("experts/{EXPERT}.json"))).ok()?,
-    )
-    .ok()?;
-    let prompt = table.get("prompt")?.as_str()?;
-    if !berth_tool_core::paths::is_valid_manifest_id(prompt) {
-        return None;
-    }
-    std::fs::read_to_string(home.join(format!("prompts/{prompt}.md"))).ok()
+    let expert = berth_tool_core::builtin::EXPERT;
+    std::fs::read_to_string(home.join(format!("experts/{expert}.json")))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|table| table.get("prompt")?.as_str().map(str::to_owned))
+        .filter(|prompt| berth_tool_core::paths::is_valid_manifest_id(prompt))
+        .and_then(|prompt| std::fs::read_to_string(home.join(format!("prompts/{prompt}.md"))).ok())
+        .unwrap_or_else(|| berth_tool_core::builtin::PROMPT.to_owned())
 }
 
 /// 发给 Berth 的消息的投递状态：已回答或正在处理为已送达；都不是（处理中 GUI 重启丢了）为未送达。

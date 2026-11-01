@@ -18,12 +18,15 @@ describe("fileOpenStrategyFromPath", () => {
     expect(fileOpenStrategyFromPath("README.md").dataMode).toBe("text")
   })
 
-  it.each(["a.excalidraw", "vault/Drawing.excalidraw.md"])(
-    "classifies %s as a text-backed Excalidraw drawing",
-    (path) => {
+  it.each([
+    ["a.excalidraw", "text"],
+    ["vault/Drawing.excalidraw.md", "markdown"],
+  ])(
+    "opens %s as a text buffer (a plugin editor may take it over)",
+    (path, kind) => {
       expect(fileOpenStrategyFromPath(path)).toEqual({
         dataMode: "text",
-        previewKind: "excalidraw",
+        previewKind: kind,
         reloadPolicy: "text-buffer",
       })
     }
