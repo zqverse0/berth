@@ -480,7 +480,8 @@ mod worktree_preflight_tests {
 
     async fn shutdown_test_daemon(endpoint: &std::path::Path) {
         if let Ok(client) = Terminal::builder().unix_socket(endpoint).connect().await {
-            client.shutdown().await.expect("shutdown test daemon");
+            // daemon 关闭时可能先断开连接再回包，收尾不把这当失败。
+            let _ = client.shutdown().await;
         }
     }
 

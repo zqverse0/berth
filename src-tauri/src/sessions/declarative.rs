@@ -1802,7 +1802,7 @@ fn append_message_fields(
     if matches!(message_role, MessageRole::User) && result.first_user_text.is_none() {
         if let Some(text) = content
             .as_ref()
-            .and_then(|value| value_text(value))
+            .and_then(value_text)
             .filter(|text| !text.trim().is_empty())
         {
             result.first_user_text = Some(title_from_user_text(text.trim()));

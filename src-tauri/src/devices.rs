@@ -704,8 +704,7 @@ async fn output(
     Err(stderr
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .next_back()
+        .rfind(|line| !line.is_empty())
         .map_or_else(|| format!("{program} failed"), str::to_owned))
 }
 
