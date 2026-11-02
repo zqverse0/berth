@@ -15,11 +15,12 @@ mod gui_launch;
 mod guide;
 mod init;
 mod knowledge;
+#[cfg(unix)]
+mod node;
 mod project;
 mod provider_launch;
 mod provider_proxy;
 mod provider_run;
-mod remote;
 mod session;
 mod group;
 mod shim;
@@ -103,11 +104,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// 远程项目：Agent 的 shell 命令在设备上执行（由 Agent 的 hook / 扩展调用）。
+    /// 节点：让另一台设备上的 Berth 经 ssh 操作本机（`ssh <本机> berth node stdio`）。
     #[command(hide = true)]
-    Remote {
+    Node {
         #[command(subcommand)]
-        command: RemoteCommand,
+        command: NodeCommand,
     },
 
     /// 查询本机 Berth GUI 控制服务。
@@ -384,21 +385,12 @@ enum IdeaCommand {
 }
 
 #[derive(Debug, Subcommand)]
-enum RemoteCommand {
-    /// 在当前目录对应的设备目录里用 bash 执行命令；不在远程项目里就在本机执行。退出码即命令的退出码。
-    Exec {
-        /// 本机工作目录（缺省为当前目录）。
-        #[arg(long)]
-        cwd: Option<PathBuf>,
-        /// 命令结束后把对应的本机目录（跟随设备上的 `cd`）写进这个文件；离开项目则写空。
-        #[arg(long)]
-        cwd_file: Option<PathBuf>,
-        /// 要执行的命令（多个参数以空格连接后交给 bash）。
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
-        command: Vec<String>,
-    },
-    /// PreToolUse hook：stdin 是 hook JSON；远程项目里的 shell 命令改写为经 `exec` 执行。
-    Hook,
+enum NodeCommand {
+    /// 把 stdin / stdout 接到本机常驻的节点服务（不在就拉起）；由对方经 ssh 执行。
+    Stdio,
+    /// 常驻节点服务（由 stdio 拉起）。
+    #[command(hide = true)]
+    Serve,
 }
 
 #[derive(Debug, Subcommand)]
@@ -874,6 +866,18 @@ fn terminal_runtime_error(error: std::io::Error, json: bool) -> CliError {
 }
 
 fn run(cli: Cli) -> Result<(), CliError> {
+    if let Command::Node { command } = &cli.command {
+        #[cfg(unix)]
+        return match command {
+            NodeCommand::Stdio => node::stdio(),
+            NodeCommand::Serve => node::serve(),
+        };
+        #[cfg(not(unix))]
+        {
+            let _ = command;
+            return Err(CliError::user("berth node is not supported on this platform"));
+        }
+    }
     // tools 子命令只读写插件文件，不连接 daemon。
     if let Command::Tools { command } = cli.command {
         return tools::run(command);
@@ -1200,14 +1204,6 @@ fn run(cli: Cli) -> Result<(), CliError> {
             println!("removed {}", path.display());
             return Ok(());
         }
-        Command::Remote { command } => {
-            std::process::exit(match command {
-                RemoteCommand::Exec { cwd, cwd_file, command } => {
-                    remote::exec(command, cwd.clone(), cwd_file.clone())
-                }
-                RemoteCommand::Hook => remote::hook(),
-            });
-        }
         Command::Doctor => {
             for line in shim::diagnose(gui_endpoint).map_err(CliError::from_runtime)? {
                 println!("{line}");
@@ -1344,7 +1340,6 @@ async fn run_control(command: Command, socket: PathBuf) -> Result<(), CliError> 
         Command::InstallShim
         | Command::UninstallShim
         | Command::Doctor
-        | Command::Remote { .. }
         | Command::Guide { .. }
         | Command::Init { .. }
         | Command::Knowledge { .. } => {
@@ -1358,8 +1353,8 @@ async fn run_control(command: Command, socket: PathBuf) -> Result<(), CliError> 
         | Command::Open { .. } => {
             unreachable!("GUI commands are handled before connecting to the daemon")
         }
-        Command::Tools { .. } => {
-            unreachable!("tools commands are handled before connecting to the daemon")
+        Command::Tools { .. } | Command::Node { .. } => {
+            unreachable!("tools and node commands are handled before connecting to the daemon")
         }
     }
 }

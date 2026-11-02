@@ -820,7 +820,7 @@ function AuthorFilter({
                             type="button"
                             title={t("removeFromRecent", { name })}
                             aria-label={t("removeFromRecent", { name })}
-                            className="-mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground/60 opacity-0 transition hover:bg-foreground/10 hover:text-foreground group-hover/recent:opacity-100 group-data-[selected=true]/recent:opacity-100"
+                            className="-mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground/60 opacity-0 [@media(hover:none)]:opacity-100 transition hover:bg-foreground/10 hover:text-foreground group-hover/recent:opacity-100 group-data-[selected=true]/recent:opacity-100"
                             onPointerDown={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -1922,7 +1922,7 @@ export function GitLogTab({
                                               hash: entry.full_hash,
                                             }
                                           )}
-                                          className="size-5 shrink-0 opacity-0 transition-opacity group-hover/hash:opacity-100 group-focus-within/hash:opacity-100"
+                                          className="size-5 shrink-0 opacity-0 [@media(hover:none)]:opacity-100 transition-opacity group-hover/hash:opacity-100 group-focus-within/hash:opacity-100"
                                           hash={entry.full_hash}
                                           title={t("copyHash")}
                                         />
@@ -1952,7 +1952,7 @@ export function GitLogTab({
                                         {entry.message}
                                       </p>
                                       <CommitCopyButton
-                                        className="absolute top-1.5 right-1.5 size-5 opacity-0 transition-opacity group-hover/msg:opacity-100 group-focus-within/msg:opacity-100"
+                                        className="absolute top-1.5 right-1.5 size-5 opacity-0 [@media(hover:none)]:opacity-100 transition-opacity group-hover/msg:opacity-100 group-focus-within/msg:opacity-100"
                                         hash={entry.message}
                                         title={t("copyMessage")}
                                       />

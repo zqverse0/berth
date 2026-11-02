@@ -1,4 +1,3 @@
-pub use network::proxy::init_proxy_from_db;
 pub mod tool;
 
 /// Automation 计划变更时唤醒 deadline 驱动的调度器。
@@ -27,7 +26,6 @@ pub mod models;
 pub mod platform;
 #[cfg(feature = "tauri-runtime")]
 mod remote;
-mod network;
 pub mod preview_watch;
 pub mod sessions;
 pub mod terminal;
@@ -68,7 +66,6 @@ mod tauri_app {
     use crate::{
         control, db,
         git::credential,
-        network,
         platform::{paths, process},
         workspace_state::current_document,
     };
@@ -351,15 +348,13 @@ mod tauri_app {
                     }
                 }
 
-                // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
-                tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
                 tauri::async_runtime::spawn(crate::model_provider::secrets::import_legacy_keyring(
                     db.conn.clone(),
                 ));
-                // 服务商凭据代理：读上面刚写好的系统代理变量出站；端口被占（CLI 代理在跑）则跳过。
+                // 服务商凭据代理：端口被占（CLI 代理在跑）则跳过。
                 tauri::async_runtime::spawn(crate::model_provider::proxy::host(db.conn.clone()));
-                // 远程访问页（tailnet 浏览器用群组与文件）；没有 tailscale 地址就不启动。
+                // 远程访问页：按设置页填写的监听地址绑定；没填或没设密码不监听。
                 tauri::async_runtime::spawn(crate::remote::host(app.handle().clone()));
                 // 会话分类：`~/.berth/classifier.json` 打开后，专家每轮结束把重要段落写成候选。
                 tauri::async_runtime::spawn(crate::knowledge::classify::run(
@@ -700,8 +695,8 @@ mod tauri_app {
                 app_update_commands::app_update_state,
                 app_update_commands::perform_app_update,
                 app_update_commands::restart_app,
-                system_settings::get_system_proxy_settings,
-                system_settings::update_system_proxy_settings,
+                system_settings::get_remote_access,
+                system_settings::update_remote_access,
                 system_settings::get_system_language_settings,
                 system_settings::update_system_language_settings,
                 system_settings::get_system_terminal_settings,

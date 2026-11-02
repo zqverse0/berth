@@ -151,7 +151,6 @@ export default {
 | `ctx.unattended` | 定时任务无人值守启动 |
 | `ctx.paths` | `package`（只读）、`tmp`、`cwd`、`home` |
 | `ctx.hookCommand(event)` | 接到 Agent 原生 hook 上的命令（群组状态）；静默、永不失败 |
-| `ctx.remote` | 远程项目时 `{ target, hookCommand, execCommand }`，本地项目 `null`；接线见 `docs/agent-contracts.md`「远程项目」 |
 | `ctx.plan({...})` | 往 stderr 打一行 `berth-<id>-plan: {...}`，记录本次装配了什么，排查用 |
 
 ### 4.4 隔离：只做会话级

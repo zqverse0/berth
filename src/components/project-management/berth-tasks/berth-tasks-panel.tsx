@@ -173,7 +173,7 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
                       "rounded p-0.5 text-muted-foreground hover:bg-background/60 hover:text-foreground",
                       !open &&
                         !active &&
-                        "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        "opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
                     )}
                     aria-label={t("toggleSteps", { title: task.title })}
                     aria-expanded={open}

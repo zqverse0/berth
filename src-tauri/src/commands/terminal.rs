@@ -150,10 +150,18 @@ pub async fn create_terminal_core(
     result.map_err(AppCommandError::from)
 }
 
+/// 节点设备上的终端（id `<设备 id>/<target_ref>`），操作改走 [`crate::devices::terminals`]。
+fn remote(terminal_id: &str) -> bool {
+    crate::devices::terminals::parse(terminal_id).is_some()
+}
+
 pub fn list_terminals_core(
     manager: &TerminalSessionManager,
 ) -> Result<Vec<TerminalDescriptor>, AppCommandError> {
-    manager.try_list().map_err(AppCommandError::from)
+    let mut descriptors = manager.try_list().map_err(AppCommandError::from)?;
+    // 节点设备上的终端也是一类终端：一起进清单，标签照常投影。
+    descriptors.extend(crate::devices::terminals::descriptors());
+    Ok(descriptors)
 }
 
 /// `tail_lines` 存在时同时读取 pane 末尾若干行纯文本（协作页「查看尾部输出」）。
@@ -162,6 +170,14 @@ pub fn get_terminal_core(
     request: TerminalIdRequest,
     tail_lines: Option<u32>,
 ) -> Result<TerminalDescriptor, AppCommandError> {
+    if remote(&request.terminal_id) {
+        return crate::devices::terminals::descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.terminal_id == request.terminal_id)
+            .ok_or_else(|| {
+                crate::terminal::error::TerminalError::NotFound(request.terminal_id).into()
+            });
+    }
     let mut descriptor = manager
         .describe(&request.terminal_id)
         .map_err(AppCommandError::from)?;
@@ -235,6 +251,10 @@ pub fn detach_terminal_core(
     manager: &TerminalSessionManager,
     request: TerminalClientRequest,
 ) -> Result<(), AppCommandError> {
+    if remote(&request.terminal_id) {
+        crate::devices::terminals::detach(&request.terminal_id, &request.client_id);
+        return Ok(());
+    }
     manager
         .detach(&request.terminal_id, &request.client_id)
         .map_err(AppCommandError::from)
@@ -244,6 +264,16 @@ pub fn resize_terminal_core(
     manager: &TerminalSessionManager,
     request: ResizeAttachedTerminalRequest,
 ) -> Result<TerminalSnapshot, AppCommandError> {
+    if remote(&request.terminal_id) {
+        // 在阻塞线程池里调用（见 `run_blocking`），可以就地等对方回画面。
+        return tokio::runtime::Handle::current()
+            .block_on(crate::devices::terminals::resize(
+                &request.terminal_id,
+                request.rows,
+                request.cols,
+            ))
+            .map_err(AppCommandError::from);
+    }
     manager
         .resize_attached(
             &request.terminal_id,
@@ -259,6 +289,11 @@ pub async fn terminate_terminal_core(
     manager: &TerminalSessionManager,
     request: TerminalIdRequest,
 ) -> Result<(), AppCommandError> {
+    if remote(&request.terminal_id) {
+        return crate::devices::terminals::close(&request.terminal_id)
+            .await
+            .map_err(AppCommandError::from);
+    }
     manager
         .terminate(&request.terminal_id)
         .await
@@ -355,6 +390,10 @@ pub async fn remove_terminal_record_core(
     manager: &TerminalSessionManager,
     request: TerminalIdRequest,
 ) -> Result<(), AppCommandError> {
+    // 远端终端没有本机记录可删：对方关掉后清单里自然消失。
+    if remote(&request.terminal_id) {
+        return Ok(());
+    }
     let descriptor = manager
         .describe(&request.terminal_id)
         .map_err(AppCommandError::from)?;

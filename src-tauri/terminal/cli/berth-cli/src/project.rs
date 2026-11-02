@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// 本二进制所属的数据实例（构建 profile）。共享 crate 不读 `cfg!`，由调用方给出。
-fn build_instance() -> BuildInstance {
+pub(crate) fn build_instance() -> BuildInstance {
     if cfg!(debug_assertions) {
         BuildInstance::Dev
     } else {
@@ -49,6 +49,11 @@ fn entry_from_catalog(entry: CatalogEntry) -> ProjectEntry {
 pub(crate) fn resolve_instance(json: bool) -> Result<DataInstance, CliError> {
     instance::resolve_cli_from_env(build_instance())
         .map_err(|state| CliError::from_instance(state, json))
+}
+
+/// 可写（会建库、会升级）的数据实例：CLI 的写路径用。
+pub(crate) fn writable_instance() -> Result<DataInstance, InstanceState> {
+    instance::resolve_from_env(build_instance(), InstanceAccess::CreateIfMissing)
 }
 
 /// 从共享 crate 读取项目目录（GUI 不参与）。非 `Ready` 一律返回错误，不返回空列表。
@@ -159,8 +164,7 @@ pub(crate) fn add_entry(path: &str, json: bool) -> Result<ProjectEntry, CliError
             "project path '{path}' is not an existing directory"
         )));
     }
-    let instance = instance::resolve_from_env(build_instance(), InstanceAccess::CreateIfMissing)
-        .map_err(|state| CliError::from_instance(state, json))?;
+    let instance = writable_instance().map_err(|state| CliError::from_instance(state, json))?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

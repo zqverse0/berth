@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile"
 import type { FixActionKind } from "@/lib/types"
 import type { PersistedPanelState } from "@/lib/workspace/panel-state-storage"
 
@@ -109,6 +110,8 @@ export interface AppUiStore {
   setAuxPanelOpen: (open: boolean) => void
   /** 切换辅助面板视图并展开面板。 */
   showAuxView: (view: AuxView) => void
+  /** 手机上辅助面板 / 侧栏盖住主区：主区打开 tab 时收起它们；桌面并排，不动。 */
+  revealMainArea: () => void
   setAuxPanelWidth: (width: number) => void
   setAuxPanelMinWidth: (minWidth: number) => void
   hydrateAuxPanel: (
@@ -162,6 +165,7 @@ const INITIAL_STATE = {
   | "toggleAuxPanel"
   | "setAuxPanelOpen"
   | "showAuxView"
+  | "revealMainArea"
   | "setAuxPanelWidth"
   | "setAuxPanelMinWidth"
   | "hydrateAuxPanel"
@@ -259,6 +263,10 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
       auxPanelOpen: open,
     }),
   showAuxView: (view) => set({ auxView: view, auxPanelOpen: true }),
+  revealMainArea: () => {
+    if (!window.matchMedia?.(MOBILE_BREAKPOINT).matches) return
+    set({ auxPanelOpen: false, sidebarOpen: false })
+  },
   setAuxPanelWidth: (width) =>
     set((state) => ({
       auxPanelWidth: clampWidth(width, state.auxPanelMinWidth),

@@ -236,6 +236,7 @@ fn run_hidden_daemon(args: DaemonArgs) -> io::Result<()> {
         config = config.with_startup_ready_event(ready_event);
     }
     berth_term_os::memory::configure_daemon_allocator();
+    berth_term_os::scope::move_to_own_scope("berth-termd", std::process::id());
     let runtime = server_runtime::build_daemon_runtime()?;
 
     runtime.block_on(async move {

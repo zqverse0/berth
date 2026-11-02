@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   AlertTriangle,
   ChevronLeft,
@@ -8,11 +8,15 @@ import {
   Download,
   Loader2,
   Plus,
+  Server,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
 import { AgentProfileIcon } from "@/components/agents/profile/agent-profile-icon"
-import { LAUNCHBAR_COMPONENTS } from "@/components/launchbar/registry"
+import {
+  collectLaunchbarInputs,
+  LAUNCHBAR_COMPONENTS,
+} from "@/components/launchbar/registry"
 import { useLaunchbar } from "@/components/launchbar/use-launchbar"
 import { ColorTerminalIcon } from "@/components/layout/status-bar/status-bar-terminal"
 import { usageTextColorClass } from "@/components/layout/status-bar/status-bar-usage"
@@ -25,7 +29,20 @@ import {
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { useOpenWorkbenchPanel } from "@/hooks/workspace/use-open-workbench-panel"
-import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
+import { toErrorMessage } from "@/lib/app-error"
+import {
+  createDeviceTerminal,
+  deviceLaunchbar,
+  useDeviceOverview,
+  type Device,
+  type RemoteLaunchbar,
+} from "@/lib/devices"
+import {
+  createAndOpenFolderTerminal,
+  tabFromDescriptor,
+} from "@/lib/terminal/create-and-open-primary-terminal"
+import { refreshTerminalInventory } from "@/lib/terminal/terminal-inventory-query"
+import { useTabStore } from "@/stores/tab-store"
 import type { UsageState } from "@/lib/transport/usage"
 import { cn } from "@/lib/utils"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
@@ -508,5 +525,243 @@ export function AgentLaunchHeader({
         </span>
       ))}
     </>
+  )
+}
+
+/** 设备概览里的项目：先用缓存，`device://node` 到达最新的再换。 */
+/**
+ * 设备区域的「+」：在对方机器上开终端或启动 Agent。项目、工具、启动栏、服务商都是对方的；
+ * 本机的 Key 不外传。
+ */
+export function DeviceLaunchPanel({
+  device,
+  onClose,
+}: {
+  device: Pick<Device, "id" | "name">
+  onClose: () => void
+}) {
+  const t = useTranslations("Folder.sidebar.devices")
+  const tSessions = useTranslations("Folder.projectSessions")
+  const projects = useDeviceOverview(device.id)?.projects ?? null
+  const [launchbar, setLaunchbar] = useState<RemoteLaunchbar | null>(null)
+  const [form, setForm] = useState({
+    project: null as number | null,
+    agentId: null as string | null,
+    values: {} as Record<string, string>,
+    provider: "",
+    busy: false,
+    error: null as string | null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    deviceLaunchbar(device.id)
+      .then((loaded) => !cancelled && setLaunchbar(loaded))
+      .catch(
+        (error) =>
+          !cancelled &&
+          setForm((prev) => ({ ...prev, error: toErrorMessage(error) }))
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [device.id])
+
+  const project = form.project ?? projects?.[0]?.id ?? null
+  const agent = launchbar?.agents.find((a) => a.id === form.agentId) ?? null
+  // 动态来源只有专家由对方填好；服务商另列，会话与模型列表本期不取。
+  const items = (agent?.launchbar?.items ?? []).filter(
+    (item) =>
+      (!item.optionsFrom || item.optionsFrom === "experts") &&
+      LAUNCHBAR_COMPONENTS[item.component]
+  )
+  const defaults = Object.fromEntries(
+    items.flatMap((item) =>
+      item.defaultValue ? [[item.id, item.defaultValue]] : []
+    )
+  )
+  const agentType = agent?.tool.contributes?.agent?.providerInjection?.agentType
+  const providers = agentType
+    ? (launchbar?.providers ?? []).filter(
+        (p) => p.agentType === agentType || p.agentTypes?.includes(agentType)
+      )
+    : []
+  const agentName = (id: string) =>
+    launchbar?.agents.find((a) => a.id === id)?.tool.contributes?.identity
+      ?.name ?? id
+
+  const launch = async (agentId: string | null) => {
+    if (project == null || form.busy) return
+    setForm((prev) => ({ ...prev, busy: true, error: null }))
+    try {
+      const descriptor = await createDeviceTerminal({
+        deviceId: device.id,
+        project,
+        agent: agentId,
+        inputs: agentId
+          ? collectLaunchbarInputs(items, { ...defaults, ...form.values })
+          : {},
+        provider: form.provider ? Number(form.provider) : null,
+      })
+      useTabStore.getState().openTerminalTab(
+        tabFromDescriptor(descriptor, {
+          agentType: agentId ?? undefined,
+        }),
+        true
+      )
+      void refreshTerminalInventory().catch(() => {})
+      onClose()
+    } catch (error) {
+      setForm((prev) => ({
+        ...prev,
+        busy: false,
+        error: toErrorMessage(error),
+      }))
+    }
+  }
+
+  const selectClass =
+    "h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+  return (
+    <div className="flex flex-col gap-3 text-xs" data-device-launch>
+      <p className="flex items-center gap-1.5 text-muted-foreground">
+        <Server className="size-3.5 shrink-0" aria-hidden />
+        {t("runsOn", { name: device.name })}
+      </p>
+      {projects == null ? (
+        <p className="flex items-center gap-1.5 text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" aria-hidden />
+          {t("launchLoading")}
+        </p>
+      ) : projects.length === 0 ? (
+        <p className="text-muted-foreground">{t("launchNoProjects")}</p>
+      ) : (
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {t("launchProject")}
+          </span>
+          <select
+            className={selectClass}
+            value={project ?? ""}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, project: Number(e.target.value) }))
+            }
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {agent ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setForm((prev) => ({ ...prev, agentId: null, values: {} }))
+              }
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label={t("launchBack")}
+              title={t("launchBack")}
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+            <AgentIcon agentType={agent.id} className="size-4" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-semibold">
+              {agentName(agent.id)}
+            </span>
+          </div>
+          {items.map((item) => {
+            const Component = LAUNCHBAR_COMPONENTS[item.component]
+            return (
+              <div key={item.id} className="flex min-w-0 flex-col gap-1">
+                {item.component === "select" && (
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {item.label}
+                  </span>
+                )}
+                <Component
+                  item={item}
+                  inline
+                  value={form.values[item.id] ?? item.defaultValue ?? null}
+                  onChange={(next: string) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      values: { ...prev.values, [item.id]: next },
+                    }))
+                  }
+                />
+              </div>
+            )
+          })}
+          {providers.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {t("launchProvider")}
+              </span>
+              <select
+                className={selectClass}
+                value={form.provider}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, provider: e.target.value }))
+                }
+              >
+                <option value="">{t("launchProviderDefault")}</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <Button
+            className="h-9 w-full"
+            disabled={project == null || form.busy}
+            onClick={() => void launch(agent.id)}
+          >
+            {form.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {tSessions("launchAgent", { name: agentName(agent.id) })}
+          </Button>
+        </div>
+      ) : (
+        <div role="menu" aria-label={t("launchRemote")}>
+          {(launchbar?.agents ?? []).map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              role="menuitem"
+              disabled={project == null}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.8125rem] hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+              onClick={() => setForm((prev) => ({ ...prev, agentId: a.id }))}
+            >
+              <AgentIcon agentType={a.id} className="size-4" />
+              <span className="min-w-0 flex-1 truncate">{agentName(a.id)}</span>
+            </button>
+          ))}
+          <div role="separator" className="my-1 h-px bg-border" />
+          <button
+            type="button"
+            role="menuitem"
+            disabled={project == null || form.busy}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.8125rem] hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => void launch(null)}
+          >
+            <ColorTerminalIcon className="size-4" />
+            <span className="min-w-0 flex-1 truncate">
+              {tSessions("newTerminal")}
+            </span>
+          </button>
+        </div>
+      )}
+      {form.error ? (
+        <p role="alert" className="break-words text-destructive">
+          {form.error}
+        </p>
+      ) : null}
+    </div>
   )
 }

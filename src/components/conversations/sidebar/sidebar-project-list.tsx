@@ -548,18 +548,8 @@ export function SidebarProjectList({
     visible
   )
 
-  // 远程项目显示在所属设备下面，不进本机项目行；项目增删（含后端直接注册）后重读设备列表。
-  const folderIdsKey = useMemo(
-    () => folders.map((f) => f.id).join(","),
-    [folders]
-  )
   const { devices, reload: reloadDevices } = useDeviceList(
-    visible && !showFiles,
-    folderIdsKey
-  )
-  const remoteFolderIds = useMemo(
-    () => new Set(devices.flatMap((d) => d.projects.map((p) => p.folderId))),
-    [devices]
+    visible && !showFiles
   )
   const matchesQuery = useCallback(
     (folderId: number) => {
@@ -573,12 +563,10 @@ export function SidebarProjectList({
     [folderById, query]
   )
   const rows = useMemo(() => {
-    const ordered = projectRowOrder(
-      folders.filter((folder) => !remoteFolderIds.has(folder.id))
-    )
+    const ordered = projectRowOrder(folders)
     if (!query.trim()) return ordered
     return ordered.filter(({ folderId }) => matchesQuery(folderId))
-  }, [folders, query, remoteFolderIds, matchesQuery])
+  }, [folders, query, matchesQuery])
 
   // ── Terminals that belong to no project ───────────────────────────────────
   // Folderless sessions (e.g. `berth tools run <agent> launch`) and sessions
@@ -649,7 +637,7 @@ export function SidebarProjectList({
     terminalInventory,
   ])
 
-  // 无项目终端按设备归组：起始目录是设备目录（`localDir`）的归到该设备，其余归本机。
+  // 无项目终端按设备归组：节点设备的远端终端、起始目录是设备目录（`localDir`）的归到该设备，其余归本机。
   const { looseEntries, deviceEntries } = useMemo(() => {
     const deviceByDir = new Map(devices.map((d) => [d.localDir, d.id]))
     const cwdById = new Map(
@@ -659,7 +647,13 @@ export function SidebarProjectList({
     const byDevice = new Map<number, SessionStripEntry[]>()
     for (const entry of detachedEntries) {
       const cwd = cwdById.get(entry.id)
-      const deviceId = cwd != null ? deviceByDir.get(cwd) : undefined
+      // 节点设备上的终端：id 是 `terminal:<设备 id>/<对方 target_ref>`。
+      const remote = /^terminal:(\d+)\//.exec(entry.id)
+      const deviceId = remote
+        ? Number(remote[1])
+        : cwd != null
+          ? deviceByDir.get(cwd)
+          : undefined
       if (deviceId == null) {
         loose.push(entry)
         continue
@@ -877,16 +871,9 @@ export function SidebarProjectList({
     <SidebarDeviceSection
       devices={devices}
       onChanged={reloadDevices}
-      renderProject={(folderId) =>
-        matchesQuery(folderId) ? renderRow(folderId, false, false, false) : null
-      }
       terminals={deviceEntries}
       collapsed={collapsedGroups}
       onToggle={toggleGroup}
-      onProjectAdded={(folder) => {
-        activateFolderWorkspace(folder.id)
-        onOpenFiles?.()
-      }}
       addOpen={addDeviceOpen}
       onAddOpenChange={setAddDeviceOpen}
     />
@@ -898,7 +885,6 @@ export function SidebarProjectList({
       <div className="min-h-0 flex-1 overflow-hidden">
         <FileTreeTab
           key={activeFolder.id}
-          closeSidebarOnMobile
           hideSearch
           searchQuery={query}
           onSearchQueryChange={setQuery}

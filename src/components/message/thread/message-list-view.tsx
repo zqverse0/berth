@@ -409,7 +409,7 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
   return (
     <MessageAction
       tooltip={isCopied ? t("copied") : t("copyMessage")}
-      className="opacity-0 group-hover/user-msg:opacity-100 transition-opacity self-end"
+      className="opacity-0 [@media(hover:none)]:opacity-100 group-hover/user-msg:opacity-100 transition-opacity self-end"
       onClick={handleCopy}
       size="icon-xs"
     >

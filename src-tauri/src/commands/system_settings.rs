@@ -3,22 +3,20 @@ use sea_orm::DatabaseConnection;
 use tauri::State;
 
 use crate::app_error::AppCommandError;
-use berth_project_core::service::app_metadata_service;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 #[cfg(feature = "tauri-runtime")]
 use crate::models::SystemRenderingSettings;
 use crate::models::{
-    AvailableTerminalShells, SystemLanguageSettings, SystemProxySettings, SystemTerminalSettings,
-    TerminalShellOption,
+    AvailableTerminalShells, SystemLanguageSettings, SystemTerminalSettings, TerminalShellOption,
 };
 #[cfg(feature = "tauri-runtime")]
-use crate::network::proxy;
-#[cfg(feature = "tauri-runtime")]
 use crate::platform::preferences;
+#[cfg(feature = "tauri-runtime")]
+use crate::remote::listen::{Listeners, RemoteAccessSettings, RemoteAccessStatus};
 use crate::terminal::manager::resolve_shell;
+use berth_project_core::service::app_metadata_service;
 
-pub(crate) const SYSTEM_PROXY_SETTINGS_KEY: &str = "system_proxy_settings";
 pub(crate) const SYSTEM_LANGUAGE_SETTINGS_KEY: &str = "system_language_settings";
 pub(crate) const SYSTEM_TERMINAL_SETTINGS_KEY: &str = "system_terminal_settings";
 pub(crate) const LANGUAGE_SETTINGS_UPDATED_EVENT: &str = "app://language-settings-updated";
@@ -26,60 +24,6 @@ pub(crate) const TERMINAL_SETTINGS_UPDATED_EVENT: &str = "app://terminal-setting
 
 pub(crate) const TERMINAL_SHELL_OPTION_SYSTEM: &str = "system";
 pub(crate) const TERMINAL_SHELL_OPTION_CUSTOM: &str = "custom";
-
-fn normalize_proxy_settings(
-    settings: SystemProxySettings,
-) -> Result<SystemProxySettings, AppCommandError> {
-    if !settings.enabled {
-        let proxy_url = settings
-            .proxy_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-
-        return Ok(SystemProxySettings {
-            enabled: false,
-            proxy_url,
-        });
-    }
-
-    let proxy_url = settings
-        .proxy_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            AppCommandError::configuration_missing("Proxy URL is required when proxy is enabled")
-        })?;
-
-    reqwest::Proxy::all(proxy_url).map_err(|e| {
-        AppCommandError::configuration_invalid("Invalid proxy URL").with_detail(e.to_string())
-    })?;
-
-    Ok(SystemProxySettings {
-        enabled: true,
-        proxy_url: Some(proxy_url.to_string()),
-    })
-}
-
-pub(crate) async fn load_system_proxy_settings(
-    conn: &DatabaseConnection,
-) -> Result<SystemProxySettings, AppCommandError> {
-    let raw = app_metadata_service::get_value(conn, SYSTEM_PROXY_SETTINGS_KEY)
-        .await
-        .map_err(AppCommandError::from)?;
-
-    let Some(raw) = raw else {
-        return Ok(SystemProxySettings::default());
-    };
-
-    let parsed = serde_json::from_str::<SystemProxySettings>(&raw).map_err(|e| {
-        AppCommandError::configuration_invalid("Failed to parse stored proxy settings")
-            .with_detail(e.to_string())
-    })?;
-    normalize_proxy_settings(parsed)
-}
 
 pub(crate) async fn load_system_language_settings(
     conn: &DatabaseConnection,
@@ -210,32 +154,31 @@ pub(crate) async fn load_system_terminal_settings(
     Ok(normalize_terminal_settings(parsed))
 }
 
+/// 远程访问未启动（启动早期）时 state 还没放进来。
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn get_system_proxy_settings(
-    db: State<'_, AppDatabase>,
-) -> Result<SystemProxySettings, AppCommandError> {
-    load_system_proxy_settings(&db.conn).await
+fn remote_listeners(app: &tauri::AppHandle) -> Result<State<'_, Listeners>, AppCommandError> {
+    use tauri::Manager;
+    app.try_state::<Listeners>()
+        .ok_or_else(|| AppCommandError::task_execution_failed("Remote access is starting"))
 }
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn update_system_proxy_settings(
-    settings: SystemProxySettings,
-    db: State<'_, AppDatabase>,
-) -> Result<SystemProxySettings, AppCommandError> {
-    let normalized = normalize_proxy_settings(settings)?;
-    let serialized = serde_json::to_string(&normalized).map_err(|e| {
-        AppCommandError::invalid_input("Failed to serialize proxy settings")
-            .with_detail(e.to_string())
-    })?;
+pub async fn get_remote_access(
+    app: tauri::AppHandle,
+) -> Result<RemoteAccessStatus, AppCommandError> {
+    remote_listeners(&app)?.status().await
+}
 
-    app_metadata_service::upsert_value(&db.conn, SYSTEM_PROXY_SETTINGS_KEY, &serialized)
-        .await
-        .map_err(AppCommandError::from)?;
-
-    proxy::apply_system_proxy_settings(&normalized)?;
-    Ok(normalized)
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+/// `password`：不传不改，空串清除（清除后不再监听）。
+pub async fn update_remote_access(
+    settings: RemoteAccessSettings,
+    password: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<RemoteAccessStatus, AppCommandError> {
+    remote_listeners(&app)?.update(settings, password).await
 }
 
 #[cfg(feature = "tauri-runtime")]

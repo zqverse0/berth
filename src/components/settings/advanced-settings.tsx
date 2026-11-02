@@ -7,7 +7,6 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
-  Wifi,
 } from "lucide-react"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Update = any
@@ -17,14 +16,13 @@ import { toast } from "@/lib/notify"
 import { BackupSettings } from "@/components/settings/backup-settings"
 import { ClassifierSettings } from "@/components/settings/classifier-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
+import { RemoteAccessSettingsSection } from "@/components/settings/remote-access-settings"
 import { SystemRuntimeSettings } from "@/components/settings/system-runtime-settings"
 import { TranslateSettings } from "@/components/settings/translate-settings"
 import { GitSettingsSection } from "@/components/settings/git-settings"
 import { useGeneralSectionShown } from "@/components/settings/settings-nav"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getSystemProxySettings, updateSystemProxySettings } from "@/lib/api"
 import { openUrl } from "@/lib/platform"
 import {
   checkAppUpdate,
@@ -33,7 +31,6 @@ import {
   normalizeAppUpdateError,
 } from "@/lib/updater"
 import { useAppUpdate } from "@/components/providers/update-provider"
-import { toErrorMessage } from "@/lib/app-error"
 
 function GithubMarkIcon({ className }: { className?: string }) {
   return (
@@ -56,21 +53,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const PROXY_EXAMPLE = "http://127.0.0.1:7890"
 type UpdateAction = "check" | "install"
 
-/** Settings → 高级：版本更新、网络代理、终端 shell、备份、翻译、日志。 */
+/** Settings → 高级：版本更新、远程访问、终端 shell、备份、翻译、日志。 */
 export function AdvancedSettings() {
   const t = useTranslations("SystemSettings")
   const locale = useLocale()
   const shown = useGeneralSectionShown("advanced")
 
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [enabled, setEnabled] = useState(false)
-  const [proxyUrl, setProxyUrl] = useState("")
-  const [proxyUrlError, setProxyUrlError] = useState<string | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [currentVersion, setCurrentVersion] = useState<string>("")
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
@@ -137,20 +128,10 @@ export function AdvancedSettings() {
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
-    setLoadError(null)
 
     try {
-      const [proxySettings, version] = await Promise.all([
-        getSystemProxySettings(),
-        getCurrentAppVersion(),
-      ])
-
-      setEnabled(proxySettings.enabled)
-      setProxyUrl(proxySettings.proxy_url ?? "")
-      setCurrentVersion(version)
+      setCurrentVersion(await getCurrentAppVersion())
     } catch (err) {
-      const message = toErrorMessage(err)
-      setLoadError(message)
       console.error("[Settings] load system settings failed:", err)
     } finally {
       setLoading(false)
@@ -177,28 +158,6 @@ export function AdvancedSettings() {
       })
     }
   }, [availableUpdate])
-
-  const saveProxySettings = useCallback(
-    async (nextEnabled: boolean, nextProxyUrl: string) => {
-      if (nextEnabled && !nextProxyUrl.trim()) return
-
-      setSaving(true)
-      try {
-        const next = await updateSystemProxySettings({
-          enabled: nextEnabled,
-          proxy_url: nextProxyUrl.trim() || null,
-        })
-        setEnabled(next.enabled)
-        setProxyUrl(next.proxy_url ?? "")
-      } catch (err) {
-        const message = toErrorMessage(err)
-        toast.error(t("saveFailed", { message }))
-      } finally {
-        setSaving(false)
-      }
-    },
-    [t]
-  )
 
   const formatUpdateError = useCallback(
     (error: unknown, action: UpdateAction): string => {
@@ -451,74 +410,7 @@ export function AdvancedSettings() {
           </>
         )}
 
-        {shown("proxy") && (
-          <section className="rounded-xl border bg-card p-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <Wifi className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">{t("proxyTitle")}</h2>
-            </div>
-
-            <p className="text-xs text-muted-foreground leading-5">
-              {t("proxyDescription")}
-            </p>
-
-            {loadError && (
-              <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-                {t("loadFailed", { message: loadError })}
-              </div>
-            )}
-
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={saving}
-                onChange={(event) => {
-                  const next = event.target.checked
-                  if (next && !proxyUrl.trim()) {
-                    setProxyUrlError(t("proxyRequired"))
-                    return
-                  }
-                  setProxyUrlError(null)
-                  setEnabled(next)
-                  saveProxySettings(next, proxyUrl)
-                }}
-              />
-              {t("enableProxy")}
-            </label>
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t("proxyAddress")}
-              </label>
-              <Input
-                value={proxyUrl}
-                onChange={(event) => {
-                  setProxyUrl(event.target.value)
-                  if (event.target.value.trim()) setProxyUrlError(null)
-                }}
-                onBlur={() => {
-                  if (enabled && !proxyUrl.trim()) {
-                    setProxyUrlError(t("proxyRequired"))
-                    return
-                  }
-                  setProxyUrlError(null)
-                  saveProxySettings(enabled, proxyUrl)
-                }}
-                placeholder={PROXY_EXAMPLE}
-                disabled={saving}
-                aria-invalid={proxyUrlError ? true : undefined}
-              />
-              {proxyUrlError && (
-                <p className="text-[11px] text-destructive">{proxyUrlError}</p>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                {t("proxyHint", { example: PROXY_EXAMPLE })}
-              </p>
-            </div>
-          </section>
-        )}
-
+        {shown("remote") && <RemoteAccessSettingsSection />}
         {shown("git") && <GitSettingsSection />}
         {shown("runtime") && <SystemRuntimeSettings />}
         {shown("backup") && <BackupSettings />}

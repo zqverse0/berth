@@ -223,27 +223,30 @@ export class TauriTerminalStream implements TerminalStream {
       })
     }
 
-    const unsubExit = await this.transport.subscribe<TerminalEventPayload>(
-      `terminal://exit/${input.terminalId}`,
-      (payload) => {
-        if (detached) return
-        // Exit events do not currently carry sequence; force resync so the
-        // runtime re-reads status via snapshot rather than inventing one.
-        const nextSeq =
-          typeof payload.sequence === "number" &&
-          Number.isFinite(payload.sequence)
-            ? payload.sequence
-            : (sequence ?? 0) + 1
-        pushAfterSnapshot({
-          type: "statusChanged",
-          terminalId: input.terminalId,
-          sequence: nextSeq,
-          status: "exited",
-          exitCode: null,
-          exitedAt: new Date().toISOString(),
-        })
-      }
-    )
+    const unsubExit = await this.transport
+      .subscribe<TerminalEventPayload>(
+        `terminal://exit/${input.terminalId}`,
+        (payload) => {
+          if (detached) return
+          // Exit events do not currently carry sequence; force resync so the
+          // runtime re-reads status via snapshot rather than inventing one.
+          const nextSeq =
+            typeof payload.sequence === "number" &&
+            Number.isFinite(payload.sequence)
+              ? payload.sequence
+              : (sequence ?? 0) + 1
+          pushAfterSnapshot({
+            type: "statusChanged",
+            terminalId: input.terminalId,
+            sequence: nextSeq,
+            status: "exited",
+            exitCode: null,
+            exitedAt: new Date().toISOString(),
+          })
+        }
+      )
+      // 尽力而为：远端终端的 id 带 `.`，不是合法的事件名；它的退出经输出流的重同步到达。
+      .catch(() => () => {})
 
     let snapshot: TerminalSnapshot
     try {

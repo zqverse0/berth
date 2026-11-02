@@ -264,7 +264,7 @@ function ChangeRow({
           onClick={() =>
             onOpenFile(`${folderPath.replace(/[\\/]+$/, "")}/${change.path}`)
           }
-          className="shrink-0 px-2 py-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary focus-visible:opacity-100 disabled:invisible"
+          className="shrink-0 px-2 py-1 text-muted-foreground opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 hover:text-primary focus-visible:opacity-100 disabled:invisible"
         >
           <ExternalLink className="size-3" />
         </button>

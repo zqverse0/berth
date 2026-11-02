@@ -73,27 +73,7 @@ pub async fn terminal_create(
             .with_detail(error.to_string())
     })?;
     let effective_data_dir = crate::platform::paths::resolve_effective_data_dir(&app_data_dir);
-    // 远程项目里的普通 shell：改为 ssh 到设备上的对应目录（Agent 与指定程序的终端不变）。
-    if let (Some(folder_id), None, None, None) = (
-        request.folder_id,
-        request.agent_id.as_ref(),
-        request.executable.as_ref(),
-        request.initial_command.as_ref(),
-    ) {
-        let db = app_handle.state::<crate::db::AppDatabase>();
-        if let Some(mut argv) = crate::devices::remote_shell(&db.conn, folder_id, &request.cwd).await {
-            request.executable = Some(argv.remove(0));
-            request.args = argv;
-        }
-    }
-    let mut extra_env = prepare_credential_env(&effective_data_dir);
-    if let Some(folder_id) = request.folder_id {
-        let db = app_handle.state::<crate::db::AppDatabase>();
-        if let Some(vars) = crate::devices::remote_env(&db.conn, folder_id).await {
-            let env = extra_env.get_or_insert_with(HashMap::new);
-            env.extend(vars.into_iter().map(|(key, value)| (key.to_owned(), value)));
-        }
-    }
+    let extra_env = prepare_credential_env(&effective_data_dir);
     // Agent 启动：选中档案写成一次性启动档案，`--berth-provider <文件>` 走独立 argv
     // 通道（不混入 agent_extra_args，有 typed inputs 时那条会被丢掉）。不经 pane 环境：
     // termd 会把会话首个 pane 的环境当后续窗口的基底。任一环缺失则不注入。
@@ -191,6 +171,9 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
     client_id: String,
     mut sink: S,
 ) -> Result<crate::terminal::protocol::TerminalSnapshot, AppCommandError> {
+    if crate::devices::terminals::parse(&terminal_id).is_some() {
+        return attach_remote_to_sink(terminal_id, client_id, sink).await;
+    }
     let detach_terminal_id = terminal_id.clone();
     let detach_client_id = client_id.clone();
     let detach_manager = manager.clone();
@@ -341,6 +324,33 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
     Ok(snapshot)
 }
 
+/// 节点设备上的终端：同一套输出包，来源是该设备终端通道的推送。
+async fn attach_remote_to_sink<S: TerminalPacketSink>(
+    terminal_id: String,
+    client_id: String,
+    mut sink: S,
+) -> Result<crate::terminal::protocol::TerminalSnapshot, AppCommandError> {
+    use crate::devices::terminals::{self, RemoteEvent};
+    let (snapshot, mut events) = terminals::attach(&terminal_id, &client_id).await?;
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = events.recv().await {
+            let packet = match event {
+                RemoteEvent::Output { sequence, data } => {
+                    encode_local_terminal_packet(LOCAL_OUTPUT_PACKET, sequence, sequence, &data)
+                }
+                RemoteEvent::Resync { sequence } => {
+                    encode_local_terminal_packet(LOCAL_RESYNC_PACKET, sequence, sequence, &[])
+                }
+            };
+            if !sink.send_packet(packet).await {
+                break;
+            }
+        }
+        terminals::detach(&terminal_id, &client_id);
+    });
+    Ok(snapshot)
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub fn terminal_detach(
@@ -391,6 +401,9 @@ pub async fn terminal_write_attached_raw(
         return Err(AppCommandError::invalid_input(
             "Terminal input exceeds the 1 MiB limit",
         ));
+    }
+    if crate::devices::terminals::parse(&terminal_id).is_some() {
+        return crate::devices::terminals::write(&terminal_id, data).map_err(AppCommandError::from);
     }
     let data = data.to_vec();
     let manager = manager.inner().clone();

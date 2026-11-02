@@ -53,7 +53,6 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
         "id": host.plugin_id,
         "unattended": std::env::var_os("BERTH_TASK_RUN").is_some(),
         "brief": extras.brief,
-        "remote": remote_context(),
     });
     if let [flag, expert_id] = argv {
         if flag == "--plugins" {
@@ -421,22 +420,6 @@ fn load_dotenv(home: &Path) {
         if !key.is_empty() && std::env::var_os(key).is_none() {
             std::env::set_var(key, value);
         }
-    }
-}
-
-/// 远程项目（宿主注入 `BERTH_REMOTE_*`）：插件把 `hookCommand` 挂到 Agent 的 shell 工具入口
-/// （PreToolUse 类 hook），或用 `execCommand` 执行命令；命令转到设备上执行的逻辑全在
-/// `berth remote`。本地项目为 null。
-fn remote_context() -> serde_json::Value {
-    match std::env::var("BERTH_REMOTE_TARGET") {
-        Ok(target) if !target.is_empty() && std::env::var_os("BERTH_REMOTE_MOUNT").is_some() => {
-            json!({
-                "target": target,
-                "hookCommand": "berth remote hook",
-                "execCommand": ["berth", "remote", "exec"],
-            })
-        }
-        _ => serde_json::Value::Null,
     }
 }
 

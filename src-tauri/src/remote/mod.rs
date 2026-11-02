@@ -16,7 +16,7 @@
 //! 带宽按 100 kbps 级中继设计：大于 1KB 的 JSON 响应 gzip；终端输出按路 deflate；attach 快照
 //! 的 ANSI 不走 base64（`FLAG_SNAPSHOT`），原始字节 gzip 比 base64 后再 gzip 小三成；响应带 ETag（轮询未变只回「未变」）；
 //! 大响应切成小块与终端、事件轮流发，打开大文件不卡住终端回显；正式版 `/_next/static/` 永久缓存。
-//! ponytail: 暂无鉴权，只绑定 tailscale 地址（不绑 0.0.0.0）；协作者增多时再加令牌。
+//! 鉴权：设置页设访问密码，浏览器先过登录页（`/__berth/login`）拿 cookie；没设密码不监听。
 //!
 //! 帧格式（大端）：
 //! - 页面 → 宿主，二进制：`[u32 meta 长度][meta JSON][请求体]`，meta =
@@ -68,6 +68,8 @@ use crate::app_error::AppCommandError;
 use crate::commands::terminal::{attach_terminal_to_sink, TerminalPacketSink};
 use crate::terminal::error::{TerminalError, TerminalErrorCode};
 use crate::terminal::manager::{TerminalManager, TerminalOperationError};
+
+pub mod listen;
 
 /// 正式版与 dev 实例同时运行时各占一个端口。
 const PORT: u16 = if cfg!(debug_assertions) { 7421 } else { 7420 };
@@ -131,6 +133,8 @@ struct Remote {
     /// 同步等主线程回话：每条命令都取的话，主线程一忙，命令连接的收发循环就跟着停住，
     /// 页面 10 秒收不到 pong 判定断线重连（日志里成串的 `drop silent silent=10001ms`）。
     main_url: std::sync::OnceLock<tauri::Url>,
+    /// 已登录浏览器 cookie 的值（`listen` 按密码算出）；`None` 时一律拒绝。
+    session: std::sync::RwLock<Option<String>>,
 }
 
 /// 一个浏览器页面（shim 生成的随机 id）。
@@ -218,28 +222,30 @@ struct Meta {
     etag: Option<String>,
 }
 
-/// 绑定 `BERTH_REMOTE_ADDR`（`ip:port`，空串关闭），否则 `tailscale ip -4` 的地址；
-/// 都没有就不启动。
+/// 启动远程访问：监听地址按设置页（`listen`）绑定，可在运行中改。
 pub async fn host(app: AppHandle) {
-    let Some(addr) = bind_addr().await else {
-        tracing::info!("[remote] no tailscale address; remote access disabled");
-        return;
-    };
-    let listener = match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => listener,
-        Err(error) => {
-            tracing::info!("[remote] {addr} unavailable ({error}); not hosting");
-            return;
-        }
-    };
-    tracing::info!("[remote] listening on http://{addr}/");
     let remote = Arc::new(Remote {
-        app,
+        app: app.clone(),
         clients: Mutex::default(),
         hooked: Mutex::default(),
         main_url: std::sync::OnceLock::new(),
+        session: std::sync::RwLock::default(),
     });
     tokio::spawn(reap(remote.clone()));
+    let conn = app.state::<crate::db::AppDatabase>().conn.clone();
+    let settings = match listen::load(&conn).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::warn!("[remote] load settings: {error}");
+            listen::RemoteAccessSettings::default()
+        }
+    };
+    app.manage(listen::Listeners::new(remote, conn));
+    app.state::<listen::Listeners>().apply(&settings).await;
+}
+
+/// 一个监听地址的接受循环；任务被 abort 时只停接受新连接。
+async fn accept_loop(listener: tokio::net::TcpListener, remote: Arc<Remote>) {
     loop {
         let Ok((socket, _)) = listener.accept().await else {
             continue;
@@ -289,20 +295,6 @@ fn limit_unsent(socket: &tokio::net::TcpStream) {
 // ponytail: 只在 Linux 设；macOS 宿主要远程时再补（同名选项）。
 #[cfg(not(target_os = "linux"))]
 fn limit_unsent(_socket: &tokio::net::TcpStream) {}
-
-async fn bind_addr() -> Option<String> {
-    if let Ok(addr) = std::env::var("BERTH_REMOTE_ADDR") {
-        return (!addr.trim().is_empty()).then(|| addr.trim().to_owned());
-    }
-    let output = tokio::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .await
-        .ok()?;
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let ip = stdout.lines().next()?.trim();
-    (output.status.success() && !ip.is_empty()).then(|| format!("{ip}:{PORT}"))
-}
 
 /// 丢掉断线太久的页面：接收端随之释放，挂在上面的终端推流发送失败后 detach。
 async fn reap(remote: Arc<Remote>) {
@@ -389,6 +381,17 @@ impl Remote {
 
 async fn handle(remote: &Arc<Remote>, request: Request<Incoming>) -> Response<Body> {
     let path = request.uri().path().to_owned();
+    if path == "/__berth/login" {
+        return login(remote, request).await;
+    }
+    // 清单与图标由浏览器不带 cookie 地取（添加到主屏幕），放行；其余都要登录。
+    let public = path == "/manifest.webmanifest" || path.starts_with("/icon");
+    if !public && !signed_in(remote, request.headers()) {
+        if request.method() == Method::GET && !path.starts_with("/__berth/") {
+            return html(StatusCode::UNAUTHORIZED, LOGIN_PAGE);
+        }
+        return plain(StatusCode::UNAUTHORIZED, "sign in required");
+    }
     if path == "/__berth/ws" || path == "/__berth/term" {
         let query: HashMap<String, String> = request
             .uri()
@@ -1048,11 +1051,15 @@ async fn run_channel(
     while let Some(op) = ops.recv().await {
         match op {
             TermOp::Input { data, end } => {
-                let result = ordered(&manager, &ids, move |manager, terminal, client, sequence| {
-                    manager
-                        .write_attached(terminal, client, sequence, &data)
-                        .map(|_| ())
-                })
+                let result = ordered(
+                    &manager,
+                    &ids,
+                    move |manager, terminal, client, sequence| {
+                        manager
+                            .write_attached(terminal, client, sequence, &data)
+                            .map(|_| ())
+                    },
+                )
                 .await;
                 if let Err(error) = result {
                     tracing::warn!("[remote] terminal input dropped: {error}");
@@ -1064,9 +1071,13 @@ async fn run_channel(
                 let _ = acks.send(Message::Binary(frame.into()));
             }
             TermOp::Resize { rows, cols, reply } => {
-                let result = ordered(&manager, &ids, move |manager, terminal, client, sequence| {
-                    manager.resize_attached(terminal, client, sequence, cols, rows)
-                })
+                let result = ordered(
+                    &manager,
+                    &ids,
+                    move |manager, terminal, client, sequence| {
+                        manager.resize_attached(terminal, client, sequence, cols, rows)
+                    },
+                )
                 .await;
                 let _ = reply.send(match result {
                     Ok(snapshot) => snapshot_response(snapshot),
@@ -1104,8 +1115,11 @@ where
         .unwrap_or_else(|_| Err(TerminalErrorCode::TerminalTransportDisconnected.into()));
         let backpressure = matches!(
             result,
-            Err(TerminalOperationError::Runtime(TerminalError::InputBackpressure))
-                | Err(TerminalOperationError::Protocol(TerminalErrorCode::InputBackpressure))
+            Err(TerminalOperationError::Runtime(
+                TerminalError::InputBackpressure
+            )) | Err(TerminalOperationError::Protocol(
+                TerminalErrorCode::InputBackpressure
+            ))
         );
         if !backpressure {
             return result;
@@ -1172,7 +1186,9 @@ fn response_frames(
     snapshot: bool,
 ) -> Vec<Message> {
     let (mut flags, mut bytes) = match response {
-        InvokeResponse::Ok(InvokeResponseBody::Json(json)) => (FLAG_OK | FLAG_JSON, json.into_bytes()),
+        InvokeResponse::Ok(InvokeResponseBody::Json(json)) => {
+            (FLAG_OK | FLAG_JSON, json.into_bytes())
+        }
         InvokeResponse::Ok(InvokeResponseBody::Raw(bytes)) if snapshot => {
             (FLAG_OK | FLAG_SNAPSHOT, bytes)
         }
@@ -1302,10 +1318,7 @@ async fn asset(
                 request = request.header(name, value.as_bytes());
             }
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
+        let response = request.send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() {
             return Err(format!("{url}: {}", response.status()));
         }
@@ -1392,6 +1405,70 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
         .get(header::ACCEPT_ENCODING)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.contains("gzip"))
+}
+
+/// 登录 cookie 名：dev 与正式版同 IP 不同端口，cookie 不分端口，名字要分开。
+const SESSION_COOKIE: &str = if cfg!(debug_assertions) {
+    "berth_remote_dev"
+} else {
+    "berth_remote"
+};
+const LOGIN_PAGE: &str = include_str!("login.html");
+
+fn signed_in(remote: &Remote, headers: &HeaderMap) -> bool {
+    let Some(session) = remote.session.read().expect("remote session").clone() else {
+        return false;
+    };
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .any(|(name, value)| name == SESSION_COOKIE && value == session)
+}
+
+/// `POST /__berth/login`，请求体是密码原文：对了种 cookie，错了停一秒再回，拖慢猜密码。
+async fn login(remote: &Remote, request: Request<Incoming>) -> Response<Body> {
+    if request.method() != Method::POST {
+        return html(StatusCode::OK, LOGIN_PAGE);
+    }
+    let Ok(body) = http_body_util::Limited::new(request.into_body(), 4096)
+        .collect()
+        .await
+    else {
+        return plain(StatusCode::PAYLOAD_TOO_LARGE, "too large");
+    };
+    let input = String::from_utf8_lossy(&body.to_bytes()).into_owned();
+    let session = remote.session.read().expect("remote session").clone();
+    match session {
+        Some(session) if listen::check_password(&input, &session).await => Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header(
+                header::SET_COOKIE,
+                format!(
+                    "{SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
+                ),
+            )
+            .body(empty())
+            .unwrap_or_default(),
+        _ => {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            plain(StatusCode::UNAUTHORIZED, "wrong password")
+        }
+    }
+}
+
+fn html(status: StatusCode, page: &str) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        )
+        .header(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))
+        .body(full(page.as_bytes().to_vec()))
+        .unwrap_or_default()
 }
 
 fn plain(status: StatusCode, message: &str) -> Response<Body> {

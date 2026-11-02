@@ -133,13 +133,6 @@ function berthHooks(/** @type {import("berth").LaunchContext} */ ctx) {
     }
     ;(hooks[event] ??= []).push(group)
   }
-  // 远程项目：Bash 命令经 Berth 的 hook 改写为在设备上执行（逻辑全在 Berth）。
-  if (ctx.remote) {
-    ;(hooks.PreToolUse ??= []).push({
-      matcher: "Bash",
-      hooks: [{ type: "command", command: ctx.remote.hookCommand }],
-    })
-  }
   return hooks
 }
 

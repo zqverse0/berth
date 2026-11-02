@@ -196,7 +196,7 @@ async fn resolve_target(
     }
 }
 
-fn parse_binding(reference: &str, json_mode: bool) -> Result<RuntimeBinding, CliError> {
+pub(crate) fn parse_binding(reference: &str, json_mode: bool) -> Result<RuntimeBinding, CliError> {
     let decoded = TargetBindingRef::decode(reference)
         .map_err(|message| failure(EXIT_USER_ERROR, "invalid_params", message, json_mode, false))?;
     // SessionName::new 会重写部分字符；从 wire 解码后必须保持原字节身份。
@@ -264,7 +264,7 @@ pub(crate) async fn session_project_path(reference: &str) -> Result<PathBuf, Cli
     }
 }
 
-async fn bound_pane(
+pub(crate) async fn bound_pane(
     terminal: &Terminal,
     binding: RuntimeBinding,
     json_mode: bool,
@@ -302,7 +302,7 @@ async fn bound_pane(
         .map_err(|error| sdk_failure(error, json_mode, false))
 }
 
-async fn connect_existing(socket: &Path, json_mode: bool) -> Result<Terminal, CliError> {
+pub(crate) async fn connect_existing(socket: &Path, json_mode: bool) -> Result<Terminal, CliError> {
     tokio::time::timeout(
         OPERATION_TIMEOUT,
         TerminalClientBuilder::new()
@@ -337,7 +337,7 @@ async fn connect_existing(socket: &Path, json_mode: bool) -> Result<Terminal, Cl
 }
 
 #[derive(Debug, Serialize)]
-struct ListedTerminal {
+pub(crate) struct ListedTerminal {
     ownership: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     project_id: Option<i32>,
@@ -352,7 +352,7 @@ struct ListedTerminal {
     target_ref: Option<String>,
 }
 
-async fn list_entries(
+pub(crate) async fn list_entries(
     instance: &DataInstance,
     socket: &Path,
     project_id: Option<i32>,

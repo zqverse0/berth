@@ -141,32 +141,6 @@ GUI 不自动为全部 action 生成工具面板。Terminal action 的持续输�
 结果使用 status/error/sessionRef/artifacts 与 text/markdown/JSON 通用展示。只有 capability
 已经提供稳定 typed output 且主线确有需要时，才增加专门 renderer。
 
-## 远程项目：shell 命令在设备上执行
-
-远程项目的路径是设备目录在本机的 sshfs 挂载点；宿主给这类项目的所有终端注入
-`BERTH_REMOTE_TARGET`（ssh 目标）、`BERTH_REMOTE_PATH`（设备上的项目目录）、`BERTH_REMOTE_MOUNT`
-（本机挂载点），`ctx.remote` 据此给出。Agent 本身在本机运行，读写文件走挂载点；它的 shell 命令
-由 Berth 原样送到设备上执行，结果原样带回，不往提示词里加任何说明（写错了 Agent 按报错自己改）。
-
-`launch.js` 只做接线，二选一：
-
-- **有 PreToolUse 类 hook**：在远程项目里（`ctx.remote` 非空）把 `ctx.remote.hookCommand` 挂到 shell
-  工具上。stdin 是与 Claude Code / Codex 同形的 hook JSON（`cwd`、`tool_input.command`），挂载点内的
-  命令改写为经 `berth remote exec` 执行并跟随 `cd`，输出 `hookSpecificOutput.updatedInput`；其余不输出。
-- **能替换 shell 执行函数**（如 Pi 扩展的 `BashOperations`）：调用
-  `[...ctx.remote.execCommand, "--cwd", <目录>, "--", <命令>]`，stdin 保持打开（它关闭即视为中断）。
-
-`berth remote exec` 负责其余一切：目录换算、设备上的 `bash -c`、设备登录 PATH（本机缓存 10 分钟）、
-ssh 连接复用、退出码与 stdout / stderr 透传、中断时结束设备上的整个进程组、`--cwd-file` 跟随 `cd`。
-改它之后跑 `scripts/remote-exec-check.sh`（同一命令直连 ssh 与经 Berth 执行，逐项对比）。
-
-| Agent | 接线 | 状态 |
-|---|---|---|
-| Claude | PreToolUse（matcher `Bash`）→ `ctx.remote.hookCommand` | 已接 |
-| Pi | 远程项目时加载 `private/extensions/berth-remote.ts`（替换 bash 工具与 `!` 命令） | 已接 |
-| Codex | PreToolUse 支持改写，但 `updatedInput` 须配 `permissionDecision: "allow"`；默认沙箱可能禁网 | 未接 |
-| grok / cline / agy | 是否支持改写 shell 命令未核实 | 未接：远程项目里命令仍在本机执行 |
-
 ## 状态与群组 hook
 
 Agent 的状态（working / idle / attention）和一轮的结果由 Agent 自己报告，Berth 不看画面、

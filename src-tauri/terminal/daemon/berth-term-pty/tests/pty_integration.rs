@@ -357,3 +357,35 @@ fn wait_reports_child_exit_status() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn spawned_child_moves_into_own_systemd_scope() -> Result<(), Box<dyn std::error::Error>> {
+    // 没有 systemd 用户实例（CI 容器等）时 scope 隔离本就降级为空操作。
+    let has_user_bus = std::process::Command::new("busctl")
+        .args(["--user", "status"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !has_user_bus {
+        return Ok(());
+    }
+
+    let mut spawned = ChildCommand::new("/bin/sleep").arg("5").spawn()?;
+    let cgroup_path = format!("/proc/{}/cgroup", pid_raw(spawned.child().pid()));
+    let expected = format!("/berth-pane-{}.scope", spawned.child().pid().as_u32());
+    let mut cgroup = String::new();
+    for _ in 0..50 {
+        cgroup = fs::read_to_string(&cgroup_path)?;
+        if cgroup.trim_end().ends_with(&expected) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    spawned.child().terminate_forcefully()?;
+    let _ = spawned.child_mut().wait();
+    assert!(cgroup.trim_end().ends_with(&expected), "cgroup: {cgroup}");
+    Ok(())
+}

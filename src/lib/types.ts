@@ -1093,9 +1093,20 @@ export interface ToolUpdateCheck {
   updateAvailable: boolean
 }
 
-export interface SystemProxySettings {
-  enabled: boolean
-  proxy_url: string | null
+/** 远程访问监听设置（按实例存）。 */
+export interface RemoteAccessSettings {
+  /** `ip` 或 `ip:port`，不写端口用本实例默认端口。 */
+  addresses: string[]
+}
+
+export interface RemoteAccessStatus {
+  settings: RemoteAccessSettings
+  defaultPort: number
+  /** 没设密码不监听。 */
+  hasPassword: boolean
+  /** 正在监听的 `ip:port`。 */
+  listening: string[]
+  errors: { address: string; message: string }[]
 }
 
 export type AppLocale = "en" | "zh_cn"

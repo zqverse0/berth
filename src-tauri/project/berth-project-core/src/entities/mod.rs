@@ -5,7 +5,6 @@ pub mod automation_run;
 pub mod conversation;
 pub mod delegation_outcome;
 pub mod device;
-pub mod device_project;
 pub mod folder;
 pub mod folder_command;
 pub mod model_provider;

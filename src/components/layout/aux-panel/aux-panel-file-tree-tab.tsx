@@ -25,7 +25,6 @@ import { toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { useWorkspaceStateStore } from "@/hooks/workspace/use-workspace-state-store"
@@ -110,6 +109,7 @@ import {
 } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { joinFsPath } from "@/lib/files/path-utils"
+import { transferInto } from "@/lib/devices"
 import {
   invalidateGitFolderCache,
   loadCachedGitStatus,
@@ -219,14 +219,12 @@ function ExpandedDirectoryWatchers({
 }
 
 interface FileTreeTabProps {
-  closeSidebarOnMobile?: boolean
   hideSearch?: boolean
   searchQuery?: string
   onSearchQueryChange?: (query: string) => void
 }
 
 export function FileTreeTab({
-  closeSidebarOnMobile = false,
   hideSearch = false,
   searchQuery,
   onSearchQueryChange,
@@ -239,11 +237,7 @@ export function FileTreeTab({
   const consumePendingRevealPath = useAppUiStore(
     (state) => state.consumePendingRevealPath
   )
-  const setAuxOpen = useAppUiStore((state) => state.setAuxPanelOpen)
   const revealInFileTree = useAppUiStore((state) => state.revealInFileTree)
-  const sidebarOpen = useAppUiStore((state) => state.sidebarOpen)
-  const toggleSidebar = useAppUiStore((state) => state.toggleSidebar)
-  const isMobile = useIsMobile()
   // Defer the folder so a cross-folder conversation-tab switch commits first and
   // this tab's heavy tree rebuild (remount, applyLazyTreeOverrides, per-row
   // ContextMenus) runs in a non-blocking transition a frame later instead of
@@ -822,28 +816,10 @@ export function FileTreeTab({
       treeContainerRef.current?.focus({ preventScroll: true })
       if (!filePathSet.has(path)) return
       if (folderId == null) return
+      // 手机上盖住主区的面板由运行时打开文件时收起（revealMainArea）。
       void openFilePreview(path, { folderId })
-      // On mobile the file tree lives in a Sheet overlay — close it so the
-      // opened file is visible in the main pane. The project explorer is in
-      // the left Sheet; the right panel closes when this tree is hosted there.
-      if (isMobile) {
-        if (closeSidebarOnMobile && sidebarOpen) {
-          toggleSidebar()
-        } else {
-          setAuxOpen(false)
-        }
-      }
     },
-    [
-      closeSidebarOnMobile,
-      filePathSet,
-      folderId,
-      isMobile,
-      openFilePreview,
-      setAuxOpen,
-      sidebarOpen,
-      toggleSidebar,
-    ]
+    [filePathSet, folderId, openFilePreview]
   )
 
   const handleFileSearchSelect = useCallback(
@@ -862,25 +838,13 @@ export function FileTreeTab({
       }
       if (folderId == null) return
       void openFilePreview(entry.relativePath, { folderId })
-      if (isMobile) {
-        if (closeSidebarOnMobile && sidebarOpen) {
-          toggleSidebar()
-        } else {
-          setAuxOpen(false)
-        }
-      }
     },
     [
-      closeSidebarOnMobile,
       folderId,
-      isMobile,
       openFilePreview,
       resetFileSearch,
       revealInFileTree,
-      setAuxOpen,
       setFileSearchQuery,
-      sidebarOpen,
-      toggleSidebar,
     ]
   )
 
@@ -1149,7 +1113,18 @@ export function FileTreeTab({
         document.elementFromPoint(position.x / scale, position.y / scale)
       )
       if (!zone) return
-      if (zone.kind === "dir") {
+      if (zone.kind === "device") {
+        // 拖到另一台设备的项目里：传过去（目录暂不支持）。
+        if (src.kind === "dir") {
+          toast.error(t("toasts.transferDirUnsupported"))
+        } else {
+          transferInto(zone, joinFsPath(rootPath, src.relPath)).catch((error) =>
+            toast.error(t("toasts.transferFailed"), {
+              description: toErrorMessage(error),
+            })
+          )
+        }
+      } else if (zone.kind === "dir") {
         if (canMoveEntry(src, zone.destDir)) {
           void handleMoveEntry(src.relPath, zone.destDir)
         }
@@ -1160,7 +1135,7 @@ export function FileTreeTab({
         })
       }
     },
-    [folder?.path, handleMoveEntry]
+    [folder?.path, handleMoveEntry, t]
   )
   // Read at event time so the Tauri listener can subscribe once (below) yet
   // always see the latest folder / move handler.

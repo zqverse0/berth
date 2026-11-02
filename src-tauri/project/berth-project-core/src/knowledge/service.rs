@@ -662,15 +662,16 @@ fn format_problems(
 /// vault 里的 `.md` 都是笔记，除了根目录的 `README.md`（给人看的指针）、`想法/`（见 [`super::ideas`]）
 /// 与 Jev 写的 `记录/`、`交接/`（见 [`super::journal`]）、专家规矩 `专家/`（见 [`super::rules`]）。
 fn is_note(path: &Path, vault_root: &Path) -> bool {
+    let root_readme = path.parent() == Some(vault_root)
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("README.md"));
     is_markdown(path)
+        && !root_readme
         && !path.starts_with(vault_root.join(super::ideas::IDEAS_DIR))
         && !super::journal::is_journal(vault_root, path)
         && !path.starts_with(vault_root.join(super::rules::RULES_DIR))
-        && !(path.parent() == Some(vault_root)
-            && path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.eq_ignore_ascii_case("README.md")))
 }
 
 fn resolve_edges(

@@ -59,12 +59,6 @@ if (data.mode === "plugins") {
       Object.freeze({ ...data.expert, plugins: Object.freeze(native) }),
     provider,
     brief: data.brief,
-    remote:
-      data.remote &&
-      Object.freeze({
-        ...data.remote,
-        execCommand: Object.freeze([...data.remote.execCommand]),
-      }),
     unattended: data.unattended,
     paths: Object.freeze(data.paths),
     // 必须静默且不失败：SessionStart / UserPromptSubmit 的 stdout 会进 Agent 上下文，非零退出会拦住 Agent。

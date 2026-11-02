@@ -115,11 +115,28 @@ export const FILE_TREE_DROP_DIR_ATTR = "data-tree-drop-dir"
  */
 export const FILE_TREE_DROP_COMPOSER_ATTR = "data-tree-drop-composer"
 
+/**
+ * DOM attribute marking a directory of another device's project as a drop zone
+ * (`<device id>:<absolute dir on that device>`): a dropped file is transferred
+ * there over the device's node connection.
+ */
+export const FILE_TREE_DROP_DEVICE_ATTR = "data-tree-drop-device"
+
 /** Where a file-tree drag landed, resolved from the element under the drop
- *  point. `dir` moves the entry; `composer` inserts a file reference. */
+ *  point. `dir` moves the entry; `composer` inserts a file reference; `device`
+ *  transfers the file to another device. */
 export type FileTreeDropZone =
   | { kind: "dir"; destDir: string }
   | { kind: "composer"; tabId: string }
+  | { kind: "device"; deviceId: number; dir: string }
+
+/** Parse a {@link FILE_TREE_DROP_DEVICE_ATTR} value. */
+export function parseDeviceDropZone(
+  value: string | null
+): { deviceId: number; dir: string } | null {
+  const match = value?.match(/^(\d+):(\/.*)$/)
+  return match ? { deviceId: Number(match[1]), dir: match[2] } : null
+}
 
 /**
  * Resolve the drop zone under `element` by walking up to the nearest marked
@@ -134,6 +151,12 @@ export function resolveFileTreeDropZone(
   element: Element | null
 ): FileTreeDropZone | null {
   if (!element) return null
+  const device = parseDeviceDropZone(
+    element
+      .closest(`[${FILE_TREE_DROP_DEVICE_ATTR}]`)
+      ?.getAttribute(FILE_TREE_DROP_DEVICE_ATTR) ?? null
+  )
+  if (device) return { kind: "device", ...device }
   const dirEl = element.closest(`[${FILE_TREE_DROP_DIR_ATTR}]`)
   const composerEl = element.closest(`[${FILE_TREE_DROP_COMPOSER_ATTR}]`)
   const toDir = (el: Element): FileTreeDropZone => ({

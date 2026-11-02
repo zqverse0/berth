@@ -159,6 +159,28 @@ fn match_provider(rows: &[(i32, String)], reference: &str) -> Result<i32, String
     }
 }
 
+/// 全部自定义档案的摘要（不含 Key）：远端启动栏选服务商用，`id` 原样回传给新建终端。
+pub(crate) async fn summaries(instance: &DataInstance) -> Result<Vec<serde_json::Value>, String> {
+    let (conn, state) = open_or_upgrade(instance).await;
+    let conn = conn.ok_or_else(|| format!("data instance is not ready: {state:?}"))?;
+    Ok(model_provider_launch::list_custom(&conn)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|row| {
+            let agent_types: serde_json::Value =
+                serde_json::from_str(&row.agent_types_json).unwrap_or_default();
+            serde_json::json!({
+                "id": row.id,
+                "name": row.name,
+                "agentType": row.agent_type,
+                "agentTypes": agent_types,
+                "model": row.model,
+            })
+        })
+        .collect())
+}
+
 /// 全部自定义档案的导出文档（不含 Key，见 `model_provider_export`）。
 pub(crate) async fn export(
     instance: &DataInstance,

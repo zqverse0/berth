@@ -18,6 +18,7 @@ pub use crate::info::{PaneAgentSignal, PaneProcessState};
 pub use crate::launch_environment::{
     prepend_dir_to_path, resolve_shell, TerminalLaunchEnvironment,
 };
+pub use crate::paint::{normalize_snapshot_line_endings_for_xterm, PanePaint};
 pub use crate::snapshot::{PaneCursor, PaneSnapshot};
 pub use crate::spec::ProcessSpec;
 pub use crate::types::{PaneId, SessionName, TerminalSizeSpec, WindowRef};

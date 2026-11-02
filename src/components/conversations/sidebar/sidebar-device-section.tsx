@@ -10,6 +10,7 @@ import {
   FolderPlus,
   KeyRound,
   Loader2,
+  Plus,
   RefreshCw,
   Server,
   SquareTerminal,
@@ -19,20 +20,26 @@ import {
 import { toast } from "@/lib/notify"
 import { toErrorMessage } from "@/lib/app-error"
 import { getHomeDirectory } from "@/lib/api"
+import { subscribe } from "@/lib/platform"
+import { DeviceLaunchPanel } from "@/components/layout/sidebar/agent-launch"
 import { createAndOpenPrimaryTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
+import { DeviceProjects } from "./device-projects"
 import {
   addDevice,
-  addDeviceProject,
   checkDevice,
   deviceCandidates,
+  deviceNode,
+  deviceRequest,
   ensureSshKey,
-  listDeviceDirs,
   listDevices,
   needsKeySetup,
+  nodeOnline,
   removeDevice,
   type Device,
+  type DeviceCheck,
+  type NodeChannelStatus,
+  type NodeReply,
 } from "@/lib/devices"
-import type { FolderDetail } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -71,9 +78,6 @@ const ERROR_KEYS = {
   "device.nameTaken": "errors.nameTaken",
   "device.targetInvalid": "errors.targetInvalid",
   "device.timeout": "errors.timeout",
-  "device.hasProjects": "errors.hasProjects",
-  "device.remotePathInvalid": "errors.remotePathInvalid",
-  "device.sshfsMissing": "errors.sshfsMissing",
 } as const
 
 function useDeviceErrorText() {
@@ -182,8 +186,8 @@ export function SidebarGroupHeader({
   )
 }
 
-/** 设备列表；项目视图可见时、以及 `refreshKey`（项目集合）变化时重读。 */
-export function useDeviceList(visible: boolean, refreshKey: string) {
+/** 设备列表；项目视图可见时读取，`reload` 重读。 */
+export function useDeviceList(visible: boolean) {
   const t = useTranslations("Folder.sidebar.devices")
   const [devices, setDevices] = useState<Device[]>([])
   const [revision, setRevision] = useState(0)
@@ -202,24 +206,23 @@ export function useDeviceList(visible: boolean, refreshKey: string) {
     return () => {
       cancelled = true
     }
-  }, [visible, revision, refreshKey, t])
+  }, [visible, revision, t])
 
   const reload = useCallback(() => setRevision((n) => n + 1), [])
   return { devices, reload }
 }
 
 /**
- * 项目列表下方的「设备」分节：每台设备一行（能否连上、点击开 SSH 终端），其下是它的远程项目。
- * 在线状态只在设备列表读到时检测一次（不轮询），右键可重新检测；连得上时后端顺带挂好项目。
+ * 项目列表下方的「设备」分节：每台设备一行（能否连上），装了 Berth 的其下是对方的项目
+ * （[`DeviceProjects`]），没装的只能开 SSH 终端、提示装上 Berth。
+ * 在线状态只在设备列表读到时检测一次（不轮询），右键可重新检测；检测时对方装没装 Berth 变了就重读列表。
  */
 export function SidebarDeviceSection({
   devices,
   onChanged,
-  renderProject,
   terminals,
   collapsed,
   onToggle,
-  onProjectAdded,
   addOpen,
   onAddOpenChange,
 }: {
@@ -230,9 +233,6 @@ export function SidebarDeviceSection({
   /** 折叠状态，键 `device:<id>`。 */
   collapsed: Readonly<Record<string, boolean>>
   onToggle: (key: string) => void
-  /** 远程项目行：与本机项目同一个行组件；项目已关闭时返回 null。 */
-  renderProject: (folderId: number) => ReactNode
-  onProjectAdded: (folder: FolderDetail) => void
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
@@ -242,20 +242,53 @@ export function SidebarDeviceSection({
     Record<number, { state: DeviceStatus; message: string | null }>
   >({})
   const [projectTarget, setProjectTarget] = useState<Device | null>(null)
+  const [launchTarget, setLaunchTarget] = useState<Device | null>(null)
+  // 节点设备的连接状态（数据通道），后端连接状态变化时推送。
+  const [nodeStatus, setNodeStatus] = useState<
+    Record<number, NodeChannelStatus>
+  >({})
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | null = null
+    void subscribe<{
+      deviceId: number
+      channel: string
+      status: NodeChannelStatus
+    }>("device://node-status", (payload) => {
+      if (disposed || payload.channel !== "data") return
+      setNodeStatus((prev) => ({ ...prev, [payload.deviceId]: payload.status }))
+    })
+      .then((off) => {
+        if (disposed) off()
+        else unsubscribe = off
+      })
+      .catch(() => {})
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
 
   // 没有记录即「检测中」；只在 await 之后写状态。
-  const probe = useCallback(async (device: Device) => {
-    const result = await checkDevice(device.target, device.id).catch(
-      (error) => ({ ok: false, message: toErrorMessage(error) })
-    )
-    setStatus((prev) => ({
-      ...prev,
-      [device.id]: {
-        state: result.ok ? "online" : "offline",
-        message: result.message,
-      },
-    }))
-  }, [])
+  const probe = useCallback(
+    async (device: Device) => {
+      const result: DeviceCheck = await checkDevice(
+        device.target,
+        device.id
+      ).catch((error) => ({ ok: false, message: toErrorMessage(error) }))
+      // 对方刚装上 / 卸掉 Berth：重读列表，设备换成对应的样子。
+      if (result.ok && Boolean(result.node) !== Boolean(device.node))
+        onChanged()
+      setStatus((prev) => ({
+        ...prev,
+        [device.id]: {
+          state: result.ok ? "online" : "offline",
+          message: result.message,
+        },
+      }))
+    },
+    [onChanged]
+  )
 
   useEffect(() => {
     devices.forEach((device) => void probe(device))
@@ -307,7 +340,16 @@ export function SidebarDeviceSection({
   return (
     <>
       {devices.map((device) => {
-        const current = status[device.id]
+        const checked = status[device.id]
+        // 节点设备：ssh 测得通之后，以节点连接的状态为准。
+        const node = nodeStatus[device.id] ?? device.node?.status?.data
+        const current =
+          device.node && node && checked?.state !== "offline"
+            ? {
+                state: nodeOnline(node),
+                message: "error" in node ? node.error : null,
+              }
+            : checked
         const state = current?.state ?? "checking"
         const keyMissing =
           state === "offline" && needsKeySetup(current?.message)
@@ -343,30 +385,49 @@ export function SidebarDeviceSection({
                     }
                     collapsed={collapsed[key] === true}
                     onToggle={() => onToggle(key)}
-                    actions={[
-                      {
-                        icon: SquareTerminal,
-                        label: t("openTerminal"),
-                        onClick: () => void openTerminal(device),
-                      },
-                      {
-                        icon: FolderPlus,
-                        label: t("addProject"),
-                        onClick: () => setProjectTarget(device),
-                      },
-                    ]}
+                    actions={
+                      device.node
+                        ? [
+                            {
+                              icon: Plus,
+                              label: t("launchRemote"),
+                              onClick: () => setLaunchTarget(device),
+                            },
+                            {
+                              icon: FolderPlus,
+                              label: t("addProject"),
+                              onClick: () => setProjectTarget(device),
+                            },
+                          ]
+                        : [
+                            {
+                              icon: SquareTerminal,
+                              label: t("openTerminal"),
+                              onClick: () => void openTerminal(device),
+                            },
+                          ]
+                    }
                   />
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent>
-                <ContextMenuItem onSelect={() => void openTerminal(device)}>
-                  <SquareTerminal className="mr-2 h-3.5 w-3.5" />
-                  {t("openTerminal")}
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => setProjectTarget(device)}>
-                  <FolderPlus className="mr-2 h-3.5 w-3.5" />
-                  {t("addProject")}
-                </ContextMenuItem>
+                {device.node ? (
+                  <>
+                    <ContextMenuItem onSelect={() => setLaunchTarget(device)}>
+                      <Plus className="mr-2 h-3.5 w-3.5" />
+                      {t("launchRemote")}
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => setProjectTarget(device)}>
+                      <FolderPlus className="mr-2 h-3.5 w-3.5" />
+                      {t("addProject")}
+                    </ContextMenuItem>
+                  </>
+                ) : (
+                  <ContextMenuItem onSelect={() => void openTerminal(device)}>
+                    <SquareTerminal className="mr-2 h-3.5 w-3.5" />
+                    {t("openTerminal")}
+                  </ContextMenuItem>
+                )}
                 <ContextMenuItem onSelect={() => recheck(device)}>
                   <RefreshCw className="mr-2 h-3.5 w-3.5" />
                   {t("recheck")}
@@ -384,21 +445,17 @@ export function SidebarDeviceSection({
             </ContextMenu>
             {collapsed[key] ? null : (
               <>
-                {device.projects.map((project) => (
-                  <div key={project.folderId}>
-                    {renderProject(project.folderId)}
-                  </div>
-                ))}
-                {device.projects.length === 0 &&
-                deviceTerminals.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setProjectTarget(device)}
-                    className="h-7 px-8 text-left text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {t("emptyDevice")}
-                  </button>
-                ) : null}
+                {device.node ? (
+                  <DeviceProjects
+                    device={device}
+                    live={state === "online"}
+                    onAddProject={() => setProjectTarget(device)}
+                  />
+                ) : (
+                  <p className="px-8 py-1 text-xs text-muted-foreground">
+                    {t("berthMissing")}
+                  </p>
+                )}
                 <DetachedTerminalStrip
                   entries={deviceTerminals}
                   ariaLabel={t("deviceTerminals", { name: device.name })}
@@ -409,6 +466,26 @@ export function SidebarDeviceSection({
         )
       })}
 
+      <Dialog
+        open={launchTarget !== null}
+        onOpenChange={(open) => !open && setLaunchTarget(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("launchRemote")}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t("runsOn", { name: launchTarget?.name ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          {launchTarget ? (
+            <DeviceLaunchPanel
+              key={launchTarget.id}
+              device={launchTarget}
+              onClose={() => setLaunchTarget(null)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <AddDeviceDialog
         // 每次打开重新挂载，表单从空白开始。
         key={addOpen ? "add-device-open" : "add-device-closed"}
@@ -424,10 +501,6 @@ export function SidebarDeviceSection({
         }
         device={projectTarget}
         onClose={() => setProjectTarget(null)}
-        onAdded={(folder) => {
-          onChanged()
-          onProjectAdded(folder)
-        }}
       />
     </>
   )
@@ -587,6 +660,19 @@ function AddDeviceDialog({
   )
 }
 
+/** 节点回复 → 结果；节点报错抛出它的说明。 */
+async function nodeResult<T>(reply: Promise<NodeReply<T>>): Promise<T> {
+  const settled = await reply
+  if ("error" in settled) throw new Error(settled.error.message)
+  return settled.result
+}
+
+/** 节点设备上的目录浏览（限对方家目录之内）。 */
+const nodeDirs = (deviceId: number, path: string) =>
+  nodeResult<{ path: string; dirs: string[] }>(
+    deviceRequest(deviceId, { op: "dirs", path: path || null })
+  )
+
 /** 父目录；`/` 没有父目录。 */
 function parentDir(path: string): string | null {
   if (path === "/") return null
@@ -594,15 +680,13 @@ function parentDir(path: string): string | null {
   return cut <= 0 ? "/" : path.slice(0, cut)
 }
 
-/** 在设备上添加项目：浏览或填设备上的目录，后端用 sshfs 挂到本机并注册为项目。 */
+/** 在节点设备上添加项目：浏览对方目录（限对方家目录之内），在对方 Berth 里登记，不挂载。 */
 function AddDeviceProjectDialog({
   device,
   onClose,
-  onAdded,
 }: {
   device: Device | null
   onClose: () => void
-  onAdded: (folder: FolderDetail) => void
 }) {
   const t = useTranslations("Folder.sidebar.devices")
   const tCommon = useTranslations("Folder.common")
@@ -613,7 +697,7 @@ function AddDeviceProjectDialog({
     error: null as string | null,
   })
   const remotePath = form.remotePath.trim()
-  // 远程目录浏览：每进一层 ssh 列一次子目录；只认最后一次请求的结果。
+  // 远程目录浏览：每进一层列一次子目录；只认最后一次请求的结果。
   const [browse, setBrowse] = useState({
     path: null as string | null,
     dirs: [] as string[],
@@ -627,7 +711,7 @@ function AddDeviceProjectDialog({
       const seq = ++browseSeq.current
       setBrowse((prev) => ({ ...prev, loading: true, error: null }))
       try {
-        const listed = await listDeviceDirs(device.id, path)
+        const listed = await nodeDirs(device.id, path)
         if (seq !== browseSeq.current) return
         setBrowse({ ...listed, loading: false, error: null })
         setForm((prev) => ({ ...prev, remotePath: listed.path }))
@@ -651,9 +735,12 @@ function AddDeviceProjectDialog({
     if (!device || !remotePath || form.saving) return
     setForm((prev) => ({ ...prev, saving: true, error: null }))
     try {
-      const folder = await addDeviceProject(device.id, remotePath)
-      toast.success(t("projectAdded", { name: folder.name }))
-      onAdded(folder)
+      const added = await nodeResult<{ name: string }>(
+        deviceRequest(device.id, { op: "project_add", path: remotePath })
+      )
+      // 刷新设备概览，项目列表随 `device://node` 更新。
+      void deviceNode(device.id).catch(() => {})
+      toast.success(t("projectAdded", { name: added.name }))
       onClose()
     } catch (error) {
       setForm((prev) => ({
@@ -687,7 +774,7 @@ function AddDeviceProjectDialog({
             <Input
               id="add-device-project-path"
               autoFocus
-              placeholder="~/Project/app"
+              placeholder="/Users/me/Project/app"
               value={form.remotePath}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, remotePath: e.target.value }))
@@ -756,7 +843,7 @@ function AddDeviceProjectDialog({
               {form.saving ? (
                 <>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  {t("mounting")}
+                  {t("registering")}
                 </>
               ) : (
                 t("add")

@@ -50,6 +50,7 @@ import {
   type WorkspacePane,
 } from "@/lib/workspace/workspace-tab-placement"
 import { workspacePlacementForFolder } from "@/stores/workspace-layout-store"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import {
   configureWorkspaceLayoutFileActivator,
   useWorkspaceLayoutStore,
@@ -344,6 +345,7 @@ function runtimeContext(
       // 激活的文件域部分已在本函数所属调用中完成；这里只收敛布局侧副作用，
       // 避免布局 store 再次回调 file-runtime 形成双重执行。
       useWorkspaceLayoutStore.getState().adoptFileActivation(tabId)
+      revealIfMainArea()
     },
     enqueueExternalConflict: (conflict, options) => {
       useWorkspaceFileStore
@@ -388,6 +390,17 @@ function switchToOpenedTab(tabId: string, folderId: number): void {
     id: tabId,
     type: tab.kind,
   })
+  revealIfMainArea()
+}
+
+/**
+ * 用户打开 / 切到的 tab 落在主区时，手机上收起盖住主区的辅助面板与侧栏。
+ * 只在这里（用户经运行时打开）调用：启动恢复、切项目直接走布局 store，不收起面板。
+ */
+function revealIfMainArea(): void {
+  if (useWorkspaceLayoutStore.getState().activePane !== "conversation") {
+    useAppUiStore.getState().revealMainArea()
+  }
 }
 
 /** 文件已在所属项目 `folderId` 打开：标「新开未看」，并提示可切过去。 */

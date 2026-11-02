@@ -4,6 +4,7 @@ import { isResourceFileTab } from "@/lib/files/file-workspace-tab"
 import { fileTabIsInFolderScope } from "@/lib/workspace/tab-scope"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import {
   resetWorkspaceFileStore,
   useWorkspaceFileStore,
@@ -452,5 +453,58 @@ describe("workspace runtime", () => {
     await runtime.openFilePreview("/repo/nonexistent.png", undefined, deps)
 
     expect(useWorkspaceFileStore.getState().fileTabs).toHaveLength(0)
+  })
+})
+
+describe("opening a main-area tab on a phone", () => {
+  const openReadme = async () => {
+    useAppWorkspaceStore.setState({
+      allFolders: folders as never,
+      activeFolderId: 1,
+    })
+    vi.spyOn(api, "readFileForEdit").mockResolvedValue({
+      path: "README.md",
+      content: "hi",
+      etag: "synthetic-mobile",
+      mtime_ms: 1,
+      readonly: false,
+      line_ending: "lf",
+    })
+    await createWorkspaceRuntime().openFilePreview("/repo/README.md", {}, deps)
+  }
+  const phone = (matches: boolean) =>
+    vi.stubGlobal("matchMedia", () => ({ matches }) as MediaQueryList)
+
+  it("folds away the aux panel and sidebar covering the main area", async () => {
+    phone(true)
+    useAppUiStore.setState({ auxPanelOpen: true, sidebarOpen: true })
+    await openReadme()
+    expect(useAppUiStore.getState()).toMatchObject({
+      auxPanelOpen: false,
+      sidebarOpen: false,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it("keeps the aux panel when startup restores a file tab", async () => {
+    await openReadme()
+    const id = useWorkspaceFileStore.getState().activeFileTabId!
+    phone(true)
+    useAppUiStore.setState({ auxPanelOpen: true })
+    // 启动恢复直接走布局 store，不经运行时。
+    useWorkspaceLayoutStore.getState().activateFileTab(id)
+    expect(useAppUiStore.getState().auxPanelOpen).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it("leaves desktop panels alone: they sit beside the main area", async () => {
+    phone(false)
+    useAppUiStore.setState({ auxPanelOpen: true, sidebarOpen: true })
+    await openReadme()
+    expect(useAppUiStore.getState()).toMatchObject({
+      auxPanelOpen: true,
+      sidebarOpen: true,
+    })
+    vi.unstubAllGlobals()
   })
 })

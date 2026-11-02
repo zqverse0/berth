@@ -10,7 +10,7 @@ use berth_tool_core::session_files::{
     title, Entry,
 };
 use berth_tool_core::sessions::{estimate_tokens, load_session_spec, SessionSpec};
-use berth_project_core::tasks::session_links::{session_links, Origin, SessionLinks};
+use berth_project_core::tasks::session_links::{session_links, SessionLinks};
 use serde_json::json;
 
 use crate::{CliError, EXIT_REJECTED, EXIT_TARGET_NOT_FOUND, EXIT_USER_ERROR};
@@ -248,6 +248,47 @@ pub(crate) struct ListOptions {
 /// `berth session list`：当前项目（各群目录及子目录，含已删的 worktree）的会话，最近活动在前。
 pub(crate) fn list(options: &ListOptions, json_mode: bool) -> Result<(), CliError> {
     let links = project_links(json_mode)?;
+    let sessions = list_rows(&links, options, json_mode)?;
+    if json_mode {
+        println!("{}", json!({ "sessions": sessions }));
+        return Ok(());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64);
+    for row in &sessions {
+        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+        let origin = match row["origin"].as_str() {
+            Some("berth") => "Berth",
+            Some("external") => "外部",
+            _ => "未知",
+        };
+        println!(
+            "{}\t{}\t{}\t{}\t{}{}\t{}",
+            ago(now.saturating_sub(row["updated_at"].as_u64().unwrap_or(0))),
+            text("agent"),
+            row["session_id"].as_str().unwrap_or("-"),
+            text("group_name"),
+            origin,
+            if row["live"].as_bool() == Some(true) { " · 在跑" } else { "" },
+            text("title")
+        );
+    }
+    Ok(())
+}
+
+/// 主项目的会话链接（各群目录）：远端节点按项目路径取，不看当前目录。
+pub(crate) fn links_for(main: &Path) -> Result<SessionLinks, CliError> {
+    session_links(main)
+        .map_err(|error| failure(EXIT_USER_ERROR, "invalid_params", error.to_string(), true))
+}
+
+/// 会话行（`session list --json` 的 `sessions` 元素），最近活动在前。
+pub(crate) fn list_rows(
+    links: &SessionLinks,
+    options: &ListOptions,
+    json_mode: bool,
+) -> Result<Vec<serde_json::Value>, CliError> {
     // 群目录名可能重名（同名目录的旧 worktree），按名字筛选时全部算上，与列表显示一致。
     let groups: Option<Vec<&str>> = options.group.as_deref().map(|wanted| {
         links
@@ -280,43 +321,19 @@ pub(crate) fn list(options: &ListOptions, json_mode: bool) -> Result<(), CliErro
     rows.sort_by_key(|row| std::cmp::Reverse(row.1.updated_at));
     // 标题要读到第一条用户发言，截断后再读。
     rows.truncate(options.limit);
-    let now = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as u64);
     let mut sessions = Vec::new();
     for (agent, session, group, origin, live) in rows {
         let spec = spec_for(&agent).map_err(|message| failure(EXIT_REJECTED, "unsupported", message, json_mode))?;
         let title = title(&spec, &session.path).unwrap_or_default();
         let group_name = links.group_label(&group).unwrap_or_else(|| group.clone());
-        if json_mode {
-            sessions.push(json!({
-                "agent": agent, "session_id": session.session_id, "cwd": session.cwd,
-                "path": session.path, "updated_at": session.updated_at, "title": title,
-                "group": group, "group_name": group_name,
-                "origin": origin.as_str(), "live": live,
-            }));
-        } else {
-            let origin = match origin {
-                Origin::Berth => "Berth",
-                Origin::External => "外部",
-                Origin::Unknown => "未知",
-            };
-            println!(
-                "{}\t{}\t{}\t{}\t{}{}\t{}",
-                ago(now.saturating_sub(session.updated_at)),
-                agent,
-                session.session_id.as_deref().unwrap_or("-"),
-                group_name,
-                origin,
-                if live { " · 在跑" } else { "" },
-                title
-            );
-        }
+        sessions.push(json!({
+            "agent": agent, "session_id": session.session_id, "cwd": session.cwd,
+            "path": session.path, "updated_at": session.updated_at, "title": title,
+            "group": group, "group_name": group_name,
+            "origin": origin.as_str(), "live": live,
+        }));
     }
-    if json_mode {
-        println!("{}", json!({ "sessions": sessions }));
-    }
-    Ok(())
+    Ok(sessions)
 }
 
 fn ago(ms: u64) -> String {
@@ -336,7 +353,39 @@ pub(crate) fn show(
     options: &ShowOptions,
     json_mode: bool,
 ) -> Result<(), CliError> {
-    let (agent, spec, path, project) = readable_agents(agent, json_mode)?
+    let (agent, spec, path, project) = locate(id, agent, json_mode)?;
+    if options.context {
+        print_context(&agent, id, project.as_deref(), &spec, &path, json_mode);
+        return Ok(());
+    }
+    let view = show_view(id, &agent, &spec, &path, project.as_deref(), options);
+    if json_mode {
+        println!("{view}");
+        return Ok(());
+    }
+    let cwd = project.as_deref().map(|cwd| cwd.display().to_string()).unwrap_or_default();
+    let (total, omitted) = (view["turns"].as_u64().unwrap_or(0), view["omitted"].as_u64().unwrap_or(0));
+    println!("# {agent} {id} · {cwd} · 共 {total} 轮");
+    if omitted > 0 {
+        println!(
+            "（较早的 {} 轮超出 {} 字节未输出；用 --tail N 或 --grep <词> 缩小范围）",
+            omitted, options.max_bytes
+        );
+    }
+    if view["truncated"].as_bool() == Some(true) {
+        println!("（这一轮超出 {} 字节，已截断）", options.max_bytes);
+    }
+    println!("\n{}", view["text"].as_str().unwrap_or_default());
+    Ok(())
+}
+
+/// 按会话 id 找到它的 Agent、读取声明、文件与项目目录。
+pub(crate) fn locate(
+    id: &str,
+    agent: Option<&str>,
+    json_mode: bool,
+) -> Result<(String, SessionSpec, PathBuf, Option<PathBuf>), CliError> {
+    readable_agents(agent, json_mode)?
         .into_iter()
         .find_map(|(agent, spec)| {
             let (path, project) = find_session(&spec, id)?;
@@ -349,38 +398,26 @@ pub(crate) fn show(
                 format!("no session {id}"),
                 json_mode,
             )
-        })?;
-    if options.context {
-        print_context(&agent, id, project.as_deref(), &spec, &path, json_mode);
-        return Ok(());
-    }
-    let turns = turns(entries(&spec, &path));
+        })
+}
+
+/// `session show --json` 的形状。
+pub(crate) fn show_view(
+    id: &str,
+    agent: &str,
+    spec: &SessionSpec,
+    path: &Path,
+    project: Option<&Path>,
+    options: &ShowOptions,
+) -> serde_json::Value {
+    let turns = turns(entries(spec, path));
     let selection = select(&turns, options);
     let total = turns.iter().filter(|turn| turn.user.is_some()).count();
-    if json_mode {
-        println!(
-            "{}",
-            json!({
-                "agent": agent, "session_id": id, "cwd": project, "path": path,
-                "turns": total, "omitted": selection.omitted,
-                "truncated": selection.truncated, "text": selection.text,
-            })
-        );
-        return Ok(());
-    }
-    let cwd = project.as_deref().map(|cwd| cwd.display().to_string()).unwrap_or_default();
-    println!("# {agent} {id} · {cwd} · 共 {total} 轮");
-    if selection.omitted > 0 {
-        println!(
-            "（较早的 {} 轮超出 {} 字节未输出；用 --tail N 或 --grep <词> 缩小范围）",
-            selection.omitted, options.max_bytes
-        );
-    }
-    if selection.truncated {
-        println!("（这一轮超出 {} 字节，已截断）", options.max_bytes);
-    }
-    println!("\n{}", selection.text);
-    Ok(())
+    json!({
+        "agent": agent, "session_id": id, "cwd": project, "path": path,
+        "turns": total, "omitted": selection.omitted,
+        "truncated": selection.truncated, "text": selection.text,
+    })
 }
 
 /// `show --context`：启动输入按估算 token 从大到小，加首次请求的精确总量与会话文件里没记下的差额。
@@ -397,7 +434,7 @@ fn print_context(
         .into_iter()
         .map(|item| (estimate_tokens(&item.text), item))
         .collect();
-    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.sort_by_key(|item| std::cmp::Reverse(item.0));
     let listed: u64 = items.iter().map(|(tokens, _)| tokens).sum();
     let unlisted = first_request.map(|total| total.saturating_sub(listed));
     if json_mode {

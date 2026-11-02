@@ -1,0 +1,19 @@
+[package]
+name = "berth-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Berth node protocol: frames, resumable sessions, priority scheduling and a worst-link simulator."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "io-util", "process", "sync", "time", "macros"] }
+# 只用 stream 编解码；默认特性里的 legacy / zdict_builder 用不到。
+zstd = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "io-util", "process", "sync", "time", "macros", "test-util"] }

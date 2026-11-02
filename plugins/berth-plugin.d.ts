@@ -175,16 +175,6 @@ declare module "berth" {
       readonly cwd: string
       readonly home: string
     }
-    /**
-     * 远程项目（命令要在设备上执行）时有值，本地项目为 null。插件只需二选一接线：
-     * 把 `hookCommand` 挂到 Agent 的 shell 工具 PreToolUse 类 hook（stdin 为 hook JSON，按需输出
-     * `hookSpecificOutput.updatedInput`），或用 `execCommand` + `--cwd <目录> -- <命令>` 自己执行。
-     */
-    readonly remote: {
-      readonly target: string
-      readonly hookCommand: string
-      readonly execCommand: readonly string[]
-    } | null
     /** Agent 原生 hook 应执行的命令：静默、永不失败。 */
     hookCommand(
       event: "session-start" | "turn-start" | "turn-end" | "attention" | "idle"

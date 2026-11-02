@@ -70,7 +70,7 @@ pub fn init(root: &Path) -> io::Result<Vec<String>> {
 
 /// 从 `dir` 往上找含 `.berth/` 的项目根，到 git 仓库根为止。
 /// 跳过家目录：`~/.berth` 是 Berth 全局目录，不是项目标记；否则家目录下没有 git 的项目
-/// （含 sshfs 挂载的设备目录）都会归到家目录，读到别处的群和任务。
+/// 都会归到家目录，读到别处的群和任务。
 pub fn project_root(dir: &Path) -> Option<&Path> {
     project_root_with_home(dir, dirs::home_dir().as_deref())
 }

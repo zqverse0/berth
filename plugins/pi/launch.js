@@ -306,8 +306,6 @@ export default {
         throw new Error(`pi extension not found: ${path}`)
       extensions.push(path)
     }
-    // 远程项目：bash 工具与 `!` 命令经 Berth 在设备上执行（private/extensions/berth-remote.ts）。
-    if (ctx.remote) extensions.push(`${pkg}/private/extensions/berth-remote.ts`)
 
     const args = []
     if (expert?.prompt) args.push("--append-system-prompt", expert.prompt)

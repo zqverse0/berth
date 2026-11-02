@@ -496,7 +496,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "berth-agent"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "futures",
  "genai",
@@ -507,10 +507,11 @@ dependencies = [
 
 [[package]]
 name = "berth-cli"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-control-proto",
  "berth-group",
+ "berth-node",
  "berth-plugin-api",
  "berth-project-core",
  "berth-provider-proxy",
@@ -537,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "berth-control-proto"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -546,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "berth-group"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-project-core",
  "berth-tool-core",
@@ -558,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "berth-gui"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -567,6 +568,7 @@ dependencies = [
  "berth-agent",
  "berth-control-proto",
  "berth-group",
+ "berth-node",
  "berth-plugin-api",
  "berth-project-core",
  "berth-provider-proxy",
@@ -634,8 +636,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "berth-node"
+version = "0.37.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "tokio",
+ "zstd",
+]
+
+[[package]]
 name = "berth-plugin-api"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-tool-core",
  "libc",
@@ -650,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "berth-project-core"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -673,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "berth-provider-proxy"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "bytes",
  "http",
@@ -690,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-engine"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-proto",
  "chrono",
@@ -701,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-ipc"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-os",
  "libc",
@@ -713,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-os"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-types",
  "libc",
@@ -723,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-proto"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-types",
  "bincode",
@@ -734,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-pty"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-os",
  "berth-term-types",
@@ -747,7 +761,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-sdk"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-ipc",
  "berth-term-os",
@@ -765,7 +779,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-server"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "async-recursion",
  "base64 0.22.1",
@@ -796,14 +810,14 @@ dependencies = [
 
 [[package]]
 name = "berth-term-types"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "berth-terminald"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "berth-term-os",
  "berth-term-server",
@@ -812,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "berth-tool-core"
-version = "0.36.13"
+version = "0.37.0"
 dependencies = [
  "dirs",
  "rusqlite",
@@ -8872,6 +8886,34 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.2+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+dependencies = [
+ "cc",
+ "pkg-config",
 ]
 
 [[package]]

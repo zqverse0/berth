@@ -5,7 +5,6 @@ pub use super::app_metadata::Entity as AppMetadata;
 pub use super::conversation::Entity as Conversation;
 pub use super::delegation_outcome::Entity as DelegationOutcome;
 pub use super::device::Entity as Device;
-pub use super::device_project::Entity as DeviceProject;
 pub use super::folder::Entity as Folder;
 pub use super::folder_command::Entity as FolderCommand;
 pub use super::model_provider::Entity as ModelProvider;

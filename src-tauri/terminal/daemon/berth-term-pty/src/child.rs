@@ -358,6 +358,7 @@ fn spawn_child(command: ChildCommand) -> Result<SpawnedPty> {
 
     let child = std_command.spawn()?;
     let pid = ProcessId::new(child.id())?;
+    berth_term_os::scope::move_to_own_scope("berth-pane", child.id());
 
     Ok(SpawnedPty {
         master,

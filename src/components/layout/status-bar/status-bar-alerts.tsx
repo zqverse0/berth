@@ -184,7 +184,7 @@ export function StatusBarAlerts() {
                 </div>
                 <button
                   onClick={() => dismissAlert(alert.id)}
-                  className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                  className="shrink-0 opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
                 >
                   <X className="h-3 w-3" />
                 </button>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   FILE_TREE_DND_MIME,
   FILE_TREE_DROP_COMPOSER_ATTR,
+  FILE_TREE_DROP_DEVICE_ATTR,
   FILE_TREE_DROP_DIR_ATTR,
   hasFileTreeDragType,
   readFileTreeDragPayload,
@@ -108,6 +109,19 @@ describe("resolveFileTreeDropZone", () => {
       kind: "dir",
       destDir: "src/components",
     })
+  })
+
+  it("resolves another device's directory, and ignores a malformed one", () => {
+    const row = document.createElement("button")
+    row.setAttribute(FILE_TREE_DROP_DEVICE_ATTR, "3:/Users/k/app/src")
+    row.innerHTML = `<span class="name">src</span>`
+    expect(resolveFileTreeDropZone(row.querySelector(".name"))).toEqual({
+      kind: "device",
+      deviceId: 3,
+      dir: "/Users/k/app/src",
+    })
+    row.setAttribute(FILE_TREE_DROP_DEVICE_ATTR, "3:relative")
+    expect(resolveFileTreeDropZone(row)).toBeNull()
   })
 
   it("treats an empty dir attribute as the workspace root", () => {

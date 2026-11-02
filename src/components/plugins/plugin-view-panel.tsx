@@ -325,7 +325,7 @@ const PluginListRow = memo(function PluginListRow({
   }
   // 悬停或键盘聚焦时才显示的次要操作
   const reveal =
-    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+    "opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
 
   return (
     <div className="group flex items-start gap-0.5 pr-1.5 transition-colors hover:bg-muted/40">

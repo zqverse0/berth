@@ -33,5 +33,5 @@ pub use system::SystemRenderingSettings;
 pub use system::{
     AvailableTerminalShells, GitCredentials, GitDetectResult, GitHubAccountsSettings,
     GitHubTokenValidation, GitSettings, HealthResponse, SystemLanguageSettings,
-    SystemProxySettings, SystemTerminalSettings, TerminalShellOption,
+    SystemTerminalSettings, TerminalShellOption,
 };

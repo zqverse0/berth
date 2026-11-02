@@ -19,7 +19,7 @@ function Advanced() {
   return (
     <>
       {shown("version") && <p>version section</p>}
-      {shown("proxy") && <p>proxy section</p>}
+      {shown("remote") && <p>remote section</p>}
     </>
   )
 }
@@ -85,13 +85,13 @@ describe("SettingsSidebar", () => {
     open("appearance")
     expect(screen.getByRole("button", { name: "Theme" })).toBeDefined()
 
-    await user.click(screen.getByRole("button", { name: "Network proxy" }))
+    await user.click(screen.getByRole("button", { name: "Remote access" }))
     expect(screen.getByRole("status").textContent).toBe("advanced")
-    expect(screen.getByText("proxy section")).toBeDefined()
+    expect(screen.getByText("remote section")).toBeDefined()
     expect(screen.queryByText("version section")).toBeNull()
     expect(
       screen
-        .getByRole("button", { name: "Network proxy" })
+        .getByRole("button", { name: "Remote access" })
         .getAttribute("aria-current")
     ).toBe("page")
   })

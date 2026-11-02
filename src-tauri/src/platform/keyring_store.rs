@@ -406,6 +406,34 @@ pub fn get_provider_proxy_token() -> Result<Option<String>, String> {
         .map_err(|error| error.to_string())
 }
 
+// ── 远程访问密码：与服务商凭据同一个本实例凭据文件 ──
+
+const REMOTE_PASSWORD_ACCOUNT: &str = "remote-access:password";
+const REMOTE_SALT_ACCOUNT: &str = "remote-access:salt";
+
+pub fn get_remote_access_password() -> Result<Option<String>, String> {
+    berth_project_core::credentials::get(&provider_data_dir(), REMOTE_PASSWORD_ACCOUNT)
+        .map_err(|error| error.to_string())
+}
+
+/// `None` 清除密码。
+pub fn set_remote_access_password(password: Option<&str>) -> Result<(), String> {
+    let dir = provider_data_dir();
+    match password {
+        Some(password) => {
+            berth_project_core::credentials::set(&dir, REMOTE_PASSWORD_ACCOUNT, password)
+        }
+        None => berth_project_core::credentials::delete(&dir, REMOTE_PASSWORD_ACCOUNT),
+    }
+    .map_err(|error| error.to_string())
+}
+
+/// 登录 cookie 的盐：每个实例一个，cookie 不能跨安装复用。
+pub fn get_or_create_remote_access_salt() -> Result<String, String> {
+    berth_project_core::credentials::get_or_create(&provider_data_dir(), REMOTE_SALT_ACCOUNT)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(all(test, not(feature = "tauri-runtime")))]
 mod tests {
     use super::*;

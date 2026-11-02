@@ -10,5 +10,6 @@ pub mod host;
 pub mod identity;
 pub mod memory;
 pub mod process;
+pub mod scope;
 pub mod signals;
 pub mod terminal;

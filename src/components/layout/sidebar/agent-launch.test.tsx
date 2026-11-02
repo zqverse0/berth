@@ -14,7 +14,9 @@ import {
   AgentLaunchForm,
   AgentLaunchHeader,
   AgentLaunchMenu,
+  DeviceLaunchPanel,
 } from "@/components/layout/sidebar/agent-launch"
+import { useTabStore } from "@/stores/tab-store"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useToolsSettingsStore } from "@/stores/tools-settings-store"
@@ -33,6 +35,10 @@ const mocks = vi.hoisted(() => ({
   getPreviewToolStatus: vi.fn(),
   checkToolUpdate: vi.fn(),
   installPreviewTool: vi.fn(),
+  deviceOverview: vi.fn(),
+  deviceLaunchbar: vi.fn(),
+  createDeviceTerminal: vi.fn(),
+  openTab: vi.fn(),
   sessionItems: [] as Array<{
     externalId: string
     title: string | null
@@ -45,6 +51,26 @@ vi.mock("@/lib/terminal/create-and-open-primary-terminal", () => ({
     mocks.createTerminal(...args),
   createAndOpenFolderTerminal: (...args: unknown[]) =>
     mocks.createFolderTerminal(...args),
+  tabFromDescriptor: (descriptor: { terminalId: string }) => ({
+    id: `terminal:${descriptor.terminalId}`,
+  }),
+}))
+
+vi.mock("@/lib/devices", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/devices")>()),
+  useDeviceOverview: (...args: unknown[]) => mocks.deviceOverview(...args),
+  deviceLaunchbar: (...args: unknown[]) => mocks.deviceLaunchbar(...args),
+  createDeviceTerminal: (...args: unknown[]) =>
+    mocks.createDeviceTerminal(...args),
+}))
+
+vi.mock("@/lib/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/platform")>()),
+  subscribe: () => Promise.resolve(() => undefined),
+}))
+
+vi.mock("@/lib/terminal/terminal-inventory-query", () => ({
+  refreshTerminalInventory: () => Promise.resolve(),
 }))
 
 vi.mock("@/lib/terminal/report-agent-launch-alert", async (importOriginal) => {
@@ -517,5 +543,146 @@ describe("AgentLaunchMenu", () => {
       expect.any(Function)
     )
     expect(useStatusBarLaunchStore.getState().launchOpen).toBe(false)
+  })
+})
+
+describe("DeviceLaunchPanel", () => {
+  beforeEach(() => {
+    mocks.deviceOverview.mockReturnValue({
+      host: "macmini",
+      os: "macos",
+      projects: [{ id: 4, path: "/Users/k/app", name: "app", is_open: true }],
+    })
+    mocks.deviceLaunchbar.mockResolvedValue({
+      agents: [
+        {
+          id: "claude",
+          tool: {
+            contributes: {
+              identity: { name: "Claude Code" },
+              agent: { providerInjection: { agentType: "claude_code" } },
+            },
+          },
+          launchbar: {
+            version: 1,
+            items: [
+              {
+                id: "session",
+                component: "select",
+                label: "Session",
+                optionsFrom: "projectSessions",
+              },
+              {
+                id: "effort",
+                component: "select",
+                label: "Effort",
+                options: [
+                  { value: "low", label: "Low" },
+                  { value: "high", label: "High" },
+                ],
+                defaultValue: "low",
+              },
+            ],
+          },
+        },
+      ],
+      providers: [
+        {
+          id: 9,
+          name: "Relay",
+          agentType: "claude_code",
+          agentTypes: null,
+          model: null,
+        },
+        {
+          id: 10,
+          name: "Codex relay",
+          agentType: "codex",
+          agentTypes: null,
+          model: null,
+        },
+      ],
+    })
+    mocks.createDeviceTerminal.mockResolvedValue({ terminalId: "2/v1.abc" })
+    mocks.openTab.mockReset()
+    useTabStore.setState({ openTerminalTab: mocks.openTab } as never)
+  })
+
+  const renderPanel = (onClose = vi.fn()) => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <DeviceLaunchPanel
+          device={{ id: 2, name: "macmini" }}
+          onClose={onClose}
+        />
+      </NextIntlClientProvider>
+    )
+    return onClose
+  }
+
+  it("launches an agent with the device's own launchbar and providers", async () => {
+    const user = userEvent.setup()
+    const onClose = renderPanel()
+
+    expect(screen.getByText("Runs on macmini")).toBeDefined()
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Claude Code" })
+    )
+    // 会话列表是本机的，远端启动栏不显示；服务商只列对方的、且该 Agent 能用的。
+    expect(screen.queryByText("Session")).toBeNull()
+    expect(screen.getByText("Effort")).toBeDefined()
+    const provider = screen.getByRole("combobox", { name: "Provider" })
+    expect(screen.queryByRole("option", { name: "Codex relay" })).toBeNull()
+    await user.selectOptions(provider, "9")
+    await user.click(screen.getByRole("button", { name: "Start Claude Code" }))
+
+    await waitFor(() =>
+      expect(mocks.createDeviceTerminal).toHaveBeenCalledWith({
+        deviceId: 2,
+        project: 4,
+        agent: "claude",
+        inputs: { effort: "low" },
+        provider: 9,
+      })
+    )
+    expect(mocks.openTab).toHaveBeenCalledWith(
+      { id: "terminal:2/v1.abc" },
+      true
+    )
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it("opens a plain terminal in the chosen project on the device", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(
+      await screen.findByRole("menuitem", { name: "New Terminal" })
+    )
+
+    await waitFor(() =>
+      expect(mocks.createDeviceTerminal).toHaveBeenCalledWith({
+        deviceId: 2,
+        project: 4,
+        agent: null,
+        inputs: {},
+        provider: null,
+      })
+    )
+  })
+
+  it("keeps the panel open and explains a failed launch", async () => {
+    mocks.createDeviceTerminal.mockRejectedValue(new Error("device offline"))
+    const user = userEvent.setup()
+    const onClose = renderPanel()
+
+    await user.click(
+      await screen.findByRole("menuitem", { name: "New Terminal" })
+    )
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "device offline"
+    )
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

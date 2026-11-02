@@ -77,6 +77,7 @@ pub mod events;
 pub mod extract;
 pub mod handles;
 pub mod info;
+pub mod paint;
 #[cfg(feature = "available")]
 #[path = "available/input.rs"]
 pub mod input;

@@ -25,13 +25,14 @@ berth-term-sdk = { path = "../../sdk/berth-term-sdk" }
 berth-tool-core = { path = "../../../tool/berth-tool-core" }
 berth-plugin-api = { path = "../../../tool/berth-plugin-api" }
 berth-provider-proxy = { path = "../../../provider/berth-provider-proxy" }
-tokio = { version = "1", features = ["rt", "net"] }
+berth-node = { path = "../../../device/berth-node" }
+tokio = { version = "1", features = ["rt", "net", "io-util", "io-std", "macros", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 which = "7"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.185"
-rustix = { version = "1.1.4", features = ["event", "process", "runtime", "termios", "thread"] }
+rustix = { version = "1.1.4", features = ["event", "process", "runtime", "system", "termios", "thread"] }
 signal-hook = "0.3.18"
 
 [target.'cfg(windows)'.dependencies]

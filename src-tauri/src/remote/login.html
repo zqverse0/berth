@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Berth</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font: 14px system-ui, sans-serif;
+      }
+      form {
+        display: grid;
+        gap: 10px;
+        width: min(280px, 85vw);
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #8886;
+      }
+      #error {
+        color: #d33;
+        min-height: 1.2em;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="form">
+      <strong>Berth 远程访问 · Remote access</strong>
+      <input
+        id="password"
+        type="password"
+        autocomplete="current-password"
+        placeholder="密码 · Password"
+        aria-label="Password"
+        autofocus
+        required
+      />
+      <button type="submit">登录 · Sign in</button>
+      <p id="error" role="alert"></p>
+    </form>
+    <script>
+      document.getElementById("form").addEventListener("submit", async (e) => {
+        e.preventDefault()
+        const error = document.getElementById("error")
+        error.textContent = ""
+        const response = await fetch("/__berth/login", {
+          method: "POST",
+          body: document.getElementById("password").value,
+        }).catch(() => null)
+        if (response && response.ok) location.reload()
+        else error.textContent = "密码错误 · Wrong password"
+      })
+    </script>
+  </body>
+</html>

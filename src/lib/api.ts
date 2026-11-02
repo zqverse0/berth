@@ -46,7 +46,8 @@ import type {
   GitLogFileChange,
   AvailableTerminalShells,
   SystemLanguageSettings,
-  SystemProxySettings,
+  RemoteAccessSettings,
+  RemoteAccessStatus,
   SystemRenderingSettings,
   SystemTerminalSettings,
   GitCredentials,
@@ -191,14 +192,21 @@ export async function updateAppearanceMode(mode: string): Promise<void> {
   return getTransport().call("update_appearance_mode", { mode })
 }
 
-export async function getSystemProxySettings(): Promise<SystemProxySettings> {
-  return getTransport().call("get_system_proxy_settings")
+export async function getRemoteAccess(): Promise<RemoteAccessStatus> {
+  return getTransport().call("get_remote_access")
 }
 
-export async function updateSystemProxySettings(
-  settings: SystemProxySettings
-): Promise<SystemProxySettings> {
-  return getTransport().call("update_system_proxy_settings", { settings })
+/**
+ * 保存后立即按新地址重新监听，返回新状态。`password` 不传不改，空串清除。
+ */
+export async function updateRemoteAccess(
+  settings: RemoteAccessSettings,
+  password?: string
+): Promise<RemoteAccessStatus> {
+  return getTransport().call("update_remote_access", {
+    settings,
+    password: password ?? null,
+  })
 }
 
 export async function getSystemLanguageSettings(): Promise<SystemLanguageSettings> {

@@ -46,6 +46,7 @@ Next 使用 `output: "export"`，生产前端输出到 `out/`，由 Tauri `front
 │   ├── project/                 # 项目持久化核心 crate（berth-project-core）
 │   ├── tool/                    # Tool core crate
 │   ├── control/                 # GUI control 协议 crate
+│   ├── device/berth-node/       # 节点协议 crate（GUI 与 CLI 共用，见 §7.11）
 │   └── terminal/                # shared / daemon / sdk / cli
 ├── .trellis/spec/               # 修改模块前读取的可执行契约
 ├── .berth/tasks/                # 任务 prd（`berth task` 写；旧 `.trellis/tasks` 只读退回）
@@ -328,6 +329,33 @@ berth CLI
 当前方法包括 hello、GUI status、project add、file open。`project ls` 已改为 CLI 直连共享
 项目 crate（GUI 未运行也可用，见 §7.1），只读探测不拉起 GUI。
 该通道与 terminal daemon IPC 完全独立。
+
+### 7.11 远端 Berth 节点（多设备）
+
+在本机操作另一台装了 Berth（GUI 或 CLI）的设备：设备下列出对方全部项目，终端、Agent、文件、会话、
+任务、知识库都在对方机器上，经节点连接访问，不挂载、不经网页、不经中心服务器。
+
+```text
+sidebar 设备区（sidebar-device-section / device-projects / DeviceLaunchPanel）
+  → runtime bridge device.*（src-tauri/src/devices.rs，远端终端在 devices/terminals.rs）
+  → berth_node::client::Client（每台设备：终端通道、数据通道常驻，传输通道按需）
+  → ssh <目标> berth node stdio
+  → 对方常驻 berth node serve（unix socket，会话按 id 保留，ssh 断了换连接续上）
+  → 对方领域代码（project / session / tasks / knowledge / workspace_terminal → termd）
+```
+
+- **协议**（`src-tauri/device/berth-node`，帧格式写在 crate 文档）：握手带协议版本号，不一致即拒绝；
+  消息带优先级（终端交互 > 普通 > 传输），大块切片让交互插队；按确认点续传，输入恰好一次；每个请求有
+  截止时间；zstd 压缩。性能保证由最差链路模拟测试证明（`scripts/dev-trial cargo test -p berth-node`）。
+- **节点设备**：添加 / 检查设备时探测到对方 berth 即是，路径记在 `<数据目录>/devices/<id>/node.json`；
+  探测不到的只能开 SSH 终端，提示装上 Berth；装上后「重新检测」即成为节点设备。
+- **远端终端**：id 为 `<设备 id>/<对方 target_ref>`，与本机终端在命令层（`commands/terminal*.rs`）汇合进
+  同一终端清单；接入回可视区快照，之后推增量；终端通道重连后全部重同步。
+- **缓存**：`<数据目录>/devices/<id>/cache/`，64MB LRU。设备概览、项目概览、目录、文件首屏先出缓存再取
+  最新；目录 / 项目根按版本只回变化。离线时只读缓存并灰掉。
+- **传输**：本机文件树拖到远端项目目录 → `device.transfer` → `berth_node::transfer::upload`
+  （分块、断点续传、对方校验 sha256）；远端终端有输入时传输连接让路。
+- 对方的启动栏、服务商、Key 都是对方的；本机 Key 不外传。
 
 ## 8. 数据存储
 

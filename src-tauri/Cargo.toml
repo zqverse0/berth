@@ -17,12 +17,13 @@ members = [
     "terminal/daemon/berth-termd",
     "terminal/sdk/berth-term-sdk",
     "terminal/cli/berth-cli",
+    "device/berth-node",
 ]
 default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.36.13"
+version = "0.37.0"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -144,6 +145,7 @@ tracing-appender = "0.2"
 # 关闭 available：GUI 只编译当前生产调用闭包，不编入未用 SDK 能力。
 berth-term-sdk = { path = "terminal/sdk/berth-term-sdk", default-features = false }
 berth-control-proto = { path = "control/berth-control-proto" }
+berth-node = { path = "device/berth-node" }
 berth-agent = { path = "agent/berth-agent" }
 berth-group = { path = "project/berth-group" }
 berth-project-core = { path = "project/berth-project-core" }
