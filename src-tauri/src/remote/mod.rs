@@ -95,6 +95,7 @@ const HEARTBEAT: Duration = Duration::from_secs(15);
 /// 响应切块大小：3 Mbps 下约 40ms 一块，块与块之间让终端和事件插队。
 const CHUNK_BYTES: usize = 16 * 1024;
 /// 内核未发送数据上限：约一块响应，慢链路上排队不超过百毫秒级。
+#[cfg(target_os = "linux")]
 const UNSENT_LOWAT: usize = CHUNK_BYTES;
 /// 最近完成的响应留着：断线时没收到的，页面重连后重发同一 id 直接补。
 /// 按总字节限：断线的页面要留半小时；放不下的响应断线后让页面重试。

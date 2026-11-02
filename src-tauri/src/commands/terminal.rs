@@ -58,10 +58,13 @@ const MAX_TERMINAL_INPUT_BYTES: usize = 1024 * 1024;
 ///
 /// 同一份 typed JSON 同时作为 `--berth-launch-inputs` 参数和
 /// `BERTH_LAUNCH_INPUTS` 环境变量，脚本可打印对照，宿主不拼目标 CLI。
+/// 启动脚本解析结果：可执行文件、参数、额外环境变量。
+type AgentLaunch = (Option<String>, Vec<String>, HashMap<String, String>);
+
 fn resolve_agent_launch(
     agent_id: &str,
     request: &CreatePersonalTerminalRequest,
-) -> Result<(Option<String>, Vec<String>, HashMap<String, String>), AppCommandError> {
+) -> Result<AgentLaunch, AppCommandError> {
     berth_tool_core::plugins::ensure_enabled(agent_id)
         .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
     // 与 CLI `terminal create --agent` 同一份启动契约（berth-tool-core）。

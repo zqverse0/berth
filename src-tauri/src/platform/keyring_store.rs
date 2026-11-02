@@ -1,4 +1,4 @@
-#[cfg(feature = "tauri-runtime")]
+#[cfg(all(feature = "tauri-runtime", not(test)))]
 const fn service_name(debug: bool) -> &'static str {
     if debug {
         "berth-dev"

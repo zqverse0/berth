@@ -236,7 +236,7 @@ fn credential_present(decl: &LoginDecl) -> Option<bool> {
 
 fn present_at(path: &PathBuf, key: Option<&str>) -> Option<bool> {
     let Some(key) = key else {
-        return match std::fs::metadata(&path) {
+        return match std::fs::metadata(path) {
             Ok(meta) => Some(meta.is_file()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
             Err(_) => None,

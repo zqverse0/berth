@@ -74,6 +74,8 @@ pub struct TerminalTab {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+// 标签数量很少，按值存放比装箱后到处解引用更简单。
+#[allow(clippy::large_enum_variant)]
 pub enum PrimaryTab {
     Conversation(ConversationTab),
     Terminal(TerminalTab),

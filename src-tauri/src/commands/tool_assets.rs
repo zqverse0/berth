@@ -52,6 +52,8 @@ pub enum ToolAssetsRequest {
     rename_all = "snake_case",
     rename_all_fields = "camelCase"
 )]
+// 一次性响应体，不在集合里长期存放，大小差异无所谓。
+#[allow(clippy::large_enum_variant)]
 pub enum ToolAssetsResponse {
     List {
         tools: Vec<ToolAssetSummary>,
@@ -212,15 +214,15 @@ fn pack(package: &Path, id: &str, dest: &Path) -> Result<(), AppCommandError> {
         }
         let relative = entry.path().strip_prefix(package).unwrap_or(entry.path());
         let name = format!("{id}/{}", relative.to_string_lossy().replace('\\', "/"));
-        let mut options = SimpleFileOptions::default();
+        let options = SimpleFileOptions::default();
         #[cfg(unix)]
-        {
+        let options = {
             use std::os::unix::fs::PermissionsExt;
             let mode = entry
                 .metadata()
                 .map_err(|error| AppCommandError::io_error(error.to_string()))?;
-            options = options.unix_permissions(mode.permissions().mode());
-        }
+            options.unix_permissions(mode.permissions().mode())
+        };
         writer.start_file(name, options).map_err(zip_error)?;
         writer
             .write_all(&std::fs::read(entry.path()).map_err(AppCommandError::io)?)

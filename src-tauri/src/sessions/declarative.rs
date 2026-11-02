@@ -105,7 +105,7 @@ enum Storage {
     Sqlite,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct ParsedSession {
     id: Option<String>,
     project: Option<String>,
@@ -118,24 +118,6 @@ struct ParsedSession {
     message_count: u32,
     messages: Vec<UnifiedMessage>,
     context: Vec<ContextItem>,
-}
-
-impl Default for ParsedSession {
-    fn default() -> Self {
-        Self {
-            id: None,
-            project: None,
-            title: None,
-            first_user_text: None,
-            model: None,
-            session_fields: BTreeMap::new(),
-            first_ts: None,
-            last_ts: None,
-            message_count: 0,
-            messages: Vec::new(),
-            context: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -492,7 +474,7 @@ impl DeclarativeSessionParser {
     fn get_jsonl(&self, id: &str) -> Result<ConversationDetail, ParseError> {
         if let Some(path) = cached_source_locator(self.agent_type, id) {
             if path.starts_with(&self.root) {
-                if let Some(parsed) = parse_jsonl(&path, &self.spec, true).ok() {
+                if let Ok(parsed) = parse_jsonl(&path, &self.spec, true) {
                     if parsed.id.as_deref() == Some(id)
                         || path.file_stem().and_then(|v| v.to_str()) == Some(id)
                     {
@@ -1267,8 +1249,8 @@ impl AgentParser for DeclarativeSessionParser {
         let mut request = NativeConversationPageRequest {
             project_path: String::new(),
             cursor: None,
-            limit: usize::MAX.min(200),
-            scan_budget: usize::MAX.min(50_000),
+            limit: 200,
+            scan_budget: 50_000,
             search: None,
         };
         let mut result = Vec::new();
@@ -1386,12 +1368,12 @@ fn validate_spec(storage: Storage, spec: &SessionSpec) -> Result<(), ParseError>
             let message = spec.message.as_ref().ok_or_else(|| {
                 ParseError::InvalidData("jsonl message declaration is required".into())
             })?;
-            if message.role.is_none() {
-                if message.role_map.is_empty() || message.variant.is_none() {
-                    return Err(ParseError::InvalidData(
-                        "jsonl message.role or role_map + variant is required".into(),
-                    ));
-                }
+            if message.role.is_none()
+                && (message.role_map.is_empty() || message.variant.is_none())
+            {
+                return Err(ParseError::InvalidData(
+                    "jsonl message.role or role_map + variant is required".into(),
+                ));
             }
         }
         Storage::Sqlite => {
@@ -1657,9 +1639,11 @@ fn parse_jsonl(
         let id = select_relative_with_path(nested.as_ref(), &value, message.id.as_ref(), path)
             .and_then(|value| value_string(&value))
             .unwrap_or_else(|| format!("message-{index}"));
-        let fields = capture_messages
-            .then(|| select_declared_fields(nested.as_ref(), &value, &message.fields, path))
-            .unwrap_or_default();
+        let fields = if capture_messages {
+            select_declared_fields(nested.as_ref(), &value, &message.fields, path)
+        } else {
+            Default::default()
+        };
         let model = select_relative(nested.as_ref(), &value, message.model.as_ref());
         let timestamp = select_relative(nested.as_ref(), &value, message.time.as_ref());
         observed_time |= timestamp.as_ref().and_then(parse_time).is_some();
@@ -1818,7 +1802,7 @@ fn append_message_fields(
     if matches!(message_role, MessageRole::User) && result.first_user_text.is_none() {
         if let Some(text) = content
             .as_ref()
-            .and_then(|value| value_text(&value))
+            .and_then(|value| value_text(value))
             .filter(|text| !text.trim().is_empty())
         {
             result.first_user_text = Some(title_from_user_text(text.trim()));
@@ -1981,8 +1965,7 @@ fn tool_call_block(value: &Value) -> Option<ContentBlock> {
                 .get("arguments")
                 .or_else(|| value.get("input"))
                 .or_else(|| value.get("args"))
-                .map(value_preview)
-                .flatten(),
+                .and_then(value_preview),
             meta: None,
         })
     })

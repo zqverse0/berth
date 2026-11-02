@@ -23,4 +23,7 @@ if (!fs.existsSync(worker)) throw new Error("Missing PDF.js worker")
 fs.copyFileSync(worker, path.join(outputDir, "pdf.worker.min.mjs"))
 
 // 旧版拷到这里的 Excalidraw 字体（画板已移到 excalidraw 插件，字体随插件包）：删掉，免得打进安装包
-fs.rmSync(path.resolve("public", "excalidraw"), { recursive: true, force: true })
+fs.rmSync(path.resolve("public", "excalidraw"), {
+  recursive: true,
+  force: true,
+})

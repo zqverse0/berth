@@ -486,7 +486,7 @@ async fn gui_project_owner_keeps_legacy_unresolved_and_never_reuses_or_closes_it
 
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
-async fn gui_duplicate_terminal_ids_are_ambiguous_without_rebinding() {
+async fn gui_duplicate_terminal_ids_are_skipped_without_rebinding() {
     use berth_term_sdk::berth::{EnsureSession, SessionName};
 
     let _env_lock = env_lock();
@@ -519,28 +519,27 @@ async fn gui_duplicate_terminal_ids_are_ambiguous_without_rebinding() {
         .await
         .expect("same-named independent window");
 
+    // 重名窗口整组跳过：清单照常返回但不含它，冷启动不建记录，也不换绑已捕获的记录。
     let cold_manager = project_manager(root.path()).await;
-    assert!(cold_manager
+    assert!(!cold_manager
         .try_list()
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous"));
-    assert!(cold_manager
-        .describe("duplicate-id")
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous"));
-    assert!(cold_manager
-        .current_binding("duplicate-id")
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous"));
+        .unwrap()
+        .iter()
+        .any(|descriptor| descriptor.terminal_id == "duplicate-id"));
+    assert!(matches!(
+        cold_manager.describe("duplicate-id"),
+        Err(TerminalError::NotFound(_))
+    ));
+    assert!(matches!(
+        cold_manager.current_binding("duplicate-id"),
+        Err(TerminalError::NotFound(_))
+    ));
     assert!(cold_manager.inner.sessions.lock().unwrap().is_empty());
-    assert!(manager
+    assert!(!manager
         .try_list()
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous"));
+        .unwrap()
+        .iter()
+        .any(|descriptor| descriptor.terminal_id == "duplicate-id"));
     assert_eq!(manager.current_binding("duplicate-id").unwrap(), original);
     kill_test_daemon().await;
 }

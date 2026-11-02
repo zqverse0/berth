@@ -705,7 +705,7 @@ async fn output(
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .last()
+        .next_back()
         .map_or_else(|| format!("{program} failed"), str::to_owned))
 }
 

@@ -57,7 +57,7 @@ fn validate_tab(tab: &PrimaryTab) -> Result<(), DbError> {
                 || tab.initial_cwd.trim().is_empty()
                 || tab.shell.trim().is_empty()
                 || tab.title.len() > 1024
-                || tab.agent_type.as_ref().map_or(false, |t| t.len() > 256)
+                || tab.agent_type.as_ref().is_some_and(|t| t.len() > 256)
             {
                 return Err(DbError::Validation("invalid_primary_tab".to_string()));
             }

@@ -5,7 +5,9 @@
 //! [`workspace_open_file_handoff`] 只供主窗口领取与回执 CLI `file.open` 请求。
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -21,9 +23,9 @@ use berth_control_proto::{
     CONTROL_WIRE_VERSION,
     MAX_FRAME_BYTES, METHOD_HELLO,
 };
-use berth_term_ipc::{
-    connect_blocking, endpoint_for_label, LocalEndpoint, LocalListener, LocalStream, PeerIdentity,
-};
+#[cfg(unix)]
+use berth_term_ipc::connect_blocking;
+use berth_term_ipc::{endpoint_for_label, LocalEndpoint, LocalListener, LocalStream, PeerIdentity};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod handlers;
@@ -991,8 +993,10 @@ pub(crate) async fn workspace_open_file_handoff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(unix)]
     static TEST_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]

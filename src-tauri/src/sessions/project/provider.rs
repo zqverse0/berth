@@ -8,11 +8,11 @@ use crate::sessions::{
 /// parser or built-in path is consulted.
 pub(crate) fn build_agent_parser(agent_type: AgentType) -> Box<dyn AgentParser> {
     match crate::sessions::declarative::DeclarativeSessionParser::for_agent(agent_type) {
-        Ok(Some(parser)) => return Box::new(parser),
-        Ok(None) => return Box::new(UnsupportedSessionParser::missing(agent_type)),
+        Ok(Some(parser)) => Box::new(parser),
+        Ok(None) => Box::new(UnsupportedSessionParser::missing(agent_type)),
         Err(error) => {
             tracing::warn!(%agent_type, %error, "invalid declarative session spec");
-            return Box::new(UnsupportedSessionParser::invalid(agent_type, error));
+            Box::new(UnsupportedSessionParser::invalid(agent_type, error))
         }
     }
 }
