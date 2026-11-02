@@ -820,7 +820,7 @@ fn trusted_platform_directory_alias(path: &Path) -> io::Result<bool> {
         let Some(expected) = expected else {
             return Ok(false);
         };
-        return Ok(std::fs::canonicalize(path)? == std::fs::canonicalize(expected)?);
+        Ok(std::fs::canonicalize(path)? == std::fs::canonicalize(expected)?)
     }
 
     #[cfg(not(target_os = "macos"))]
