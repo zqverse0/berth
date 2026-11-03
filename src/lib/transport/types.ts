@@ -7,6 +7,8 @@ export type UnsubscribeFn = () => void
  */
 export interface CallOptions {
   timeoutMs?: number
+  /** 发给这台设备（不带项目参数的设备级调用，如对方的工具、服务商）；不填按参数里的设备地址路由。 */
+  device?: number
 }
 
 /**

@@ -277,12 +277,6 @@ pub(crate) fn list(options: &ListOptions, json_mode: bool) -> Result<(), CliErro
     Ok(())
 }
 
-/// 主项目的会话链接（各群目录）：远端节点按项目路径取，不看当前目录。
-pub(crate) fn links_for(main: &Path) -> Result<SessionLinks, CliError> {
-    session_links(main)
-        .map_err(|error| failure(EXIT_USER_ERROR, "invalid_params", error.to_string(), true))
-}
-
 /// 会话行（`session list --json` 的 `sessions` 元素），最近活动在前。
 pub(crate) fn list_rows(
     links: &SessionLinks,

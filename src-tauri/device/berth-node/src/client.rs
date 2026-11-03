@@ -98,7 +98,7 @@ pub struct Client {
 }
 
 impl Client {
-    /// 开始连接；返回句柄与对方推送（终端输出等）的接收端。
+    /// 开始连接；返回句柄与对方推送（隧道字节）的接收端。
     pub fn start(connector: Connector) -> (Self, UnboundedReceiver<(Push, Vec<u8>)>) {
         let (tx, rx) = unbounded_channel();
         let (pushes, pushes_rx) = unbounded_channel();
@@ -134,7 +134,7 @@ impl Client {
         let _ = self.tx.send(Cmd::Retry);
     }
 
-    /// 另一条连接上有交互（终端输入）：到 `until` 之前这条连接的非交互流量半速、不探测，给它让路。
+    /// 有终端交互（按键）：到 `until` 之前这条连接的非交互流量半速、不探测，给它让路。
     pub fn yield_until(&self, until: std::time::Instant) {
         let _ = self.tx.send(Cmd::Yield(until.into()));
     }
@@ -464,11 +464,13 @@ const BERTH_CANDIDATES: &[&str] = &[
 ];
 
 /// 探测对方 berth 路径的远端命令：找到则打印路径并以 0 退出，找不到以 1 退出。
+/// 上次记下的路径（`preferred`）仍可执行就沿用：对方装了多个 Berth 时不在它们之间来回换。
 /// 包一层 `sh -c`，登录 shell 是 fish / zsh 也照样跑。
-pub fn probe_command() -> String {
-    let candidates = BERTH_CANDIDATES
-        .iter()
-        .map(|path| format!("\"{path}\""))
+pub fn probe_command(preferred: Option<&str>) -> String {
+    let candidates = preferred
+        .map(sh_quote)
+        .into_iter()
+        .chain(BERTH_CANDIDATES.iter().map(|path| format!("\"{path}\"")))
         .collect::<Vec<_>>()
         .join(" ");
     let script = format!(

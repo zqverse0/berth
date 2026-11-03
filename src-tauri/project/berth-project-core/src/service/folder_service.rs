@@ -531,7 +531,12 @@ pub async fn list_open_folder_details(
         .all(conn)
         .await?;
 
-    Ok(rows.into_iter().map(to_detail).collect())
+    // 只列仍存在的目录（被删、临时目录被清的不列；记录保留）：GUI、CLI 与设备概览同一口径。
+    Ok(rows
+        .into_iter()
+        .filter(|row| std::path::Path::new(&row.path).is_dir())
+        .map(to_detail)
+        .collect())
 }
 
 pub async fn list_all_folder_details(

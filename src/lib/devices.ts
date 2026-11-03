@@ -1,11 +1,10 @@
 /**
  * 设备：可通过 SSH 连接的其他机器（runtime bridge `device.*`，后端 `src-tauri/src/devices.rs`）。
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { runtimeBridgeOperation } from "@/lib/runtime-bridge"
 import { subscribe } from "@/lib/platform"
-import type { LaunchbarConfig } from "@/components/launchbar/types"
-import type { JsonValue, TerminalDescriptor } from "@/lib/types"
+import type { FolderDetail } from "@/lib/types"
 
 export interface Device {
   id: number
@@ -28,49 +27,18 @@ export type NodeChannelStatus =
 export interface DeviceNode {
   /** 对方 berth 的路径。 */
   berth: string
-  /** 数据通道与终端通道的状态；还没建立连接时为 `null`。 */
-  status: { data: NodeChannelStatus; terminal: NodeChannelStatus } | null
+  /** 节点连接的状态；还没建立连接时为 `null`。 */
+  status: NodeChannelStatus | null
 }
 
-/** 对方库里的一个项目。 */
-export interface NodeProject {
-  id: number
-  path: string
-  name: string
-  is_open: boolean
-}
+/** 对方打开的一个项目：与本机侧栏同一份 `FolderDetail`（层级、别名、分支、排序）。 */
+export type NodeProject = FolderDetail
 
 /** 设备概览（`berth node` 的 `device` 视图）。 */
 export interface NodeOverview {
   host: string
   os: string
   projects: NodeProject[]
-}
-
-/** 对方可启动的工具：原样的 tool.json 与 launchbar.json。 */
-export interface RemoteAgent {
-  id: string
-  tool: {
-    contributes?: {
-      identity?: { name?: string }
-      agent?: { providerInjection?: { agentType?: string } }
-    }
-  }
-  launchbar: LaunchbarConfig | null
-}
-
-/** 对方的服务商摘要（不含 Key）。 */
-export interface RemoteProvider {
-  id: number
-  name: string
-  agentType: string
-  agentTypes: string[] | null
-  model: string | null
-}
-
-export interface RemoteLaunchbar {
-  agents: RemoteAgent[]
-  providers: RemoteProvider[]
 }
 
 export interface DeviceCheck {
@@ -105,29 +73,13 @@ export const deviceNode = (deviceId: number) =>
     "device.node",
     { deviceId }
   )
-/** 对方的启动栏（工具与服务商）。 */
-export const deviceLaunchbar = (deviceId: number) =>
-  call<RemoteLaunchbar>("device.launchbar", { deviceId })
-/** 在对方项目里新建终端（给 `agent` 即用对方启动栏启动 Agent），返回本机终端描述。 */
-export const createDeviceTerminal = (params: {
-  deviceId: number
-  project: number
-  agent?: string | null
-  inputs?: Record<string, JsonValue>
-  provider?: number | null
-}) => call<TerminalDescriptor>("device.createTerminal", params)
-
-/** 节点协议的请求（`berth_node::api::Request`），只列前端用到的。 */
+/** 到对方 GUI 的本机回环端口（`devices/workspace.rs`）；对方 GUI 未运行时失败。 */
+export const deviceConnect = (deviceId: number) =>
+  call<{ port: number }>("device.connect", { deviceId })
+/** 节点协议的请求（`berth_node::api::Request`），只列前端用到的：浏览对方目录、在对方添加项目。 */
 export type NodeRequest =
-  | { op: "project"; project: number }
   | { op: "project_add"; path: string }
   | { op: "dirs"; path?: string | null }
-  | { op: "session"; id: string; agent?: string | null }
-  | { op: "task"; project: number; task: string }
-  | { op: "note"; project: number; name: string }
-  | { op: "list"; path: string }
-  | { op: "read"; path: string; offset: number; len: number }
-  | { op: "write"; path: string; version: string | null }
 
 /** 节点报的错：`kind` 为 `not_found` / `conflict` / `forbidden` / `invalid` / `unavailable` / `timeout` / `closed` 等。 */
 export interface NodeError {
@@ -139,48 +91,6 @@ export interface NodeError {
 export type NodeReply<T> =
   | { result: T; body: string | null }
   | { error: NodeError }
-
-/** 目录条目与列表（`berth_node::api::Entry` / `Listing`）。 */
-export interface NodeEntry {
-  name: string
-  dir: boolean
-  size: number
-}
-export interface NodeListing {
-  version: string
-  entries: NodeEntry[]
-}
-
-/** 概览里的某一部分取失败时换成 `{ error }`。 */
-export type NodePart<T> = T | { error: NodeError }
-
-/** 远端项目概览（`berth node` 的 `project` 视图，一次取齐）。 */
-export interface NodeProjectOverview {
-  project: NodeProject
-  root: NodePart<NodeListing>
-  sessions: NodePart<{
-    sessions: {
-      session_id: string
-      agent: string
-      title: string | null
-      updated_at: number | null
-    }[]
-  }>
-  tasks: NodePart<{ tasks: { id: string; title: string; status: string }[] }>
-  notes: NodePart<{ notes: { path: string; title: string }[] }>
-}
-
-/** `Read` 的回复头（内容在 `body`）。 */
-export interface NodeReadHead {
-  size: number
-  version: string
-  binary: boolean
-}
-
-/** 打开文件先读这么多（与 `berth_node::api::FIRST_SCREEN` 一致），其余续读。 */
-export const NODE_FIRST_SCREEN = 64 * 1024
-/** 单次续读的上限（`MAX_READ`）。 */
-export const NODE_MAX_READ = 1024 * 1024
 
 /**
  * 经数据通道转发一个节点请求；只读请求后端写磁盘缓存。
@@ -206,13 +116,6 @@ export function deviceRequest<T>(
     request,
     ...options,
   })
-}
-
-/** 概览的一部分是否取失败。 */
-export function partError<T extends object>(
-  part: NodePart<T> | undefined
-): NodeError | null {
-  return part && "error" in part ? (part.error as NodeError) : null
 }
 
 /** 设备概览：先出缓存，后端取到最新的经 `device://node` 推来。 */
@@ -245,81 +148,6 @@ export function useDeviceOverview(deviceId: number) {
     }
   }, [deviceId])
   return overview
-}
-
-/**
- * 先出缓存再取最新的节点请求。`live` 为假（设备离线）时只用缓存，恢复在线后自动取最新的。
- * `request` 为 `null` 时不请求。
- */
-export function useNodeRequest<T>(
-  deviceId: number,
-  request: NodeRequest | null,
-  live: boolean
-) {
-  const key = request ? JSON.stringify(request) : null
-  const [state, setState] = useState({
-    key: null as string | null,
-    data: null as T | null,
-    error: null as NodeError | null,
-    loading: false,
-  })
-  const [revision, setRevision] = useState(0)
-
-  useEffect(() => {
-    if (!key) return
-    let cancelled = false
-    const parsed = JSON.parse(key) as NodeRequest
-    void deviceRequest<T>(deviceId, parsed, { cached: true })
-      .then((hit) => {
-        if (cancelled || !hit || !("result" in hit)) return
-        // 最新的已经到了就不再用缓存覆盖。
-        setState((prev) =>
-          prev.key === key && prev.data !== null
-            ? prev
-            : { key, data: hit.result, error: null, loading: live }
-        )
-      })
-      .catch(() => {})
-    if (!live) return
-    deviceRequest<T>(deviceId, parsed)
-      .then((reply) => {
-        if (cancelled) return
-        setState((prev) => {
-          const kept = prev.key === key ? prev.data : null
-          return "result" in reply
-            ? { key, data: reply.result, error: null, loading: false }
-            : { key, data: kept, error: reply.error, loading: false }
-        })
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setState((prev) => ({
-          key,
-          data: prev.key === key ? prev.data : null,
-          error: { kind: "internal", message: String(error) },
-          loading: false,
-        }))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [deviceId, key, live, revision])
-
-  const reload = useCallback(() => {
-    setState((prev) => ({ ...prev, loading: true, error: null }))
-    setRevision((n) => n + 1)
-  }, [])
-
-  const current =
-    state.key === key
-      ? state
-      : { key, data: null, error: null, loading: live && key !== null }
-  return {
-    data: current.data,
-    error: current.error,
-    loading: current.loading,
-    reload,
-  }
 }
 
 /** 一次跨设备传输的进度（`device://transfer`）。 */
@@ -357,13 +185,22 @@ export const cancelDeviceTransfer = (id: number) =>
   call<null>("device.cancelTransfer", { id })
 
 /** 传到这台设备的传输：进行中、失败、取消的留着（可重试 / 移除），完成的自动消失。 */
-export function useDeviceTransfers(deviceId: number) {
+export function useDeviceTransfers(
+  deviceId: number,
+  onDone?: (dest: string) => void
+) {
   const [transfers, setTransfers] = useState<DeviceTransfer[]>([])
+  // 完成即从列表消失，小文件一闪而过：由调用方给个完成提示。
+  const onDoneRef = useRef(onDone)
+  useEffect(() => {
+    onDoneRef.current = onDone
+  })
   useEffect(() => {
     let disposed = false
     let unsubscribe: (() => void) | null = null
     void subscribe<DeviceTransfer>("device://transfer", (event) => {
       if (disposed || event.deviceId !== deviceId) return
+      if (event.state === "done") onDoneRef.current?.(event.dest)
       setTransfers((prev) => {
         // 重试是新的 id：同一源与目标只留最新一条。
         const rest = prev.filter(

@@ -20,6 +20,21 @@ import type { FolderDetail } from "@/lib/types"
  * extra round-trip is required to apply it.
  */
 export function WorkspaceOpenFolderListener() {
+  // 设备窗口（`src-tauri/src/devices/window.rs`）带 `?folder=<id>` 打开：定位到该项目。
+  useEffect(() => {
+    const folderId = Number(
+      new URLSearchParams(window.location.search).get("folder")
+    )
+    if (!folderId) return
+    void useAppWorkspaceStore
+      .getState()
+      .addFolderToWorkspaceById(folderId)
+      .then((detail) =>
+        useTabStore.getState().activateFolderWorkspace(detail.id)
+      )
+      .catch((err) => console.error("[OpenFolder] ?folder failed:", err))
+  }, [])
+
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined

@@ -496,7 +496,7 @@ pub async fn update_model_provider(
     overlays: Option<Vec<crate::models::model_provider::ProviderOverlayInfo>>,
     kind: Option<String>,
     discovery_json: Option<String>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<UpdateModelProviderResult, AppCommandError> {
     let emitter = EventEmitter::Tauri(app);
     update_model_provider_and_refresh(

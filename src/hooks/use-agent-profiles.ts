@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { create } from "zustand"
 import { normalizeAbsPath } from "@/lib/files/file-open-target"
 import type { AgentProfileSummary } from "@/lib/transport/launchbar"
@@ -128,13 +128,65 @@ function acquireSharedSubscription(): () => void {
   }
 }
 
-export function useAgentProfiles(): UseAgentProfilesResult {
-  useEffect(() => acquireSharedSubscription(), [])
+/** `device`：那台设备的工具（对方项目里启动用）；不填是本机的共享 store。 */
+export function useAgentProfiles(device?: number): UseAgentProfilesResult {
+  useEffect(
+    () => (device == null ? acquireSharedSubscription() : undefined),
+    [device]
+  )
   const agents = useAgentProfilesStore((state) => state.agents)
   const directory = useAgentProfilesStore((state) => state.directory)
   const fresh = useAgentProfilesStore((state) => state.fresh)
   const loading = useAgentProfilesStore((state) => state.loading)
   const error = useAgentProfilesStore((state) => state.error)
   const refresh = useAgentProfilesStore((state) => state.reload)
-  return { agents, directory, fresh, loading, error, refresh }
+  const remote = useDeviceAgentProfiles(device)
+  return remote ?? { agents, directory, fresh, loading, error, refresh }
+}
+
+const EMPTY_PROFILES = {
+  agents: [] as AgentProfileSummary[],
+  directory: null,
+  fresh: false,
+  loading: true,
+  error: null,
+}
+
+function useDeviceAgentProfiles(
+  device: number | undefined
+): UseAgentProfilesResult | null {
+  const [state, setState] = useState<
+    Omit<UseAgentProfilesResult, "refresh"> & { device?: number }
+  >(EMPTY_PROFILES)
+  const refresh = useCallback(async () => {
+    if (device == null) return
+    try {
+      const response = await launchbar({ type: "list_agents" }, device)
+      if (response.type !== "agents")
+        throw new Error("unexpected launchbar response")
+      setState({
+        device,
+        agents: response.agents,
+        directory: response.directory,
+        fresh: true,
+        loading: false,
+        error: null,
+      })
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        device,
+        loading: false,
+        error: errorMessage(error),
+      }))
+    }
+  }, [device])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+  if (device == null) return null
+  // 换了设备、新的还没到：不显示上一台的。
+  return state.device === device
+    ? { ...state, refresh }
+    : { ...EMPTY_PROFILES, refresh }
 }

@@ -4,6 +4,8 @@
  * card). Extracted so both call sites stay in sync.
  */
 
+import { deviceRoot } from "@/lib/transport/device"
+
 /** True when a unified diff represents a file deletion. */
 export function isRemovedFileDiff(diff: string | null): boolean {
   if (!diff) return false
@@ -37,10 +39,15 @@ export function normalizeSlashPath(path: string): string {
 
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:[\\/]/
 
-/** True when a path is absolute (POSIX `/…` or Windows `C:\…` / `C:/…`). */
+/** True when a path is absolute (POSIX `/…`, Windows `C:\…` / `C:/…`, or
+ * another device's `berth-device://<id>/…`). */
 export function isAbsoluteFilePath(path: string): boolean {
   const normalized = normalizeSlashPath(path)
-  return normalized.startsWith("/") || WINDOWS_ABSOLUTE_PATH.test(normalized)
+  return (
+    normalized.startsWith("/") ||
+    WINDOWS_ABSOLUTE_PATH.test(normalized) ||
+    deviceRoot(normalized) !== null
+  )
 }
 
 /**

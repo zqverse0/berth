@@ -23,7 +23,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.37.0"
+version = "0.37.1"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -74,11 +74,19 @@ test-utils = []
 # and stream console output for Phase A8 performance measurement.
 # NEVER enable in release builds.
 debug-bridge = ["dep:tauri-plugin-debug-bridge"]
+# `berth-host`：无显示器设备上的宿主，Tauri 换 MockRuntime（见 lib.rs `Rt`）。只配合
+# `--bin berth-host` 构建；与 berth-gui 互斥（运行时类型全局替换）。
+headless = ["tauri-runtime", "tauri/test"]
 
 [[bin]]
 name = "berth-gui"
 path = "src/main.rs"
 required-features = ["tauri-runtime"]
+
+[[bin]]
+name = "berth-host"
+path = "src/bin/berth-host.rs"
+required-features = ["headless"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }

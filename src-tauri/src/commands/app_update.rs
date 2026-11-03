@@ -30,7 +30,7 @@ pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpd
 /// progress via the `app_update_state` event.
 #[tauri::command]
 pub async fn perform_app_update(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
     let handle = state.inner().clone();
@@ -55,7 +55,7 @@ pub async fn perform_app_update(
 /// handle. On success leaves the state at `ReadyToRestart`. Returns the error
 /// message (already stringified) so the caller can record it.
 async fn run_download(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     handle: AppUpdateStateHandle,
     emitter: EventEmitter,
 ) -> Result<(), String> {
@@ -100,7 +100,7 @@ async fn run_download(
 /// restarts after a short flush delay. `restart()` never returns.
 #[tauri::command]
 pub async fn restart_app(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<(), AppCommandError> {
     let handle = state.inner().clone();

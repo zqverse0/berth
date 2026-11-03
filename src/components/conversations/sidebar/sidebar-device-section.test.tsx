@@ -1,9 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
 import type { Device, NodeChannelStatus, NodeRequest } from "@/lib/devices"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { deviceFolderId } from "@/lib/transport/device"
 import { SidebarDeviceSection } from "./sidebar-device-section"
 
 type Call = { method: string; params: Record<string, unknown> }
@@ -41,6 +43,12 @@ vi.mock("@/lib/runtime-bridge", () => ({
   },
 }))
 
+// 不真连对方 GUI。
+vi.mock("@/lib/transport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/transport")>()),
+  connectDevice: () => undefined,
+}))
+
 vi.mock("@/lib/platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/platform")>()),
   subscribe: () => Promise.resolve(() => undefined),
@@ -49,47 +57,27 @@ vi.mock("@/lib/platform", async (importOriginal) => ({
 const OVERVIEW = {
   host: "macmini",
   os: "macos",
-  projects: [{ id: 4, path: "/Users/k/app", name: "app", is_open: true }],
-}
-
-function projectOverview(entries: { name: string; dir: boolean }[]) {
-  return {
-    result: {
-      project: OVERVIEW.projects[0],
-      root: {
-        version: "r1",
-        unchanged: false,
-        entries: entries.map((entry) => ({ ...entry, size: 0 })),
-      },
-      sessions: {
-        sessions: [
-          {
-            session_id: "s1",
-            agent: "claude",
-            title: "Fix login",
-            updated_at: 1,
-          },
-        ],
-      },
-      tasks: { tasks: [] },
-      notes: { notes: [] },
+  projects: [
+    {
+      id: 4,
+      path: "/Users/k/app",
+      name: "app",
+      parent_id: null,
+      alias: null,
+      git_branch: "main",
+      sort_order: 0,
+      pinned_at: null,
     },
-    body: null,
-  }
+  ],
 }
 
-const README = {
-  result: { size: 5, version: "v1", binary: false },
-  body: btoa("hello"),
-}
-
-function device(data: NodeChannelStatus): Device {
+function device(status: NodeChannelStatus): Device {
   return {
     id: 1,
     name: "macmini",
     target: "macmini",
     localDir: "/data/remote/1",
-    node: { berth: "/b/berth", status: { data, terminal: data } },
+    node: { berth: "/b/berth", status },
   }
 }
 
@@ -123,91 +111,34 @@ describe("SidebarDeviceSection — node devices", () => {
     mocks.hasBerth = true
   })
 
-  it("lists the device's projects and opens one with a single request, cache first", async () => {
-    mocks.reply = (request, cached) =>
-      request.op === "project"
-        ? cached
-          ? projectOverview([{ name: "README.md", dir: false }])
-          : projectOverview([
-              { name: "src", dir: true },
-              { name: "README.md", dir: false },
-            ])
-        : null
+  it("lists the device's open projects; clicking one makes it the active project here", async () => {
     renderSection(device({ state: "online" }))
     await userEvent.click(await screen.findByRole("button", { name: "app" }))
 
-    expect(await screen.findByText("README.md")).toBeInTheDocument()
-    expect(await screen.findByText("src")).toBeInTheDocument()
-    expect(fresh("project")).toHaveLength(1)
-
-    await userEvent.click(screen.getByRole("button", { name: "Sessions" }))
-    expect(screen.getByText("Fix login")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(useAppWorkspaceStore.getState().activeFolderId).toBe(
+        deviceFolderId(1, 4)
+      )
+    )
+    // 以本机身份进工作区，但不混进本机项目列表。
+    expect(
+      useAppWorkspaceStore
+        .getState()
+        .allFolders.find((folder) => folder.id === deviceFolderId(1, 4))?.path
+    ).toBe("berth-device://1/Users/k/app")
+    expect(useAppWorkspaceStore.getState().folders).toEqual([])
   })
 
-  it("shows the cache greyed out while offline and never asks the device", async () => {
-    mocks.reply = (request, cached) =>
-      !cached
-        ? { error: { kind: "timeout", message: "timed out" } }
-        : request.op === "project"
-          ? projectOverview([{ name: "README.md", dir: false }])
-          : request.op === "read"
-            ? README
-            : null
+  it("greys the cached projects out while offline and does not open them", async () => {
     const { container } = renderSection(
       device({ state: "failed", error: "ssh: no route" })
     )
-    await userEvent.click(await screen.findByRole("button", { name: "app" }))
-    await userEvent.click(await screen.findByText("README.md"))
-
-    const dialog = await screen.findByRole("dialog")
-    const editor = within(dialog).getByRole("textbox")
-    await waitFor(() => expect(editor).toHaveValue("hello"))
-    expect(editor).toHaveAttribute("readonly")
-    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled()
+    expect(await screen.findByRole("button", { name: "app" })).toBeDisabled()
     expect(
       container.querySelector(
         `[title="${en.Folder.sidebar.devices.remote.offline}"]`
       )
     ).toHaveClass("opacity-60")
-    expect(
-      mocks.calls
-        .filter((call) => call.method === "device.request")
-        .every((call) => call.params.cached === true)
-    ).toBe(true)
-  })
-
-  it("saves with the version it read and reports a conflict without overwriting", async () => {
-    mocks.reply = (request, cached) =>
-      cached
-        ? null
-        : request.op === "project"
-          ? projectOverview([{ name: "README.md", dir: false }])
-          : request.op === "read"
-            ? README
-            : request.op === "write"
-              ? { error: { kind: "conflict", message: "changed on disk" } }
-              : null
-    renderSection(device({ state: "online" }))
-    await userEvent.click(await screen.findByRole("button", { name: "app" }))
-    await userEvent.click(await screen.findByText("README.md"))
-
-    const dialog = await screen.findByRole("dialog")
-    const editor = within(dialog).getByRole("textbox")
-    await waitFor(() => expect(editor).not.toHaveAttribute("readonly"))
-    await userEvent.type(editor, "!")
-    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }))
-
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      en.Folder.sidebar.devices.remote.conflict
-    )
-    const [write] = fresh("write")
-    expect(write.params.request).toEqual({
-      op: "write",
-      path: "/Users/k/app/README.md",
-      version: "v1",
-    })
-    expect(atob(write.params.body as string)).toBe("hello!")
-    expect(editor).toHaveValue("hello!")
   })
 
   it("adds a project by registering it in the device's Berth, without mounting", async () => {

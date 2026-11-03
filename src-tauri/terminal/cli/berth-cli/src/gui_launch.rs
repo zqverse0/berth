@@ -1,4 +1,5 @@
 //! Locate and launch the desktop GUI binary when the control socket is down.
+//! 没有显示器时改拉起同目录的无界面宿主 `berth-host`（同一份后端，见任务 11-02-device-first）。
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -22,14 +23,14 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(200);
 /// reachable. Failures to even try (no binary, no display) are `Err` with a
 /// user-facing message.
 pub(crate) fn try_launch_gui(deadline: Option<Instant>) -> Result<bool, String> {
-    let Some(binary) = locate_gui_binary() else {
-        return Err(
-            "cannot find the berth-gui binary; set BERTH_GUI_BINARY or install the GUI".to_owned(),
-        );
+    let binary = if display_available() {
+        locate_gui_binary().ok_or(
+            "cannot find the berth-gui binary; set BERTH_GUI_BINARY or install the GUI",
+        )?
+    } else {
+        locate_host_binary()
+            .ok_or("no display available and no berth-host next to the CLI; install Berth")?
     };
-    if !display_available() {
-        return Err("no display available; the GUI cannot start in this environment".to_owned());
-    }
     spawn_detached(&binary)?;
 
     let endpoint = match endpoint_for_label("gui") {
@@ -63,13 +64,29 @@ fn locate_gui_binary() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// 没有显示器且装了 `berth-host`：[`try_launch_gui`] 会起无界面宿主。
+pub(crate) fn can_launch_host() -> bool {
+    !display_available() && locate_host_binary().is_some()
+}
+
+/// CLI 同目录的 `berth-host`。
+fn locate_host_binary() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| sibling(&exe, "berth-host"))
+        .filter(|path| path.is_file())
+}
+
 fn sibling_gui(cli: &std::path::Path) -> PathBuf {
-    let name = if cfg!(windows) {
-        "berth-gui.exe"
+    sibling(cli, "berth-gui")
+}
+
+fn sibling(cli: &std::path::Path, name: &str) -> PathBuf {
+    cli.with_file_name(if cfg!(windows) {
+        format!("{name}.exe")
     } else {
-        "berth-gui"
-    };
-    cli.with_file_name(name)
+        name.to_owned()
+    })
 }
 
 /// Linux 无 X11/Wayland 时不可能启动桌面进程；macOS/Windows 桌面会话由
@@ -109,9 +126,10 @@ fn spawn_detached(binary: &std::path::Path) -> Result<(), String> {
     }
     command
         .spawn()
-        .map(|child| {
-            // 让 GUI 成为孤儿，由 init 接管。
-            std::mem::forget(child)
+        .map(|mut child| {
+            // 常驻的 `berth node serve` 也会拉起宿主：子进程退出（如重复的 berth-host 让出）时要回收，
+            // 否则留下僵尸；CLI 先退出则由 init 接管。
+            std::thread::spawn(move || child.wait());
         })
         .map_err(|error| format!("failed to start '{}': {error}", binary.display()))
 }

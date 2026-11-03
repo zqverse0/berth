@@ -10,10 +10,10 @@
 //! 不起 `berth` 子进程。终端输入、尺寸、接入按发出顺序在每会话一个的工作者里执行，其余请求并发。
 
 mod files;
-mod terminals;
+mod tunnel;
 mod views;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,14 +39,9 @@ const LINGER: Duration = Duration::from_secs(600);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 /// 写不出去这么久就当连接断了。
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
-/// 终端输出在会话里排队超过这么多字节就不再推送，改让客户端重新接入取快照。
-const OUTPUT_BACKLOG: usize = 256 * 1024;
 
 /// 请求处理的共用环境。
-pub(crate) struct Ctx {
-    /// 本机 termd 的 socket。
-    termd: PathBuf,
-}
+pub(crate) struct Ctx;
 
 impl Ctx {
     /// 文件访问范围：对方库里全部项目的根目录。
@@ -89,12 +84,17 @@ fn socket_path() -> io::Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
     }
-    let data = std::env::var_os("BERTH_DATA_DIR").map(PathBuf::from).unwrap_or_else(|| {
-        berth_project_core::instance::default_data_dir(crate::project::build_instance())
-    });
+    let data = data_dir();
     let digest = Sha256::digest(data.as_os_str().as_encoded_bytes());
     let name: String = digest[..6].iter().map(|b| format!("{b:02x}")).collect();
     Ok(dir.join(format!("{name}.sock")))
+}
+
+/// 本实例的数据目录（与 GUI 同一解析）。
+pub(crate) fn data_dir() -> PathBuf {
+    std::env::var_os("BERTH_DATA_DIR").map(PathBuf::from).unwrap_or_else(|| {
+        berth_project_core::instance::default_data_dir(crate::project::build_instance())
+    })
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime, CliError> {
@@ -172,11 +172,8 @@ async fn connect_or_spawn(path: &Path) -> io::Result<UnixStream> {
 /// `berth node serve`
 pub(crate) fn serve() -> Result<(), CliError> {
     let path = socket_path().map_err(CliError::from_runtime)?;
-    let termd = berth_term_ipc::resolve_endpoint(None, None)
-        .map_err(CliError::from_runtime)?
-        .into_path();
     runtime()?
-        .block_on(serve_at(&path, Ctx { termd }, LINGER))
+        .block_on(serve_at(&path, Ctx, LINGER))
         .map_err(CliError::from_runtime)
 }
 
@@ -325,29 +322,24 @@ struct Actor {
     writer: Option<(u64, OwnedWriteHalf)>,
     tx: UnboundedSender<Cmd>,
     rx: UnboundedReceiver<Cmd>,
-    ordered: UnboundedSender<(u64, Request, Vec<u8>)>,
     tasks: HashMap<u64, AbortHandle>,
     next_push: u64,
-    /// 输出积压而改走重同步的终端：在客户端重新接入前丢弃它们的输出。
-    resyncing: HashSet<String>,
+    tunnels: tunnel::Tunnels,
     idle_since: Option<Instant>,
     linger: Duration,
 }
 
 impl Actor {
     fn new(ctx: Arc<Ctx>, tx: UnboundedSender<Cmd>, rx: UnboundedReceiver<Cmd>, linger: Duration) -> Self {
-        let (ordered, queue) = unbounded_channel();
-        tokio::spawn(ordered_worker(ctx.clone(), tx.clone(), queue));
         Self {
             ctx,
             session: Session::server(),
             writer: None,
             tx,
             rx,
-            ordered,
             tasks: HashMap::new(),
             next_push: 1,
-            resyncing: HashSet::new(),
+            tunnels: tunnel::Tunnels::default(),
             idle_since: Some(Instant::now()),
             linger,
         }
@@ -356,6 +348,8 @@ impl Actor {
     async fn run(mut self) {
         loop {
             self.flush().await;
+            let session = &self.session;
+            self.tunnels.backlog(|priority| session.queued_bytes(priority));
             if self.drain_events() {
                 continue;
             }
@@ -392,8 +386,7 @@ impl Actor {
                 self.lost();
                 return;
             }
-        }
-    }
+        }    }
 
     /// 处理会话事件；返回是否有事件（可能产生了要写出的帧）。
     fn drain_events(&mut self) -> bool {
@@ -427,12 +420,15 @@ impl Actor {
             Err(error) => return self.reply(id, Priority::Normal, Err(error)),
         };
         let body = body.to_vec();
-        if let Request::Attach { target } = &request {
-            self.resyncing.remove(target);
-        }
-        if request.ordered() {
-            let _ = self.ordered.send((id, request, body));
-            return;
+        if request.tunnel() {
+            let priority = request.priority();
+            match request {
+                Request::Connect { stream, lane } => self.tunnels.connect(stream, lane, self.tx.clone()),
+                Request::Send { stream, offset, .. } => self.tunnels.send(stream, offset, body),
+                Request::Shut { stream } => self.tunnels.shut(stream),
+                _ => {}
+            }
+            return self.reply(id, priority, Ok((Value::Null, Vec::new())));
         }
         let (ctx, tx) = (self.ctx.clone(), self.tx.clone());
         let priority = request.priority();
@@ -481,21 +477,13 @@ impl Actor {
     }
 
     fn push(&mut self, event: Push, body: Vec<u8>) {
-        if let Push::Output { target, .. } = &event {
-            if self.resyncing.contains(target) {
-                return;
-            }
-            if self.session.queued_bytes(Priority::Interactive) > OUTPUT_BACKLOG {
-                let target = target.clone();
-                self.resyncing.insert(target.clone());
-                return self.push(Push::Resync { target }, Vec::new());
-            }
-        }
+        let priority = match &event {
+            Push::Data { stream, .. } | Push::Closed { stream, .. } => self.tunnels.lane(*stream).into(),
+        };
         let id = self.next_push;
         self.next_push += 1;
         let payload = api::encode(&event, &body);
-        self.session
-            .send(Outgoing::request(id, Priority::Interactive, payload));
+        self.session.send(Outgoing::request(id, priority, payload));
     }
 }
 
@@ -503,52 +491,6 @@ async fn sleep_until(at: Option<Instant>) {
     match at {
         Some(at) => tokio::time::sleep_until(at).await,
         None => std::future::pending().await,
-    }
-}
-
-/// 按发出顺序执行终端输入、尺寸、接入：输入恰好一次且有序。
-async fn ordered_worker(
-    ctx: Arc<Ctx>,
-    tx: UnboundedSender<Cmd>,
-    mut queue: UnboundedReceiver<(u64, Request, Vec<u8>)>,
-) {
-    let mut terminals = terminals::Terminals::new(tx.clone());
-    while let Some((id, request, body)) = queue.recv().await {
-        let priority = request.priority();
-        let result = match request {
-            Request::Attach { target } => terminals
-                .attach(&ctx, &target)
-                .await
-                .and_then(|(paint, ansi)| Ok((serde_json::to_value(paint).map_err(internal)?, ansi))),
-            Request::Detach { target } => {
-                terminals.detach(&target);
-                Ok((Value::Null, Vec::new()))
-            }
-            Request::Input { target } => terminals
-                .input(&ctx, &target, &body)
-                .await
-                .map(|()| (Value::Null, Vec::new())),
-            Request::Resize { target, rows, cols } => terminals
-                .resize(&ctx, &target, rows, cols)
-                .await
-                .and_then(|(paint, ansi)| Ok((serde_json::to_value(paint).map_err(internal)?, ansi))),
-            Request::Close { target } => terminals
-                .close(&ctx, &target)
-                .await
-                .map(|()| (Value::Null, Vec::new())),
-            Request::History { target, lines } => terminals
-                .history(&ctx, &target, lines)
-                .await
-                .map(|bytes| (json!({}), bytes)),
-            other => handle(&ctx, other, body).await,
-        };
-        let payload = match result {
-            Ok((value, body)) => api::encode(&Reply::Ok(value), &body),
-            Err(error) => api::encode(&Reply::Err(error), &[]),
-        };
-        if tx.send(Cmd::Reply { id, priority, payload }).is_err() {
-            return;
-        }
     }
 }
 
@@ -562,47 +504,12 @@ fn value(result: Result<impl serde::Serialize, ApiError>) -> Result<(Value, Vec<
     Ok((serde_json::to_value(result?).map_err(internal)?, Vec::new()))
 }
 
-/// 无序请求。
+/// 请求（隧道之外）。
 async fn handle(ctx: &Ctx, request: Request, body: Vec<u8>) -> Result<(Value, Vec<u8>), ApiError> {
     match request {
-        Request::Device => value(views::device(ctx).await),
-        Request::Project {
-            project,
-            root_version,
-        } => value(views::project(ctx, project, root_version.as_deref()).await),
+        Request::Device => value(views::device().await),
         Request::ProjectAdd { path } => value(blocking(move || views::project_add(&path)).await),
         Request::Dirs { path } => value(blocking(move || views::dirs(path.as_deref())).await),
-        Request::Sessions { project, limit } => {
-            let path = views::project_path(project).await?;
-            value(blocking(move || views::sessions(&path, limit.unwrap_or(50))).await)
-        }
-        Request::Session { id, agent, tail } => {
-            value(blocking(move || views::session(&id, agent.as_deref(), tail)).await)
-        }
-        Request::Tasks { project } => {
-            let path = views::project_path(project).await?;
-            value(blocking(move || views::task_list(&path)).await)
-        }
-        Request::Task { project, task } => {
-            let path = views::project_path(project).await?;
-            value(blocking(move || views::task(&path, &task)).await)
-        }
-        Request::Note { project, name } => {
-            let path = views::project_path(project).await?;
-            value(blocking(move || views::note(&path, &name)).await)
-        }
-        Request::Terminals { project } => value(terminals::list(ctx, project).await),
-        Request::Launchbar => value(blocking(views::launchbar).await),
-        Request::Create {
-            project,
-            agent,
-            inputs,
-            provider,
-            model,
-        } => {
-            let agent = agent.map(|id| (id, inputs));
-            value(terminals::create(ctx, project, agent, provider, model.as_deref()).await)
-        }
         request => {
             let scope = ctx.scope().await?;
             blocking(move || file_request(&scope, request, &body)).await
@@ -612,14 +519,6 @@ async fn handle(ctx: &Ctx, request: Request, body: Vec<u8>) -> Result<(Value, Ve
 
 fn file_request(scope: &files::Scope, request: Request, body: &[u8]) -> Result<(Value, Vec<u8>), ApiError> {
     match request {
-        Request::Stat { path } => value(files::stat(scope, &path)),
-        Request::List { path, version } => value(files::list(scope, &path, version.as_deref())),
-        Request::Read { path, offset, len } => {
-            let (head, bytes) = files::read(scope, &path, offset, len)?;
-            Ok((serde_json::to_value(head).map_err(internal)?, bytes))
-        }
-        Request::Write { path, version } => value(files::write(scope, &path, version.as_deref(), body)),
-        Request::Hash { path } => value(files::hash(scope, &path).map(|sha256| json!({ "sha256": sha256 }))),
         Request::PutBegin { path, size, sha256 } => {
             value(files::put_begin(scope, &path, size, &sha256).map(|offset| json!({ "offset": offset })))
         }

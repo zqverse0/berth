@@ -53,7 +53,7 @@ impl CurrentTerminalSelection {
 /// 低频同步当前可见终端标签，隐藏时不接受旧的选中状态。
 #[tauri::command]
 pub(crate) fn set_current_workspace_terminal(
-    window: tauri::WebviewWindow,
+    window: crate::WebviewWindow,
     selection: tauri::State<'_, CurrentTerminalSelection>,
     terminal_id: Option<String>,
 ) -> Result<(), crate::app_error::AppCommandError> {
@@ -91,7 +91,7 @@ const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 pub(crate) fn spawn(
     db: crate::db::AppDatabase,
     emitter: crate::event_bridge::EventEmitter,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) {
     let mut context = ControlContext::current();
     context.deps = Some(ControlDeps {
@@ -955,7 +955,7 @@ pub(crate) enum OpenFileHandoffResult {
 /// （A PRD「长期入口论证」）。仅 `main` 窗口可调用。
 #[tauri::command]
 pub(crate) async fn workspace_open_file_handoff(
-    window: tauri::WebviewWindow,
+    window: crate::WebviewWindow,
     request: OpenFileHandoffRequest,
 ) -> Result<OpenFileHandoffResult, crate::app_error::AppCommandError> {
     // 拒绝辅助窗口领取/回执（父契约 §4.3）。

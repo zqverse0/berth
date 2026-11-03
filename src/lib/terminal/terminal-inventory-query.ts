@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react"
 import { listTerminalSessions } from "@/lib/api"
+import { listDeviceTerminals } from "@/lib/transport/device"
 import type { TerminalDescriptor } from "@/lib/types"
 
 const EMPTY_TERMINAL_INVENTORY: TerminalDescriptor[] = []
@@ -155,11 +156,17 @@ export function useTerminalInventoryQueryState(
 export function fetchTerminalInventory(): Promise<TerminalDescriptor[]> {
   if (inFlight) return inFlight
 
-  const promise = listTerminalSessions().finally(() => {
-    // Identity-safe cleanup: a later request must not be clobbered by an older
-    // Promise's finally callback.
-    if (inFlight === promise) inFlight = null
-  })
+  // 本机终端 + 已连上设备的终端（本机身份，`transport/device.ts`）：所有终端界面读同一份清单。
+  const promise = Promise.all([
+    listTerminalSessions(),
+    listDeviceTerminals<TerminalDescriptor>(),
+  ])
+    .then(([local, devices]) => [...local, ...devices])
+    .finally(() => {
+      // Identity-safe cleanup: a later request must not be clobbered by an older
+      // Promise's finally callback.
+      if (inFlight === promise) inFlight = null
+    })
 
   inFlight = promise
   return promise

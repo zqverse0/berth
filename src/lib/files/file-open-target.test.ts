@@ -266,3 +266,33 @@ describe("expandHomePath", () => {
     await expect(expandHomePath("~/a.md")).resolves.toBe("/Users/me/a.md")
   })
 })
+
+describe("device paths (berth-device://<id>/…)", () => {
+  const root = "berth-device://4/home/me/app"
+
+  it("keeps the prefix and normalizes the remote path", () => {
+    expect(normalizeAbsPath(`${root}/src/../README.md`)).toBe(
+      `${root}/README.md`
+    )
+    expect(normalizeAbsPath(`${root}/`)).toBe(root)
+  })
+
+  it("splits into a device root and a file name", () => {
+    expect(splitAbsPath(`${root}/README.md`)).toEqual({
+      rootPath: root,
+      ioPath: "README.md",
+    })
+    // 对方根目录下的文件：根是对方的 `/`。
+    expect(splitAbsPath("berth-device://4/hosts")).toEqual({
+      rootPath: "berth-device://4/",
+      ioPath: "hosts",
+    })
+  })
+
+  it("joins and resolves the owning device project", () => {
+    expect(joinRootRel(root, "docs/a.md")).toBe(`${root}/docs/a.md`)
+    expect(
+      findOwningFolder(`${root}/docs/a.md`, [{ id: -4000043, path: root }])
+    ).toMatchObject({ folderId: -4000043, relPath: "docs/a.md" })
+  })
+})

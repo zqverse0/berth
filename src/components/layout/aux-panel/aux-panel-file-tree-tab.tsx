@@ -32,7 +32,6 @@ import {
   useFileTree,
   type FlatFileEntry,
 } from "@/hooks/workspace/use-file-tree"
-import { detectPlatform } from "@/hooks/use-platform"
 import { findOwningFolder } from "@/lib/files/file-open-target"
 import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
 import { WorkspaceDegradedBanner } from "@/components/layout/chrome/workspace-degraded-banner"
@@ -53,6 +52,7 @@ import { isDesktop } from "@/lib/transport"
 import { emitAttachFileToSession } from "@/lib/agent/session-attachment-events"
 import {
   resolveFileTreeDropZone,
+  elementAtDropPosition,
   writeFileTreeDragData,
   type FileTreeDragPayload,
 } from "@/lib/files/file-tree-dnd"
@@ -110,6 +110,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { joinFsPath } from "@/lib/files/path-utils"
 import { transferInto } from "@/lib/devices"
+import { parseDeviceRef } from "@/lib/transport/device"
 import {
   invalidateGitFolderCache,
   loadCachedGitStatus,
@@ -418,6 +419,12 @@ export function FileTreeTab({
   // highlight). Null when no valid directory is under the cursor. Always null on
   // the web, where the DOM path handles the highlight locally.
   const [desktopDropDir, setDesktopDropDir] = useState<string | null>(null)
+  // 当前原生拖动是不是系统文件（带路径）；打开的是不是对方项目（Tauri 监听只订一次，按 ref 读）。
+  const osDragRef = useRef(false)
+  const deviceRootRef = useRef(false)
+  useEffect(() => {
+    deviceRootRef.current = Boolean(folder?.path && parseDeviceRef(folder.path))
+  }, [folder?.path])
 
   useEffect(() => {
     setExpandedPaths(new Set())
@@ -1092,6 +1099,23 @@ export function FileTreeTab({
   // to decide between a directory move and a composer insert.
   const commitDesktopDrop = useCallback(
     (paths: string[], position: { x: number; y: number }) => {
+      const hit = () => resolveFileTreeDropZone(elementAtDropPosition(position))
+      // 系统文件拖进打开着的对方项目的目录：传过去。
+      const device = folder?.path ? parseDeviceRef(folder.path) : null
+      if (paths.length > 0 && device) {
+        const zone = hit()
+        if (zone?.kind !== "dir") return
+        const dir = joinFsPath(device.value, zone.destDir)
+        for (const path of paths) {
+          transferInto({ deviceId: device.deviceId, dir }, path).catch(
+            (error) =>
+              toast.error(t("toasts.transferFailed"), {
+                description: toErrorMessage(error),
+              })
+          )
+        }
+        return
+      }
       const src = dragSourceRef.current
       if (!src) return
       // OS file drops carry `paths`; those are the composer uploader's job. An
@@ -1103,15 +1127,7 @@ export function FileTreeTab({
       dragEndedRef.current = false
       const rootPath = folder?.path
       if (!rootPath) return
-      // Resolve one authoritative CSS-pixel point (`elementFromPoint`'s space).
-      // On macOS wry reports the drop in window points, which already equal CSS
-      // pixels (Tauri mislabels them "physical"), so use them as-is; elsewhere
-      // the position is genuinely physical and is scaled down by the DPR.
-      const scale =
-        detectPlatform() === "macos" ? 1 : window.devicePixelRatio || 1
-      const zone = resolveFileTreeDropZone(
-        document.elementFromPoint(position.x / scale, position.y / scale)
-      )
+      const zone = hit()
       if (!zone) return
       if (zone.kind === "device") {
         // 拖到另一台设备的项目里：传过去（目录暂不支持）。
@@ -1162,16 +1178,13 @@ export function FileTreeTab({
         x: number
         y: number
       }): string | null => {
+        const zone = resolveFileTreeDropZone(elementAtDropPosition(position))
+        if (zone?.kind !== "dir") return null
+        // 系统文件拖进对方项目：高亮的目录就是放下后传入的目录。
+        if (osDragRef.current)
+          return deviceRootRef.current ? zone.destDir : null
         const src = dragSourceRef.current
-        if (!src) return null
-        const scale =
-          detectPlatform() === "macos" ? 1 : window.devicePixelRatio || 1
-        const zone = resolveFileTreeDropZone(
-          document.elementFromPoint(position.x / scale, position.y / scale)
-        )
-        return zone?.kind === "dir" && canMoveEntry(src, zone.destDir)
-          ? zone.destDir
-          : null
+        return src && canMoveEntry(src, zone.destDir) ? zone.destDir : null
       }
       const unlistenOver = await webview.listen<{
         position: { x: number; y: number }
@@ -1198,8 +1211,11 @@ export function FileTreeTab({
       // retained source belongs to a cancelled drag — evict it so this foreign
       // (also path-less) drop can't replay it. Our own drag re-enters while
       // `dragEndedRef` is false (dragstart runs first), so it's untouched.
-      const unlistenEnter = await webview.listen(TauriEvent.DRAG_ENTER, () => {
+      const unlistenEnter = await webview.listen<{
+        paths: string[]
+      }>(TauriEvent.DRAG_ENTER, (event) => {
         if (cancelled) return
+        osDragRef.current = event.payload.paths.length > 0
         if (dragEndedRef.current) {
           dragSourceRef.current = null
           dragEndedRef.current = false
@@ -2032,7 +2048,11 @@ export function FileTreeTab({
               ref={treeContainerRef}
               keyboardNavigation
               onKeyDown={handleTreeKeyDown}
-              className="border-0 rounded-none bg-transparent w-max min-w-full px-1.5 focus:outline-none focus-visible:outline-none"
+              className={cn(
+                "border-0 rounded-none bg-transparent w-max min-w-full min-h-full px-1.5 focus:outline-none focus-visible:outline-none",
+                // 放到空白处 = 放进项目根目录：整棵树着色。
+                desktopDropDir === "" && "bg-muted-foreground/10"
+              )}
               expanded={expandedPaths}
               onExpandedChange={setExpandedPaths}
               selectedPath={focusedTreePath}

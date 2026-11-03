@@ -7,7 +7,6 @@ import {
   Copy,
   ExternalLink,
   FolderGit2,
-  FolderOpen,
   FolderOpenDot,
   FolderPlus,
   Laptop,
@@ -74,7 +73,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FolderAliasLabel } from "./folder-alias-label"
+import {
+  ProjectRowButton,
+  RAIL_AXIS,
+  SESSION_STRIP_INDENT,
+  projectBlockClass,
+} from "./project-row-face"
 import {
   DetachedTerminalStrip,
   ProjectActiveSessionStrip,
@@ -92,10 +96,6 @@ import {
   SidebarGroupHeader,
   useDeviceList,
 } from "./sidebar-device-section"
-
-/** 行图标中心所在的轴线；嵌套 worktree 右移一级，连接线画在顶层轴线上。 */
-const RAIL_AXIS = "0.875rem"
-const NESTED_STEP = "1.25rem"
 
 const RECONCILE_AFTER_SLIDE_MS = 300
 
@@ -184,8 +184,6 @@ const ProjectRow = memo(function ProjectRow({
     setNameDialog(null)
   }, [aliasValue, folderId, nameDialog, onRenameWorktree, onSetAlias])
 
-  const axis = nested ? `calc(${RAIL_AXIS} + ${NESTED_STEP})` : RAIL_AXIS
-
   return (
     <>
       {/* 项目行与它的 Agent 图标行是一个整体：整块可点选项目，悬停、选中的底色覆盖两行。
@@ -195,85 +193,24 @@ const ProjectRow = memo(function ProjectRow({
           if ((event.target as HTMLElement).closest("button")) return
           onSelect(folderId)
         }}
-        className={cn(
-          "group cursor-pointer rounded-xl transition-colors duration-150",
-          selected
-            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-border"
-            : "hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--sidebar-foreground)_2%)]"
-        )}
+        className={projectBlockClass(selected)}
       >
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div className="relative h-[2rem]">
               <div className="flex h-[1.9375rem] w-full items-center">
-                <button
+                <ProjectRowButton
                   data-folder-id={folderId}
                   onClick={() => onSelect(folderId)}
-                  title={folderPath}
-                  aria-current={selected ? "location" : undefined}
-                  className={cn(
-                    "relative flex h-full min-w-0 flex-1 cursor-pointer items-center pr-[0.5rem] outline-none",
-                    "rounded-full text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                  )}
-                  style={{ paddingLeft: `calc(${axis} + 0.875rem)` }}
-                >
-                  {/* 连接线：嵌套行在顶层轴线上画一段竖线，相邻行首尾相接成一条线。 */}
-                  {nested ? (
-                    <span
-                      aria-hidden
-                      data-project-rail
-                      className="pointer-events-none absolute z-0 bg-sidebar-border"
-                      style={{
-                        top: "-0.0625rem",
-                        bottom: "-0.0625rem",
-                        left: RAIL_AXIS,
-                        width: "0.125rem",
-                        transform: "translateX(-50%)",
-                      }}
-                    />
-                  ) : null}
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute flex items-center justify-center"
-                    style={{
-                      top: "50%",
-                      left: axis,
-                      width: "0.875rem",
-                      height: "0.875rem",
-                      transform: "translate(-50%, -50%)",
-                    }}
-                  >
-                    {worktree ? (
-                      <FolderGit2 className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-                    ) : (
-                      <FolderOpen className="h-3.5 w-3.5 text-chart-3" />
-                    )}
-                  </span>
-                  <div className="flex min-w-0 flex-1 items-center gap-[0.5rem]">
-                    {pinned ? (
-                      <Pin
-                        aria-hidden
-                        className="h-3 w-3 shrink-0 text-muted-foreground"
-                      />
-                    ) : null}
-                    <span
-                      className={cn(
-                        "min-w-0 flex-shrink truncate text-left text-[0.875rem] font-medium text-sidebar-foreground",
-                        !selected && "text-sidebar-foreground/85"
-                      )}
-                    >
-                      {worktree && !folderAlias?.trim() ? (
-                        (worktreeBranch ?? folderName)
-                      ) : (
-                        <FolderAliasLabel
-                          name={folderName}
-                          alias={folderAlias}
-                          bracketClassName="text-sidebar-foreground"
-                        />
-                      )}
-                    </span>
-                  </div>
-                </button>
+                  name={folderName}
+                  alias={folderAlias}
+                  path={folderPath}
+                  pinned={pinned}
+                  selected={selected}
+                  worktree={worktree}
+                  nested={nested}
+                  branch={worktreeBranch}
+                />
                 {/* 行尾的群组未读 / 等待标记。 */}
                 <ProjectGroupBadge
                   folderId={folderId}
@@ -379,7 +316,7 @@ const ProjectRow = memo(function ProjectRow({
         <ProjectActiveSessionStrip
           folderId={folderId}
           // 根项目名前多一个图钉位，名字与嵌套行同列：图标统一对齐到名字。
-          indent={`calc(${RAIL_AXIS} + ${NESTED_STEP} + 0.5rem)`}
+          indent={SESSION_STRIP_INDENT}
           // 嵌套行，或下面紧跟 worktree 的根行：图标行接着画竖线，树线不断。
           railAxis={nested || railBelow ? RAIL_AXIS : undefined}
         />

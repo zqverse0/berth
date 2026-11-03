@@ -124,7 +124,7 @@ pub async fn list_legacy_resource_archive(
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn save_primary_tabs(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     items: Vec<PrimaryTab>,
     expected_version: i64,

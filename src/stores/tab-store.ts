@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
+import { parseDeviceFolderId, parseDeviceRef } from "@/lib/transport/device"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
@@ -566,6 +567,10 @@ type PersistableTabItemInternal =
 function isPersistableTab(
   tab: TabItemInternal
 ): tab is PersistableTabItemInternal {
+  // 对方设备项目的标签只在内存里：`primary_tab.folder_id` 外键指向本机 folder，存不下对方的项目
+  // （`transport/device.ts` 的负 id）；重启后从侧栏重新打开。
+  if (tab.folderId != null && parseDeviceFolderId(tab.folderId)) return false
+  if (isTerminalTab(tab) && parseDeviceRef(tab.terminalId)) return false
   return (
     isTerminalTab(tab) || (isConversationTab(tab) && tab.conversationId != null)
   )

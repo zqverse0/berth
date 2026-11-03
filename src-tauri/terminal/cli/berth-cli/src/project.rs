@@ -56,27 +56,42 @@ pub(crate) fn writable_instance() -> Result<DataInstance, InstanceState> {
     instance::resolve_from_env(build_instance(), InstanceAccess::CreateIfMissing)
 }
 
+/// 打开（必要时升级）数据库；未就绪时以实例状态返回。宏而非函数：本 crate 不直接依赖 sea-orm，写不出连接类型。
+macro_rules! ready_conn {
+    ($instance:expr) => {{
+        let (conn, state) = open_or_upgrade($instance).await;
+        if !state.is_ready() {
+            return Err(state);
+        }
+        conn.ok_or_else(|| InstanceState::Incompatible {
+            detail: "open_or_upgrade returned no connection".to_owned(),
+        })?
+    }};
+}
+
 /// 从共享 crate 读取项目目录（GUI 不参与）。非 `Ready` 一律返回错误，不返回空列表。
 pub(crate) async fn catalog_entries(
     instance: &DataInstance,
     scope: ProjectScope,
 ) -> Result<Vec<CatalogEntry>, InstanceState> {
-    let (conn, state) = open_or_upgrade(instance).await;
-    if !state.is_ready() {
-        return Err(state);
-    }
-    let Some(conn) = conn else {
-        return Err(InstanceState::Incompatible {
-            detail: "open_or_upgrade returned no connection".to_owned(),
-        });
-    };
-
-    let entries = list_catalog(&conn, catalog_scope(scope))
+    let conn = ready_conn!(instance);
+    list_catalog(&conn, catalog_scope(scope))
         .await
         .map_err(|error| InstanceState::Incompatible {
             detail: error.to_string(),
-        })?;
-    Ok(entries)
+        })
+}
+
+/// 打开的项目（含 worktree、别名、分支、排序）：与 GUI 侧栏同一份 `FolderDetail`。
+pub(crate) async fn open_folders(
+    instance: &DataInstance,
+) -> Result<Vec<berth_project_core::service::folder::FolderDetail>, InstanceState> {
+    let conn = ready_conn!(instance);
+    folder_service::list_open_folder_details(&conn)
+        .await
+        .map_err(|error| InstanceState::Incompatible {
+            detail: error.to_string(),
+        })
 }
 
 pub(crate) async fn list_entries(
@@ -327,8 +342,11 @@ mod tests {
         let (conn, state) = open_or_upgrade(&instance).await;
         assert_eq!(state, InstanceState::Ready);
         let conn = conn.expect("connection");
+        // 打开列表只列仍存在的目录：项目建成真实目录。
         for project in projects {
-            folder_service::add_folder(&conn, &format!("/tmp/{project}"))
+            let dir = path.join("projects").join(project);
+            std::fs::create_dir_all(&dir).expect("project dir");
+            folder_service::add_folder(&conn, &dir.to_string_lossy())
                 .await
                 .expect("seed project");
         }
@@ -409,9 +427,10 @@ mod tests {
             .await
             .expect("listing");
         let value = serde_json::to_value(&entries).expect("json");
+        let path = instance.data_dir().join("projects/alpha");
         assert_eq!(
             value,
-            serde_json::json!([{ "id": 1, "path": "/tmp/alpha", "name": "alpha", "is_open": true }])
+            serde_json::json!([{ "id": 1, "path": path, "name": "alpha", "is_open": true }])
         );
     }
 

@@ -236,7 +236,7 @@ pub async fn install_preview_tool(
     path: String,
     tool_id: Option<String>,
     update: Option<bool>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<PreviewToolInfo, PreviewToolsError> {
     install_preview_tool_core(
         task_id,
@@ -580,7 +580,7 @@ async fn stream_install_or_kill_tree(
 pub async fn start_preview_watch(
     root_path: String,
     path: String,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<crate::preview_watch::PreviewWatchStarted, AppCommandError> {
     let mut started = crate::preview_watch::start_preview_watch_core(root_path, path).await?;
     crate::preview_watch::ensure_update_pump(started.port, EventEmitter::Tauri(app));

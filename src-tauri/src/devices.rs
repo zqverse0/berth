@@ -13,36 +13,34 @@
 //! - `device.ensureKey` → `{ publicKey }`：本机没有 SSH 密钥就生成一把（配置免密登录用）
 //!
 //! 节点设备：添加 / 检查设备时探测到对方装了 berth（路径记在 `<数据目录>/devices/<id>/node.json`），
-//! 即经两条节点连接（终端通道、数据通道，各一个 `ssh <目标> berth node stdio`）操作对方，不挂载。
+//! 即经一条节点连接（`ssh <目标> berth node stdio`）操作对方，不挂载。这一条连接承载全部往来：
+//! 概览等请求、到对方 GUI 的隧道（终端专线插队、命令线普通、大块只用空闲带宽）、文件传输（只用空闲
+//! 带宽），由会话按优先级与时延统一调度；分成多条 SSH 反而互相抢链路（任务 11-01-device-window S3 实测）。
 //! 连接按需建立、常驻到设备删除，心跳与重连在 `berth_node::client`。
 //!
 //! - `device.list` / `device.add` / `device.check` 每台设备带 `node: { berth, status } | null`；
-//!   `status` 是 `{ data, terminal }` 两条连接的状态（未建立时为 `null`）
+//!   `status` 是这条连接的状态（未建立时为 `null`）
 //! - `device.node { deviceId }` → `{ status, overview }`：`overview` 是磁盘缓存里的上次设备概览（没有为
 //!   `null`），同时后台取最新的，取到后写缓存并发 `device://node { deviceId, overview | error }`
-//! - `device.launchbar { deviceId }` → 对方的启动栏（工具原样的 tool.json / launchbar.json 与服务商）
-//! - `device.createTerminal { deviceId, project, agent?, inputs?, provider?, model? }` → 在对方项目里新建终端
-//!   （给 `agent` 即用对方启动栏启动 Agent），返回本机终端描述；远端终端见 [`terminals`]
-//! - `device.request { deviceId, request, body?, cached? }` → 数据通道的通用转发（`request` 即
-//!   `berth_node::api::Request` 的 JSON）：成功 `{ result, body }`（原始字节为 base64，没有为 `null`），
-//!   节点报错 `{ error: { kind, message, detail? } }`。只读请求按请求写磁盘缓存；`cached: true` 只读缓存
-//!   （0 次往返，没有为 `null`）。`List` / `Project` 自动带上缓存里的版本，未变时用缓存补齐，前端不管版本
+//! - `device.connect { deviceId }` → `{ port }`：到对方 GUI 的本机回环端口（[`workspace`]），对方项目的
+//!   调用经它发出；对方 GUI 未运行报 `device.windowUnavailable`，版本过旧报 `device.berthOutdated`
+//! - `device.request { deviceId, request }` → 节点请求的转发（`request` 即 `berth_node::api::Request` 的
+//!   JSON，前端只用浏览目录、添加项目）：成功 `{ result }`，节点报错 `{ error: { kind, message, detail? } }`
 //! - `device.transfer { deviceId, source, dest }` → `{ id }`：把本机文件 `source` 传到对方 `dest`（绝对路径），
-//!   走按需建立的第三条节点连接（分块、断点续传、传完对方校验哈希，见 `berth_node::transfer`）；
+//!   同一条节点连接、只用空闲带宽（分块、断点续传、传完对方校验哈希，见 `berth_node::transfer`）；
 //!   进度与结果发 `device://transfer { id, deviceId, source, dest, sent, total, state, error? }`，
 //!   `state` 为 `running` / `done` / `failed` / `cancelled`。同一文件再传一次即从断点续上
 //! - `device.cancelTransfer { id }` → 取消（对方保留已收到的部分，下次续传）
-//! - 连接状态变化发 `device://node-status { deviceId, channel: "data" | "terminal", status }`
+//! - 连接状态变化发 `device://node-status { deviceId, status }`
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use berth_node::api::Request;
+use berth_node::api::{Push, Request};
 use berth_node::cache::Cache;
 use berth_node::client::{self, Client};
 use berth_node::transfer;
@@ -53,8 +51,10 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 use serde_json::{json, Value};
+use tokio::sync::mpsc::UnboundedReceiver;
 
-pub(crate) mod terminals;
+#[cfg(feature = "tauri-runtime")]
+mod workspace;
 
 use crate::db::AppDatabase;
 use crate::event_bridge::{emit_event, EventEmitter};
@@ -66,8 +66,6 @@ const CHECK_DEADLINE: Duration = Duration::from_secs(10);
 const CACHE_CAP: u64 = 64 * 1024 * 1024;
 /// 设备概览请求的截止时间（最差链路下也够一次往返加几十 KB）。
 const OVERVIEW_DEADLINE: Duration = Duration::from_secs(30);
-/// 终端每次输入后传输连接让路的时长。
-const TRANSFER_YIELD: Duration = Duration::from_secs(3);
 
 /// `mount_root`：远程项目挂载点的父目录（数据目录下的 `remote/`）。
 pub async fn dispatch(
@@ -106,15 +104,15 @@ pub async fn dispatch(
             }
             if let Some(id) = params["deviceId"].as_i64() {
                 let id = id as i32;
-                // 对方可能刚装上 / 升级挪了位置：每次上线重新探测。
-                store_berth(mount_root, id, probe(target).await.as_deref());
+                // 对方可能刚装上 / 升级挪了位置：每次上线重新探测，记下的路径仍可用就沿用。
+                let stored = stored_berth(mount_root, id);
+                store_berth(mount_root, id, probe(target, stored.as_deref()).await.as_deref());
                 let row = device::Entity::find_by_id(id)
                     .one(conn)
                     .await
                     .map_err(|error| error.to_string())?;
                 if let Some(node) = row.and_then(|row| node(emitter, mount_root, &row)) {
                     node.data.retry();
-                    node.terminal.retry();
                     return Ok(
                         json!({ "ok": true, "message": null, "node": node_json(mount_root, id) }),
                     );
@@ -149,7 +147,7 @@ pub async fn dispatch(
             .await
             .map_err(|error| error.to_string())?;
             let local_dir = device_dir(mount_root, row.id);
-            store_berth(mount_root, row.id, probe(target).await.as_deref());
+            store_berth(mount_root, row.id, probe(target, None).await.as_deref());
             Ok(json!({
                 "id": row.id,
                 "name": row.name,
@@ -221,35 +219,13 @@ pub async fn dispatch(
             });
             Ok(json!({ "status": node_status(&node), "overview": overview }))
         }
-        "device.launchbar" => {
-            let node = connected(params)?;
-            let (launchbar, _) = node
-                .data
-                .request(&Request::Launchbar, &[], OVERVIEW_DEADLINE)
-                .await
-                .map_err(|error| error.message)?;
-            Ok(launchbar)
-        }
-        "device.createTerminal" => {
-            let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
-            let node = connected(params)?;
-            let request = Request::Create {
-                project: params["project"].as_i64().ok_or("project is required")?,
-                agent: params["agent"].as_str().map(str::to_owned),
-                inputs: serde_json::from_value(params["inputs"].clone()).unwrap_or_default(),
-                provider: params["provider"].as_i64().map(|id| id as i32),
-                model: params["model"].as_str().map(str::to_owned),
-            };
-            let (created, _) = node
-                .terminal
-                .request(&request, &[], OVERVIEW_DEADLINE)
-                .await
-                .map_err(|error| error.message)?;
-            let descriptor = terminals::add_created(id, &created["terminal"])
-                .ok_or("node returned no terminal")?;
-            serde_json::to_value(descriptor).map_err(|error| error.to_string())
-        }
-        "device.request" => {
+        // 到对方 GUI 命令线的本机回环端口：对方项目的调用经它发出（前端 `transport/device.ts`）。
+        // 对方 GUI 未运行报 `device.windowUnavailable`。
+        #[cfg(feature = "tauri-runtime")]
+        "device.connect" => {
+            if !matches!(emitter, EventEmitter::Tauri(_)) {
+                return Err("device.windowUnavailable".into());
+            }
             let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
             let row = device::Entity::find_by_id(id)
                 .one(conn)
@@ -257,41 +233,35 @@ pub async fn dispatch(
                 .map_err(|error| error.to_string())?
                 .ok_or("device not found")?;
             let node = node(emitter, mount_root, &row).ok_or("device.notNode")?;
-            let mut request: Request = serde_json::from_value(params["request"].clone())
-                .map_err(|error| format!("invalid request: {error}"))?;
-            let key = cache_key(&request);
-            let cached = key
-                .as_deref()
-                .and_then(|key| node.cache.get(key))
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-            if params["cached"].as_bool() == Some(true) {
-                return Ok(cached.unwrap_or(Value::Null));
+            // 每次现取：设备 socket 只在对方 GUI 运行时才报。
+            let (overview, _) = node
+                .data
+                .request(&Request::Device, &[], OVERVIEW_DEADLINE)
+                .await
+                .map_err(|error| error.to_string())?;
+            if let Ok(bytes) = serde_json::to_vec(&overview) {
+                let _ = node.cache.put("device", &bytes);
             }
-            with_cached_version(&mut request, cached.as_ref());
-            let body = match params["body"].as_str() {
-                Some(body) => BASE64.decode(body).map_err(|error| error.to_string())?,
-                None => Vec::new(),
-            };
-            // 最差 30KB/s：按要上传的字节放宽截止时间。
-            let deadline = OVERVIEW_DEADLINE + Duration::from_secs(body.len() as u64 / 10_000);
-            let (mut result, bytes) = match node.data.request(&request, &body, deadline).await {
-                Ok(reply) => reply,
-                Err(error) => return Ok(json!({ "error": error })),
-            };
-            merge_unchanged(&request, &mut result, cached.as_ref());
-            let reply = json!({
-                "result": result,
-                "body": (!bytes.is_empty()).then(|| BASE64.encode(&bytes)),
-            });
-            if let Some(key) = key {
-                if let Ok(bytes) = serde_json::to_vec(&reply) {
-                    let _ = node.cache.put(&key, &bytes);
+            // 旧版对方不报 `window` 字段：要升级；报了但为空：对方 GUI 没在运行——除非对方能起
+            // 无界面宿主（`hostable`，无显示器的设备），由隧道在首个连接时拉起。
+            match overview.get("window") {
+                None => return Err("device.berthOutdated".into()),
+                Some(window) if window.is_null() && overview["hostable"] != true => {
+                    return Err("device.windowUnavailable".into())
                 }
+                Some(_) => {}
             }
-            if let Request::Write { path, .. } = &request {
-                node.cache.remove(&read_key(path));
-            }
-            Ok(reply)
+            let port = workspace::port(id, &node).await?;
+            Ok(json!({ "port": port }))
+        }
+        "device.request" => {
+            let node = connected(params)?;
+            let request: Request = serde_json::from_value(params["request"].clone())
+                .map_err(|error| format!("invalid request: {error}"))?;
+            Ok(match node.data.request(&request, &[], OVERVIEW_DEADLINE).await {
+                Ok((result, _)) => json!({ "result": result }),
+                Err(error) => json!({ "error": error }),
+            })
         }
         "device.transfer" => {
             let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
@@ -350,7 +320,7 @@ fn start_transfer(
     let task = tokio::spawn({
         let emit = emit.clone();
         async move {
-            let client = node.transfer();
+            let client = &node.data;
             let mut last = (0, 0);
             let result = transfer::upload(
                 Path::new(&source),
@@ -380,79 +350,6 @@ fn start_transfer(
     id
 }
 
-/// 远端终端有输入：所有传输连接让路一会儿（它们与终端共用本机上行）。
-pub(crate) fn yield_transfers() {
-    let until = std::time::Instant::now() + TRANSFER_YIELD;
-    for node in NODES.lock().expect("nodes lock").values() {
-        if let Some(client) = node.transfer.get() {
-            client.yield_until(until);
-        }
-    }
-}
-
-/// 只读请求的缓存键（去掉版本，`Read` 只缓存首屏）；会改动对方或按需拉取的请求不缓存。
-fn cache_key(request: &Request) -> Option<String> {
-    let request = match request {
-        Request::Project { project, .. } => Request::Project {
-            project: *project,
-            root_version: None,
-        },
-        Request::List { path, .. } => Request::List {
-            path: path.clone(),
-            version: None,
-        },
-        Request::Read {
-            path, offset: 0, ..
-        } => return Some(read_key(path)),
-        Request::Device
-        | Request::Dirs { .. }
-        | Request::Sessions { .. }
-        | Request::Session { .. }
-        | Request::Tasks { .. }
-        | Request::Task { .. }
-        | Request::Note { .. }
-        | Request::Stat { .. }
-        | Request::Launchbar => request.clone(),
-        _ => return None,
-    };
-    serde_json::to_string(&request).ok()
-}
-
-fn read_key(path: &str) -> String {
-    format!("read/{path}")
-}
-
-/// 缓存里有目录 / 项目根目录的版本时带上，对方未变只回 `unchanged`。
-fn with_cached_version(request: &mut Request, cached: Option<&Value>) {
-    let version = |listing: &Value| listing["version"].as_str().map(str::to_owned);
-    match request {
-        Request::List { version: slot, .. } => {
-            *slot = cached.and_then(|reply| version(&reply["result"]));
-        }
-        Request::Project { root_version, .. } => {
-            *root_version = cached.and_then(|reply| version(&reply["result"]["root"]));
-        }
-        _ => {}
-    }
-}
-
-/// `unchanged` 的目录列表换成缓存里的完整列表。
-fn merge_unchanged(request: &Request, result: &mut Value, cached: Option<&Value>) {
-    let (fresh, old) = match request {
-        Request::List { .. } => (result, cached.map(|reply| &reply["result"])),
-        Request::Project { .. } => (
-            &mut result["root"],
-            cached.map(|reply| &reply["result"]["root"]),
-        ),
-        _ => return,
-    };
-    if fresh["unchanged"].as_bool() == Some(true) {
-        if let Some(old) = old.filter(|old| old["entries"].is_array()) {
-            *fresh = old.clone();
-        }
-    }
-}
-
 /// 已建立连接的节点设备（`params.deviceId`）。
 fn connected(params: &Value) -> Result<Arc<Node>, String> {
     let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
@@ -464,29 +361,13 @@ fn connected(params: &Value) -> Result<Arc<Node>, String> {
         .ok_or_else(|| "device.notNode".to_owned())
 }
 
-/// 一台节点设备的连接（终端、数据两条常驻，传输一条按需）、磁盘缓存与终端状态。
+/// 一台节点设备：唯一的节点连接与设备概览的磁盘缓存。
 struct Node {
     berth: String,
-    name: String,
-    target: String,
     data: Client,
-    terminal: Client,
-    transfer: OnceLock<Client>,
+    /// 节点推送（隧道流的字节）：到对方 GUI 的隧道第一次建立时取走（[`workspace`]）。
+    pushes: Mutex<Option<UnboundedReceiver<(Push, Vec<u8>)>>>,
     cache: Cache,
-    terminals: Arc<terminals::Terminals>,
-}
-
-impl Node {
-    /// 传输连接：第一次传文件时建立，之后常驻到设备删除。
-    fn transfer(&self) -> &Client {
-        self.transfer.get_or_init(|| {
-            Client::start(client::ssh(
-                self.target.clone(),
-                client::node_command(&self.berth),
-            ))
-            .0
-        })
-    }
 }
 
 /// 已建立的节点连接，按设备 id。
@@ -525,8 +406,8 @@ fn store_berth(mount_root: &Path, id: i32, berth: Option<&str>) {
     }
 }
 
-/// 探测对方 berth 的路径；连不上或没装都是 `None`。
-async fn probe(target: &str) -> Option<String> {
+/// 探测对方 berth 的路径（`stored` 是上次记下的）；连不上或没装都是 `None`。
+async fn probe(target: &str, stored: Option<&str>) -> Option<String> {
     let mut command = tokio::process::Command::new("ssh");
     command.args([
         "-o",
@@ -535,7 +416,7 @@ async fn probe(target: &str) -> Option<String> {
         &format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"),
         "--",
         target,
-        &client::probe_command(),
+        &client::probe_command(stored),
     ]);
     let stdout = output(command, CHECK_DEADLINE).await.ok()?;
     stdout
@@ -553,54 +434,34 @@ fn node(emitter: &EventEmitter, mount_root: &Path, row: &device::Model) -> Optio
     if let Some(node) = nodes.get(&id) {
         return Some(node.clone());
     }
-    let command = client::node_command(&berth);
-    let channel = |name: &'static str| {
-        let (client, pushes) = Client::start(client::ssh(target.to_owned(), command.clone()));
-        let mut status = client.status();
-        let emitter = emitter.clone();
-        tokio::spawn(async move {
-            loop {
-                let current = status.borrow_and_update().clone();
-                emit_event(
-                    &emitter,
-                    "device://node-status",
-                    json!({ "deviceId": id, "channel": name, "status": current }),
-                );
-                if status.changed().await.is_err() {
-                    return;
-                }
+    let (data, pushes) = Client::start(client::ssh(target.to_owned(), client::node_command(&berth)));
+    let mut status = data.status();
+    let events = emitter.clone();
+    tokio::spawn(async move {
+        loop {
+            let current = status.borrow_and_update().clone();
+            emit_event(
+                &events,
+                "device://node-status",
+                json!({ "deviceId": id, "status": current }),
+            );
+            if status.changed().await.is_err() {
+                return;
             }
-        });
-        (client, pushes)
-    };
-    // 推送只来自终端通道（接入的终端输出）。
-    let (data, _) = channel("data");
-    let (terminal, pushes) = channel("terminal");
-    let terminals = Arc::new(terminals::Terminals::default());
-    tokio::spawn(terminals::route(
-        terminals.clone(),
-        pushes,
-        terminal.status(),
-    ));
+        }
+    });
     let node = Arc::new(Node {
         berth,
-        name: row.name.clone(),
-        target: target.to_owned(),
         data,
-        terminal,
-        transfer: OnceLock::new(),
+        pushes: Mutex::new(Some(pushes)),
         cache: Cache::new(node_dir(mount_root, id).join("cache"), CACHE_CAP),
-        terminals,
     });
     nodes.insert(id, node.clone());
     Some(node)
 }
 
 fn node_status(node: &Node) -> Value {
-    json!({
-        "data": node.data.status().borrow().clone(),
-        "terminal": node.terminal.status().borrow().clone(),
-    })
+    json!(node.data.status().borrow().clone())
 }
 
 /// `device.*` 返回里的 `node` 字段。

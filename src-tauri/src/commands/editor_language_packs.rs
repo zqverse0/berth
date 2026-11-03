@@ -547,7 +547,7 @@ pub async fn editor_language_pack_operation_core(
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn editor_language_pack_operation(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     operation: LanguagePackOperation,
 ) -> Result<LanguagePackSnapshot, AppCommandError> {
     use tauri::Manager;

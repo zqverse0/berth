@@ -265,7 +265,7 @@ pub async fn get_log_settings(
 pub async fn set_log_settings(
     settings: LogSettings,
     db: State<'_, AppDatabase>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<LogSettings, AppCommandError> {
     let emitter = EventEmitter::Tauri(app);
     set_log_settings_core(&db.conn, settings, &emitter).await

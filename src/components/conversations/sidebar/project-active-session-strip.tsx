@@ -157,7 +157,6 @@ export const ProjectActiveSessionStrip = memo(
     railAxis,
     className,
   }: ProjectActiveSessionStripProps) {
-    const rail = railAxis != null
     // 每个项目行只订阅自己的 tab / pane：切换项目、别处开关 tab 时，其余几十行不重渲染。
     const folders = useAppWorkspaceStore((s) => s.allFolders)
     const panes = useAgentPanesWhere(
@@ -235,40 +234,67 @@ export const ProjectActiveSessionStrip = memo(
       switchTab,
     ])
 
-    if (entries.length === 0) {
-      return null
-    }
-
     return (
-      <div
-        className={cn(
-          "relative flex flex-wrap items-center gap-0.5 pb-1 pr-2",
-          className
-        )}
-        style={{ paddingLeft: indent }}
-        role="toolbar"
-        aria-label="Active sessions"
-      >
-        {/* 嵌套行的图标行同样画连接线，worktree 之间的竖线不断开。 */}
-        {rail ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute z-0 bg-sidebar-border"
-            style={{
-              top: "-0.0625rem",
-              bottom: "-0.0625rem",
-              left: railAxis,
-              width: "0.125rem",
-              transform: "translateX(-50%)",
-            }}
-          />
-        ) : null}
-        <TooltipProvider delayDuration={200}>
-          {entries.map((entry) => (
-            <SessionIconButton key={entry.id} entry={entry} />
-          ))}
-        </TooltipProvider>
-      </div>
+      <SessionStrip
+        entries={entries}
+        indent={indent}
+        railAxis={railAxis}
+        className={className}
+      />
     )
   }
 )
+
+/** 项目行下方的会话图标行（纯展示）。 */
+function SessionStrip({
+  entries,
+  indent,
+  railAxis,
+  className,
+  ariaLabel = "Active sessions",
+}: {
+  entries: readonly SessionStripEntry[]
+  /** 图标行左缩进（与项目名对齐）。 */
+  indent: string
+  /** 竖线所在的轴；给了就画。 */
+  railAxis?: string
+  className?: string
+  ariaLabel?: string
+}) {
+  const rail = railAxis != null
+  if (entries.length === 0) {
+    return null
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative flex flex-wrap items-center gap-0.5 pb-1 pr-2",
+        className
+      )}
+      style={{ paddingLeft: indent }}
+      role="toolbar"
+      aria-label={ariaLabel}
+    >
+      {/* 嵌套行的图标行同样画连接线，worktree 之间的竖线不断开。 */}
+      {rail ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute z-0 bg-sidebar-border"
+          style={{
+            top: "-0.0625rem",
+            bottom: "-0.0625rem",
+            left: railAxis,
+            width: "0.125rem",
+            transform: "translateX(-50%)",
+          }}
+        />
+      ) : null}
+      <TooltipProvider delayDuration={200}>
+        {entries.map((entry) => (
+          <SessionIconButton key={entry.id} entry={entry} />
+        ))}
+      </TooltipProvider>
+    </div>
+  )
+}

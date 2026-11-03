@@ -16,7 +16,7 @@ import {
   AgentLaunchMenu,
   DeviceLaunchPanel,
 } from "@/components/layout/sidebar/agent-launch"
-import { useTabStore } from "@/stores/tab-store"
+import { deviceFolderId } from "@/lib/transport/device"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useToolsSettingsStore } from "@/stores/tools-settings-store"
@@ -36,9 +36,6 @@ const mocks = vi.hoisted(() => ({
   checkToolUpdate: vi.fn(),
   installPreviewTool: vi.fn(),
   deviceOverview: vi.fn(),
-  deviceLaunchbar: vi.fn(),
-  createDeviceTerminal: vi.fn(),
-  openTab: vi.fn(),
   sessionItems: [] as Array<{
     externalId: string
     title: string | null
@@ -59,9 +56,6 @@ vi.mock("@/lib/terminal/create-and-open-primary-terminal", () => ({
 vi.mock("@/lib/devices", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/devices")>()),
   useDeviceOverview: (...args: unknown[]) => mocks.deviceOverview(...args),
-  deviceLaunchbar: (...args: unknown[]) => mocks.deviceLaunchbar(...args),
-  createDeviceTerminal: (...args: unknown[]) =>
-    mocks.createDeviceTerminal(...args),
 }))
 
 vi.mock("@/lib/platform", async (importOriginal) => ({
@@ -85,7 +79,7 @@ vi.mock("@/lib/terminal/report-agent-launch-alert", async (importOriginal) => {
 })
 
 vi.mock("@/lib/transport/launchbar", () => ({
-  launchbar: (request: unknown) => mocks.loadLaunchbar(request),
+  launchbar: (...args: unknown[]) => mocks.loadLaunchbar(...args),
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -273,7 +267,7 @@ describe("AgentLaunchForm", () => {
       }
     )
     await waitFor(() => expect(result.current.binding.loginId).toBe("official"))
-    expect(mocks.listModelProviders).toHaveBeenCalledWith(false)
+    expect(mocks.listModelProviders).toHaveBeenCalledWith(false, undefined)
     expect(result.current.providers).toEqual([])
     expect(mocks.reportAgentLaunchAlert).toHaveBeenCalledWith(
       "Failed to load providers.",
@@ -548,64 +542,45 @@ describe("AgentLaunchMenu", () => {
 
 describe("DeviceLaunchPanel", () => {
   beforeEach(() => {
+    localStorage.clear()
     mocks.deviceOverview.mockReturnValue({
       host: "macmini",
       os: "macos",
       projects: [{ id: 4, path: "/Users/k/app", name: "app", is_open: true }],
     })
-    mocks.deviceLaunchbar.mockResolvedValue({
-      agents: [
-        {
-          id: "claude",
-          tool: {
-            contributes: {
-              identity: { name: "Claude Code" },
-              agent: { providerInjection: { agentType: "claude_code" } },
-            },
-          },
-          launchbar: {
-            version: 1,
-            items: [
-              {
-                id: "session",
-                component: "select",
-                label: "Session",
-                optionsFrom: "projectSessions",
-              },
-              {
-                id: "effort",
-                component: "select",
-                label: "Effort",
-                options: [
-                  { value: "low", label: "Low" },
-                  { value: "high", label: "High" },
-                ],
-                defaultValue: "low",
-              },
-            ],
-          },
-        },
-      ],
-      providers: [
-        {
-          id: 9,
-          name: "Relay",
-          agentType: "claude_code",
-          agentTypes: null,
-          model: null,
-        },
-        {
-          id: 10,
-          name: "Codex relay",
-          agentType: "codex",
-          agentTypes: null,
-          model: null,
-        },
-      ],
+    mocks.loadLaunchbar
+      .mockReset()
+      .mockImplementation((request: { type: string }) =>
+        Promise.resolve(
+          request.type === "list_agents"
+            ? { type: "agents", agents: [demoProfile], directory: "/tools" }
+            : {
+                type: "file",
+                file: {
+                  agent: "claude",
+                  config: {
+                    version: 1,
+                    items: [
+                      {
+                        id: "provider",
+                        component: "select",
+                        label: "Provider",
+                        optionsFrom: "providerVendor",
+                        protocols: ["claude"],
+                      },
+                    ],
+                  },
+                  diagnostics: [],
+                },
+              }
+        )
+      )
+    mocks.listModelProviders.mockReset().mockResolvedValue([])
+    mocks.listLoginCards.mockReset().mockResolvedValue([])
+    mocks.createTerminal.mockReset().mockResolvedValue({
+      terminalId: "berth-device://2#abc",
     })
-    mocks.createDeviceTerminal.mockResolvedValue({ terminalId: "2/v1.abc" })
-    mocks.openTab.mockReset()
-    useTabStore.setState({ openTerminalTab: mocks.openTab } as never)
+    mocks.createFolderTerminal.mockReset()
   })
 
   const renderPanel = (onClose = vi.fn()) => {
@@ -620,7 +595,7 @@ describe("DeviceLaunchPanel", () => {
     return onClose
   }
 
-  it("launches an agent with the device's own launchbar and providers", async () => {
+  it("launches with the same launch bar, reading tools and providers from the device", async () => {
     const user = userEvent.setup()
     const onClose = renderPanel()
 
@@ -628,51 +603,29 @@ describe("DeviceLaunchPanel", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "Claude Code" })
     )
-    // 会话列表是本机的，远端启动栏不显示；服务商只列对方的、且该 Agent 能用的。
-    expect(screen.queryByText("Session")).toBeNull()
-    expect(screen.getByText("Effort")).toBeDefined()
-    const provider = screen.getByRole("combobox", { name: "Provider" })
-    expect(screen.queryByRole("option", { name: "Codex relay" })).toBeNull()
-    await user.selectOptions(provider, "9")
-    await user.click(screen.getByRole("button", { name: "Start Claude Code" }))
+    await user.click(await screen.findByRole("button", { name: /^Start / }))
 
+    // 工具、启动栏、服务商、登录凭证都发给设备 2；终端建在对方项目里。
+    expect(mocks.loadLaunchbar).toHaveBeenCalledWith({ type: "list_agents" }, 2)
+    expect(mocks.loadLaunchbar).toHaveBeenCalledWith(
+      { type: "load", agent: "claude" },
+      2
+    )
+    expect(mocks.listModelProviders).toHaveBeenCalledWith(false, 2)
+    expect(mocks.listLoginCards).toHaveBeenCalledWith(2)
     await waitFor(() =>
-      expect(mocks.createDeviceTerminal).toHaveBeenCalledWith({
-        deviceId: 2,
-        project: 4,
-        agent: "claude",
-        inputs: { effort: "low" },
-        provider: 9,
-      })
+      expect(mocks.createTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: "berth-device://2/Users/k/app",
+          folderId: deviceFolderId(2, 4),
+          agentContractId: "claude",
+        })
+      )
     )
-    expect(mocks.openTab).toHaveBeenCalledWith(
-      { id: "terminal:2/v1.abc" },
-      true
-    )
-    expect(onClose).toHaveBeenCalled()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
   it("opens a plain terminal in the chosen project on the device", async () => {
-    const user = userEvent.setup()
-    renderPanel()
-
-    await user.click(
-      await screen.findByRole("menuitem", { name: "New Terminal" })
-    )
-
-    await waitFor(() =>
-      expect(mocks.createDeviceTerminal).toHaveBeenCalledWith({
-        deviceId: 2,
-        project: 4,
-        agent: null,
-        inputs: {},
-        provider: null,
-      })
-    )
-  })
-
-  it("keeps the panel open and explains a failed launch", async () => {
-    mocks.createDeviceTerminal.mockRejectedValue(new Error("device offline"))
     const user = userEvent.setup()
     const onClose = renderPanel()
 
@@ -680,9 +633,10 @@ describe("DeviceLaunchPanel", () => {
       await screen.findByRole("menuitem", { name: "New Terminal" })
     )
 
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "device offline"
+    expect(mocks.createFolderTerminal).toHaveBeenCalledWith(
+      { cwd: "berth-device://2/Users/k/app", folderId: deviceFolderId(2, 4) },
+      expect.any(Function)
     )
-    expect(onClose).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
   })
 })

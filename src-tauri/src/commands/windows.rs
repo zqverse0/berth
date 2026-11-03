@@ -5,9 +5,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering as AtomicOrdering};
 use std::sync::Mutex;
 
 use sea_orm::DatabaseConnection;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::app_error::AppCommandError;
+use crate::AppHandle;
 use berth_project_core::service::app_metadata_service;
 use crate::db::AppDatabase;
 
@@ -255,15 +256,15 @@ where
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_windows_undecorated(window: &tauri::WebviewWindow) {
+fn ensure_windows_undecorated(window: &crate::WebviewWindow) {
     let _ = window.set_decorations(false);
 }
 
 #[cfg(not(target_os = "windows"))]
-fn ensure_windows_undecorated(_window: &tauri::WebviewWindow) {}
+fn ensure_windows_undecorated(_window: &crate::WebviewWindow) {}
 
 /// Apply platform-specific post-creation setup.
-pub(crate) fn post_window_setup(window: &tauri::WebviewWindow) {
+pub(crate) fn post_window_setup(window: &crate::WebviewWindow) {
     ensure_windows_undecorated(window);
 }
 
@@ -398,7 +399,7 @@ async fn resolve_window_titles(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_commit_window(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::WebviewWindow,
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, CommitWindowState>,
     folder_id: i32,
@@ -493,7 +494,7 @@ impl Default for MergeWindowState {
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_merge_window(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::WebviewWindow,
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, MergeWindowState>,
     folder_id: i32,
@@ -652,7 +653,7 @@ pub async fn open_stash_window(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_push_window(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::WebviewWindow,
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
     locale: Option<crate::models::system::AppLocale>,

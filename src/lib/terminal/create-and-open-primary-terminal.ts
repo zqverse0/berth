@@ -1,4 +1,5 @@
 import { toast } from "@/lib/notify"
+import { parseDeviceRef } from "@/lib/transport/device"
 import {
   createTerminalSession,
   getRuntimeCapabilities,
@@ -177,7 +178,8 @@ export async function createAndOpenPrimaryTerminalDetailed(
   }
 
   let shell = input.shell ?? null
-  if (shell == null || shell === "") {
+  // 本机的默认 shell 设置不套到别的设备上：对方项目的终端用对方自己的默认。
+  if ((shell == null || shell === "") && !parseDeviceRef(cwd)) {
     try {
       const settings = await getSystemTerminalSettings()
       shell = settings.default_shell

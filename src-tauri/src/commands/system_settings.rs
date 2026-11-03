@@ -156,7 +156,7 @@ pub(crate) async fn load_system_terminal_settings(
 
 /// 远程访问未启动（启动早期）时 state 还没放进来。
 #[cfg(feature = "tauri-runtime")]
-fn remote_listeners(app: &tauri::AppHandle) -> Result<State<'_, Listeners>, AppCommandError> {
+fn remote_listeners(app: &crate::AppHandle) -> Result<State<'_, Listeners>, AppCommandError> {
     use tauri::Manager;
     app.try_state::<Listeners>()
         .ok_or_else(|| AppCommandError::task_execution_failed("Remote access is starting"))
@@ -165,7 +165,7 @@ fn remote_listeners(app: &tauri::AppHandle) -> Result<State<'_, Listeners>, AppC
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_remote_access(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<RemoteAccessStatus, AppCommandError> {
     remote_listeners(&app)?.status().await
 }
@@ -176,7 +176,7 @@ pub async fn get_remote_access(
 pub async fn update_remote_access(
     settings: RemoteAccessSettings,
     password: Option<String>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<RemoteAccessStatus, AppCommandError> {
     remote_listeners(&app)?.update(settings, password).await
 }
@@ -214,7 +214,7 @@ pub async fn probe_terminal_shell_path(path: String) -> Result<bool, AppCommandE
 pub async fn update_system_language_settings(
     settings: SystemLanguageSettings,
     db: State<'_, AppDatabase>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<SystemLanguageSettings, AppCommandError> {
     let serialized = serde_json::to_string(&settings).map_err(|e| {
         AppCommandError::invalid_input("Failed to serialize language settings")
@@ -236,7 +236,7 @@ pub async fn update_system_language_settings(
 pub async fn update_system_terminal_settings(
     settings: SystemTerminalSettings,
     db: State<'_, AppDatabase>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<SystemTerminalSettings, AppCommandError> {
     let normalized = normalize_terminal_settings(settings);
     let serialized = serde_json::to_string(&normalized).map_err(|e| {

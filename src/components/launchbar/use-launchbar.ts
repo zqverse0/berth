@@ -30,6 +30,7 @@ import { reportAgentLaunchAlert } from "@/lib/terminal/report-agent-launch-alert
 import { launchbar as loadLaunchbarFile } from "@/lib/transport/launchbar"
 import type { AgentType, ModelProviderInfo } from "@/lib/types"
 import { WORKSPACE_FILE_SAVED_EVENT } from "@/lib/workspace/workspace-file-events"
+import { parseDeviceFolderId } from "@/lib/transport/device"
 
 export const LAUNCHBAR_VALUES_STORAGE_PREFIX = "berth:launchbar-values:"
 export const LAUNCHBAR_MODEL_PREF_STORAGE_PREFIX = "berth:launchbar-model-pref:"
@@ -170,12 +171,15 @@ function providerIdOf(vendor: string): number | null {
 const loginModelCache = new Map<string, Promise<ProviderModel[]>>()
 function loadLoginModels(
   agentId: string,
-  loginId: string
+  loginId: string,
+  device?: number
 ): Promise<ProviderModel[]> {
-  const key = `${agentId}\u0000${loginId}`
+  const key = `${device ?? ""}\u0000${agentId}\u0000${loginId}`
   let pending = loginModelCache.get(key)
   if (!pending) {
-    pending = fetchLoginModels(agentId, loginId).then(({ models }) => models)
+    pending = fetchLoginModels(agentId, loginId, device).then(
+      ({ models }) => models
+    )
     loginModelCache.set(key, pending)
     pending.catch(() => loginModelCache.delete(key))
   }
@@ -216,7 +220,11 @@ export function useLaunchbar({
   const tProviders = useTranslations("ModelProviderSettings")
   const tProjectSessions = useTranslations("Folder.projectSessions")
   const { openTranscriptTab } = useWorkspaceRuntimeActions()
-  const { agents: profileAgents, refresh: refreshProfiles } = useAgentProfiles()
+  // 对方项目：工具、启动栏、服务商、登录凭证都读那台设备的，记住的取值也按设备分开。
+  const device =
+    folderId == null ? undefined : parseDeviceFolderId(folderId)?.deviceId
+  const { agents: profileAgents, refresh: refreshProfiles } =
+    useAgentProfiles(device)
 
   const [launchingCli, setLaunchingCli] = useState(false)
   const [launchingTerminal, setLaunchingTerminal] = useState(false)
@@ -227,6 +235,11 @@ export function useLaunchbar({
   )
   const selectedName = selectedProfile?.name ?? null
   const launchAgentId = selectedProfile?.id ?? null
+  // 只在 launchAgentId 有值时使用。
+  const storeKey =
+    device == null
+      ? (launchAgentId ?? "")
+      : `${launchAgentId ?? ""}@device:${device}`
   const effectiveAgentType =
     (selectedProfile?.projectType as AgentType | undefined) ??
     agentType ??
@@ -247,14 +260,14 @@ export function useLaunchbar({
   const [logins, setLogins] = useState<LoginEntry[]>([])
   const [paneVendor, setPaneVendor] = useState<string>(() =>
     launchAgentId
-      ? vendorFromPreference(loadStoredModelPreference(launchAgentId))
+      ? vendorFromPreference(loadStoredModelPreference(storeKey))
       : ""
   )
   const paneLoginId = loginIdOf(paneVendor)
   const paneProviderId = providerIdOf(paneVendor)
   const [paneModelId, setPaneModelId] = useState<string>(() => {
     if (!launchAgentId) return ""
-    return loadStoredModelPreference(launchAgentId)?.modelId ?? ""
+    return loadStoredModelPreference(storeKey)?.modelId ?? ""
   })
   const lastAgentIdRef = useRef<string | null>(launchAgentId)
   const providerAgentType = selectedProfile?.providerAgentType ?? null
@@ -275,7 +288,7 @@ export function useLaunchbar({
     void (async () => {
       try {
         const [all, loginEntries] = await Promise.all([
-          listModelProviders(false).catch((error) => {
+          listModelProviders(false, device).catch((error) => {
             if (!cancelled) {
               reportAgentLaunchAlert(
                 tProviders("loadFailed"),
@@ -284,7 +297,7 @@ export function useLaunchbar({
             }
             return [] as ModelProviderInfo[]
           }),
-          listLoginCards().catch(() => [] as LoginEntry[]),
+          listLoginCards(device).catch(() => [] as LoginEntry[]),
         ])
         if (cancelled) return
         const visible = all.filter((provider) =>
@@ -306,7 +319,7 @@ export function useLaunchbar({
         const agentChanged = lastAgentIdRef.current !== launchAgentId
         lastAgentIdRef.current = launchAgentId
         const storedPref = launchAgentId
-          ? loadStoredModelPreference(launchAgentId)
+          ? loadStoredModelPreference(storeKey)
           : null
         const available = new Set([
           ...ownLogins.map((entry) => `${LOGIN_PREFIX}${entry.loginId}`),
@@ -337,6 +350,8 @@ export function useLaunchbar({
   }, [
     providerItem,
     launchAgentId,
+    device,
+    storeKey,
     providerAgentType,
     selectedProfile?.projectType,
     tProviders,
@@ -354,13 +369,13 @@ export function useLaunchbar({
       return
     }
     let cancelled = false
-    void loadLoginModels(launchAgentId, paneLoginId).then((models) => {
+    void loadLoginModels(launchAgentId, paneLoginId, device).then((models) => {
       if (!cancelled) setLoginModels(models)
     })
     return () => {
       cancelled = true
     }
-  }, [launchAgentId, paneLoginId])
+  }, [launchAgentId, paneLoginId, device])
   const providerApis = selectedProfile?.providerApis ?? null
   const providerModels = useMemo(() => {
     if (loginSelected) return loginModels
@@ -396,7 +411,7 @@ export function useLaunchbar({
   useEffect(() => {
     if (!modelItemId) return
     const storedPref = launchAgentId
-      ? loadStoredModelPreference(launchAgentId)
+      ? loadStoredModelPreference(storeKey)
       : null
     const officialDefault = providerModels[0]?.id ?? ""
 
@@ -423,7 +438,7 @@ export function useLaunchbar({
       const next = { ...current, [modelItemId]: targetModel }
       if (launchAgentId) {
         saveStoredLaunchbarValues(
-          launchAgentId,
+          storeKey,
           omitEphemeralLaunchbarValues(launchbarItems ?? [], next)
         )
       }
@@ -436,7 +451,7 @@ export function useLaunchbar({
         vendorFromPreference(storedPref) !== paneVendor ||
         storedPref.modelId !== targetModel
       ) {
-        saveStoredModelPreference(launchAgentId, {
+        saveStoredModelPreference(storeKey, {
           providerId: paneProviderId,
           loginId: paneLoginId,
           modelId: targetModel,
@@ -451,6 +466,7 @@ export function useLaunchbar({
     paneProviderId,
     paneLoginId,
     launchAgentId,
+    storeKey,
     launchbarItems,
   ])
 
@@ -461,14 +477,14 @@ export function useLaunchbar({
       const next = { ...current, [modelItemId]: value }
       if (launchAgentId) {
         saveStoredLaunchbarValues(
-          launchAgentId,
+          storeKey,
           omitEphemeralLaunchbarValues(launchbarItems ?? [], next)
         )
       }
       return next
     })
     if (launchAgentId) {
-      saveStoredModelPreference(launchAgentId, {
+      saveStoredModelPreference(storeKey, {
         providerId: paneProviderId,
         loginId: paneLoginId,
         modelId: value,
@@ -480,7 +496,7 @@ export function useLaunchbar({
     setPaneVendor(vendor)
     setPaneModelId("")
     if (launchAgentId) {
-      saveStoredModelPreference(launchAgentId, {
+      saveStoredModelPreference(storeKey, {
         providerId: providerIdOf(vendor),
         loginId: loginIdOf(vendor),
         modelId: "",
@@ -499,10 +515,10 @@ export function useLaunchbar({
       return
     }
     try {
-      const response = await loadLaunchbarFile({
-        type: "load",
-        agent: launchAgentId,
-      })
+      const response = await loadLaunchbarFile(
+        { type: "load", agent: launchAgentId },
+        device
+      )
       if (sequence !== launchbarLoadSequence.current) return
       if (response.type !== "file") {
         throw new Error("unexpected launchbar response")
@@ -524,9 +540,7 @@ export function useLaunchbar({
         diagnostics.map((item) => `${item.itemId}: ${item.message}`)
       )
 
-      const stored = launchAgentId
-        ? loadStoredLaunchbarValues(launchAgentId)
-        : {}
+      const stored = launchAgentId ? loadStoredLaunchbarValues(storeKey) : {}
       const initial: Record<string, string> = {}
       for (const item of items) {
         let val = ""
@@ -578,7 +592,7 @@ export function useLaunchbar({
       setLaunchbarItems(null)
       setLaunchbarDiagnostics([toErrorMessage(cause)])
     }
-  }, [launchAgentId, refreshProfiles, expert])
+  }, [launchAgentId, device, storeKey, refreshProfiles, expert])
 
   useEffect(() => {
     void refreshLaunchbar()
@@ -599,7 +613,7 @@ export function useLaunchbar({
       const next = { ...current, [id]: value }
       if (launchAgentId) {
         saveStoredLaunchbarValues(
-          launchAgentId,
+          storeKey,
           omitEphemeralLaunchbarValues(launchbarItems ?? [], next)
         )
       }

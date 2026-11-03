@@ -28,7 +28,7 @@ pub(crate) async fn get_workspace_snapshot_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn start_workspace_state_stream(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     root_path: String,
     wants_tree_git: Option<bool>,
 ) -> Result<WorkspaceSnapshotResponse, AppCommandError> {

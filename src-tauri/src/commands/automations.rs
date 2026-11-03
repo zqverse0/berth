@@ -296,7 +296,7 @@ pub async fn automations_core(
 pub async fn automations(
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, TerminalSessionManager>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     request: AutomationsRequest,
 ) -> Result<AutomationsResponse, AppCommandError> {
     automations_core(&db, &manager, EventEmitter::Tauri(app), request).await

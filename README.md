@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
-[下载](https://github.com/zqverse0/berth/releases) · [快速开始](#快速开始) · [功能](#功能一览) · [接入新的 Agent](#接入新的-agent)
+[下载](https://github.com/zqverse0/berth/releases) · [快速开始](#快速开始) · [功能](#功能一览) · [插件](#插件) · [接入新的 Agent](#接入新的-agent)
 
 ![Berth 项目首页：任务、最近变更、知识图谱，右侧是正在工作的 Claude Code](docs/screenshots/home.png)
 
@@ -30,7 +30,7 @@ Claude Code、Codex、Pi 这些编码 Agent 越来越强，但用多了会遇到
 Agent 跑在真实的 PTY 终端里，你看到的就是 CLI 本来的样子。Agent 今天发布新功能，在 Berth 里今天就能用，不用等任何客户端适配。
 
 **🤝 一个项目群，指挥多个 Agent**
-带着「专家」身份启动的 Agent 会自动进入项目群。你在群里点名一个或几个 Agent 发任务，消息在它空闲时送达，回复自动贴回群里，每一轮改了哪些文件、增删多少行一目了然。让 Claude 写、Codex 审，只需要「转给」一下。
+带着「专家」身份启动的 Agent 会自动进入项目群。你在群里点名一个或几个 Agent 发任务，消息在它空闲时送达，回复自动贴回群里，每一轮改了哪些文件、增删多少行一目了然。让 Claude 写、Codex 审，只需要「转给」一下。群里还有一位内置成员 **Berth**：直接用你配置的模型服务商回答，帮你装插件、配专家、整理任务和知识库，不用另开终端。
 
 **🧠 记忆跟着项目，不跟着 Agent**
 所有 Agent 的历史会话按项目归类，随时恢复。知识库和任务存在项目自己的 `.berth/` 目录里，是普通的 Markdown 文件，可以进 Git、随仓库走，换 Agent、换电脑都不丢。
@@ -41,8 +41,11 @@ Agent 跑在真实的 PTY 终端里，你看到的就是 CLI 本来的样子。A
 **💪 关掉窗口，Agent 照样在跑**
 终端由独立的守护进程管理，关闭 Berth 窗口不会中断正在工作的 Agent，重新打开就接上。出门在外，手机浏览器打开同一个工作台，或者用 SSH 直接接入项目终端。
 
+**🌐 多台设备，一个工作台**
+添加一台装了 Berth 的电脑（经 SSH），它的全部项目、终端、会话、任务、知识库就出现在你的侧栏里，Agent 在对方机器上跑。弱网下终端输入优先、断线自动续上；把文件拖到对方项目里即可断点续传上传。不挂载、不经中心服务器。
+
 **🔌 任何 Agent，一个插件包接入**
-Berth 的代码里没有一行按 Agent 品牌写的分支。每个 Agent 是一个插件包（`tool.json` + `launch.js`），官方已经提供 Claude Code、Codex CLI、Pi、Grok、Cline CLI、Antigravity CLI。
+Berth 的代码里没有一行按 Agent 品牌写的分支。每个 Agent 是一个插件包（`tool.json` + `launch.js`），官方已经提供 Claude Code、Codex CLI、Pi、Grok、Cline CLI、Antigravity CLI；插件也能给 Berth 加页面和编辑器，比如 Excalidraw 画板、GitHub 发现页。
 
 **🪶 轻量原生**
 Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
@@ -61,14 +64,16 @@ Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
 
 | | |
 |---|---|
+| **首页** | 项目脉搏、「需要你处理」清单、进行中的任务、按提交分组的最近变更（行内 diff）、知识图谱 |
 | **启动** | 选 Agent、模型服务商、专家包，一键在项目目录启动；模型服务商配置一次，各 Agent 通用，密钥存系统 keyring |
 | **会话** | 读取各 Agent 本地的历史会话，按项目归类、可恢复；部分 Agent 显示账户用量和额度重置时间 |
 | **终端** | 独立守护进程、分栏、标签组；右键「复制终端 ID」交给 Agent 精准定位 |
-| **项目群** | 点名发送、空闲送达、回复回贴、转给另一个 Agent、每轮改动文件；手机上也能对话 |
-| **审阅** | Markdown、HTML（沙箱）、PDF（选中、高亮、批注）、图片、Office 文档、代码编辑；Git 改动、提交、分支、贮藏、提交记录 |
+| **项目群** | 点名发送、空闲送达、回复回贴、转给另一个 Agent、每轮改动文件；成员卡片列出各自会话；内置成员 Berth；手机上也能对话 |
+| **审阅** | Markdown、HTML（沙箱）、PDF（选中、高亮、批注）、图片、Office 文档、Excalidraw 画板（插件）、代码编辑；Git 改动、提交、分支、贮藏、提交记录 |
 | **沉淀** | 双链 Markdown 知识库（搜索、反向链接、待维护提示）；任务带步骤、可绑定分支 / worktree、可定时运行 |
-| **远程** | 其他设备的浏览器凭密码访问，可添加到主屏幕全屏使用；`berth terminal attach` 经 SSH 接入 |
-| **其他** | GitHub 星标 / 趋势仓库浏览与一键克隆、划词翻译、中英文界面、深浅色主题 |
+| **多设备** | 经 SSH 接入另一台 Berth：远端项目、终端、会话、任务、知识库；先出缓存再刷新，离线可读；拖拽上传、断点续传 |
+| **远程** | 其他设备的浏览器凭密码访问，可添加到主屏幕全屏使用，手机上可原生选中终端文字；`berth terminal attach` 经 SSH 接入 |
+| **其他** | GitHub 星标 / 趋势仓库浏览与一键克隆（gh 插件）、划词翻译、中英文界面、深浅色主题 |
 
 ## 快速开始
 
@@ -130,6 +135,24 @@ berth guide                                 # 给 Agent 看的完整说明
 在「设置 → 通用 → 远程访问」里设一个访问密码，再填写本机要监听的地址（局域网、网线直连或你自己组的虚拟网络里这台电脑的地址），页面会列出可以打开的地址。其他设备的浏览器打开后先输入密码，就是同一个工作台；手机上添加到主屏幕后全屏显示。没设密码或没填地址时不监听。
 
 > ⚠️ 远程访问只有一个访问密码、走明文 HTTP：只监听你信任的网络（自己的局域网、网线直连、私有虚拟网络），不要监听公网地址。
+
+## 在另一台电脑上使用
+
+在「设备」里添加一台能 SSH 登录、并且装了 Berth 桌面版的电脑，侧栏就会列出它的全部项目；对方的 Berth 打开着时，才能使用这些项目。打开后终端、Agent、文件、会话、任务、知识库都在对方机器上运行，本机只是操作界面；对方的模型服务商和密钥留在对方，本机的不外传。对方没装 Berth 时只能开 SSH 终端，装好并打开后右键设备点「重新检测」即可。配合 [Tailscale 插件](https://github.com/zqverse0/berth-plugins/tree/main/tailscale)，不在同一局域网的设备也能互通。
+
+## 插件
+
+Berth 不自带插件，按需从官方插件仓库 **[zqverse0/berth-plugins](https://github.com/zqverse0/berth-plugins)** 安装（「设置 → 插件 → 插件仓库」点选，或 `berth tools install <id>`）：
+
+| 插件 | 作用 |
+|---|---|
+| `claude` · `codex` · `pi` · `grok` · `cline` · `agy` | 各家 Agent CLI：启动选项、历史会话、账户用量 |
+| `gh` | Git 与 GitHub CLI：推送账户、GitHub 发现页（星标 / 趋势），Agent 用它开 PR、看 CI |
+| `officecli` | `.docx` / `.xlsx` / `.pptx` 预览，预览里选中的元素可直接交给 Agent 修改 |
+| `excalidraw` | 在标签页里编辑 `.excalidraw` 和 Obsidian `.excalidraw.md` 画板，Markdown 里的 `![[画板]]` 显示为图片 |
+| `tailscale` | 设备间私有网络：Agent 查看在线设备、操作另一台设备上的 Berth、传文件 |
+
+插件除了接入 Agent，也能给 Berth 加页面、编辑器和预览器，写法见下一节。
 
 ## 接入新的 Agent
 

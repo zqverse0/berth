@@ -1436,10 +1436,16 @@ export async function removeTerminalRecord(terminalId: string): Promise<void> {
 // Model Providers
 // ---------------------------------------------------------------------------
 
+/** `device`：读那台设备的服务商（此时不带密钥）。 */
 export async function listModelProviders(
-  includeSecrets = true
+  includeSecrets = true,
+  device?: number
 ): Promise<ModelProviderInfo[]> {
-  return getTransport().call("list_model_providers", { includeSecrets })
+  return getTransport().call(
+    "list_model_providers",
+    { includeSecrets: device == null && includeSecrets },
+    { device }
+  )
 }
 
 export async function createModelProvider(params: {

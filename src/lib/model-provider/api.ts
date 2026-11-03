@@ -108,8 +108,8 @@ export interface LoginEntry {
   hasModels: boolean
 }
 
-export async function listLoginCards(): Promise<LoginEntry[]> {
-  return getTransport().call("list_login_cards")
+export async function listLoginCards(device?: number): Promise<LoginEntry[]> {
+  return getTransport().call("list_login_cards", undefined, { device })
 }
 
 export interface LoginModel {
@@ -128,9 +128,14 @@ export interface LoginModels {
 /** 按登录声明读模型（本地文件或包内脚本，不联网），并入预选项。 */
 export async function fetchLoginModels(
   agentId: string,
-  loginId: string
+  loginId: string,
+  device?: number
 ): Promise<LoginModels> {
-  return getTransport().call("fetch_login_models", { agentId, loginId })
+  return getTransport().call(
+    "fetch_login_models",
+    { agentId, loginId },
+    { device }
+  )
 }
 
 /** 覆盖保存某个登录的预选模型（不落库、不含凭证）。 */

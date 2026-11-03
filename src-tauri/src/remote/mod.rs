@@ -1,6 +1,9 @@
-//! 远程访问：tailnet 上的浏览器打开的就是桌面 GUI 本身。
+//! 远程访问：tailnet 上的浏览器打开的就是桌面 GUI 本身；另一台 Berth 也经设备 socket 用同一协议
+//! 使用本机的项目（只传数据，界面是它自己的）。无显示器的设备上由无界面宿主 `berth-host` 提供
+//! （同一份代码，Tauri 换 MockRuntime，主窗口是不渲染的 mock webview，派发不变）。
 //!
-//! 页面 HTML 里注入 `shim.js`，在浏览器里实现 `__TAURI_INTERNALS__`；本服务端：
+//! 客户端只有一份：`src/lib/transport/remote-line.js`。浏览器页面里它与 `shim.js` 一起注入
+//! （shim 实现 `__TAURI_INTERNALS__`）；另一台 Berth 由 `src/lib/transport/device.ts` 使用。本服务端：
 //! - `GET /__berth/ws?client=<页面 id>&received=<已收条数>[&z=1]`：每个浏览器页面一条 WebSocket，命令请求 / 响应（带 id 多路复用）、订阅的事件
 //!   （`listen_any`）、终端输出包都在上面。命令交给主窗口 webview 的 `on_message`，走 Tauri 自己的
 //!   命令分发与 ACL，所有命令无需逐个适配；唯一的 Channel 命令 `terminal_attach_channel` 在这里直接
@@ -20,7 +23,7 @@
 //!
 //! 帧格式（大端）：
 //! - 页面 → 宿主，二进制：`[u32 meta 长度][meta JSON][请求体]`，meta =
-//!   `{id, cmd, json, h?, lane?, etag?}`；`cmd` 为 `__subscribe`（请求体是事件名数组）/ `__log` 时不带 id。
+//!   `{id, cmd, json, h?, etag?}`；`cmd` 为 `__subscribe`（请求体是事件名数组）/ `__log` 时不带 id。
 //! - 页面 → 宿主，文本 `ping`：页面在前台时定时发，宿主立即回 `{"pong":true}`；只有它能证明上行
 //!   还通（对端 RST 后下行可能还在收数据，页面的输入却全丢了）。
 //! - 终端专线，页面 → 宿主，二进制 `[4][u32 channel][u64 偏移][按键字节]`（首字节 4；命令帧首字节是
@@ -57,7 +60,7 @@ use hyper_util::rt::TokioIo;
 use serde::Deserialize;
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeError, InvokeResponse, InvokeResponseBody};
 use tauri::webview::InvokeRequest;
-use tauri::{AppHandle, Listener, Manager};
+use tauri::{Listener, Manager};
 use tokio::sync::{mpsc, Notify};
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
@@ -65,6 +68,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::app_error::AppCommandError;
+use crate::AppHandle;
 use crate::commands::terminal::{attach_terminal_to_sink, TerminalPacketSink};
 use crate::terminal::error::{TerminalError, TerminalErrorCode};
 use crate::terminal::manager::{TerminalManager, TerminalOperationError};
@@ -102,7 +106,18 @@ const UNSENT_LOWAT: usize = CHUNK_BYTES;
 const DONE_MAX_BYTES: usize = 4 * 1024 * 1024;
 /// 桌面主窗口：浏览器的命令都以它的身份执行（同一套 ACL 与窗口作用域）。
 const MAIN_WINDOW: &str = "main";
-const SHIM: &str = include_str!("shim.js");
+/// 注入页面的脚本：协议客户端（与本机 Berth 连对方设备共用一份，去掉 `export` 成页面内函数）
+/// 加上 `shim.js`，包在一个函数作用域里。
+static SHIM: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    const LINE: &str = include_str!("../../../src/lib/transport/remote-line.js");
+    format!(
+        "(function(){{\n{}\n{}\n}})()",
+        LINE.replacen("export function createRemoteSession", "function createRemoteSession", 1),
+        include_str!("shim.js")
+    )
+});
+/// 设备 socket 在数据目录下的文件名（`berth node` 的设备视图按同名报给对方）。
+pub const DEVICE_SOCKET: &str = "remote.sock";
 
 const FRAME_TERMINAL: u8 = 1;
 const FRAME_RESPONSE: u8 = 2;
@@ -149,8 +164,6 @@ struct Client {
     takeover: Notify,
     calls: Mutex<Calls>,
     sent: Mutex<Sent>,
-    /// 输入道：上一条带输入序号的请求做完时完成。
-    input_tail: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     events: Mutex<HashSet<String>>,
     /// 页面能解 deflate-raw：之后 attach 的终端输出压缩发送。
     deflate: AtomicBool,
@@ -217,9 +230,6 @@ struct Meta {
     json: bool,
     #[serde(default)]
     h: HashMap<String, String>,
-    /// 带输入序号的请求：在这一页的输入道上按到达顺序逐个执行。
-    #[serde(default)]
-    lane: bool,
     etag: Option<String>,
 }
 
@@ -241,8 +251,40 @@ pub async fn host(app: AppHandle) {
             listen::RemoteAccessSettings::default()
         }
     };
+    #[cfg(unix)]
+    tokio::spawn(device_socket(remote.clone()));
     app.manage(listen::Listeners::new(remote, conn));
     app.state::<listen::Listeners>().apply(&settings).await;
+}
+
+/// 设备窗口的入口：数据目录下仅本用户可读写的 Unix socket，另一台设备经 `ssh -L` 转发进来。
+/// 能连上就已过了本用户的 SSH 认证，所以免登录；不设访问密码也监听。
+#[cfg(unix)]
+async fn device_socket(remote: Arc<Remote>) {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(data) = std::env::var_os("BERTH_DATA_DIR") else {
+        return;
+    };
+    let path = std::path::PathBuf::from(data).join(DEVICE_SOCKET);
+    let _ = std::fs::remove_file(&path);
+    let listener = match tokio::net::UnixListener::bind(&path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::warn!("[remote] bind {}: {error}", path.display());
+            return;
+        }
+    };
+    // ponytail: bind 与改权限之间有极短窗口；数据目录本身属于本用户。
+    if let Err(error) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
+        tracing::warn!("[remote] chmod {}: {error}", path.display());
+        return;
+    }
+    loop {
+        if let Ok((socket, _)) = listener.accept().await {
+            small_send_buffer(&socket);
+            tokio::spawn(serve_connection(socket, remote.clone(), true));
+        }
+    }
 }
 
 /// 一个监听地址的接受循环；任务被 abort 时只停接受新连接。
@@ -254,18 +296,41 @@ async fn accept_loop(listener: tokio::net::TcpListener, remote: Arc<Remote>) {
         // 终端回显一个字节也立刻发，不等 Nagle 攒包。
         let _ = socket.set_nodelay(true);
         limit_unsent(&socket);
-        let remote = remote.clone();
-        tokio::spawn(async move {
-            let service = service_fn(move |request| {
-                let remote = remote.clone();
-                async move { Ok::<_, Infallible>(handle(&remote, request).await) }
-            });
-            let _ = http1::Builder::new()
-                .serve_connection(TokioIo::new(socket), service)
-                .with_upgrades()
-                .await;
-        });
+        tokio::spawn(serve_connection(socket, remote.clone(), false));
     }
+}
+
+/// 设备 socket 的发送缓冲压小：节点按链路节奏读，读不动时这里的写就阻塞，分块轮转
+/// （大响应与小响应、事件交替）才起作用；默认缓冲会先吞下几百 KB 再排进链路。
+#[cfg(unix)]
+fn small_send_buffer(socket: &tokio::net::UnixStream) {
+    use std::os::fd::AsRawFd;
+    let size = CHUNK_BYTES as libc::c_int;
+    // SAFETY: fd 在 socket 存活期间有效，参数是指向 c_int 的指针与其长度。
+    let _ = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            std::ptr::addr_of!(size).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+}
+
+/// 一条连接上的 HTTP / WebSocket；`trusted` 的连接（设备 socket）免登录。
+async fn serve_connection<S>(socket: S, remote: Arc<Remote>, trusted: bool)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let service = service_fn(move |request| {
+        let remote = remote.clone();
+        async move { Ok::<_, Infallible>(handle(&remote, request, trusted).await) }
+    });
+    let _ = http1::Builder::new()
+        .serve_connection(TokioIo::new(socket), service)
+        .with_upgrades()
+        .await;
 }
 
 /// 内核里没发出的数据最多留 `UNSENT_LOWAT`，其余留在应用队列。不限时内核发送缓冲可涨到
@@ -335,7 +400,6 @@ impl Remote {
                     generation: AtomicU64::new(0),
                     takeover: Notify::new(),
                     calls: Mutex::default(),
-                    input_tail: Mutex::default(),
                     sent: Mutex::default(),
                     events: Mutex::default(),
                     deflate: AtomicBool::new(false),
@@ -348,7 +412,14 @@ impl Remote {
             .clone()
     }
 
-    fn subscribe(self: &Arc<Self>, client: &Client, events: HashSet<String>) {
+    fn subscribe(self: &Arc<Self>, client: &Client, mut events: HashSet<String>) {
+        // 页面传来的名字不可信：Tauri 对非法事件名（如带 `.` 的终端 id）直接 panic，panic 发生在
+        // 持锁期间会毒化 `hooked`，之后所有页面一订阅就断线。这类名字本机也收不到，丢掉即可。
+        events.retain(|event| {
+            event
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '-' | '/' | ':' | '_'))
+        });
         let mut hooked = self.hooked.lock().expect("remote hooked");
         for event in &events {
             if hooked.insert(event.clone()) {
@@ -380,14 +451,14 @@ impl Remote {
     }
 }
 
-async fn handle(remote: &Arc<Remote>, request: Request<Incoming>) -> Response<Body> {
+async fn handle(remote: &Arc<Remote>, request: Request<Incoming>, trusted: bool) -> Response<Body> {
     let path = request.uri().path().to_owned();
     if path == "/__berth/login" {
         return login(remote, request).await;
     }
     // 清单与图标由浏览器不带 cookie 地取（添加到主屏幕），放行；其余都要登录。
     let public = path == "/manifest.webmanifest" || path.starts_with("/icon");
-    if !public && !signed_in(remote, request.headers()) {
+    if !public && !trusted && !signed_in(remote, request.headers()) {
         if request.method() == Method::GET && !path.starts_with("/__berth/") {
             return html(StatusCode::UNAUTHORIZED, LOGIN_PAGE);
         }
@@ -669,35 +740,6 @@ fn request(remote: &Arc<Remote>, client: &Arc<Client>, frame: Bytes) {
     }
     let started = Instant::now();
     let client = client.clone();
-    // 带输入序号的请求（终端写入、resize）在这一页的输入道上逐个执行：页面不等回执连发，
-    // 宿主要求序号连续（`attach_io.rs`）。
-    if meta.lane {
-        let (done, next) = tokio::sync::oneshot::channel();
-        let previous = client
-            .input_tail
-            .lock()
-            .expect("client input tail")
-            .replace(next);
-        let remote = remote.clone();
-        tokio::spawn(async move {
-            if let Some(previous) = previous {
-                let _ = previous.await;
-            }
-            // 断线恢复后积压的输入会一口气到达，可能塞满终端执行队列（64）。被拒的输入没执行、
-            // 序号也没记下，原样再试不会重复；输入道等它成功再放后面的，序号就不会断。
-            let mut response = invoke(&remote, &client, &meta, body.clone()).await;
-            for _ in 0..50 {
-                if !is_backpressure(&response) {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                response = invoke(&remote, &client, &meta, body.clone()).await;
-            }
-            let _ = done.send(());
-            send_response(&client, id, &meta.cmd, response, started.elapsed(), None);
-        });
-        return;
-    }
     let pending = invoke(remote, &client, &meta, body);
     tokio::spawn(async move {
         let response = pending.await;
@@ -938,7 +980,7 @@ enum TermOp {
     },
 }
 
-/// 只在终端专线上登记：命令线上的 attach 仍走页面传来的输入序号（旧路径）。
+/// 只在终端专线上登记：按键与 resize 只走专线。
 fn open_channel(
     manager: &TerminalManager,
     client: &Arc<Client>,
@@ -1130,11 +1172,6 @@ where
     Err(TerminalErrorCode::InputBackpressure.into())
 }
 
-fn is_backpressure(response: &InvokeResponse) -> bool {
-    matches!(response, InvokeResponse::Err(InvokeError(error))
-        if error.get("code").and_then(|code| code.as_str()) == Some("input_backpressure"))
-}
-
 fn failure(message: String) -> InvokeResponse {
     InvokeResponse::Err(InvokeError(serde_json::Value::String(message)))
 }
@@ -1257,7 +1294,7 @@ fn inject_shim(html: Vec<u8>) -> Vec<u8> {
     let mut injected = String::with_capacity(text.len() + SHIM.len() + 20);
     injected.push_str(&text[..at]);
     injected.push_str("<script>");
-    injected.push_str(SHIM);
+    injected.push_str(&SHIM);
     injected.push_str("</script>");
     injected.push_str(&text[at..]);
     injected.into_bytes()

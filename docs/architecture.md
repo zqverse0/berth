@@ -332,30 +332,34 @@ berth CLI
 
 ### 7.11 远端 Berth 节点（多设备）
 
-在本机操作另一台装了 Berth（GUI 或 CLI）的设备：设备下列出对方全部项目，终端、Agent、文件、会话、
-任务、知识库都在对方机器上，经节点连接访问，不挂载、不经网页、不经中心服务器。
+在本机使用另一台装了 Berth 的设备上的项目：对方打开的项目出现在本机侧栏的设备下，用起来与本机项目一样
+（文件树、打开文件、终端、Agent、群组），界面全是本机的，只有数据经网络往来。终端与 Agent 跑在对方机器上。
+不挂载、不嵌网页、不经中心服务器。
 
 ```text
-sidebar 设备区（sidebar-device-section / device-projects / DeviceLaunchPanel）
-  → runtime bridge device.*（src-tauri/src/devices.rs，远端终端在 devices/terminals.rs）
-  → berth_node::client::Client（每台设备：终端通道、数据通道常驻，传输通道按需）
-  → ssh <目标> berth node stdio
-  → 对方常驻 berth node serve（unix socket，会话按 id 保留，ssh 断了换连接续上）
-  → 对方领域代码（project / session / tasks / knowledge / workspace_terminal → termd）
+本机前端（同一套界面）
+  → src/lib/transport（唯一后端出口）：参数里有对方身份的调用发给那台设备（transport/device.ts）
+      身份：路径 berth-device://<设备><对方路径>，终端 id berth-device://<设备>#<对方 id>，项目 id 取负
+  → 协议客户端 transport/remote-line.js（与浏览器远程访问同一份；命令线 + 终端专线，补发、ETag、压缩）
+  → 本机回环端口（devices/workspace.rs，每设备一个）
+  → 这台设备唯一的节点连接：berth_node::client::Client → ssh <目标> berth node stdio
+  → 对方常驻 berth node serve 的隧道（Connect / Send / Shut）
+  → 对方 GUI 的设备 socket remote.sock（remote/mod.rs，与浏览器远程访问同一个服务端）
 ```
 
 - **协议**（`src-tauri/device/berth-node`，帧格式写在 crate 文档）：握手带协议版本号，不一致即拒绝；
-  消息带优先级（终端交互 > 普通 > 传输），大块切片让交互插队；按确认点续传，输入恰好一次；每个请求有
-  截止时间；zstd 压缩。性能保证由最差链路模拟测试证明（`scripts/dev-trial cargo test -p berth-node`）。
+  消息带优先级（终端交互 > 普通 > 传输），大块切片让交互插队；基于时延的拥塞控制让非交互流量只用空闲带宽；
+  按确认点续传；zstd 压缩。性能保证由最差链路模拟测试证明（`scripts/dev-trial cargo test -p berth-node`）。
+- **一条连接**：每台设备一个节点会话，承载隧道（终端专线 Interactive、命令线 Normal、其余 Bulk）、概览等请求
+  与文件传输（Bulk）；有按键时传输再让路几秒。拆成多条 SSH 反而互相抢链路。
+- **节点请求**只剩对方 GUI 不运行时也要用的：设备概览（含打开的项目与 GUI 是否在运行）、添加项目、浏览目录、
+  启动栏、传输。对方项目的内容一律走对方 GUI 的命令。
 - **节点设备**：添加 / 检查设备时探测到对方 berth 即是，路径记在 `<数据目录>/devices/<id>/node.json`；
   探测不到的只能开 SSH 终端，提示装上 Berth；装上后「重新检测」即成为节点设备。
-- **远端终端**：id 为 `<设备 id>/<对方 target_ref>`，与本机终端在命令层（`commands/terminal*.rs`）汇合进
-  同一终端清单；接入回可视区快照，之后推增量；终端通道重连后全部重同步。
-- **缓存**：`<数据目录>/devices/<id>/cache/`，64MB LRU。设备概览、项目概览、目录、文件首屏先出缓存再取
-  最新；目录 / 项目根按版本只回变化。离线时只读缓存并灰掉。
-- **传输**：本机文件树拖到远端项目目录 → `device.transfer` → `berth_node::transfer::upload`
-  （分块、断点续传、对方校验 sha256）；远端终端有输入时传输连接让路。
-- 对方的启动栏、服务商、Key 都是对方的；本机 Key 不外传。
+- **对方 GUI 没在运行**：侧栏提示，后台退避重连，打开后自动连上。
+- **传输**：本机文件树拖到对方项目目录 → `device.transfer` → `berth_node::transfer::upload`
+  （分块、断点续传、对方校验 sha256）。
+- 对方的启动栏、服务商、Key 都是对方的；本机 Key 不外传。对方项目的标签页不写本机库（外键指向本机项目表）。
 
 ## 8. 数据存储
 

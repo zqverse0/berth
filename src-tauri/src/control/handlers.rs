@@ -29,7 +29,7 @@ pub(crate) const AGENT_CHANGED_EVENT: &str = "agent://changed";
 pub(crate) struct ControlDeps {
     pub(crate) db: Arc<crate::db::AppDatabase>,
     pub(crate) emitter: crate::event_bridge::EventEmitter,
-    pub(crate) app: tauri::AppHandle,
+    pub(crate) app: crate::AppHandle,
 }
 
 type HandlerResult = Result<Value, (ErrorKind, String)>;

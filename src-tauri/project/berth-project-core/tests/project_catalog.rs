@@ -18,6 +18,13 @@ async fn ready_instance(data_dir: &Path) -> DatabaseConnection {
     conn.expect("ready connection")
 }
 
+/// 打开列表只列仍存在的目录，测试项目要有真实目录。
+fn project_dir(root: &Path, name: &str) -> String {
+    let path = root.join("projects").join(name);
+    std::fs::create_dir_all(&path).expect("project dir");
+    path.to_string_lossy().into_owned()
+}
+
 fn names(entries: &[CatalogEntry]) -> Vec<String> {
     entries.iter().map(|entry| entry.name.clone()).collect()
 }
@@ -35,16 +42,16 @@ async fn all_scope_keeps_closed_projects_and_hides_chat() {
     let dir = tempfile::tempdir().expect("dir");
     let conn = ready_instance(dir.path()).await;
 
-    let alpha = folder_service::add_folder(&conn, "/tmp/alpha")
+    let alpha = folder_service::add_folder(&conn, &project_dir(dir.path(), "alpha"))
         .await
         .expect("alpha");
-    folder_service::add_folder(&conn, "/tmp/beta")
+    folder_service::add_folder(&conn, &project_dir(dir.path(), "beta"))
         .await
         .expect("beta");
     folder_service::set_folder_open(&conn, alpha.id, false)
         .await
         .expect("close alpha");
-    folder_service::add_chat_folder(&conn, "/tmp/chat-scratch")
+    folder_service::add_chat_folder(&conn, &project_dir(dir.path(), "chat-scratch"))
         .await
         .expect("chat folder");
 
@@ -64,16 +71,20 @@ async fn open_scope_returns_only_open_projects() {
     let dir = tempfile::tempdir().expect("dir");
     let conn = ready_instance(dir.path()).await;
 
-    let alpha = folder_service::add_folder(&conn, "/tmp/alpha")
+    // 打开列表只列仍存在的目录：用真实目录，另加一个已不存在的。
+    let alpha = folder_service::add_folder(&conn, &project_dir(dir.path(), "alpha"))
         .await
         .expect("alpha");
-    folder_service::add_folder(&conn, "/tmp/beta")
+    folder_service::add_folder(&conn, &project_dir(dir.path(), "beta"))
         .await
         .expect("beta");
+    folder_service::add_folder(&conn, "/tmp/berth-catalog-test-gone")
+        .await
+        .expect("gone");
     folder_service::set_folder_open(&conn, alpha.id, false)
         .await
         .expect("close alpha");
-    folder_service::add_chat_folder(&conn, "/tmp/chat-scratch")
+    folder_service::add_chat_folder(&conn, &project_dir(dir.path(), "chat-scratch"))
         .await
         .expect("chat folder");
 

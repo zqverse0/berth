@@ -85,14 +85,8 @@ pub async fn list_open_folders_core(
 pub async fn list_open_folder_details_core(
     db: &AppDatabase,
 ) -> Result<Vec<FolderDetail>, AppCommandError> {
-    // 列表只暴露仍存在的目录；历史记录保留，不改数据库。
     folder_service::list_open_folder_details(&db.conn)
         .await
-        .map(|rows| {
-            rows.into_iter()
-                .filter(|row| PathBuf::from(&row.path).is_dir())
-                .collect()
-        })
         .map_err(AppCommandError::from)
 }
 
@@ -677,7 +671,7 @@ pub async fn open_worktree_folder(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_folder_in_workspace(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     path: String,
 ) -> Result<FolderDetail, AppCommandError> {
@@ -697,7 +691,7 @@ pub async fn open_folder_by_id(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn remove_folder_from_workspace(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
     folder_id: i32,
@@ -724,7 +718,7 @@ pub async fn rename_worktree(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn reconcile_worktree_family(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
     folder_id: i32,

@@ -1,5 +1,5 @@
 #[cfg(feature = "tauri-runtime")]
-use tauri::AppHandle;
+use crate::AppHandle;
 
 use crate::app_error::AppCommandError;
 

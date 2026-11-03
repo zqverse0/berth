@@ -35,9 +35,14 @@ export type LaunchbarResponse =
   | { type: "agents"; agents: AgentProfileSummary[]; directory: string }
   | { type: "icon"; dataUrl: string | null }
 
-/** The only frontend path into the launchbar file runtime. */
+/** The only frontend path into the launchbar file runtime. `device`：读那台设备的工具。 */
 export function launchbar(
-  request: LaunchbarRequest
+  request: LaunchbarRequest,
+  device?: number
 ): Promise<LaunchbarResponse> {
-  return getTransport().call<LaunchbarResponse>("launchbar", { request })
+  return getTransport().call<LaunchbarResponse>(
+    "launchbar",
+    { request },
+    { device }
+  )
 }

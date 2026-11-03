@@ -274,7 +274,7 @@ fn probe_finds_berth_outside_path_and_node_command_quotes_it() {
     std::fs::set_permissions(&berth, std::fs::Permissions::from_mode(0o755)).unwrap();
     let out = std::process::Command::new("/bin/sh")
         .arg("-c")
-        .arg(probe_command())
+        .arg(probe_command(None))
         .env("HOME", &home)
         .env("PATH", "/bin:/usr/bin")
         .output()
@@ -288,6 +288,22 @@ fn probe_finds_berth_outside_path_and_node_command_quotes_it() {
         String::from_utf8_lossy(&out.stdout).trim(),
         berth.to_string_lossy()
     );
+    // 上次记下的路径仍可执行就沿用；失效了回到常规候选。
+    let pinned = home.join("other berth");
+    std::fs::write(&pinned, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&pinned, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let probe = |preferred: &std::path::Path| {
+        let out = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(probe_command(Some(&preferred.to_string_lossy())))
+            .env("HOME", &home)
+            .env("PATH", "/bin:/usr/bin")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    assert_eq!(probe(&pinned), pinned.to_string_lossy());
+    assert_eq!(probe(&home.join("gone")), berth.to_string_lossy());
     std::fs::remove_dir_all(&home).unwrap();
     assert_eq!(node_command("/a b/it's"), r"'/a b/it'\''s' node stdio");
 }

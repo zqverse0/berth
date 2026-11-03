@@ -13,6 +13,7 @@ import {
   reorderFolders as apiReorderFolders,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
+import { parseDeviceFolderId } from "@/lib/transport/device"
 import type {
   AgentStats,
   AgentType,
@@ -105,6 +106,8 @@ export interface AppWorkspaceStoreState {
    * user-facing list), every other kind into both lists.
    */
   upsertFolder: (detail: FolderDetail) => void
+  /** 换掉这台设备的项目（已换成本机身份，`transport/device.ts`）：只进 `allFolders`。 */
+  syncDeviceFolders: (deviceId: number, details: FolderDetail[]) => void
   openFolder: (path: string) => Promise<FolderDetail>
   openWorktreeFolder: (
     path: string,
@@ -338,13 +341,21 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
           }
         }
         const activeFolderId = get().activeFolderId
+        // 对方设备的项目（负 id，`transport/device.ts`）不在本机库里：刷新时保留。
+        const deviceFolders = get().allFolders.filter((folder) => folder.id < 0)
         set({
           folders: reuseFolderDetails(get().folders, openList),
-          allFolders: reuseFolderDetails(get().allFolders, allList),
+          allFolders: reuseFolderDetails(get().allFolders, [
+            ...allList,
+            ...deviceFolders,
+          ]),
           branches,
-          activeFolderId: allList.some((folder) => folder.id === activeFolderId)
-            ? activeFolderId
-            : null,
+          activeFolderId:
+            activeFolderId != null &&
+            (activeFolderId < 0 ||
+              allList.some((folder) => folder.id === activeFolderId))
+              ? activeFolderId
+              : null,
         })
       } catch (err) {
         console.error("[AppWorkspace] fetchFolders failed:", err)
@@ -737,6 +748,18 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       if (Object.keys(patch).length > 0) set(patch)
     },
 
+    syncDeviceFolders: (deviceId, details) => {
+      const others = get().allFolders.filter(
+        (folder) => parseDeviceFolderId(folder.id)?.deviceId !== deviceId
+      )
+      set({
+        allFolders: reuseFolderDetails(get().allFolders, [
+          ...others,
+          ...details,
+        ]),
+      })
+    },
+
     upsertFolder: (detail) => {
       const upsert = (prev: FolderDetail[]) => {
         const idx = prev.findIndex((f) => f.id === detail.id)
@@ -753,8 +776,11 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       // `list_all_folder_details` (`allFolders`, for by-id cwd / active-folder
       // lookups). Seeding a chat folder into `folders` would render a "Chat"
       // header row in the sidebar until the next refetch.
+      // 对方设备的项目（负 id）在侧栏设备分组下单独列出，同样不进 `folders`。
       set({
-        ...(detail.kind !== "chat" ? { folders: upsert(folders) } : {}),
+        ...(detail.kind !== "chat" && detail.id > 0
+          ? { folders: upsert(folders) }
+          : {}),
         allFolders: upsert(allFolders),
       })
     },

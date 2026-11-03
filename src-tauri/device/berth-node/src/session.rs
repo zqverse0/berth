@@ -224,7 +224,7 @@ impl Session {
         }
     }
 
-    /// 某优先级排队未发的字节数（终端输出积压过多时改走重同步）。
+    /// 某优先级排队未发的字节数（隧道按它决定是否继续读 socket）。
     pub fn queued_bytes(&self, priority: Priority) -> usize {
         self.sched.queued_bytes(priority)
     }

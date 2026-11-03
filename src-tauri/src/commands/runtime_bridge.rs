@@ -30,7 +30,7 @@ pub struct RuntimeBridgeOperationArgs {
 /// Tagged Runtime bridge operation.
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn runtime_bridge_operation(
-    #[cfg(feature = "tauri-runtime")] app: tauri::AppHandle,
+    #[cfg(feature = "tauri-runtime")] app: crate::AppHandle,
     #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, crate::db::AppDatabase>,
     args: RuntimeBridgeOperationArgs,
 ) -> Result<Value, AppCommandError> {

@@ -23,7 +23,7 @@ import { getHomeDirectory } from "@/lib/api"
 import { subscribe } from "@/lib/platform"
 import { DeviceLaunchPanel } from "@/components/layout/sidebar/agent-launch"
 import { createAndOpenPrimaryTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
-import { DeviceProjects } from "./device-projects"
+import { DeviceProjects, useOsFileDropToDevices } from "./device-projects"
 import {
   addDevice,
   checkDevice,
@@ -238,12 +238,13 @@ export function SidebarDeviceSection({
 }) {
   const t = useTranslations("Folder.sidebar.devices")
   const errorText = useDeviceErrorText()
+  useOsFileDropToDevices()
   const [status, setStatus] = useState<
     Record<number, { state: DeviceStatus; message: string | null }>
   >({})
   const [projectTarget, setProjectTarget] = useState<Device | null>(null)
   const [launchTarget, setLaunchTarget] = useState<Device | null>(null)
-  // 节点设备的连接状态（数据通道），后端连接状态变化时推送。
+  // 节点设备的连接状态，后端连接状态变化时推送。
   const [nodeStatus, setNodeStatus] = useState<
     Record<number, NodeChannelStatus>
   >({})
@@ -252,10 +253,9 @@ export function SidebarDeviceSection({
     let unsubscribe: (() => void) | null = null
     void subscribe<{
       deviceId: number
-      channel: string
       status: NodeChannelStatus
     }>("device://node-status", (payload) => {
-      if (disposed || payload.channel !== "data") return
+      if (disposed) return
       setNodeStatus((prev) => ({ ...prev, [payload.deviceId]: payload.status }))
     })
       .then((off) => {
@@ -342,7 +342,7 @@ export function SidebarDeviceSection({
       {devices.map((device) => {
         const checked = status[device.id]
         // 节点设备：ssh 测得通之后，以节点连接的状态为准。
-        const node = nodeStatus[device.id] ?? device.node?.status?.data
+        const node = nodeStatus[device.id] ?? device.node?.status
         const current =
           device.node && node && checked?.state !== "offline"
             ? {
@@ -456,10 +456,13 @@ export function SidebarDeviceSection({
                     {t("berthMissing")}
                   </p>
                 )}
-                <DetachedTerminalStrip
-                  entries={deviceTerminals}
-                  ariaLabel={t("deviceTerminals", { name: device.name })}
-                />
+                {/* 节点设备的终端挂在各自项目下（`DeviceProjects`）；这里只剩不带 berth 的设备开的 SSH 终端。 */}
+                {device.node ? null : (
+                  <DetachedTerminalStrip
+                    entries={deviceTerminals}
+                    ariaLabel={t("deviceTerminals", { name: device.name })}
+                  />
+                )}
               </>
             )}
           </div>

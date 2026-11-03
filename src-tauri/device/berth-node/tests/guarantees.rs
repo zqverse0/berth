@@ -305,3 +305,34 @@ fn version_mismatch_is_rejected() {
         Err(ProtoError::Rejected(_))
     ));
 }
+
+/// 保证 7：空闲链路上普通请求一来一回 ≈ 1 次往返（设备窗口命令线的基线）。
+#[test]
+fn idle_normal_request_takes_one_round_trip() {
+    let mut sim = Sim::new(LinkSpec::worst());
+    let conn = sim.open();
+    while sim.next_event(SECS(3)).is_some() {}
+    let mut worst = Duration::ZERO;
+    for id in 1..=5u64 {
+        let asked = sim.now();
+        sim.session(conn, Side::Client)
+            .send(Outgoing::request(id, Priority::Normal, b"q".to_vec()));
+        let mut done = None;
+        while let Some((_, side, ev)) = sim.next_event(SECS(30)) {
+            match (side, message(&ev).map(|m| m.id)) {
+                (Side::Server, Some(i)) if i == id => {
+                    let reply = Outgoing::reply(id, Priority::Normal, noise(300));
+                    sim.session(conn, Side::Server).send(reply);
+                }
+                (Side::Client, Some(i)) if i == id => {
+                    done = Some(sim.now() - asked);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        worst = worst.max(done.expect("no reply"));
+    }
+    let spec = sim.spec();
+    assert!(worst <= spec.rtt + QUEUE_SLACK, "worst {worst:?}");
+}

@@ -13,6 +13,8 @@
  * useful.
  */
 
+import { detectPlatform } from "@/hooks/use-platform"
+
 /** Private MIME type carrying the JSON {@link FileTreeDragPayload}. Lowercase to
  * match how `DataTransfer.types` normalizes custom types. */
 export const FILE_TREE_DND_MIME = "application/x-berth-tree-entry"
@@ -129,6 +131,19 @@ export type FileTreeDropZone =
   | { kind: "dir"; destDir: string }
   | { kind: "composer"; tabId: string }
   | { kind: "device"; deviceId: number; dir: string }
+
+/**
+ * 桌面端 Tauri 原生拖放事件（Over / Drop）的坐标 → 该点下的元素。macOS（窗口点）与
+ * Linux（GTK 逻辑像素）报的已是 CSS 像素；只有 Windows 按物理像素报，需除以 DPR（未实测）。
+ */
+export function elementAtDropPosition(position: {
+  x: number
+  y: number
+}): Element | null {
+  const scale =
+    detectPlatform() === "windows" ? window.devicePixelRatio || 1 : 1
+  return document.elementFromPoint(position.x / scale, position.y / scale)
+}
 
 /** Parse a {@link FILE_TREE_DROP_DEVICE_ATTR} value. */
 export function parseDeviceDropZone(

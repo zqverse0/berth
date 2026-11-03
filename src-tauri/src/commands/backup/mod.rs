@@ -73,9 +73,10 @@ mod tauri_commands {
     use std::sync::Arc;
 
     use serde::Deserialize;
-    use tauri::{AppHandle, Manager, State};
+    use tauri::{Manager, State};
 
     use crate::app_error::AppCommandError;
+    use crate::AppHandle;
     use crate::db::AppDatabase;
     use crate::event_bridge::EventEmitter;
     use crate::workspace_state::transfer::WorkspaceTransferManager;

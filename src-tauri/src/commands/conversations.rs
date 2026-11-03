@@ -151,7 +151,7 @@ pub async fn save_opened_tabs_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn save_opened_tabs(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     items: Vec<OpenedTab>,
     expected_version: i64,
@@ -296,7 +296,7 @@ fn list_conversations_sync(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn list_project_agent_sessions(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     request: ProjectAgentSessionPageRequest,
 ) -> Result<ProjectAgentSessionPage, AppCommandError> {
@@ -563,7 +563,7 @@ pub async fn resolve_project_agent_session_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn resolve_project_agent_session(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
     agent_type: AgentType,
@@ -834,7 +834,7 @@ pub async fn scan_importable_sessions_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn scan_importable_sessions(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
 ) -> Result<ScanResult, AppCommandError> {
     scan_importable_sessions_core(&db.conn, &EventEmitter::Tauri(app)).await
@@ -1017,7 +1017,7 @@ pub async fn import_selected_sessions_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn import_selected_sessions(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     selections: Vec<SelectedSessionKey>,
 ) -> Result<ImportSelectedResult, AppCommandError> {
@@ -1352,7 +1352,7 @@ pub async fn get_folder_conversation_with_live_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_folder_conversation(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     conversation_id: i32,
 ) -> Result<DbConversationDetail, AppCommandError> {
@@ -1495,7 +1495,7 @@ pub async fn create_conversation_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn create_conversation(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
     agent_type: AgentType,
@@ -1748,7 +1748,7 @@ pub async fn create_chat_conversation_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn create_chat_conversation(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     agent_type: AgentType,
     title: Option<String>,
@@ -1779,7 +1779,7 @@ pub async fn create_chat_conversation(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn create_chat_dir(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
 ) -> Result<CreateChatDirResult, AppCommandError> {
     use tauri::Manager;
     let data_dir = app
@@ -1823,7 +1823,7 @@ pub async fn update_conversation_title_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn update_conversation_title(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     conversation_id: i32,
     title: String,
@@ -1846,7 +1846,7 @@ pub async fn update_conversation_pinned_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn update_conversation_pinned(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     conversation_id: i32,
     pinned: bool,
@@ -1942,7 +1942,7 @@ pub async fn delete_conversation_with_cleanup_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn delete_conversation(
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     conversation_id: i32,
 ) -> Result<(), AppCommandError> {

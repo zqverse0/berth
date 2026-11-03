@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
-use tauri::{State, WebviewWindow};
+use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::app_error::AppCommandError;
+use crate::WebviewWindow;
 // Desktop Tauri manages `WorkspaceResourceLeaseStore` directly (see lib.rs
 // `.manage(workspace_resources)`). It does NOT manage `AppState` — that Arc is
 // only built for the embedded web server / codeg-server. These commands must

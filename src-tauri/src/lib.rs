@@ -5,6 +5,17 @@ pub mod tool;
 pub(crate) static AUTOMATION_SCHEDULER_WAKE: std::sync::LazyLock<tokio::sync::Notify> =
     std::sync::LazyLock::new(tokio::sync::Notify::new);
 
+/// 宿主运行时：GUI 用 Wry；`headless`（`berth-host`，无显示器设备）用 Tauri 的 MockRuntime——
+/// 不建 webview，命令仍经同一套 `on_message` 派发与 ACL（任务 11-02-device-first）。
+#[cfg(all(feature = "tauri-runtime", not(feature = "headless")))]
+pub type Rt = tauri::Wry;
+#[cfg(feature = "headless")]
+pub type Rt = tauri::test::MockRuntime;
+#[cfg(feature = "tauri-runtime")]
+pub type AppHandle = tauri::AppHandle<Rt>;
+#[cfg(feature = "tauri-runtime")]
+pub type WebviewWindow = tauri::WebviewWindow<Rt>;
+
 mod app_error;
 pub mod backgrounds;
 pub mod commands;
@@ -19,6 +30,8 @@ pub mod decision;
 pub mod devices;
 pub mod event_bridge;
 pub mod git;
+#[cfg(all(unix, feature = "tauri-runtime"))]
+mod host_lock;
 pub mod knowledge;
 pub mod logging;
 pub mod model_provider;
@@ -135,7 +148,7 @@ mod tauri_app {
                 workspace_resources.clone(),
             ),
         );
-        let builder = tauri::Builder::default();
+        let builder = tauri::Builder::<crate::Rt>::new();
 
         // Must be the first plugin: it short-circuits second launches by
         // signalling the running instance and exiting before any other
@@ -145,7 +158,7 @@ mod tauri_app {
         // can run alongside an installed release build of codeg during
         // development. Debug desktop builds use an isolated SQLite file, but
         // they still share other `app.berth` data-dir artifacts with release.
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "headless")))]
         let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             windows::show_main_window(app);
         }));
@@ -178,7 +191,7 @@ mod tauri_app {
         #[cfg(feature = "debug-bridge")]
         let builder = builder.plugin(tauri_plugin_debug_bridge::init());
 
-        builder
+        let app = builder
             .manage(TerminalManager::new())
             .manage(control::CurrentTerminalSelection::default())
             .manage(windows::CommitWindowState::new())
@@ -246,6 +259,18 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("BERTH_DATA_DIR", &effective_data_dir);
                 }
+
+                // 同一数据目录只有一个宿主，GUI 优先（`host_lock`）。
+                #[cfg(all(unix, feature = "headless"))]
+                {
+                    match crate::host_lock::hold(&effective_data_dir) {
+                        // 锁随进程存活。
+                        Some(lock) => std::mem::forget(lock),
+                        None => std::process::exit(0),
+                    }
+                }
+                #[cfg(all(unix, not(feature = "headless")))]
+                crate::host_lock::take_over(&effective_data_dir);
 
                 // 内置专家「Berth 助手」（群组成员 Berth 用）：缺失补上，用户没改过的随版本更新，改过的不动。
                 match berth_tool_core::builtin::ensure() {
@@ -384,13 +409,16 @@ mod tauri_app {
                 // workspace back). Locale comes from the persisted language
                 // settings; system mode falls back to English here, which
                 // the user can fix by switching to manual mode.
-                let tray_locale = tauri::async_runtime::block_on(
-                    crate::commands::system_settings::load_system_language_settings(&db.conn),
-                )
-                .map(|settings| settings.language)
-                .unwrap_or_default();
-                if let Err(err) = windows::install_tray_icon(app.handle(), tray_locale) {
-                    tracing::error!("[Tray] failed to install tray icon: {err}");
+                #[cfg(not(feature = "headless"))]
+                {
+                    let tray_locale = tauri::async_runtime::block_on(
+                        crate::commands::system_settings::load_system_language_settings(&db.conn),
+                    )
+                    .map(|settings| settings.language)
+                    .unwrap_or_default();
+                    if let Err(err) = windows::install_tray_icon(app.handle(), tray_locale) {
+                        tracing::error!("[Tray] failed to install tray icon: {err}");
+                    }
                 }
 
                 tracing::info!(
@@ -787,8 +815,19 @@ mod tauri_app {
                 crate::control::workspace_open_file_handoff,
             ])
             .build(tauri::generate_context!())
-            .expect("error while building tauri application")
-            .run(|app, event| match event {
+            .expect("error while building tauri application");
+        // 无界面宿主不进事件循环（MockRuntime 的 `run` 是每秒处理一条消息的测试循环）：
+        // 只跑一次 `run_iteration` 执行 setup（MockRuntime 的迭代本身是空操作），之后主线程任务
+        // 就地执行，进程靠远程访问与后台任务存活。
+        #[cfg(feature = "headless")]
+        {
+            let mut app = app;
+            #[allow(deprecated)]
+            app.run_iteration(|_, _| {});
+            tauri::async_runtime::block_on(std::future::pending::<()>());
+        }
+        #[cfg(not(feature = "headless"))]
+        app.run(|app, event| match event {
                 tauri::RunEvent::ExitRequested { .. } => {
                     APP_QUITTING.store(true, Ordering::Relaxed);
                     if let Some(tm) = app.try_state::<TerminalManager>() {

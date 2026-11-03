@@ -12,6 +12,7 @@
 // `normalizeAbsPath` / `joinRootRel` in this module.
 
 import { getHomeDirectory } from "@/lib/api"
+import { deviceRoot } from "@/lib/transport/device"
 import {
   isAbsoluteFilePath,
   normalizeSlashPath,
@@ -54,6 +55,9 @@ export function isVirtualPreviewPath(path: string | null | undefined): boolean {
  * today).
  */
 export function normalizeAbsPath(path: string): string {
+  // 对方设备的路径：前缀是根，规范化其后的对方绝对路径。
+  const device = deviceRoot(path.trim())
+  if (device) return device + normalizeAbsPath(path.trim().slice(device.length))
   let normalized = normalizeSlashPath(path.trim())
   // URL-style Windows paths ("/C:/x") — the leading slash is a URL
   // artifact (e.g. rehype-harden's re-rooting), not a path component.
@@ -117,7 +121,9 @@ export function splitAbsPath(
   if (!ioPath) return null
 
   let rootPath = normalized.slice(0, lastSlash)
-  if (!rootPath) {
+  if (rootPath === deviceRoot(normalized)) {
+    rootPath = `${rootPath}/`
+  } else if (!rootPath) {
     rootPath = "/"
   } else if (/^[a-zA-Z]:$/.test(rootPath)) {
     rootPath = `${rootPath}/`

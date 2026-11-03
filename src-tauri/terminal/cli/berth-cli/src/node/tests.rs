@@ -22,9 +22,7 @@ async fn start() -> (tempfile::TempDir, std::path::PathBuf) {
     isolate_data();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("node.sock");
-    let ctx = Ctx {
-        termd: dir.path().join("no-termd.sock"),
-    };
+    let ctx = Ctx;
     let serve_path = path.clone();
     tokio::spawn(async move { serve_at(&serve_path, ctx, Duration::from_secs(60)).await });
     for _ in 0..100 {
@@ -136,8 +134,10 @@ async fn node_reports_errors_and_rejects_other_protocol_versions() {
     let mut conn = open(&path).await;
     session.connect();
     // 项目外的路径不给读。
-    let read = Request::Stat {
+    let read = Request::PutBegin {
         path: "/etc/passwd".into(),
+        size: 1,
+        sha256: "0".repeat(64),
     };
     session.send(Outgoing::request(1, Priority::Normal, api::encode(&read, &[])));
     let events = exchange(&mut conn, &mut session, 2).await;

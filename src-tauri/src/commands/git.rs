@@ -443,7 +443,7 @@ pub async fn clone_repository(
     target_dir: String,
     credentials: Option<GitCredentials>,
     db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<(), AppCommandError> {
     let data_dir = app_handle.path().app_data_dir().map_err(|e| {
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
@@ -791,7 +791,7 @@ pub async fn git_pull(
     path: String,
     credentials: Option<GitCredentials>,
     db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<GitPullResult, AppCommandError> {
     let data_dir = app_handle.path().app_data_dir().map_err(|e| {
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
@@ -867,7 +867,7 @@ pub async fn git_fetch(
     path: String,
     credentials: Option<GitCredentials>,
     db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<String, AppCommandError> {
     let data_dir = app_handle.path().app_data_dir().map_err(|e| {
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
@@ -1018,8 +1018,8 @@ pub(crate) async fn git_push_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn git_push(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    app: crate::AppHandle,
+    window: crate::WebviewWindow,
     path: String,
     remote: Option<String>,
     credentials: Option<GitCredentials>,
@@ -1693,8 +1693,8 @@ pub(crate) async fn git_commit_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn git_commit(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    app: crate::AppHandle,
+    window: crate::WebviewWindow,
     db: tauri::State<'_, AppDatabase>,
     path: String,
     message: String,
@@ -1938,7 +1938,7 @@ pub async fn git_fetch_remote(
     name: String,
     credentials: Option<GitCredentials>,
     db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<String, AppCommandError> {
     let data_dir = app_handle.path().app_data_dir().map_err(|e| {
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
@@ -2136,7 +2136,7 @@ pub async fn git_delete_remote_branch(
     branch: String,
     credentials: Option<GitCredentials>,
     db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<String, AppCommandError> {
     let data_dir = app_handle.path().app_data_dir().map_err(|e| {
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())

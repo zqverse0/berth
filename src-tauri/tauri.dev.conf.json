@@ -1,4 +1,7 @@
 {
   "productName": "berth-dev",
-  "identifier": "app.berth.dev"
+  "identifier": "app.berth.dev",
+  "bundle": {
+    "externalBin": ["binaries/berth-termd", "binaries/berth-cli"]
+  }
 }

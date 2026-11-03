@@ -70,6 +70,16 @@ export const BINARIES = [
     sidecarName: "berth-cli",
     noDefaultFeatures: false,
   },
+  // 无显示器设备上的无界面宿主（同一份后端换 MockRuntime）。要把整个 GUI 后端再编一遍，
+  // 只在发布打包时构建；dev 的 `tauri.dev.conf.json` 不声明它。
+  {
+    packageName: "berth-gui",
+    binaryName: "berth-host",
+    sidecarName: "berth-host",
+    noDefaultFeatures: true,
+    features: ["headless"],
+    releaseOnly: true,
+  },
 ]
 
 // Optional runtimes such as berth-mcp are installed independently and are
@@ -419,6 +429,7 @@ function fingerprintInputs({ binary, target, profile, metadata, toolchain }) {
     target,
     profile,
     noDefaultFeatures: binary.noDefaultFeatures,
+    features: binary.features ?? [],
     packageVersions,
     toolchain,
   }
@@ -501,6 +512,7 @@ function main() {
   // cargo build needs to run from src-tauri so it resolves the local manifest
   // and shares the swatinem/rust-cache key with other cargo invocations.
   for (const binary of BINARIES) {
+    if (binary.releaseOnly && devBuild) continue
     const input = fingerprintInputs({
       binary,
       target,
@@ -556,6 +568,7 @@ function main() {
       binary.binaryName,
     ]
     if (binary.noDefaultFeatures) args.push("--no-default-features")
+    if (binary.features) args.push("--features", binary.features.join(","))
     args.push("--target", target)
     execFileSync("cargo", args, { stdio: "inherit", cwd: SRC_TAURI })
 

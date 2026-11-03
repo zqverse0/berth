@@ -46,8 +46,8 @@ pub async fn terminal_create(
     cols: u16,
     client_id: Option<String>,
     manager: State<'_, TerminalManager>,
-    app_handle: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    app_handle: crate::AppHandle,
+    window: crate::WebviewWindow,
 ) -> Result<TerminalDescriptor, AppCommandError> {
     let mut request = CreatePersonalTerminalRequest {
         terminal_id,
@@ -171,9 +171,6 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
     client_id: String,
     mut sink: S,
 ) -> Result<crate::terminal::protocol::TerminalSnapshot, AppCommandError> {
-    if crate::devices::terminals::parse(&terminal_id).is_some() {
-        return attach_remote_to_sink(terminal_id, client_id, sink).await;
-    }
     let detach_terminal_id = terminal_id.clone();
     let detach_client_id = client_id.clone();
     let detach_manager = manager.clone();
@@ -324,33 +321,6 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
     Ok(snapshot)
 }
 
-/// 节点设备上的终端：同一套输出包，来源是该设备终端通道的推送。
-async fn attach_remote_to_sink<S: TerminalPacketSink>(
-    terminal_id: String,
-    client_id: String,
-    mut sink: S,
-) -> Result<crate::terminal::protocol::TerminalSnapshot, AppCommandError> {
-    use crate::devices::terminals::{self, RemoteEvent};
-    let (snapshot, mut events) = terminals::attach(&terminal_id, &client_id).await?;
-    tauri::async_runtime::spawn(async move {
-        while let Some(event) = events.recv().await {
-            let packet = match event {
-                RemoteEvent::Output { sequence, data } => {
-                    encode_local_terminal_packet(LOCAL_OUTPUT_PACKET, sequence, sequence, &data)
-                }
-                RemoteEvent::Resync { sequence } => {
-                    encode_local_terminal_packet(LOCAL_RESYNC_PACKET, sequence, sequence, &[])
-                }
-            };
-            if !sink.send_packet(packet).await {
-                break;
-            }
-        }
-        terminals::detach(&terminal_id, &client_id);
-    });
-    Ok(snapshot)
-}
-
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub fn terminal_detach(
@@ -401,9 +371,6 @@ pub async fn terminal_write_attached_raw(
         return Err(AppCommandError::invalid_input(
             "Terminal input exceeds the 1 MiB limit",
         ));
-    }
-    if crate::devices::terminals::parse(&terminal_id).is_some() {
-        return crate::devices::terminals::write(&terminal_id, data).map_err(AppCommandError::from);
     }
     let data = data.to_vec();
     let manager = manager.inner().clone();
@@ -470,7 +437,7 @@ pub async fn terminal_remove_record(
     terminal_id: String,
     manager: State<'_, TerminalManager>,
     db: State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
+    app_handle: crate::AppHandle,
 ) -> Result<(), AppCommandError> {
     remove_terminal_record_core(
         &db.conn,

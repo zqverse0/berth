@@ -83,7 +83,7 @@ impl TestEventBus {
 #[derive(Clone)]
 pub enum EventEmitter {
     #[cfg(feature = "tauri-runtime")]
-    Tauri(tauri::AppHandle),
+    Tauri(crate::AppHandle),
     /// 测试用：直接持有 broadcaster + bus。
     #[cfg(any(test, feature = "test-utils"))]
     Test { broadcaster: Arc<TestEventBus> },
