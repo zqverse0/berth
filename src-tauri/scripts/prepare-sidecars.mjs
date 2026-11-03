@@ -570,6 +570,10 @@ function main() {
     if (binary.noDefaultFeatures) args.push("--no-default-features")
     if (binary.features) args.push("--features", binary.features.join(","))
     args.push("--target", target)
+    // berth-host 与 GUI 同一个 crate：tauri-build 要求 externalBin 里每个文件都存在，包括
+    // 正要构建的它自己。先放空占位，构建完覆盖。
+    mkdirSync(BINARIES_DIR, { recursive: true })
+    if (!existsSync(dest)) writeFileSync(dest, "")
     execFileSync("cargo", args, { stdio: "inherit", cwd: SRC_TAURI })
 
     if (!isUsableArtifact(built, target)) {
