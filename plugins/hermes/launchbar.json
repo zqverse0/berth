@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "interface",
+      "component": "select",
+      "label": "界面",
+      "options": [
+        {
+          "value": "tui",
+          "label": "TUI"
+        },
+        {
+          "value": "cli",
+          "label": "经典终端"
+        }
+      ]
+    },
+    {
+      "id": "reasoning",
+      "component": "select",
+      "label": "思考强度",
+      "options": [
+        {
+          "value": "none",
+          "label": "关闭"
+        },
+        {
+          "value": "minimal",
+          "label": "最小"
+        },
+        {
+          "value": "low",
+          "label": "低"
+        },
+        {
+          "value": "medium",
+          "label": "中"
+        },
+        {
+          "value": "high",
+          "label": "高"
+        },
+        {
+          "value": "xhigh",
+          "label": "超高"
+        },
+        {
+          "value": "max",
+          "label": "最大"
+        },
+        {
+          "value": "ultra",
+          "label": "极致"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "component": "select",
+      "label": "会话",
+      "options": [
+        {
+          "value": "latest",
+          "label": "继续当前项目最近会话"
+        }
+      ]
+    },
+    {
+      "id": "approval",
+      "component": "select",
+      "label": "命令审批",
+      "options": [
+        {
+          "value": "yolo",
+          "label": "跳过危险命令审批"
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "component": "select",
+      "label": "服务商",
+      "optionsFrom": "providerVendor",
+      "protocols": [
+        "chat"
+      ]
+    },
+    {
+      "id": "model",
+      "component": "select",
+      "label": "模型",
+      "optionsFrom": "providerModels"
+    }
+  ]
+}

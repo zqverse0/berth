@@ -1,0 +1,45 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "hermes",
+  "version": "1.3.0",
+  "requires": {
+    "process": 1
+  },
+  "permissions": [
+    "process"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Hermes Agent",
+      "roles": [
+        "agent"
+      ],
+      "description": "Hermes Agent CLI",
+      "icon": "hermes"
+    },
+    "agent": {
+      "projectType": "hermes",
+      "providerInjection": {
+        "agentType": "hermes",
+        "apis": [
+          "openai-chat"
+        ]
+      }
+    },
+    "install": {
+      "bin": "hermes",
+      "version": [
+        "--version"
+      ],
+      "paths": {
+        "unix": [
+          "~/.local/bin/hermes"
+        ]
+      },
+      "update": [
+        "update"
+      ]
+    }
+  }
+}

@@ -7,7 +7,7 @@ use berth_node::{Decoder, Event, Frame, Outgoing, Priority, Session, SessionId, 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use super::{serve_at, Ctx};
+use super::{serve_at, Ctx, Executable};
 
 /// 节点会读（必要时升级）数据库：测试一律指向进程内唯一的空数据目录，绝不碰本机真实的库
 /// （Agent 终端里 `BERTH_DATA_DIR` 常指向正式版数据）。
@@ -24,7 +24,7 @@ async fn start() -> (tempfile::TempDir, std::path::PathBuf) {
     let path = dir.path().join("node.sock");
     let ctx = Ctx;
     let serve_path = path.clone();
-    tokio::spawn(async move { serve_at(&serve_path, ctx, Duration::from_secs(60)).await });
+    tokio::spawn(async move { serve_at(&serve_path, ctx, Duration::from_secs(60), None).await });
     for _ in 0..100 {
         if UnixStream::connect(&path).await.is_ok() {
             break;
@@ -32,6 +32,44 @@ async fn start() -> (tempfile::TempDir, std::path::PathBuf) {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     (dir, path)
+}
+
+#[tokio::test]
+async fn replaced_executable_stops_active_server_and_allows_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("node.sock");
+    let exe = dir.path().join("berth");
+    let replacement = dir.path().join("berth-new");
+    std::fs::write(&exe, b"old").unwrap();
+    let executable = Executable::new(exe.clone()).unwrap();
+    let server_path = path.clone();
+    let server = tokio::spawn(async move {
+        serve_at(&server_path, Ctx, Duration::from_secs(60), Some(executable)).await
+    });
+    let mut stream = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(stream) = UnixStream::connect(&path).await { break stream; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let hello = Frame::Hello { version: PROTOCOL_VERSION, session: SessionId([11; 16]), recv_seq: 0 };
+    stream.write_all(&hello.encode()).await.unwrap();
+    let mut buf = [0; 4096];
+    assert!(stream.read(&mut buf).await.unwrap() > 0);
+
+    std::fs::write(&replacement, b"new").unwrap();
+    std::fs::rename(replacement, exe).unwrap();
+    tokio::time::timeout(Duration::from_secs(7), server).await.unwrap().unwrap().unwrap();
+    assert!(!path.exists());
+    let server_path = path.clone();
+    let restarted = tokio::spawn(async move { serve_at(&server_path, Ctx, Duration::from_secs(60), None).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if UnixStream::connect(&path).await.is_ok() { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    restarted.abort();
 }
 
 struct Conn {
@@ -125,6 +163,33 @@ async fn node_answers_and_resumes_after_the_connection_drops() {
     let events = exchange(&mut conn, &mut session, 1).await;
     assert_eq!(reply_of(&events[0]).map(|(id, _)| id), Some(3));
     assert_eq!(session.stats().duplicate_frames, 0);
+}
+
+#[tokio::test]
+async fn node_keeps_receiving_bytes_but_closes_silent_connections() {
+    let (_dir, path) = start().await;
+    let mut session = Session::client(SessionId([10; 16]));
+    let mut conn = open(&path).await;
+    session.connect();
+    assert_eq!(exchange(&mut conn, &mut session, 1).await[0], Event::Connected { resumed: false });
+
+    // 不完整的帧也代表连接仍有数据，不能按整帧耗时误判断线。
+    let ping = Frame::Ping { token: 42 }.encode();
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    conn.stream.write_all(&ping[..1]).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(15)).await;
+    conn.stream.write_all(&ping[1..]).await.unwrap();
+    let mut buf = [0; 4096];
+    let n = tokio::time::timeout(Duration::from_secs(5), conn.stream.read(&mut buf))
+        .await.unwrap().unwrap();
+    assert!(n > 0, "connection closed while receiving a frame");
+    conn.decoder.push(&buf[..n]);
+    assert!(matches!(conn.decoder.next_frame().unwrap(), Some(Frame::Pong { token: 42 })));
+
+    // 完全静默后，服务端关闭连接，而不是永久保留中继进程。
+    let n = tokio::time::timeout(Duration::from_secs(35), conn.stream.read(&mut buf))
+        .await.expect("silent connection was not closed").unwrap();
+    assert_eq!(n, 0);
 }
 
 #[tokio::test]

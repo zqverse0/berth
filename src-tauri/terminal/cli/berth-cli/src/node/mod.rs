@@ -15,6 +15,7 @@ mod views;
 
 use std::collections::HashMap;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,6 +38,8 @@ use crate::{CliError, EXIT_DAEMON_UNAVAILABLE, EXIT_TARGET_NOT_FOUND, EXIT_USER_
 const LINGER: Duration = Duration::from_secs(600);
 /// 新连接必须在这之内发来 Hello。
 const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
+/// 已握手连接这么久没有收到字节就当断线。
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// 写不出去这么久就当连接断了。
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -172,9 +175,28 @@ async fn connect_or_spawn(path: &Path) -> io::Result<UnixStream> {
 /// `berth node serve`
 pub(crate) fn serve() -> Result<(), CliError> {
     let path = socket_path().map_err(CliError::from_runtime)?;
+    let executable = std::env::current_exe().ok().and_then(|path| Executable::new(path).ok());
     runtime()?
-        .block_on(serve_at(&path, Ctx, LINGER))
+        .block_on(serve_at(&path, Ctx, LINGER, executable))
         .map_err(CliError::from_runtime)
+}
+
+struct Executable {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+}
+
+impl Executable {
+    fn new(path: PathBuf) -> io::Result<Self> {
+        let metadata = std::fs::metadata(&path)?;
+        Ok(Self { path, device: metadata.dev(), inode: metadata.ino() })
+    }
+
+    fn replaced(&self) -> bool {
+        std::fs::metadata(&self.path)
+            .is_ok_and(|metadata| (metadata.dev(), metadata.ino()) != (self.device, self.inode))
+    }
 }
 
 /// 已有服务在跑时直接返回；残留的 socket 文件先删掉。
@@ -192,7 +214,7 @@ fn bind(path: &Path) -> io::Result<Option<UnixListener>> {
     }
 }
 
-async fn serve_at(path: &Path, ctx: Ctx, linger: Duration) -> io::Result<()> {
+async fn serve_at(path: &Path, ctx: Ctx, linger: Duration, executable: Option<Executable>) -> io::Result<()> {
     let Some(listener) = bind(path)? else {
         return Ok(());
     };
@@ -203,24 +225,40 @@ async fn serve_at(path: &Path, ctx: Ctx, linger: Duration) -> io::Result<()> {
         linger,
     });
     let mut idle_since = Some(Instant::now());
+    let socket = std::fs::metadata(path)?;
+    let mut check = tokio::time::interval(Duration::from_secs(5).min(linger));
+    check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tokio::select! {
+        let check_executable = tokio::select! {
             accepted = listener.accept() => {
                 if let Ok((stream, _)) = accepted {
                     tokio::spawn(connection(hub.clone(), stream));
                 }
+                false
             }
-            _ = tokio::time::sleep(Duration::from_secs(5).min(linger)) => {}
+            _ = check.tick() => true,
+        };
+        if check_executable && executable.as_ref().is_some_and(Executable::replaced) {
+            remove_socket(path, &socket);
+            return Ok(());
         }
         if hub.sessions.lock().expect("hub lock").is_empty() {
             let since = *idle_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= linger {
-                let _ = std::fs::remove_file(path);
+                remove_socket(path, &socket);
                 return Ok(());
             }
         } else {
             idle_since = None;
         }
+    }
+}
+
+fn remove_socket(path: &Path, original: &std::fs::Metadata) {
+    if std::fs::metadata(path).is_ok_and(|current| {
+        (current.dev(), current.ino()) == (original.dev(), original.ino())
+    }) {
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -260,7 +298,9 @@ async fn read_frame(
             Ok(None) => {}
             Err(error) => return Err(io::Error::new(io::ErrorKind::InvalidData, error)),
         }
-        let n = reader.read(buf).await?;
+        let n = tokio::time::timeout(READ_TIMEOUT, reader.read(buf))
+            .await
+            .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))??;
         if n == 0 {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
