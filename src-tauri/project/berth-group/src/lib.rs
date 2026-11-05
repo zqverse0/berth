@@ -158,7 +158,7 @@ pub fn join(
     no_collect: bool,
 ) -> TaskResult<Value> {
     let (name, _, _) = project_existing(ctx, name)?;
-    // 在终端里入群：成员名是终端的专家，`--as` 只作显示名；不在终端里才用 `--as` 起名（只能 read）。
+    // 在终端里入群：成员名见 identity::name_for，`--as` 只作显示名；不在终端里才用 `--as` 起名（只能 read）。
     let label = as_name.trim().to_owned();
     let mut event = json!({"kind": "joined"});
     // 登记 pane（缺省为当前 pane），`post --to` 据此送达；最近一次 join 为准。
@@ -185,10 +185,11 @@ pub fn join(
         event["agent"] = json!(agent);
         event["cwd"] = json!(probe.session_project_path);
         event["collect"] = json!(!no_collect);
-        identity::member_name(&probe).ok_or_else(|| {
+        let events = group::events(&ctx.main, &name)?;
+        identity::name_for(&events, &pane, &probe).ok_or_else(|| {
             TaskError::new(
                 "invalid_input",
-                "Only an Agent launched with an expert joins the group (members are experts)",
+                "Only an Agent pane can join as a group member",
             )
         })?
     } else {
@@ -339,6 +340,45 @@ pub fn spec(
     Ok(written)
 }
 
+/// 成员详情（群组视图的成员详情页）：各终端的会话文件与启动记录，以及它最近汇报里改过的文件（新的在前，去重）。
+pub fn member_detail(main: &Path, member: &str) -> TaskResult<Value> {
+    let name = group::MAIN_GROUP;
+    let events = group::events(main, name)?;
+    let (found, left_at) = group::roster(&events)
+        .into_iter()
+        .find(|(row, _)| row.name == member)
+        .ok_or_else(|| TaskError::new("not_found", format!("No member {member}")))?;
+    let bodies: Vec<Value> = found
+        .bodies
+        .iter()
+        .map(|body| {
+            let state = watch::member_state(main, name, member, &body.target_ref).unwrap_or_default();
+            json!({
+                "target_ref": body.target_ref,
+                "agent": body.agent,
+                "cwd": body.cwd,
+                "sessionId": state.session_id,
+                "sessionPath": state.session_path,
+                "launch": state.launch,
+            })
+        })
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut files = Vec::new();
+    for event in events.iter().rev() {
+        if text(event, "kind") != Some("message") || text(event, "author") != Some(member) {
+            continue;
+        }
+        let root = text(event, "root").unwrap_or_default();
+        for file in event["files"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if seen.insert((root.to_owned(), file.to_owned())) {
+                files.push(json!({ "root": root, "path": file, "seq": group::seq(event) }));
+            }
+        }
+    }
+    Ok(json!({ "name": member, "leftAt": left_at, "bodies": bodies, "files": files }))
+}
+
 /// 专家（`$BERTH_HOME/experts`）与它们在项目群里的终端；`id` 给定时只看它，并附上它的规矩。
 pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> TaskResult<Value> {
     let all = berth_tool_core::paths::experts(&berth_tool_core::paths::berth_home_dir())
@@ -423,7 +463,7 @@ pub fn who_rows(ctx: &Ctx, term: Option<&dyn term::Terminals>, name: &str, event
     json!({ "participants": rows, "terminals": plain_terminals(ctx, term, events) })
 }
 
-/// 本项目目录下不是成员的终端（shell、没选专家的 Agent）：不收委托，Agent 用 `berth terminal send -t <target_ref>` / `berth terminal capture -t <target_ref>` 直接操作。
+/// 本项目目录下不是成员的终端（shell、没有 hook 的 Agent）：不收委托，Agent 用 `berth terminal send -t <target_ref>` / `berth terminal capture -t <target_ref>` 直接操作。
 fn plain_terminals(
     ctx: &Ctx,
     term: Option<&dyn term::Terminals>,

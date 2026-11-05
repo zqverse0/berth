@@ -126,6 +126,12 @@ pub fn unread(root: &Path, params: &Value) -> Result<Value, String> {
     Ok(json!({ "worktrees": { main.to_string_lossy(): count } }))
 }
 
+/// 成员详情页：各终端的会话文件与启动记录、它最近汇报里改过的文件（与群组轮询分开，点开才读）。
+pub fn member(root: &Path, params: &Value) -> Result<Value, String> {
+    let main = tasks::resolve(root).map_err(|error| error.message)?.main;
+    berth_group::member_detail(&main, required(params, "member")?).map_err(|error| error.message)
+}
+
 /// 把任务分配给群组（`group` 为 `main` 或已有群组）。
 pub fn assign(root: &Path, params: &Value) -> Result<Value, String> {
     tasks::assign(root, required(params, "task")?, required(params, "group")?)

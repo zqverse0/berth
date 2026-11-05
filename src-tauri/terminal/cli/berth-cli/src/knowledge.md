@@ -81,7 +81,7 @@ sources: [claude:<sessionId>]   # 可选：依据的会话
    - 放下：`idea close <id> --drop <理由>`。
    关闭后文件移进 `想法/归档/`，面板不再显示。想法文件不进体检的孤立 / 过期检查，笔记里不要链接想法。
 
-**查询**（只读，随时可用）：改文件前 `berth project . knowledge for <路径>`；按主题 `berth project . knowledge search <词>`（`--type` 只看一类）；
+**查询**（只读，需要时用）：按路径 `berth project . knowledge for <路径>`；按主题 `berth project . knowledge search <词>`（`--type` 只看一类）；
 `berth project . knowledge show <标题>` 读全文与链接。只信 `已确认`，`草稿` 未确认，`已取代` 已作废。
 
 **整理指定会话**（用户点名某几个会话）：`berth project . session list`（`--agent` / `--group` 筛选）找到会话，

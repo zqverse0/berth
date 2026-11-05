@@ -382,6 +382,13 @@ fn map_window(spec: &UsageWindowSpec, json: &Value) -> Option<UsageWindow> {
     if used_percent.is_none() && remaining.is_none() && used.is_none() && resets_at.is_none() {
         return None;
     }
+    // 重置时间已过：快照还是上个窗口的数（CLI 下次响应才会刷新），本窗口按 0 计。
+    // 余量（中转站余额）不随窗口清零，保持原值。
+    let (used_percent, used) = if resets_at.is_some_and(|at| at <= now_ms()) {
+        (used_percent.map(|_| 0), used.map(|_| 0.0))
+    } else {
+        (used_percent, used)
+    };
     Some(UsageWindow {
         id: spec.id.clone(),
         label: spec.label.clone(),
@@ -656,15 +663,15 @@ mod tests {
         let declaration = sample_declaration("${home}/auth.json");
         let json = serde_json::json!({
             "planType": "plus",
-            "session": { "used": 12.4, "reset": 1_700_000_000 },
+            "session": { "used": 12.4, "reset": 4_000_000_000 },
             "config": { "used": { "val": "30" }, "limit": { "val": "100" } },
-            "end": "2024-01-02T03:04:05Z"
+            "end": "2096-01-02T03:04:05Z"
         });
         let state = map_usage_response("demo", &declaration, json);
         assert_eq!(state.status, UsageStatus::Ready);
         assert_eq!(state.plan_type.as_deref(), Some("plus"));
         assert_eq!(state.windows[0].used_percent, Some(12));
-        assert_eq!(state.windows[0].resets_at, Some(1_700_000_000_000));
+        assert_eq!(state.windows[0].resets_at, Some(4_000_000_000_000));
         assert_eq!(state.windows[1].used_percent, Some(30));
         assert!(state.windows[1].resets_at.is_some());
     }
@@ -688,6 +695,32 @@ mod tests {
         assert_eq!(window.used_percent, None);
         assert!((window.remaining.unwrap() - 1.2345).abs() < 1e-9);
         assert_eq!(window.unit.as_deref(), Some("USD"));
+    }
+
+    /// 重置时间已过的快照：用量按 0 计（不再显示上个窗口的旧数），余量不动。
+    #[test]
+    fn zeroes_usage_once_reset_has_passed() {
+        let spec = UsageWindowSpec {
+            id: "session".into(),
+            label: "5h".into(),
+            used_percent_pointers: vec!["/pct".into()],
+            used_pointers: vec!["/used".into()],
+            limit_pointers: Vec::new(),
+            remaining_pointers: vec!["/left".into()],
+            value_scale: 1.0,
+            resets_at_pointers: vec!["/reset".into()],
+            window_minutes: Some(300),
+            unit: None,
+        };
+        let past = serde_json::json!({ "pct": 90, "used": 9, "left": 1, "reset": 1_700_000_000 });
+        let window = map_window(&spec, &past).unwrap();
+        assert_eq!(window.used_percent, Some(0));
+        assert_eq!(window.used, Some(0.0));
+        assert_eq!(window.remaining, Some(1.0));
+        assert_eq!(window.resets_at, Some(1_700_000_000_000));
+
+        let future = serde_json::json!({ "pct": 90, "reset": 4_000_000_000 });
+        assert_eq!(map_window(&spec, &future).unwrap().used_percent, Some(90));
     }
 
     #[test]
@@ -748,7 +781,7 @@ mod tests {
             "config": {
                 "used": {"val": 2},
                 "monthlyLimit": {"val": 0},
-                "billingPeriodEnd": 1_790_000_000
+                "billingPeriodEnd": 4_000_000_000
             }
         });
         let state = map_usage_response("grok", &declaration, json);
@@ -870,13 +903,13 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("usage.json"),
-            br#"{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600}}}"#,
+            br#"{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":4000000000}}}"#,
         )
         .unwrap();
         let ready = read_snapshot("claude", &declaration, declaration.path.as_deref().unwrap());
         assert_eq!(ready.status, UsageStatus::Ready);
         assert_eq!(ready.windows[0].used_percent, Some(24));
-        assert_eq!(ready.windows[0].resets_at, Some(1_738_425_600_000));
+        assert_eq!(ready.windows[0].resets_at, Some(4_000_000_000_000));
         assert!(ready.updated_at.is_some());
         let _ = std::fs::remove_dir_all(&directory);
 

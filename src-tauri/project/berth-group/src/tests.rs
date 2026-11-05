@@ -554,7 +554,7 @@ fn agents_in_every_checkout_join_the_one_project_group() {
     assert!(group::roster(&project.events(&project.group()))
         .iter()
         .any(|(m, left)| m.name == "1" && left.is_some()));
-    // 在 shell 里手动启动的 Agent 没选专家：不入群（hook 也不记）。
+    // 在 shell 里手动启动的 Agent 没选专家：以 Agent 名入群。
     term.add("p4", None, &worktree, "idle");
     term.panes
         .borrow_mut()
@@ -569,7 +569,7 @@ fn agents_in_every_checkout_join_the_one_project_group() {
         .into_iter()
         .map(|m| m.name)
         .collect();
-    assert_eq!(names, ["0", "2", "3"]);
+    assert_eq!(names, ["0", "2", "3", "claude"]);
     // Agent 退出、pane 回到 shell → 这个终端离群。
     term.panes.borrow_mut().get_mut("p3").unwrap().launch_agent = None;
     term.panes.borrow_mut().get_mut("p3").unwrap().foreground_command = Some("bash".into());
@@ -582,73 +582,49 @@ fn agents_in_every_checkout_join_the_one_project_group() {
 }
 
 #[test]
-fn an_expert_is_one_member_whatever_terminals_it_runs_in() {
+fn every_agent_terminal_is_its_own_member_numbered_by_name() {
     let project = Project::new();
     let worktree = project.start();
     let term = FakeTerm::default();
     let mut state = watch::WatchState::default();
-    term.add_expert("p1", Some("dev"), &worktree, "working");
-    term.add_expert("p2", Some("dev"), &worktree, "working");
-    term.add_expert("p3", None, &worktree, "working");
+    term.add_expert("p1", Some("dev"), &worktree, "idle");
+    term.add_expert("p2", Some("dev"), &worktree, "idle");
+    term.add_expert("p3", None, &worktree, "idle");
+    // 几个终端同时启动：hook 都在入群前记下会话。
     for (pane, session) in [("p1", "s-1"), ("p2", "s-2"), ("p3", "s-3")] {
         started(&project, &term, pane, session);
     }
     tick(&project, &term, &mut state);
     let members = group::members(&project.events(&project.group()));
-    assert_eq!(members.len(), 1, "没选专家的 p3 不入群");
-    assert_eq!(members[0].name, "dev");
-    assert_eq!(members[0].bodies.iter().map(|b| b.target_ref.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+    let rows: Vec<(&str, Vec<&str>)> = members
+        .iter()
+        .map(|m| (m.name.as_str(), m.bodies.iter().map(|b| b.target_ref.as_str()).collect()))
+        .collect();
+    assert_eq!(rows, [("dev", vec!["p1"]), ("dev-2", vec!["p2"]), ("claude", vec!["p3"])]);
     let who = super::who_rows(&project.ctx(), Some(&term), &project.group(), &project.events(&project.group()));
-    assert_eq!(who["participants"][0]["bodies"].as_array().unwrap().len(), 2);
-    assert_eq!(who["participants"][0]["bodies"][1]["session_id"], "s-2");
-    assert_eq!(who["participants"][0]["bodies"][1]["hooked"], true);
-    assert_eq!(who["terminals"][0]["target_ref"], "p3", "不是成员的 Agent 列在 terminals");
+    assert_eq!(who["participants"][1]["bodies"][0]["session_id"], "s-2", "会话随编号名挪过去");
+    assert_eq!(who["participants"][1]["bodies"][0]["hooked"], true);
 
-    // 发给专家：p1 忙、p2 空闲 → 投给 p2。
-    term.set_state("p2", "idle");
-    let ask = post(&project, Some(&term), "dev", "q1");
+    // 发给 dev-2 只投 p2，回答也以 dev-2 的名义贴回。
+    let ask = post(&project, Some(&term), "dev-2", "q1");
     assert_eq!(ask["doorbell"]["target_ref"], "p2");
     assert!(term.sent_to("p1").is_empty());
-    // p2 答完：结果标明出自 p2。
     term.set_state("p2", "working");
     ended(&project, &term, "p2", "二号的回答");
     let report = reports(&project).pop().unwrap();
-    assert_eq!((report["author"].as_str(), report["target_ref"].as_str()), (Some("dev"), Some("p2")));
-    assert_eq!(report["session_id"], "s-2");
+    assert_eq!((report["author"].as_str(), report["target_ref"].as_str()), (Some("dev-2"), Some("p2")));
 
-    // 回复这条结果：p1 空闲、p2 忙也等 p2（同一条委托链回到原终端），后面的消息排在它后面。
-    term.set_state("p1", "idle");
-    term.set_state("p2", "working");
-    let follow = super::post(&project.ctx(), Some(&term), &project.group(), "user", "接着改", Some("dev".into()), report["seq"].as_u64(), None).unwrap();
-    assert_eq!(follow["doorbell"]["status"], "deferred");
-    post(&project, Some(&term), "dev", "另一件事");
-    assert!(term.sent_to("p1").is_empty(), "不乱序：排在指定给 p2 的消息后面");
-    term.set_state("p2", "idle");
-    // 投递锁可能被并行测试 fork 出的 git 子进程短暂继承：多跑一轮（后台进程本来就是每轮重试）。
-    tick(&project, &term, &mut state);
-    tick(&project, &term, &mut state);
-    assert!(term.sent_to("p2").iter().any(|sent| sent.contains("接着改") && sent.contains("另一件事")));
-
-    // p2 关掉：只走这个终端，专家还在群。
-    term.close("p2");
-    tick(&project, &term, &mut state);
-    let members = group::members(&project.events(&project.group()));
-    assert_eq!(members[0].bodies.iter().map(|b| b.target_ref.as_str()).collect::<Vec<_>>(), ["p1"]);
-
-    // 全部关掉 → 离线：发给它的只存群里；再开一个终端入群后照投，离线前已投的不重投。
+    // p1 关掉：dev 离群，dev-2 不改名；再开的 dev 终端补上空出的 dev，收到离线时发给 dev 的消息。
     term.close("p1");
     tick(&project, &term, &mut state);
-    assert!(group::members(&project.events(&project.group())).iter().all(|m| m.name != "dev"));
     let offline = post(&project, Some(&term), "dev", "离线时发的");
     assert_eq!(offline["doorbell"]["status"], "skipped");
     term.add_expert("p4", Some("dev"), &worktree, "idle");
     started(&project, &term, "p4", "s-4");
     tick(&project, &term, &mut state);
-    let sent = term.sent_to("p4");
-    assert!(sent.iter().any(|sent| sent.contains("离线时发的")));
-    assert!(!sent.iter().any(|sent| sent.contains("接着改")));
-    let states = group::delivery_states(&project.main, &project.group(), &project.events(&project.group()));
-    assert_eq!(states[&offline["seq"].as_u64().unwrap()], "delivered");
+    let names: Vec<String> = group::members(&project.events(&project.group())).into_iter().map(|m| m.name).collect();
+    assert_eq!(names, ["dev-2", "claude", "dev"]);
+    assert!(term.sent_to("p4").iter().any(|sent| sent.contains("离线时发的")));
 }
 
 #[test]
@@ -1192,4 +1168,34 @@ fn an_expert_started_before_the_group_joins_on_its_next_turn() {
     let members = group::members(&project.events(&project.group()));
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].name, "dev");
+}
+
+#[test]
+fn member_detail_shows_launch_record_session_and_changed_files() {
+    let project = Project::new();
+    let worktree = project.start();
+    let term = FakeTerm::default();
+    let mut state = watch::WatchState::default();
+    term.add_expert("p1", Some("dev"), &worktree, "idle");
+    // 启动记录由 launch 放进环境变量，Agent 的 hook 继承它。
+    std::env::set_var(super::hook::LAUNCH_RECORD_ENV, r#"{"agent":"pi","plan":{"skills":["tdd"]}}"#);
+    started(&project, &term, "p1", "s-1");
+    std::env::remove_var(super::hook::LAUNCH_RECORD_ENV);
+    tick(&project, &term, &mut state);
+    for files in [json!(["a.rs", "b.rs"]), json!(["a.rs"])] {
+        group::append(
+            &project.main,
+            &project.group(),
+            json!({"kind": "message", "author": "dev", "to": "user", "text": "done", "root": "/r", "files": files}),
+        )
+        .unwrap();
+    }
+    let detail = super::member_detail(&project.main, "dev").unwrap();
+    let body = &detail["bodies"][0];
+    assert_eq!(body["launch"]["plan"]["skills"][0], "tdd");
+    assert_eq!(body["sessionId"], "s-1");
+    assert_eq!(body["sessionPath"], "/sessions/s-1.jsonl");
+    let files: Vec<&str> = detail["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect();
+    assert_eq!(files, ["a.rs", "b.rs"], "新的在前、去重");
+    assert!(super::member_detail(&project.main, "nobody").is_err());
 }

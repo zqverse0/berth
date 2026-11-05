@@ -129,6 +129,9 @@ pub(crate) struct MemberState {
     /// 最近一轮开始时工作目录的改动快照：一轮结束时比出这一轮改了哪些文件。
     #[serde(default)]
     pub(crate) before: Option<Snapshot>,
+    /// 启动记录（launch 时宿主经 `BERTH_LAUNCH_RECORD` 交给 Agent，SessionStart hook 记下）：成员详情显示。
+    #[serde(default)]
+    pub(crate) launch: Option<Value>,
 }
 
 /// 一轮开始时的工作目录：拍下的时间；在 git 仓库里时还有仓库根与各改动条目（`XY 路径`）。
@@ -624,8 +627,8 @@ fn derive_members(
         if claimed.contains(target_ref) || probe.agent_state == Some("exited") {
             continue;
         }
-        // 成员是专家：没选专家的 Agent 不入群；同一专家的几个终端都是这个成员的。
-        let (Some(agent), Some(owner), Some(author)) = (
+        // 一个终端一个成员：hook 按基础名记下会话，入群时取空闲编号，状态随之挪到成员名下。
+        let (Some(agent), Some(owner), Some(base)) = (
             term::agent_of(probe),
             probe.session_project_path.as_deref(),
             identity::member_name(probe),
@@ -633,9 +636,17 @@ fn derive_members(
             continue;
         };
         if !dirs.contains(&canonical(Path::new(owner)))
-            || !hooked(main, group::MAIN_GROUP, &author, target_ref)
+            || !hooked(main, group::MAIN_GROUP, &base, target_ref)
         {
             continue;
+        }
+        let events = group::events(main, group::MAIN_GROUP).unwrap_or_default();
+        let author = identity::fresh_name(&events, &base);
+        let session = member_state(main, group::MAIN_GROUP, &base, target_ref);
+        if author != base {
+            if let Some(state) = &session {
+                save_state(main, group::MAIN_GROUP, &author, target_ref, state);
+            }
         }
         if group::append(
             main,
@@ -643,7 +654,7 @@ fn derive_members(
             json!({
                 "kind": "joined", "author": author, "target_ref": target_ref,
                 "agent": agent, "cwd": owner, "collect": true, "derived": true,
-                "session_id": member_state(main, group::MAIN_GROUP, &author, target_ref).and_then(|state| state.session_id),
+                "session_id": session.and_then(|state| state.session_id),
             }),
         )
         .is_ok()
@@ -683,5 +694,5 @@ pub fn brief_lines(cwd: &Path, socket: Option<PathBuf>, cli: PathBuf) -> Option<
         };
         format!("- 你在 worktree `{display_name}`：负责实现与测试。{assigned}；任务内容在主目录 {}\n", ctx.main.display())
     };
-    Some(format!("{role}- 当前群是项目群 `{project}`（标识 `{}`，主目录和各 worktree 共用一个群），你的目录 {}；群成员是专家：启动时选了专家的 Agent 每轮结束 Berth 自动把回复贴回群，无需手动 post，没选专家的不在群里\n", group::MAIN_GROUP, env.worktree))
+    Some(format!("{role}- 当前群是项目群 `{project}`（标识 `{}`，主目录和各 worktree 共用一个群），你的目录 {}；群成员是本项目打开的 Agent：回答群里发来的消息时 Berth 自动把回复贴回群，无需手动 post\n", group::MAIN_GROUP, env.worktree))
 }

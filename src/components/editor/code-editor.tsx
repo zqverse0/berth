@@ -7,7 +7,12 @@ import {
   useLayoutEffect,
   useRef,
 } from "react"
-import { Compartment, EditorState, type Extension } from "@codemirror/state"
+import {
+  Compartment,
+  EditorState,
+  type Extension,
+  type StateEffect,
+} from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 import type {
   EditorAppearance,
@@ -29,6 +34,16 @@ import {
   createCapabilityExtensions,
   openEditorSearch,
 } from "@/lib/editor/extensions"
+
+// 调用方常传内联对象 / `?? []`，按值比较，避免每次渲染都重配 Compartment
+const NO_EXTENSION: Extension = []
+const NO_RANGES: readonly never[] = []
+
+function sameExtension(extension: Extension): Extension {
+  return Array.isArray(extension) && extension.length === 0
+    ? NO_EXTENSION
+    : extension
+}
 
 interface CodeEditorProps {
   documentId: string
@@ -54,9 +69,9 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
       value,
       appearance,
       capabilities = {},
-      languageExtension = [],
-      hiddenLineRanges = [],
-      lineMarkers = [],
+      languageExtension: rawLanguageExtension = NO_EXTENSION,
+      hiddenLineRanges = NO_RANGES,
+      lineMarkers = NO_RANGES,
       preserveState = true,
       className,
       onReady,
@@ -67,9 +82,22 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
     },
     forwardedRef
   ) {
+    const languageExtension = sameExtension(rawLanguageExtension)
+    // 各 Compartment 当前生效配置的键：值没变就不 reconfigure
+    const appearanceKey = JSON.stringify(appearance)
+    const capabilitiesKey = JSON.stringify(capabilities)
+    const visualsKey = JSON.stringify([hiddenLineRanges, lineMarkers])
+    const appliedRef = useRef({
+      appearance: "",
+      capabilities: "",
+      language: NO_EXTENSION,
+      visuals: "",
+    })
     const hostRef = useRef<HTMLDivElement | null>(null)
     const viewRef = useRef<EditorView | null>(null)
     const initialValueRef = useRef(value)
+    // 最近一次随 onChange 发出的全文：父组件回传同一值时不必再 toString 比较
+    const emittedValueRef = useRef<string | null>(null)
     const callbacksRef = useRef({
       onChange,
       onCursorLineChange,
@@ -138,7 +166,9 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
       const updateListener = EditorView.updateListener.of((update) => {
         editorDocumentRegistry.updateState(documentId, update.state)
         if (update.docChanged) {
-          callbacksRef.current.onChange?.(update.state.doc.toString())
+          const text = update.state.doc.toString()
+          emittedValueRef.current = text
+          callbacksRef.current.onChange?.(text)
         }
         if (update.selectionSet || update.docChanged) {
           const selection = update.state.selection.main
@@ -193,6 +223,12 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
           callbacksSlot.reconfigure(updateListener),
         ],
       })
+      appliedRef.current = {
+        appearance: appearanceKey,
+        capabilities: capabilitiesKey,
+        language: languageExtension,
+        visuals: visualsKey,
+      }
       viewRef.current = view
       runtime.state = view.state
       editorDocumentRegistry.set(runtime)
@@ -210,36 +246,58 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [documentId])
 
+    // 每块配置只在自己的值变了才重配：重配会重建主题样式、vim 与 markdown 装饰
     useEffect(() => {
       const view = viewRef.current
       const runtime = editorDocumentRegistry.get(documentId)
+      const applied = appliedRef.current
       if (!view || !runtime) return
-      view.dispatch({
-        effects: [
+      const effects: StateEffect<unknown>[] = []
+      if (applied.appearance !== appearanceKey) {
+        effects.push(
           runtime.appearance.reconfigure(
-            createAppearanceExtensions(appearance)
-          ),
+            createAppearanceExtensions(JSON.parse(appearanceKey))
+          )
+        )
+      }
+      if (applied.capabilities !== capabilitiesKey) {
+        effects.push(
           runtime.capabilities.reconfigure(
-            createCapabilityExtensions(capabilities)
-          ),
-          runtime.language.reconfigure(languageExtension),
+            createCapabilityExtensions(JSON.parse(capabilitiesKey))
+          )
+        )
+      }
+      if (applied.language !== languageExtension) {
+        effects.push(runtime.language.reconfigure(languageExtension))
+      }
+      if (applied.visuals !== visualsKey) {
+        const [ranges, markers] = JSON.parse(visualsKey)
+        effects.push(
           runtime.visuals.reconfigure(
-            createVisualRangeExtension(hiddenLineRanges, lineMarkers)
-          ),
-        ],
-      })
+            createVisualRangeExtension(ranges, markers)
+          )
+        )
+      }
+      if (effects.length === 0) return
+      appliedRef.current = {
+        appearance: appearanceKey,
+        capabilities: capabilitiesKey,
+        language: languageExtension,
+        visuals: visualsKey,
+      }
+      view.dispatch({ effects })
     }, [
-      appearance,
-      capabilities,
+      appearanceKey,
+      capabilitiesKey,
       documentId,
-      hiddenLineRanges,
       languageExtension,
-      lineMarkers,
+      visualsKey,
     ])
 
     useEffect(() => {
       const view = viewRef.current
-      if (!view || view.state.doc.toString() === value) return
+      if (!view || value === emittedValueRef.current) return
+      if (view.state.doc.toString() === value) return
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: value },
       })

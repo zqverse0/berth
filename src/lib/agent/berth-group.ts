@@ -297,6 +297,46 @@ export function readTaskGroup(folderId: number, after = 0) {
   return call<GroupRead>(folderId, "group.read", { after })
 }
 
+/** 启动记录：launch 时宿主与 launch.js 记下的 Agent、专家、服务商、Berth 说明长度与启动计划。 */
+export interface LaunchRecord {
+  agent: string
+  startedAt: number
+  cwd: string
+  inputs: Record<string, unknown>
+  expert: {
+    id: string
+    name: string
+    promptFile: string | null
+    skills: string[]
+    mcp: string[]
+  } | null
+  provider: { name: string; model: string | null } | null
+  /** 注入的 Berth 说明字数；0 为没注入。 */
+  brief: number
+  /** launch.js 声明的启动计划（skills / 扩展 / MCP 等，键由各 Agent 决定）；没声明为 null。 */
+  plan: Record<string, unknown> | null
+}
+
+/** `group.member`：成员详情页的数据，点开才读。 */
+export interface MemberDetail {
+  name: string
+  leftAt: number | null
+  bodies: {
+    target_ref: string
+    agent: string | null
+    cwd: string | null
+    sessionId: string | null
+    sessionPath: string | null
+    launch: LaunchRecord | null
+  }[]
+  /** 它最近汇报里改过的文件（相对 `root`），新的在前。 */
+  files: { root: string; path: string; seq: number }[]
+}
+
+export function readMemberDetail(folderId: number, member: string) {
+  return call<MemberDetail>(folderId, "group.member", { member })
+}
+
 /** 确保后台进程在跑（派生成员、排队送达、收集汇报）。 */
 export function ensureGroupWatch(folderId: number) {
   return call<{ running: boolean; started: boolean }>(folderId, "group.watch")

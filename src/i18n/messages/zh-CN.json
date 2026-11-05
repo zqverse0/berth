@@ -1432,7 +1432,9 @@
         "remainingFormat": "余 {value} {unit}",
         "usedFormat": "已用 {value} {unit}",
         "usageWithAbsoluteFormat": "{percent}（{absolute}）",
-        "resetCountdown": "{duration} 后重置"
+        "resetCountdown": "{duration} 后重置",
+    "resetDone": "已重置",
+        "resetDone": "已重置"
       }
     },
     "auxPanel": {
@@ -2983,6 +2985,7 @@
     "usedFormat": "已用 {value} {unit}",
     "remainingFormat": "余 {value} {unit}",
     "resetCountdown": "{duration} 后重置",
+    "resetDone": "已重置",
     "usageWithAbsoluteFormat": "{percent}（{absolute}）",
     "protocolUrls": "接口端点",
     "protocolUrlsHint": "按协议添加该服务商的接口地址：OpenAI 兼容 / Anthropic / Gemini 会注入对应 Agent；其他端点只经代理转发，供脚本和外部工具使用。",
@@ -3923,7 +3926,33 @@
         "addBody": "再开一个终端",
         "addExpert": "添加专家",
         "loadingExperts": "正在读取专家…",
-        "noMoreExperts": "专家都已在群里"
+        "noMoreExperts": "专家都已在群里",
+        "detail": {
+          "refresh": "刷新",
+          "jump": "跳到终端",
+          "loading": "加载中",
+          "open": "打开 {path}",
+          "terminal": "终端 #{number}",
+          "agent": "Agent",
+          "model": "模型",
+          "expert": "专家",
+          "noExpert": "未选专家",
+          "brief": "Berth 说明",
+          "briefInjected": "已注入（{count} 字）",
+          "briefNone": "未注入",
+          "cwd": "工作目录",
+          "session": "会话",
+          "noSession": "还没有会话（Agent 的 hook 尚未报告）",
+          "startedAt": "启动时间",
+          "noLaunch": "没有启动记录：这个终端在启动记录功能之前启动，重开后显示。",
+          "context": "当前上下文组成",
+          "contextEmpty": "会话里没有记下启动上下文",
+          "contextFailed": "读不到会话上下文：{error}",
+          "loaded": "启动时加载",
+          "expertSkills": "专家 skills",
+          "files": "改过的文件（{count}）",
+          "noFiles": "还没有汇报过改动的文件"
+        }
       },
       "steps": {
         "title": "步骤",
@@ -4022,6 +4051,10 @@
         "added": "新增",
         "modified": "修改",
         "deleted": "删除"
+      },
+      "memberView": {
+        "detail": "详情",
+        "messages": "消息"
       }
     }
   },

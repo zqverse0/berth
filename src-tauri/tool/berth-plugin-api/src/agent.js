@@ -51,6 +51,26 @@ if (data.mode === "plugins") {
         )
       },
     })
+  // 启动记录：群组成员详情据此显示这个 Agent 带了什么上下文（见 script.rs LAUNCH_RECORD_ENV）。
+  const record = (plan) =>
+    __berth_launch_record(
+      JSON.stringify({
+        agent: data.id,
+        startedAt: Date.now(),
+        cwd: data.paths.cwd,
+        inputs: data.inputs,
+        expert: data.expert && {
+          id: data.expert.id,
+          name: data.expert.name,
+          promptFile: data.expert.promptFile,
+          skills: data.expert.skills.map((skill) => skill.path),
+          mcp: Object.keys(data.expert.mcp),
+        },
+        provider: source && { name: source.name, model: source.model },
+        brief: data.brief ? data.brief.length : 0,
+        plan,
+      })
+    )
   const ctx = Object.freeze({
     args: [...extra, ...data.passthrough],
     inputs: Object.freeze({ ...data.inputs }),
@@ -63,12 +83,10 @@ if (data.mode === "plugins") {
     paths: Object.freeze(data.paths),
     // 必须静默且不失败：SessionStart / UserPromptSubmit 的 stdout 会进 Agent 上下文，非零退出会拦住 Agent。
     hookCommand: (event) => `berth group hook ${event} >/dev/null 2>&1 || true`,
-    plan: (details) =>
-      console.error(
-        `berth-${data.id}-plan: ` +
-          JSON.stringify({ ...details, plugins: notes })
-      ),
+    // 启动计划（launch.js 声明的 skills / 扩展 / MCP 等）进启动记录，不打到终端。
+    plan: (details) => record({ ...details, plugins: notes }),
   })
+  record(null)
   const code = await hooks.launch(ctx)
   globalThis.__berth_result = JSON.stringify(
     typeof code === "number" ? code : 0

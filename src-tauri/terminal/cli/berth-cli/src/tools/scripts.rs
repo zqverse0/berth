@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 /// Agent 启动：GUI 与 `berth terminal create --agent` 在 pane 里执行的就是这条命令。
 pub(crate) fn launch(script: &Path, args: &[String]) -> ! {
     let extras = berth_plugin_api::agent::LaunchExtras {
-        brief: brief(),
+        brief,
         project: Box::new(current_project),
     };
     std::process::exit(berth_plugin_api::agent::launch(script, args, extras))

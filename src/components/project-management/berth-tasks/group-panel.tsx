@@ -30,6 +30,9 @@ import {
   postToMember,
 } from "@/lib/agent/berth-group"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
+import { useAgentProfiles } from "@/hooks/use-agent-profiles"
+import { MemberDetail } from "@/components/project-management/group/member-detail"
+import { cn } from "@/lib/utils"
 
 /**
  * 群组面板固定在辅助面板里，跟随当前项目 / worktree（各自一个群）：成员聚焦、时间线与
@@ -73,6 +76,19 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     store.selectGroup(folderId, name)
     store.setFocusedMember(member)
   }
+  // 选中 Agent 成员时分两页：详情（默认）与它的消息；换成员回到详情。
+  const [picked, setPicked] = useState<{
+    focus: string | null
+    view: "detail" | "messages"
+  }>({ focus: null, view: "detail" })
+  const view = picked.focus === focus ? picked.view : "detail"
+  const setView = (next: "detail" | "messages") =>
+    setPicked({ focus, view: next })
+  const { agents } = useAgentProfiles()
+  const agentName = useCallback(
+    (id: string) => agents.find((agent) => agent.id === id)?.name ?? id,
+    [agents]
+  )
   const [reply, setReply] = useState<GroupEvent | null>(null)
   // 回复 / 转给时收件人是这位成员（不一定是被引消息的作者）。
   const [replyMember, setReplyMember] = useState<string | null>(null)
@@ -192,6 +208,9 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     },
     [jump]
   )
+  // 详情页只给 Agent 成员（内置 Berth 没有终端与启动记录）。
+  const focusedRow =
+    rows.find((row) => row.member.name === focus && !row.member.builtin) ?? null
   const openCommit = useCallback(
     (hash: string, subject: string) =>
       void workspace.openCommitDiff(hash, undefined, subject, {
@@ -276,30 +295,65 @@ export function GroupPanel({ folderId }: { folderId: number }) {
                   {group.error}
                 </p>
               ) : null}
-              <GroupTimeline
-                events={timelineEvents}
-                allEvents={group.events}
-                scopeKey={focus ? `member:${focus}` : "all"}
-                context={context}
-                onContext={openTimelineContext}
-                onReply={posting ? undefined : replyTo}
-                delivery={group.delivery}
-                agentOf={agentOf}
-                labelOf={labelOf}
-                onOpenCommit={openCommit}
-                onOpenTerminal={openTerminal}
-                forwardTo={forwardTo}
-                onForward={posting ? undefined : forward}
-                empty={group.name ? t("noEvents") : t("noGroup")}
-                liveSessionOf={liveSessionOf}
-                liveLogOf={liveLogOf}
-                processOf={processOf}
-                onOpenFile={openFile}
-              />
-              <GroupLiveStatus
-                rows={rows}
-                onOpenTerminal={openMemberTerminal}
-              />
+              {focusedRow ? (
+                <div
+                  role="tablist"
+                  className="flex shrink-0 gap-1 border-b px-5 py-1"
+                >
+                  {(["detail", "messages"] as const).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={view === id}
+                      data-member-view={id}
+                      className={cn(
+                        "rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
+                        view === id && "bg-accent font-medium text-foreground"
+                      )}
+                      onClick={() => setView(id)}
+                    >
+                      {t(`memberView.${id}`)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {focusedRow && view === "detail" ? (
+                <MemberDetail
+                  key={focusedRow.member.name}
+                  folderId={folderId}
+                  row={focusedRow}
+                  agentName={agentName}
+                  onJump={openMemberTerminal}
+                />
+              ) : (
+                <>
+                  <GroupTimeline
+                    events={timelineEvents}
+                    allEvents={group.events}
+                    scopeKey={focus ? `member:${focus}` : "all"}
+                    context={context}
+                    onContext={openTimelineContext}
+                    onReply={posting ? undefined : replyTo}
+                    delivery={group.delivery}
+                    agentOf={agentOf}
+                    labelOf={labelOf}
+                    onOpenCommit={openCommit}
+                    onOpenTerminal={openTerminal}
+                    forwardTo={forwardTo}
+                    onForward={posting ? undefined : forward}
+                    empty={group.name ? t("noEvents") : t("noGroup")}
+                    liveSessionOf={liveSessionOf}
+                    liveLogOf={liveLogOf}
+                    processOf={processOf}
+                    onOpenFile={openFile}
+                  />
+                  <GroupLiveStatus
+                    rows={rows}
+                    onOpenTerminal={openMemberTerminal}
+                  />
+                </>
+              )}
               {group.name ? (
                 <GroupComposer
                   rows={rows}

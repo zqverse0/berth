@@ -98,7 +98,7 @@ pub fn agent_of(probe: &PaneProbe) -> Option<String> {
 pub struct PaneProbe {
     /// 终端编号（`berth terminal ls` 里 `项目:编号` 的编号）。
     pub pane_id: u32,
-    /// 启动栏选的专家；群成员名就是它，没选专家的 Agent 不入群。
+    /// 启动栏选的专家；群成员的基础名（没选时用 Agent 名，见 identity）。
     pub expert: Option<String>,
     /// 启动栏明确选择的 Agent 会话，不按目录最新文件猜测。
     pub session_id: Option<String>,

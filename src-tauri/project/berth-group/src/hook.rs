@@ -21,6 +21,8 @@ use crate::{identity, text, watch, Ctx};
 const DIGEST_CHARS: usize = 800;
 /// 写回 pane 的通知文本长度上限。
 const NOTICE_CHARS: usize = 200;
+/// 启动记录的环境变量，与 berth-plugin-api `script::LAUNCH_RECORD_ENV` 一致。
+pub(crate) const LAUNCH_RECORD_ENV: &str = "BERTH_LAUNCH_RECORD";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hook {
@@ -103,22 +105,29 @@ pub fn handle(ctx: &Ctx, term: Option<&dyn Terminals>, sessions: &dyn Sessions, 
     }
 }
 
-/// 记下终端的会话：成员名是终端的专家（没选专家的 Agent 不入群，也不记）。返回是否第一次记下。
+/// 记下终端的会话：按 [`identity::recorded_name`] 记。返回是否第一次记下。
 fn session_start(ctx: &Ctx, term: Option<&dyn Terminals>, caller: &str, payload: &Value) -> bool {
     let Some(session_id) = text(payload, "session_id") else {
         return false;
     };
+    let main = &ctx.main;
+    let events = group::events(main, group::MAIN_GROUP).unwrap_or_default();
     let Some(member) = term
         .and_then(|term| term.probe(caller).ok())
-        .and_then(|probe| identity::member_name(&probe))
+        .and_then(|probe| identity::recorded_name(&events, caller, &probe))
     else {
         return false;
     };
-    let main = &ctx.main;
     let mut state = watch::member_state(main, group::MAIN_GROUP, &member, caller).unwrap_or_default();
     let first = state.session_id.is_none();
     state.session_id = Some(session_id.to_owned());
     state.session_path = transcript(payload).or(state.session_path);
+    if let Some(record) = std::env::var(LAUNCH_RECORD_ENV)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    {
+        state.launch = Some(record);
+    }
     watch::save_state(main, group::MAIN_GROUP, &member, caller, &state);
     first
 }

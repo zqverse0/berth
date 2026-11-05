@@ -27,6 +27,7 @@ pub async fn call(
         "task.save" => group::save(&root, &params),
         "task.finish" => group::finish(&root, &params),
         "group.read" => group::read(&root, &params),
+        "group.member" => group::member(&root, &params),
         "group.assign" => group::assign(&root, &params),
         "group.list" => group::list(&root, &params),
         "group.unread" => group::unread(&root, &params),

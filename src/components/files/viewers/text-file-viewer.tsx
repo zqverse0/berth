@@ -4,6 +4,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -175,16 +176,22 @@ export function TextFileViewer({
     null
   )
   const handleCursorLineChange = useCallback(
-    (line: number) => setCursor({ path, line }),
+    // 拖选 / vim 移动时每步都会回调，同一行不触发重渲染
+    (line: number) =>
+      setCursor((prev) =>
+        prev?.path === path && prev.line === line ? prev : { path, line }
+      ),
     [path]
   )
   const content = tab.content
   // 保存只看文件可写（见 useFileTabSave）；是否可输入看编辑模式
   const canEdit = !tab.readonly
   const isEditable = canEdit && isEditing
+  // 行标记要对整篇做 diff：放到低优先级渲染里算，不挡输入
+  const deferredContent = useDeferredValue(content)
   const gitLineMarkers = useMemo(
-    () => gitLineMarkersFor(tab.gitBaseContent, content),
-    [tab.gitBaseContent, content]
+    () => gitLineMarkersFor(tab.gitBaseContent, deferredContent),
+    [tab.gitBaseContent, deferredContent]
   )
 
   const handleEditorChange = useCallback(

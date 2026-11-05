@@ -66,13 +66,14 @@ export function usageWindowParts(
     percent && absolute
       ? t("usageWithAbsoluteFormat", { percent, absolute })
       : (percent ?? absolute)
-  const countdown =
-    typeof window.resetsAt === "number" && window.resetsAt > now
-      ? formatResetDuration(window.resetsAt - now)
-      : null
+  if (typeof window.resetsAt !== "number") return { usage, reset: null }
+  // 重置时间已过：后端已把用量按 0 计，这里标明数字来自重置而非新数据
+  const countdown = formatResetDuration(window.resetsAt - now)
   return {
     usage,
-    reset: countdown ? t("resetCountdown", { duration: countdown }) : null,
+    reset: countdown
+      ? t("resetCountdown", { duration: countdown })
+      : t("resetDone"),
   }
 }
 

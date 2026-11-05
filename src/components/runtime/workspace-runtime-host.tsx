@@ -176,6 +176,8 @@ export function WorkspaceRuntimeHost() {
     (state) => state.activeFileTabId
   )
   const persistenceReady = useRef(false)
+  // 编辑内容不进持久化：打字时序列化结果不变，不重复同步写 localStorage
+  const persistedStateRef = useRef<string | null>(null)
   const fileTabsRef = useRef(fileTabs)
   const activeFileTabIdRef = useRef(activeFileTabId)
   const activeScopeRef = useRef<number | null>(activeFolderId)
@@ -263,17 +265,17 @@ export function WorkspaceRuntimeHost() {
         ([key]) => key !== "none"
       )
     )
-    try {
-      window.localStorage.setItem(
-        FILE_READER_STATE_KEY,
-        JSON.stringify(
-          serializeFileReaderState(
-            current.fileTabs,
-            current.activeFileTabId,
-            activeByFolder
-          )
-        )
+    const serialized = JSON.stringify(
+      serializeFileReaderState(
+        current.fileTabs,
+        current.activeFileTabId,
+        activeByFolder
       )
+    )
+    if (serialized === persistedStateRef.current) return
+    try {
+      window.localStorage.setItem(FILE_READER_STATE_KEY, serialized)
+      persistedStateRef.current = serialized
     } catch {
       // 持久化失败不影响当前阅读状态。
     }

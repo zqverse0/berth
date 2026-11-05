@@ -312,7 +312,7 @@ pub(crate) fn spawn(
             brief = format!("{brief}每个提交末尾加一行 `Task: {task} S<步骤号>`。");
         }
     }
-    // 成员是专家：先确定 worker 是哪个专家，没有就不启动（没选专家的 Agent 不入群，结果收不回来）。
+    // 派发要求选专家：worker 按专家命名（重名编号），没选就不启动。
     let tool_dir = berth_tool_core::paths::tools_root().join(&agent);
     if let Some(expert) = request.expert.as_deref().map(str::trim).filter(|expert| !expert.is_empty()) {
         let key = berth_tool_core::paths::expert_input(&tool_dir)
@@ -323,8 +323,10 @@ pub(crate) fn spawn(
     if let Some(preset) = &preset {
         chosen.extend(preset.inputs.clone());
     }
-    let worker = berth_tool_core::paths::launch_expert(&tool_dir, &json!(chosen))
+    let expert = berth_tool_core::paths::launch_expert(&tool_dir, &json!(chosen))
         .ok_or_else(|| invalid("--expert is required: group members are experts"))?;
+    // 一个终端一个成员：同一专家已有终端在群时编号（重读账本：发起方可能刚入群）。
+    let worker = identity::fresh_name(&group::events(main, &name)?, &expert);
     let prompt_key = prompt_input(&agent);
     if let Some(key) = &prompt_key {
         inputs.insert(key.clone(), json!(brief));
@@ -424,7 +426,13 @@ fn lead_identity(
                 .as_deref()
                 .is_some_and(|path| crate::in_project(main, Path::new(path)))
     });
-    let (Some(own), Some(lead)) = (own, probe.as_ref().and_then(identity::member_name)) else {
+    let (Some(own), Some(lead)) = (
+        own,
+        probe
+            .as_ref()
+            .and_then(identity::member_name)
+            .map(|base| identity::fresh_name(events, &base)),
+    ) else {
         return Ok(Some(as_name).filter(|name| !name.is_empty()).unwrap_or("lead").to_owned());
     };
     group::append(

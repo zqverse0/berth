@@ -60,7 +60,7 @@ describe("usageWindowParts", () => {
     expect(parts.usage).toBe("71% (10.50 tokens left)")
   })
 
-  it("reports reset only while it is in the future", () => {
+  it("counts down before reset and says so once it has passed", () => {
     const now = Date.now()
     expect(
       usageWindowParts(
@@ -75,7 +75,7 @@ describe("usageWindowParts", () => {
         t,
         now
       ).reset
-    ).toBeNull()
+    ).toBe("resetDone")
   })
 
   it("formats one deterministic line per window", () => {

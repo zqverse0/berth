@@ -18,6 +18,25 @@ afterEach(() => {
 })
 
 describe("CodeEditor", () => {
+  it("does not reconfigure when props are new objects with equal values", () => {
+    const ref = createRef<EditorHandle>()
+    const props = (fontSize: number) => ({
+      documentId: "config:stable",
+      value: "one",
+      appearance: { ...appearance, fontSize },
+      capabilities: { readOnly: false, vim: true },
+      languageExtension: [],
+      lineMarkers: [{ line: 1, kind: "added" as const }],
+    })
+    const rendered = render(<CodeEditor ref={ref} {...props(13)} />)
+    const view = ref.current!.getView()!
+    const dispatch = vi.spyOn(view, "dispatch")
+    rendered.rerender(<CodeEditor ref={ref} {...props(13)} />)
+    expect(dispatch).not.toHaveBeenCalled()
+    rendered.rerender(<CodeEditor ref={ref} {...props(15)} />)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  })
+
   it("returns the actual cursor line after clamping, not the requested line", () => {
     const ref = createRef<EditorHandle>()
     render(

@@ -1453,7 +1453,9 @@
         "remainingFormat": "{value} {unit} left",
         "usedFormat": "Used {value} {unit}",
         "usageWithAbsoluteFormat": "{percent} ({absolute})",
-        "resetCountdown": "Resets in {duration}"
+        "resetCountdown": "Resets in {duration}",
+    "resetDone": "Reset",
+        "resetDone": "Reset"
       }
     },
     "auxPanel": {
@@ -3004,6 +3006,7 @@
     "usedFormat": "Used {value} {unit}",
     "remainingFormat": "{value} {unit} left",
     "resetCountdown": "Resets in {duration}",
+    "resetDone": "Reset",
     "usageWithAbsoluteFormat": "{percent} ({absolute})",
     "protocolUrls": "Endpoints",
     "protocolUrlsHint": "Add this provider's endpoints by protocol: OpenAI-compatible / Anthropic / Gemini are injected into matching agents; other endpoints are only forwarded by the proxy for scripts and external tools.",
@@ -3944,7 +3947,33 @@
         "addBody": "Open another terminal",
         "addExpert": "Add expert",
         "loadingExperts": "Loading experts…",
-        "noMoreExperts": "Every expert is already in the group"
+        "noMoreExperts": "Every expert is already in the group",
+        "detail": {
+          "refresh": "Refresh",
+          "jump": "Go to terminal",
+          "loading": "Loading",
+          "open": "Open {path}",
+          "terminal": "Terminal #{number}",
+          "agent": "Agent",
+          "model": "Model",
+          "expert": "Expert",
+          "noExpert": "No expert",
+          "brief": "Berth guide",
+          "briefInjected": "Injected ({count} chars)",
+          "briefNone": "Not injected",
+          "cwd": "Directory",
+          "session": "Session",
+          "noSession": "No session yet (the Agent hook has not reported one)",
+          "startedAt": "Started",
+          "noLaunch": "No launch record: this terminal started before launch records existed; reopen it to see one.",
+          "context": "Current context",
+          "contextEmpty": "The session recorded no startup context",
+          "contextFailed": "Could not read the session context: {error}",
+          "loaded": "Loaded at launch",
+          "expertSkills": "Expert skills",
+          "files": "Changed files ({count})",
+          "noFiles": "No changed files reported yet"
+        }
       },
       "steps": {
         "title": "Steps",
@@ -4043,6 +4072,10 @@
         "added": "Added",
         "modified": "Modified",
         "deleted": "Deleted"
+      },
+      "memberView": {
+        "detail": "Details",
+        "messages": "Messages"
       }
     }
   },

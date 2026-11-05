@@ -8,6 +8,7 @@ const listBerthTaskViews = vi.fn()
 const assignTask = vi.fn()
 const getTaskView = vi.fn()
 const readTaskGroup = vi.fn()
+const readMemberDetail = vi.fn()
 const startTask = vi.fn()
 const postToMember = vi.fn()
 const ensureGroupWatch = vi.fn()
@@ -36,6 +37,7 @@ vi.mock("@/lib/agent/berth-group", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   assignTask: (...args: unknown[]) => assignTask(...args),
   readTaskGroup: (...args: unknown[]) => readTaskGroup(...args),
+  readMemberDetail: (...args: unknown[]) => readMemberDetail(...args),
   startTask: (...args: unknown[]) => startTask(...args),
   postToMember: (...args: unknown[]) => postToMember(...args),
   ensureGroupWatch: (...args: unknown[]) => ensureGroupWatch(...args),
@@ -239,7 +241,7 @@ function group(extra: Record<string, unknown> = {}) {
 
 function renderDetail() {
   return render(
-    <NextIntlClientProvider locale="en" messages={en}>
+    <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
       <GroupPanel folderId={7} />
     </NextIntlClientProvider>
   )
@@ -269,9 +271,15 @@ beforeEach(() => {
     closeFileTab,
     activateFolderWorkspace,
     selectWorkspaceTab,
+    readMemberDetail,
   ]) {
     mock.mockReset()
   }
+  // 选中成员会打开详情页：默认给一份空详情。
+  readMemberDetail.mockResolvedValue({
+    ok: true,
+    result: { name: "", leftAt: null, bodies: [], files: [] },
+  })
   listBerthTaskViews.mockResolvedValue({
     ok: true,
     result: {
@@ -403,6 +411,49 @@ describe("GroupPanel", () => {
     expect(
       screen.getByRole("button", { name: "Send to claude-1" })
     ).toBeVisible()
+  })
+
+  it("opens a focused Agent member on its details, with its messages one tab away", async () => {
+    readTaskGroup.mockResolvedValue(group())
+    readMemberDetail.mockResolvedValue({
+      ok: true,
+      result: {
+        name: "claude-1",
+        leftAt: null,
+        bodies: [
+          {
+            target_ref: "ref-1",
+            agent: "claude",
+            cwd: "/repo-demo",
+            sessionId: null,
+            sessionPath: null,
+            launch: {
+              agent: "claude",
+              startedAt: 1_000,
+              cwd: "/repo-demo",
+              inputs: {},
+              expert: null,
+              provider: { name: "Acme", model: "m1" },
+              brief: 0,
+              plan: { skills: ["tdd"], mcp: [] },
+            },
+          },
+        ],
+        files: [{ root: "/repo-demo", path: "src/a.ts", seq: 4 }],
+      },
+    })
+    renderDetail()
+    await openChat("all")
+    await screen.findByText("please do S1")
+    act(() => useGroupWorkspaceStore.getState().setFocusedMember("claude-1"))
+    expect(await screen.findByText("Acme · m1")).toBeVisible()
+    expect(readMemberDetail).toHaveBeenCalledWith(7, "claude-1")
+    expect(screen.getByText("Not injected")).toBeVisible()
+    expect(screen.getByText("tdd")).toBeVisible()
+    expect(screen.getByText("src/a.ts")).toBeVisible()
+    expect(screen.queryByText("please do S1")).toBeNull()
+    fireEvent.click(screen.getByRole("tab", { name: "Messages" }))
+    expect(await screen.findByText("please do S1")).toBeVisible()
   })
 
   it("replies to A while viewing B without changing the recipient or losing the quote", async () => {

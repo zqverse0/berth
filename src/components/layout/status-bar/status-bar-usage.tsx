@@ -21,8 +21,9 @@ import {
 } from "@/lib/transport/usage"
 import { cn } from "@/lib/utils"
 
-const USAGE_REFRESH_MS = 5 * 60 * 1000
-const STALE_MS = 2 * 60 * 1000
+// 只读本机快照，不联网：1 分钟一读，额度变化最多慢 1 分钟
+const USAGE_REFRESH_MS = 60 * 1000
+const STALE_MS = USAGE_REFRESH_MS
 
 /** SWR 容错合并：若新状态出错但旧数据可用，保留旧进度条展示，避免状态栏突变红警 */
 function mergeUsageStates(

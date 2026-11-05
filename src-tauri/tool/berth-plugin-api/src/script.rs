@@ -13,6 +13,9 @@ use crate::rpc::Host;
 const PRELUDE: &str = include_str!("prelude.js");
 const BOOTSTRAP: &str = "berth:bootstrap";
 
+/// Agent 启动记录的环境变量（JSON）：`berth group hook` 读它。
+pub const LAUNCH_RECORD_ENV: &str = "BERTH_LAUNCH_RECORD";
+
 /// 运行一段引导模块（宿主写的 ES 模块源码），它把结果 JSON 写进 `globalThis.__berth_result`。
 /// `globals` 是额外注入的字符串全局（如启动数据）。返回解析后的结果；脚本抛错时返回错误文本。
 pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Value, String> {
@@ -53,6 +56,13 @@ pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Va
                     } else {
                         std::io::stdout().write_all(text.as_bytes()).and_then(|_| std::io::stdout().flush())
                     };
+                })?,
+            )?;
+            // Agent 启动记录（agent.js）：放进环境变量交给 Agent 子进程，它的 SessionStart hook 记进群的成员状态。
+            global.set(
+                "__berth_launch_record",
+                Function::new(ctx.clone(), |text: String| {
+                    std::env::set_var(LAUNCH_RECORD_ENV, text);
                 })?,
             )?;
             global.set("__berth_static", statics.as_str())?;

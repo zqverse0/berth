@@ -20,8 +20,8 @@ const EXPERT_KEYS: [&str; 5] = ["name", "prompt", "skills", "mcp", "plugins"];
 
 /// 调用方（berth-cli）提供、本 crate 不自己求的值。
 pub struct LaunchExtras {
-    /// `berth guide --brief`。
-    pub brief: String,
+    /// 求 `berth guide --brief`；只在选了内置专家（Berth 助手）时调用，其他 Agent 干净启动。
+    pub brief: fn() -> String,
     /// 当前项目 `{id, name, root}` 或 null（`env.project`）。
     pub project: crate::rpc::ProjectLookup,
 }
@@ -52,7 +52,7 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
     let mut data = json!({
         "id": host.plugin_id,
         "unattended": std::env::var_os("BERTH_TASK_RUN").is_some(),
-        "brief": extras.brief,
+        "brief": "",
     });
     if let [flag, expert_id] = argv {
         if flag == "--plugins" {
@@ -72,18 +72,15 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
         .map(read_provider_file)
         .transpose()?;
     validate_inputs(&request.inputs, &package)?;
-    if !request.inputs.is_empty() {
-        eprintln!(
-            "berth-launch-inputs: {}",
-            Value::Object(request.inputs.clone())
-        );
-    }
     let expert = request
         .expert_id
         .as_deref()
         .map(|id| load_expert(&home, id))
         .transpose()?;
     let tmp = TempDir::create(&host.plugin_id)?;
+    if request.expert_id.as_deref() == Some(berth_tool_core::builtin::EXPERT) {
+        data["brief"] = json!((extras.brief)());
+    }
     data["mode"] = json!("launch");
     data["inputs"] = Value::Object(request.inputs);
     data["passthrough"] = json!(request.passthrough);
@@ -267,16 +264,16 @@ fn load_expert(home: &Path, expert_id: &str) -> Result<Value, String> {
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .ok_or("expert name is required")?;
-    let prompt = match table["prompt"].as_str() {
-        None => Value::Null,
+    let (prompt, prompt_file) = match table["prompt"].as_str() {
+        None => (Value::Null, Value::Null),
         Some(prompt) => {
             let path = contained(
                 &home.join("prompts"),
                 &format!("{}.md", safe_id(prompt, "prompt")?),
             )?;
-            json!(std::fs::read_to_string(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?
-                .trim_end())
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            (json!(text.trim_end()), json!(path.to_string_lossy()))
         }
     };
     let mut mcp = Map::new();
@@ -297,6 +294,8 @@ fn load_expert(home: &Path, expert_id: &str) -> Result<Value, String> {
         "id": id,
         "name": name,
         "prompt": prompt,
+        // 提示词文件路径：只给启动记录显示来源。
+        "promptFile": prompt_file,
         "skills": assets("skills", "skills")?,
         "mcp": mcp,
         "plugins": assets("plugins", "plugins")?,
@@ -604,7 +603,7 @@ mod tests {
             .map(|item| (*item).to_owned())
             .collect();
         let extras = || LaunchExtras {
-            brief: String::new(),
+            brief: String::new,
             project: Box::new(|| Value::Null),
         };
         let code = launch(&package.join("launch.js"), &argv, extras());
@@ -629,5 +628,55 @@ mod tests {
         assert_eq!(code, 7);
         assert_eq!(bad, 2, "未声明的取值在启动前报错");
         assert_eq!(unsupported, 2, "requires 不满足时不运行");
+    }
+
+    #[test]
+    fn only_the_builtin_expert_gets_the_brief() {
+        let _lock = berth_tool_core::paths::TEST_ENV_LOCK
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let previous = std::env::var_os("BERTH_HOME");
+        std::env::set_var("BERTH_HOME", home.path());
+        let package = home.path().join("tools/demo");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::create_dir_all(home.path().join("experts")).unwrap();
+        for id in [berth_tool_core::builtin::EXPERT, "dev"] {
+            std::fs::write(home.path().join(format!("experts/{id}.json")), r#"{"name":"E"}"#).unwrap();
+        }
+        std::fs::write(package.join("tool.json"), r#"{"id":"demo"}"#).unwrap();
+        std::fs::write(package.join("launchbar.json"), r#"{"items":[]}"#).unwrap();
+        // 退出码 = 拿到 brief 时 9，否则 0；启动计划进启动记录。
+        std::fs::write(
+            package.join("launch.js"),
+            r#"export default { launch: (ctx) => { ctx.plan({ skills: ["tdd"] }); return ctx.brief ? 9 : 0 } }"#,
+        )
+        .unwrap();
+        let run = |expert: Option<&str>| {
+            let argv: Vec<String> = expert
+                .map(|id| vec!["--berth-expert".to_owned(), id.to_owned()])
+                .unwrap_or_default();
+            let extras = LaunchExtras {
+                brief: || "BRIEF".to_owned(),
+                project: Box::new(|| Value::Null),
+            };
+            launch(&package.join("launch.js"), &argv, extras)
+        };
+        let builtin = run(Some(berth_tool_core::builtin::EXPERT));
+        let other = run(Some("dev"));
+        let record: Value =
+            serde_json::from_str(&std::env::var(crate::script::LAUNCH_RECORD_ENV).unwrap()).unwrap();
+        let none = run(None);
+        match previous {
+            Some(value) => std::env::set_var("BERTH_HOME", value),
+            None => std::env::remove_var("BERTH_HOME"),
+        }
+        assert_eq!((builtin, other, none), (9, 0, 0));
+        assert_eq!(
+            (record["agent"].as_str(), record["expert"]["id"].as_str(), record["brief"].as_u64()),
+            (Some("demo"), Some("dev"), Some(0))
+        );
+        assert_eq!(record["plan"]["skills"][0], "tdd");
     }
 }
