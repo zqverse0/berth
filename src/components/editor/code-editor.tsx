@@ -87,7 +87,12 @@ export const CodeEditor = forwardRef<EditorHandle, CodeEditorProps>(
     const appearanceKey = JSON.stringify(appearance)
     const capabilitiesKey = JSON.stringify(capabilities)
     const visualsKey = JSON.stringify([hiddenLineRanges, lineMarkers])
-    const appliedRef = useRef({
+    const appliedRef = useRef<{
+      appearance: string
+      capabilities: string
+      language: Extension
+      visuals: string
+    }>({
       appearance: "",
       capabilities: "",
       language: NO_EXTENSION,
