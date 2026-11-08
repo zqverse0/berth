@@ -2,12 +2,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use berth_term_sdk::berth::{RuntimeBinding, SessionName, WindowRef};
+use tokio_util::sync::CancellationToken;
 
 use super::binding::{bound_pane, pane_for_binding};
 use super::model::{TerminalDescriptor, TerminalLimits, TerminalOwnership};
@@ -46,7 +46,7 @@ pub(super) struct ResolvedTerminal {
 
 #[derive(Debug)]
 pub(super) struct SubscriberHandle {
-    pub(super) stop: Arc<AtomicBool>,
+    pub(super) stop: Arc<CancellationToken>,
     pub(super) control_tx: tokio::sync::watch::Sender<SubscriberControl>,
 }
 
@@ -189,7 +189,7 @@ pub(super) fn remove_subscriber(
     inner: &Arc<TerminalSessionManagerInner>,
     terminal_id: &str,
     client_id: &str,
-    stop: &Arc<AtomicBool>,
+    stop: &Arc<CancellationToken>,
 ) {
     if let Ok(mut sessions) = inner.sessions.lock() {
         if let Some(record) = sessions.get_mut(terminal_id) {
@@ -263,7 +263,7 @@ pub(super) fn insert_record(
 
 pub(super) fn stop_record_subscribers(mut record: TerminalRecord) {
     for (_, subscriber) in record.subscribers.drain() {
-        subscriber.stop.store(true, Ordering::Release);
+        subscriber.stop.cancel();
     }
     cleanup_temp_files(&mut record.temp_files);
 }
@@ -329,7 +329,7 @@ impl TerminalSessionManager {
                     .send_replace(SubscriberControl::ResyncRequired {
                         sequence: event.sequence().unwrap_or_default(),
                     });
-                subscriber.stop.store(true, Ordering::Release);
+                subscriber.stop.cancel();
             }
         }
         stop_record_subscribers(record);
@@ -420,7 +420,7 @@ impl TerminalSessionManager {
                     record.subscribers.drain().map(|(_, value)| value).collect();
                 detached += subscribers.len();
                 for subscriber in subscribers {
-                    subscriber.stop.store(true, Ordering::Release);
+                    subscriber.stop.cancel();
                 }
             }
         }
@@ -436,7 +436,7 @@ impl TerminalSessionManager {
             let subscribers: Vec<_> = record.subscribers.drain().map(|(_, value)| value).collect();
             detached += subscribers.len();
             for subscriber in subscribers {
-                subscriber.stop.store(true, Ordering::Release);
+                subscriber.stop.cancel();
             }
         }
         detached

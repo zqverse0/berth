@@ -1,10 +1,10 @@
 //! Live Berth terminal output stream boundary for Berth attachments.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use chrono::Utc;
 use berth_term_sdk::berth::{Pane, PaneOutputChunk, PaneOutputStream, PaneProcessState};
+use tokio_util::sync::CancellationToken;
 
 use super::lifecycle::{
     clear_runtime_index_inner, mark_exited, remove_subscriber, update_record_sequence,
@@ -21,17 +21,20 @@ pub(super) async fn run_stream_worker(
     pane: Pane,
     mut stream: PaneOutputStream,
     cutoff: u64,
-    stop: Arc<AtomicBool>,
+    stop: Arc<CancellationToken>,
     data_tx: tokio::sync::mpsc::Sender<TerminalStreamEvent>,
     control_tx: tokio::sync::watch::Sender<SubscriberControl>,
 ) {
     let cleanup_inner = inner.clone();
     let transport_cleanup_inner = cleanup_inner.clone();
     loop {
-        if stop.load(Ordering::Acquire) {
-            break;
-        }
-        match stream.next().await {
+        // 空闲终端不会再有输出：停止信号必须能打断等待，否则线程和 termd 连接一直不释放。
+        let chunk = tokio::select! {
+            biased;
+            _ = stop.cancelled() => break,
+            chunk = stream.next() => chunk,
+        };
+        match chunk {
             Ok(Some(PaneOutputChunk::Bytes { sequence, bytes })) => {
                 // Berth terminal uses an empty output chunk as the pane EOF marker,
                 // not as visible terminal data.

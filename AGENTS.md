@@ -55,4 +55,11 @@
 ## 通用
 
 - 代码注释用简体中文；格式交给 Prettier / ESLint / rustfmt。
+- 主目录（dev 分支）做想法、需求设计和任务；worktree 是一个方向或子工作区，不是一任务一个，
+  任务用 `berth task assign --group` 分进去实现和测试。
+- 用户没要求就不新建 worktree：已有对应方向就在那里做；没有就直接在主目录改，单测加 dev 实例验证后提交；
+  要开新方向先问用户。
+- 不主动往 `.berth/knowledge/` 写笔记。要记待讨论的问题就写成想法
+  `.berth/ideas/<YYYY-MM-DD-HHMMSS>.idea.md`（frontmatter `type: 想法`、`status: 待讨论`，末尾留
+  `## 讨论`、`## 结论`）：正文首行是短标题，再按「现状/证据、方向/候选、待定」分节。
 

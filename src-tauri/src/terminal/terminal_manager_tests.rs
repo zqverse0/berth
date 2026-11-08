@@ -17,8 +17,6 @@ use crate::terminal::manager::TerminalOperationError;
 use crate::terminal::protocol::SubscriberControl;
 use std::env;
 #[cfg(unix)]
-use std::sync::atomic::AtomicBool;
-#[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
 use std::time::Duration;
@@ -34,6 +32,8 @@ use berth_term_sdk::berth::{default_endpoint_path, PaneId, RuntimeBinding, Termi
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(unix)]
 use tokio::net::UnixStream;
+#[cfg(unix)]
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn readable_terminal_title_prefers_shell_and_cwd_over_uuid_window_name() {
@@ -913,6 +913,50 @@ async fn restarted_daemon_epoch_rejects_captured_binding_without_rebinding() {
     kill_test_daemon().await;
 }
 
+/// 空闲终端没有输出可等，detach 后 worker 也必须立刻退出：远程页面每次重连都会重新 attach，
+/// 留下的线程和 termd 连接会一路累积到句柄耗尽（os error 24）。
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn detaching_an_idle_terminal_stops_its_stream_worker() {
+    let _env_lock = env_lock();
+    let daemon = env::var_os("BERTH_TERMINALD_PATH")
+        .map(PathBuf::from)
+        .filter(|path| is_test_daemon_binary(path))
+        .or_else(|| {
+            let current = env::current_exe().ok()?;
+            let debug_dir = current.parent()?.parent()?;
+            let candidate = debug_dir.join("berth-termd");
+            is_test_daemon_binary(&candidate).then_some(candidate)
+        });
+    let Some(daemon) = daemon else {
+        eprintln!("skipping terminal integration test: berth-termd is not built");
+        return;
+    };
+    let socket_root = tempfile::tempdir().expect("socket root");
+    let _environment = EnvironmentGuard::set(socket_root.path(), daemon);
+    let manager = project_manager(socket_root.path()).await;
+    let terminal_id = "detach-idle";
+    let mut request = terminal_request(socket_root.path(), terminal_id);
+    request.executable = Some("/bin/sh".to_owned());
+    request.args = vec!["-c".to_owned(), "exec sleep 600".to_owned()];
+    manager.create(request).await.expect("create terminal");
+
+    let mut attachment = manager.attach(terminal_id, "view").expect("attach");
+    manager.detach(terminal_id, "view").expect("detach");
+    // worker 退出时丢弃发送端，接收端才会读到结束。
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while attachment.data_rx.recv().await.is_some() {}
+    })
+    .await
+    .expect("idle stream worker exits after detach");
+
+    manager
+        .terminate(terminal_id)
+        .await
+        .expect("close test pane");
+    kill_test_daemon().await;
+}
+
 /// 切回 tab / 溢出后 resync 时，GUI 用同一个 client id 重新 attach。旧 attachment 的
 /// 清理（旧 worker 退出、旧连接的 detach）不能删掉新 attachment 的订阅，否则新连接
 /// 收不到输出，下一次 resize / 输入返回 transport_disconnected，终端停在旧画面。
@@ -939,7 +983,7 @@ async fn reattaching_the_same_client_survives_cleanup_of_the_previous_attachment
     let terminal_id = "reattach-same-client";
     let mut request = terminal_request(socket_root.path(), terminal_id);
     request.executable = Some("/bin/sh".to_owned());
-    // 持续输出，模拟正在工作的 Agent：旧 worker 很快会拿到下一块输出并退出。
+    // 持续输出，模拟正在工作的 Agent。
     request.args = vec![
         "-c".to_owned(),
         "while :; do printf 'TICK\\n'; sleep 0.02; done".to_owned(),
@@ -1261,7 +1305,7 @@ async fn respawned_pane_rejects_stale_gui_operations_without_touching_new_proces
         .insert(
             client_id.to_owned(),
             SubscriberHandle {
-                stop: Arc::new(AtomicBool::new(false)),
+                stop: Arc::new(CancellationToken::new()),
                 control_tx,
             },
         );

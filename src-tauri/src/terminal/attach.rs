@@ -1,10 +1,10 @@
 //! Personal terminal attachment setup and subscriber registration.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
 use berth_term_sdk::berth::{PaneOutputStart, Terminal};
+use tokio_util::sync::CancellationToken;
 
 use super::binding::pane_for_binding;
 use super::lifecycle::{remove_subscriber, SubscriberHandle};
@@ -40,7 +40,7 @@ impl TerminalSessionManager {
             tokio::sync::mpsc::channel(self.inner.limits.subscriber_capacity.max(1));
         let (control_tx, control_rx) =
             tokio::sync::watch::channel(SubscriberControl::Attached { sequence: 0 });
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(CancellationToken::new());
         let attachment_stop = Arc::clone(&stop);
         let handle = SubscriberHandle {
             stop: stop.clone(),
@@ -163,7 +163,7 @@ impl TerminalSessionManager {
                 .ok_or_else(|| TerminalError::NotFound(terminal_id.to_string()))?;
             record.sequence = record.sequence.max(cutoff);
             if let Some(previous) = record.subscribers.remove(client_id) {
-                previous.stop.store(true, Ordering::Release);
+                previous.stop.cancel();
             }
             record.subscribers.insert(client_id.to_string(), handle);
         }
@@ -189,7 +189,7 @@ impl TerminalSessionManager {
         client_id: &str,
         attachment: &TerminalAttachment,
     ) {
-        attachment.stop.store(true, Ordering::Release);
+        attachment.stop.cancel();
         remove_subscriber(&self.inner, terminal_id, client_id, &attachment.stop);
     }
 
@@ -200,7 +200,7 @@ impl TerminalSessionManager {
             .get_mut(terminal_id)
             .ok_or_else(|| TerminalError::NotFound(terminal_id.to_string()))?;
         if let Some(subscriber) = record.subscribers.remove(client_id) {
-            subscriber.stop.store(true, Ordering::Release);
+            subscriber.stop.cancel();
         }
         Ok(())
     }

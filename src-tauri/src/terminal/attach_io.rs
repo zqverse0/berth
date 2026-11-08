@@ -1,9 +1,9 @@
 //! Ordered input, resize, and resynchronization operations for attachments.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use berth_term_sdk::berth::TerminalSizeSpec;
+use tokio_util::sync::CancellationToken;
 
 use super::binding::{bound_pane, pane_for_binding};
 use super::lifecycle::TerminalSessionManagerInner;
@@ -59,7 +59,7 @@ impl TerminalSessionManager {
         &self,
         terminal_id: &str,
         client_id: &str,
-    ) -> Result<(Arc<Mutex<()>>, Arc<AtomicBool>), TerminalOperationError> {
+    ) -> Result<(Arc<Mutex<()>>, Arc<CancellationToken>), TerminalOperationError> {
         let sessions = self.inner.sessions.lock().expect("terminal index lock");
         let record = sessions
             .get(terminal_id)
@@ -270,7 +270,7 @@ impl TerminalSessionManager {
         subscriber
             .control_tx
             .send_replace(SubscriberControl::ResyncRequired { sequence });
-        subscriber.stop.store(true, Ordering::Release);
+        subscriber.stop.cancel();
         Ok(())
     }
 
@@ -297,7 +297,7 @@ fn mark_attached_input_failed(
     inner: &Arc<TerminalSessionManagerInner>,
     terminal_id: &str,
     client_id: &str,
-    expected_stop: &Arc<AtomicBool>,
+    expected_stop: &Arc<CancellationToken>,
     error: String,
 ) {
     let mut sessions = inner.sessions.lock().expect("terminal index lock");
@@ -318,7 +318,7 @@ fn mark_attached_input_failed(
     let _ = subscriber
         .control_tx
         .send_replace(SubscriberControl::ResyncRequired { sequence });
-    subscriber.stop.store(true, Ordering::Release);
+    subscriber.stop.cancel();
     tracing::warn!(
         terminal_id,
         client_id,

@@ -1,8 +1,8 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,7 +110,7 @@ pub struct TerminalAttachment {
     pub data_rx: tokio::sync::mpsc::Receiver<TerminalStreamEvent>,
     pub control_rx: tokio::sync::watch::Receiver<SubscriberControl>,
     /// 这一次 attach 的身份（也是它的 worker 停止信号），见 `detach_attachment`。
-    pub stop: Arc<AtomicBool>,
+    pub stop: Arc<CancellationToken>,
 }
 
 #[cfg(test)]
