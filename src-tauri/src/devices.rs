@@ -416,9 +416,11 @@ struct Node {
     berth: String,
     data: Client,
     /// 节点推送（隧道流的字节）：到对方 GUI 的隧道第一次建立时取走（[`workspace`]）。
-    pushes: Mutex<Option<UnboundedReceiver<(Push, Vec<u8>)>>>,
+    pushes: Mutex<Option<NodePushes>>,
     cache: Cache,
 }
+
+type NodePushes = UnboundedReceiver<(Push, Vec<u8>)>;
 
 /// 已建立的节点连接，按设备 id。
 static NODES: LazyLock<Mutex<HashMap<i32, Arc<Node>>>> = LazyLock::new(Default::default);

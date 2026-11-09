@@ -120,6 +120,7 @@ static SHIM: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 /// 设备 socket 在数据目录下的文件名（`berth node` 的设备视图按同名报给对方）。
+#[cfg(unix)]
 pub const DEVICE_SOCKET: &str = "remote.sock";
 
 const FRAME_TERMINAL: u8 = 1;
