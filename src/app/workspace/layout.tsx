@@ -30,6 +30,7 @@ import { FILL_MODE_STYLE } from "@/lib/workspace/workspace-background"
 import { AuxPanel } from "@/components/layout/aux-panel/aux-panel"
 import { WorkspacePaneContent } from "@/components/workspace/workspace-pane-content"
 import { WorkspacePaneDropArea } from "@/components/workspace/workspace-pane-drop-area"
+import { useOsFileDropToTerminals } from "@/hooks/workspace/file-tree-pane-drop"
 import { WorkspaceTabStrip } from "@/components/tabs/workspace-tab-strip"
 import {
   ActivityBar,
@@ -421,6 +422,7 @@ function MobileFolderWorkspaceShell() {
 }
 
 function FolderWorkspaceShell() {
+  useOsFileDropToTerminals()
   const sidebarOpen = useAppUiStore((state) => state.sidebarOpen)
   const sidebarRestored = useAppUiStore((state) => state.sidebarRestored)
   const sidebarWidth = useAppUiStore((state) => state.sidebarWidth)

@@ -8,10 +8,14 @@ import { FolderAliasLabel } from "./folder-alias-label"
 /** 行图标中心所在的轴线；嵌套 worktree 右移一级，连接线画在顶层轴线上。 */
 export const RAIL_AXIS = "0.875rem"
 export const NESTED_STEP = "1.25rem"
-/** 项目行下方会话图标行的左缩进（与项目名对齐）。 */
-export const SESSION_STRIP_INDENT = `calc(${RAIL_AXIS} + ${NESTED_STEP} + 0.5rem)`
+/** 会话行的左缩进：根项目下与项目名对齐，嵌套 worktree 下再右移一级。 */
+export function sessionIndent(nested: boolean) {
+  return nested
+    ? `calc(${RAIL_AXIS} + ${NESTED_STEP} * 2 + 0.875rem)`
+    : `calc(${RAIL_AXIS} + ${NESTED_STEP} + 0.875rem)`
+}
 
-/** 项目行与它的图标行组成的整块：悬停、选中的底色覆盖两行。 */
+/** 项目行的底色：悬停、选中。 */
 export function projectBlockClass(selected: boolean) {
   return cn(
     "group cursor-pointer rounded-xl transition-colors duration-150",
@@ -34,6 +38,8 @@ export function ProjectRowButton({
   nested,
   branch,
   icon,
+  badge,
+  dim = false,
   className,
   ...button
 }: {
@@ -49,6 +55,10 @@ export function ProjectRowButton({
   branch: string | null
   /** 替换默认图标（如加载中）。 */
   icon?: ReactNode
+  /** 名称后的标记（设备名 + 在线点） */
+  badge?: ReactNode
+  /** 空闲（没有会话）：名称淡色 */
+  dim?: boolean
 } & Omit<ComponentProps<"button">, "children" | "title">) {
   const axis = nested ? `calc(${RAIL_AXIS} + ${NESTED_STEP})` : RAIL_AXIS
   return (
@@ -104,7 +114,8 @@ export function ProjectRowButton({
         <span
           className={cn(
             "min-w-0 flex-shrink truncate text-left text-[0.875rem] font-medium text-sidebar-foreground",
-            !selected && "text-sidebar-foreground/85"
+            !selected && "text-sidebar-foreground/85",
+            dim && !selected && "text-muted-foreground"
           )}
         >
           {worktree && !alias?.trim() ? (
@@ -117,6 +128,7 @@ export function ProjectRowButton({
             />
           )}
         </span>
+        {badge}
       </div>
     </button>
   )

@@ -132,9 +132,9 @@ describe("buildExchanges", () => {
   })
 })
 
-// 与 Rust `berth_project_core::knowledge::exchanges` 共用样例：Jev 分类与会话页分出同样的问答。
-describe("shared exchange fixture", () => {
-  it("groups the same prompts, steps, tool errors and answers as the Rust side", () => {
+// 样例在 exchanges.fixture.json：问题、过程、工具错误与回答的分组。
+describe("exchange fixture", () => {
+  it("groups prompts, steps, tool errors and answers as expected", () => {
     const textOf = (block: ContentBlock) =>
       block.type === "text" && block.text.trim() !== ""
         ? block.text.trim()

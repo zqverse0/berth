@@ -15,7 +15,6 @@ const link = (source: string, target: string): KnowledgeEdge => ({
 test("按类型分层，空层不占圈，自定义类型落在决策 / 经验那一圈", () => {
   const layout = orbitLayout(
     [doc("首页", "地图"), doc("A", "概念"), doc("M", "模块"), doc("X", "随笔")],
-    [],
     []
   )
   const ring = (id: string) => layout.nodes.find((n) => n.id === id)!.ring
@@ -39,8 +38,7 @@ test("模块挨着它链接的概念排，断链与重复边不计", () => {
       link("M1", "C1"),
       link("C1", "M1"),
       { ...link("M1", "nowhere"), unresolved: true },
-    ],
-    []
+    ]
   )
   expect(layout.links).toHaveLength(2)
   const order = layout.nodes

@@ -20,8 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { listExperts } from "@/knowledge/api/knowledge-client"
 import { toErrorMessage } from "@/lib/app-error"
+import { runtimeBridgeOperation } from "@/lib/runtime-bridge"
 import {
   type GroupEvent,
   memberAgent,
@@ -504,11 +504,9 @@ export function GroupSection({
 
 /** 「添加专家」：列出还不在群里的专家，选一个后由调用方打开启动栏。 */
 export function AddExpertMenu({
-  folderId,
   present,
   onPick,
 }: {
-  folderId: number
   /** 在群的成员名（专家 id），不再列出。 */
   present: readonly string[]
   onPick: (expert: string) => void
@@ -521,8 +519,13 @@ export function AddExpertMenu({
   const load = (open: boolean) => {
     if (!open) return
     setError(null)
-    void listExperts(folderId)
-      .then(setExperts)
+    void runtimeBridgeOperation<{ value: string; label: string }[]>({
+      method: "expert.options",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(response.error.message)
+        setExperts(response.result)
+      })
       .catch((cause: unknown) => setError(toErrorMessage(cause)))
   }
   const absent = (experts ?? []).filter(

@@ -6,8 +6,8 @@ use std::time::UNIX_EPOCH;
 
 pub(crate) use berth_tool_core::session_files::readable_spec as spec_for;
 use berth_tool_core::session_files::{
-    check_spec, entries, find_session, last_text, recent_sessions, sessions_in, startup_context,
-    title, Entry,
+    check_spec, entries, find_session, last_text, recent_sessions, render, sessions_in,
+    startup_context, title, turns, Turn,
 };
 use berth_tool_core::sessions::{estimate_tokens, load_session_spec, SessionSpec};
 use berth_project_core::tasks::session_links::{session_links, SessionLinks};
@@ -112,53 +112,6 @@ fn find_last(spec: &SessionSpec, cwd: &Path) -> Result<Option<LastReply>, String
     }))
 }
 
-/// 一轮：一条用户发言及其后的助手正文与工具调用。`n` 从 1 起；用户发言之前的内容记为第 0 轮。
-#[derive(Debug, PartialEq)]
-struct Turn {
-    n: usize,
-    user: Option<String>,
-    reply: Vec<String>,
-}
-
-fn turns(entries: impl Iterator<Item = Entry>) -> Vec<Turn> {
-    let mut turns: Vec<Turn> = Vec::new();
-    let mut n = 0;
-    for entry in entries {
-        match entry {
-            Entry::User(text) => {
-                n += 1;
-                turns.push(Turn {
-                    n,
-                    user: Some(text),
-                    reply: Vec::new(),
-                });
-            }
-            Entry::Text(line) | Entry::Tool(line) => {
-                if turns.is_empty() {
-                    turns.push(Turn {
-                        n: 0,
-                        user: None,
-                        reply: Vec::new(),
-                    });
-                }
-                turns.last_mut().unwrap().reply.push(line);
-            }
-        }
-    }
-    turns
-}
-
-fn render(turn: &Turn, user_only: bool) -> String {
-    let mut out = String::new();
-    if let Some(user) = &turn.user {
-        out.push_str(&format!("## #{} 用户\n{}\n", turn.n, user.trim_end()));
-    }
-    if !user_only && !turn.reply.is_empty() {
-        out.push_str(&format!("## #{} 助手\n{}\n", turn.n, turn.reply.join("\n")));
-    }
-    out
-}
-
 pub(crate) struct ShowOptions {
     pub(crate) tail: Option<usize>,
     pub(crate) user_only: bool,
@@ -166,6 +119,8 @@ pub(crate) struct ShowOptions {
     pub(crate) max_bytes: usize,
     /// 输出启动输入而不是对话。
     pub(crate) context: bool,
+    /// 输出完整消息（JSON）而不是可读文本。
+    pub(crate) messages: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -352,6 +307,14 @@ pub(crate) fn show(
         print_context(&agent, id, project.as_deref(), &spec, &path, json_mode);
         return Ok(());
     }
+    if options.messages {
+        let messages = berth_tool_core::session_files::messages(&spec, &path);
+        println!(
+            "{}",
+            json!({"agent": agent, "session_id": id, "cwd": project, "path": path, "messages": messages})
+        );
+        return Ok(());
+    }
     let view = show_view(id, &agent, &spec, &path, project.as_deref(), options);
     if json_mode {
         println!("{view}");
@@ -468,6 +431,7 @@ fn print_context(
 
 #[cfg(test)]
 mod tests {
+    use berth_tool_core::session_files::Entry;
     use super::*;
     use berth_tool_core::session_files::{message_entries, turn_reply};
     use berth_tool_core::sessions::MessageRecord;
@@ -510,6 +474,7 @@ mod tests {
             grep: grep.map(str::to_owned),
             max_bytes,
             context: false,
+            messages: false,
         }
     }
 

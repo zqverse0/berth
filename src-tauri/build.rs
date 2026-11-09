@@ -39,7 +39,7 @@ fn ensure_sidecar_placeholder() {
         ""
     };
     let dir = PathBuf::from("binaries");
-    for name in ["berth-termd", "berth-cli"] {
+    for name in ["berth-termd", "berth-cli", "berth-host"] {
         let path = dir.join(format!("{name}-{triple}{ext}"));
 
         println!("cargo:rerun-if-changed={}", path.display());

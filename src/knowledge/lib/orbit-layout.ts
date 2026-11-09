@@ -1,20 +1,10 @@
-import type {
-  Idea,
-  KnowledgeDocument,
-  KnowledgeEdge,
-} from "@/knowledge/model/types"
+import type { KnowledgeDocument, KnowledgeEdge } from "@/knowledge/model/types"
 
 /**
- * 知识星图的分层：地图在圆心，往外依次是概念、模块、决策与经验（含库里自定义的类型）、想法。
- * 越往里越核心，越往外越具体、越未成形；空的层不占圈。
+ * 知识星图的分层：地图在圆心，往外依次是概念、模块、决策与经验（含库里自定义的类型）。
+ * 越往里越核心，越往外越具体；空的层不占圈。
  */
-export const ORBIT_RINGS = [
-  "map",
-  "concept",
-  "module",
-  "record",
-  "idea",
-] as const
+export const ORBIT_RINGS = ["map", "concept", "module", "record"] as const
 export type OrbitRing = (typeof ORBIT_RINGS)[number]
 
 const RING_OF_TYPE: Record<string, OrbitRing> = {
@@ -22,8 +12,12 @@ const RING_OF_TYPE: Record<string, OrbitRing> = {
   概念: "concept",
   模块: "module",
 }
+/** 笔记类型所在的层；不认识的类型放最外层。 */
+export const ringOfType = (noteType: string): OrbitRing =>
+  RING_OF_TYPE[noteType] ?? "record"
+
 /** 外圈半径（viewBox 单位），按非空层依次取用。 */
-const RADII = [130, 225, 305, 375]
+const RADII = [130, 225, 305]
 
 export interface OrbitNode {
   id: string
@@ -35,8 +29,7 @@ export interface OrbitNode {
   angle: number | null
   /** 点的半径：圆心固定，其余按连线数变大。 */
   size: number
-  document?: KnowledgeDocument
-  idea?: Idea
+  document: KnowledgeDocument
 }
 
 export interface OrbitLayout {
@@ -55,31 +48,18 @@ const circularMean = (angles: number[]) =>
 
 export function orbitLayout(
   documents: KnowledgeDocument[],
-  edges: KnowledgeEdge[],
-  ideas: Idea[]
+  edges: KnowledgeEdge[]
 ): OrbitLayout {
-  const nodes: OrbitNode[] = [
-    ...documents.map((document) => ({
-      id: document.id,
-      title: document.title,
-      ring: RING_OF_TYPE[document.noteType] ?? ("record" as const),
-      x: 0,
-      y: 0,
-      angle: null,
-      size: 0,
-      document,
-    })),
-    ...ideas.map((idea) => ({
-      id: `idea:${idea.id}`,
-      title: idea.text.split("\n")[0].trim() || idea.id,
-      ring: "idea" as const,
-      x: 0,
-      y: 0,
-      angle: null,
-      size: 0,
-      idea,
-    })),
-  ]
+  const nodes: OrbitNode[] = documents.map((document) => ({
+    id: document.id,
+    title: document.title,
+    ring: ringOfType(document.noteType),
+    x: 0,
+    y: 0,
+    angle: null,
+    size: 0,
+    document,
+  }))
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const seen = new Set<string>()
   const links: OrbitLayout["links"] = []
@@ -126,14 +106,10 @@ export function orbitLayout(
     const ordered =
       ring === "concept"
         ? items.sort((a, b) => a.title.localeCompare(b.title))
-        : ring === "idea"
-          ? items.sort(
-              (a, b) => (b.idea?.modifiedAt ?? 0) - (a.idea?.modifiedAt ?? 0)
-            )
-          : items
-              .map((node) => ({ node, key: score(node) }))
-              .sort((a, b) => a.key - b.key)
-              .map(({ node }) => node)
+        : items
+            .map((node) => ({ node, key: score(node) }))
+            .sort((a, b) => a.key - b.key)
+            .map(({ node }) => node)
     // 从半步处起排，正上方不压点
     const offset = -Math.PI / 2 + Math.PI / ordered.length
     ordered.forEach((node, index) => {

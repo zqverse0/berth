@@ -12,9 +12,7 @@
 - 新开 Agent 终端 → `berth terminal create --project <项目> --agent <工具>`；关闭终端 → `berth terminal close -t <终端>`
 - 任务 → `berth project . task --json create <标题> --slug <slug>`、`berth project . task --json show <任务>`、`berth project . task --json step <任务> S<n>`、`berth project . task --json assign <任务> --group <worktree>`、`berth project . task --json finish <任务>`
 - 群组 → `berth project . group --json who <群>`、`berth project . group --json read <群>`、`berth project . group --json post <群> --to <成员> --text <消息>`、`berth project . group --json spawn <目录> --agent <工具> --expert <专家> --text <简报>`
-- 专家 → `berth project . expert ls`（全部专家与它们在群里的终端数）、`berth project . expert show <id>`（它的终端和规矩）
+- 专家 → `berth project . expert ls`（全部专家与它们在群里的终端数）、`berth project . expert show <id>`（它的终端）
 - 读其他会话 → `berth project . session ls`、`berth project . session show <会话id>`
-- 知识库 → `berth project . knowledge for <路径>`（按路径查设计缘由）、`berth project . knowledge search <词>`、`berth project . knowledge show <标题>`；写之前先读 `berth guide knowledge`
-- 接手之前的工作、或用户问起之前做过什么 → 先读 `.berth/knowledge/交接/索引.md`（各专家最近一次会话），再打开对应专家的索引看当前状态与待办，不够再看某一次的详情；不需要时不读
-- 用户的想法 / 问题 → `berth project . knowledge idea ls`、`berth project . knowledge idea show <id>`（讨论按 `berth guide knowledge`「处理想法」）
+- 知识库（主要给用户看，只有用户指定时才读写）→ `berth project . knowledge for <路径>`、`berth project . knowledge search <词>`、`berth project . knowledge show <标题>`、`berth project . knowledge inbox ls`（待入库，用户说要维护时才处理）；写之前先读 `berth guide knowledge`
 {tools}

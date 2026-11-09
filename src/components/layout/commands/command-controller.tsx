@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppUiStore } from "@/stores/app-ui-store"
+import { useTabStore } from "@/stores/tab-store"
 import { useTabActions } from "@/contexts/tab-context"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import {
@@ -21,7 +22,9 @@ import { useOpenFolderPicker } from "@/hooks/workspace/use-open-folder-picker"
 import { requestAgentLaunch } from "@/stores/agent-launch-store"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
 import {
+  NEXT_ATTENTION_EVENT,
   OPEN_PROJECT_SWITCHER_EVENT,
+  OPEN_SESSION_SWITCHER_EVENT,
   type WorkspaceCommandId,
 } from "@/components/layout/commands/commands"
 import {
@@ -30,6 +33,9 @@ import {
 } from "@/components/layout/commands/command-palette"
 import { workspaceTabKey } from "@/lib/workspace/workspace-tab-placement"
 import { useGeneralSectionStore } from "@/components/settings/settings-nav"
+
+/** 会话切换器的「最近用过」：tab id，新的在前。 */
+let recentTabIds: string[] = []
 
 /** 所有工作区命令和键盘路由的唯一入口。 */
 export function WorkspaceCommandController() {
@@ -76,6 +82,21 @@ export function WorkspaceCommandController() {
   const requestFocus = useAppUiStore((state) => state.requestSearchFocus)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
+  // 这里常驻，切到其他侧栏视图时也不断
+  useEffect(() => {
+    const track = (tabId: string | null) => {
+      if (!tabId) return
+      recentTabIds = [
+        tabId,
+        ...recentTabIds.filter((id) => id !== tabId),
+      ].slice(0, 50)
+    }
+    track(useTabStore.getState().activeTabId)
+    return useTabStore.subscribe((state, prev) => {
+      if (state.activeTabId !== prev.activeTabId) track(state.activeTabId)
+    })
+  }, [])
+
   // 项目页面都是侧栏视图；协作在任务视图里。
   const openView = useCallback(
     (view: SidebarView) => {
@@ -86,6 +107,14 @@ export function WorkspaceCommandController() {
   )
 
   const actions = useMemo<WorkspaceCommandAction[]>(() => {
+    // 会话数据在侧栏项目列表里：其他视图下列表没挂载，切过去后下一帧再发事件
+    const withProjectList = (fire: () => void) => {
+      if (!isOpen) toggle()
+      const { view, setView } = useSidebarViewStore.getState()
+      if (view !== "projects" && view !== "files" && view !== "git")
+        setView("projects")
+      requestAnimationFrame(fire)
+    }
     const switchTab = (offset: number) => {
       const { activeWorkspaceTab, paneForTab, orderedTabsByPane } =
         readWorkspaceLayoutProjection()
@@ -112,6 +141,24 @@ export function WorkspaceCommandController() {
         },
       },
       { id: "open_project", run: () => void openFolderPicker() },
+      {
+        id: "switch_session",
+        run: () =>
+          withProjectList(() =>
+            window.dispatchEvent(
+              new CustomEvent(OPEN_SESSION_SWITCHER_EVENT, {
+                detail: recentTabIds,
+              })
+            )
+          ),
+      },
+      {
+        id: "next_attention",
+        run: () =>
+          withProjectList(() =>
+            window.dispatchEvent(new Event(NEXT_ATTENTION_EVENT))
+          ),
+      },
       {
         id: "toggle_search",
         run: () => {

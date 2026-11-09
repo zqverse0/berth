@@ -406,6 +406,19 @@ export interface ProjectSessionOverviewItem {
   liveMember: string | null
 }
 
+/** 一天 × 一个 Agent × 一个模型的 token 用量（`project_token_usage`）。 */
+export interface TokenUsageRow {
+  /** 本地日期 `YYYY-MM-DD` */
+  date: string
+  agent: string
+  model: string | null
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  requests: number
+}
+
 export interface ProjectSessionOverview {
   items: ProjectSessionOverviewItem[]
   hasMore: boolean
@@ -1494,6 +1507,9 @@ export interface GitLogEntry {
   date: string
   message: string
   files: GitLogFileChange[]
+  /** 整个提交的增删行数 */
+  additions: number
+  deletions: number
   pushed: boolean | null
 }
 

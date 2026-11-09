@@ -26,9 +26,12 @@ mod control;
 #[path = "control/pending.rs"]
 mod control_pending;
 pub mod db;
-pub mod decision;
 pub mod devices;
 pub mod event_bridge;
+#[cfg(feature = "tauri-runtime")]
+mod file_clipboard;
+#[cfg(feature = "tauri-runtime")]
+mod file_drag;
 pub mod git;
 #[cfg(all(unix, feature = "tauri-runtime"))]
 mod host_lock;
@@ -47,6 +50,7 @@ pub mod berth_tasks;
 pub mod translate;
 pub mod update;
 pub mod versioned_file_responder;
+pub mod workspace_groups;
 pub mod workspace_state;
 
 /// Sweep leftover ACP binary cache trash from the retired installer path.
@@ -381,11 +385,6 @@ mod tauri_app {
                 tauri::async_runtime::spawn(crate::model_provider::proxy::host(db.conn.clone()));
                 // 远程访问页：按设置页填写的监听地址绑定；没填或没设密码不监听。
                 tauri::async_runtime::spawn(crate::remote::host(app.handle().clone()));
-                // 会话分类：`~/.berth/classifier.json` 打开后，专家每轮结束把重要段落写成候选。
-                tauri::async_runtime::spawn(crate::knowledge::classify::run(
-                    db.conn.clone(),
-                    app.state::<TerminalManager>().clone_ref(),
-                ));
 
                 // Logging phase 2/3: override the default level from the
                 // persisted `logging.level` now that the DB is open, then wire
@@ -594,8 +593,12 @@ mod tauri_app {
                 }
             })
             .invoke_handler(tauri::generate_handler![
+                crate::file_clipboard::clipboard_read_files,
+                crate::file_clipboard::clipboard_write_files,
+                crate::file_drag::start_file_drag,
                 conversations::list_project_agent_sessions,
                 conversations::list_project_session_overview,
+                conversations::project_token_usage,
                 conversations::get_conversation,
                 conversations::list_all_conversations,
                 conversations::list_child_conversations,
@@ -700,9 +703,11 @@ mod tauri_app {
                 workspace_files::save_file_copy,
                 workspace_files::rename_file_tree_entry,
                 workspace_files::move_file_tree_entry,
+                workspace_files::copy_file_tree_entry,
                 workspace_files::delete_file_tree_entry,
                 workspace_files::create_file_tree_entry,
                 git::git_log,
+                git::git_commit_days,
                 git::git_current_user,
                 git::git_commit_files,
                 git::git_search_authors,

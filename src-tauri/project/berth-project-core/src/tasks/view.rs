@@ -9,6 +9,7 @@ use super::file;
 use super::group;
 use super::fsutil::{self, MAX_ARTIFACT_BYTES};
 use super::git;
+use super::session_snapshot;
 use super::state::Live;
 use super::TaskResult;
 
@@ -54,6 +55,16 @@ pub struct HistoryEntry {
     pub subject: String,
 }
 
+/// 归档时关联到的会话；`snapshot` 是快照的绝对路径，原会话被清理后打开它。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TaskSession {
+    pub agent: String,
+    pub id: String,
+    pub title: String,
+    pub cwd: String,
+    pub snapshot: String,
+}
+
 /// 与旧 `berth task show/views` 同一 JSON 形态（GUI `BerthTaskView`）。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -89,11 +100,13 @@ pub struct TaskView {
     pub diffstat: String,
     /// 动过任务目录的最近提交：没绑分支的任务也能看到做过什么。
     pub history: Vec<HistoryEntry>,
+    pub sessions: Vec<TaskSession>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
 }
 
 /// prd 里的（步骤，验收）两组勾选项：按标题含「步骤 / Steps」「验收 / Acceptance」区分，任何标题都切换段落。
+/// 新骨架没有「验收」（「试用建议」不算勾选项），这里只为读旧任务。
 pub(crate) fn checklists(text: &str) -> (Vec<Step>, Vec<ChecklistItem>) {
     #[derive(PartialEq)]
     enum Section {
@@ -234,7 +247,7 @@ pub(crate) fn build(
     };
     let (mut steps, accept) = checklists(&prd_text);
     if single {
-        // 单文件任务的步骤在 frontmatter；正文里的勾选项只算验收。
+        // 单文件任务的步骤在 frontmatter；正文里「验收」一节的勾选项只有早期任务才有。
         steps = file::steps(record)?
             .into_iter()
             .map(|step| Step {
@@ -370,6 +383,18 @@ pub(crate) fn build(
             chars[chars.len().saturating_sub(4000)..].iter().collect()
         });
     let unlinked_commits = ahead.iter().filter(|commit| commit.step.is_none()).count();
+    let sessions = file::sessions(record)
+        .into_iter()
+        .map(|session| TaskSession {
+            snapshot: session_snapshot::snapshot_path(root, &dir_name, &session.agent, &session.id)
+                .to_string_lossy()
+                .into_owned(),
+            agent: session.agent,
+            id: session.id,
+            title: session.title,
+            cwd: session.cwd,
+        })
+        .collect();
     Ok(TaskView {
         title: record_title(record, &dir_name),
         idea: record.get("idea").and_then(Value::as_str).map(str::to_owned),
@@ -398,6 +423,7 @@ pub(crate) fn build(
         unlinked_commits,
         diffstat,
         history,
+        sessions,
         run,
     })
 }

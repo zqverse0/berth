@@ -24,9 +24,10 @@ const openTaskTab = vi.fn()
 const closeFileTab = vi.fn()
 const activateFolderWorkspace = vi.fn()
 const selectWorkspaceTab = vi.fn()
-const listIdeas = vi.fn()
+const readFileForEdit = vi.fn()
 const openFilePreview = vi.fn()
 const openCommitDiff = vi.fn()
+const openSession = vi.fn()
 
 const folders = [
   { id: 7, path: "/repo" },
@@ -34,6 +35,9 @@ const folders = [
 ]
 
 vi.mock("./task-schedule", () => ({ TaskSchedule: () => null }))
+vi.mock("@/sessions/project/open-project-session", () => ({
+  useOpenProjectSession: () => openSession,
+}))
 vi.mock("@/lib/agent/berth-tasks", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getTaskView: (...args: unknown[]) => getTaskView(...args),
@@ -56,12 +60,10 @@ vi.mock("@/lib/agent/berth-group", async (importOriginal) => ({
   listGroups: (...args: unknown[]) => listGroups(...args),
   assignTask: (...args: unknown[]) => assignTask(...args),
 }))
-vi.mock("@/knowledge/api/knowledge-client", () => ({
-  listIdeas: (...args: unknown[]) => listIdeas(...args),
-}))
 vi.mock("@/lib/api", () => ({
   terminateTerminalSession: (...args: unknown[]) =>
     terminateTerminalSession(...args),
+  readFileForEdit: (...args: unknown[]) => readFileForEdit(...args),
 }))
 vi.mock("@/lib/terminal/agent-panes", () => ({
   useAllAgentPanes: () => [
@@ -271,7 +273,7 @@ beforeEach(() => {
     closeFileTab,
     activateFolderWorkspace,
     selectWorkspaceTab,
-    listIdeas,
+    readFileForEdit,
     openFilePreview,
     openCommitDiff,
   ]) {
@@ -371,12 +373,11 @@ describe("TaskDetail", () => {
         commits: [{ hash: "abc1234", subject: "private commit", step: null }],
       })
     )
-    listIdeas.mockResolvedValue([
-      {
-        id: "2026-10-17-101500",
-        path: ".berth/knowledge/想法/归档/2026-10-17-101500.md",
-      },
-    ])
+    // 想法已归档：只有归档里那份读得到。
+    readFileForEdit.mockImplementation(async (_root: string, path: string) => {
+      if (!path.includes("归档")) throw new Error("not found")
+      return { content: "" }
+    })
     renderDetail()
     expect(await screen.findByText("Steps 1/1")).toBeVisible()
     for (const text of [
@@ -392,7 +393,7 @@ describe("TaskDetail", () => {
     fireEvent.click(screen.getByText("From idea 2026-10-17-101500"))
     await waitFor(() =>
       expect(openFilePreview).toHaveBeenCalledWith(
-        "/repo/.berth/knowledge/想法/归档/2026-10-17-101500.md"
+        "/repo/.berth/ideas/归档/2026-10-17-101500.idea.md"
       )
     )
     expect(readTaskGroup).not.toHaveBeenCalled()
@@ -407,8 +408,126 @@ describe("TaskDetail", () => {
       "## 目标"
     )
     expect(screen.queryByText("Open task file")).not.toBeInTheDocument()
-    // 步骤在左侧任务列表里，详情页不再有步骤栏。
-    expect(screen.queryByText("Steps")).not.toBeInTheDocument()
+  })
+
+  const FILE_STEPS = [
+    {
+      text: "ticked in the file",
+      checked: true,
+      id: "S1",
+      state: "committed",
+      commit: { hash: "0d99670abc", subject: "", step: "S1" },
+      change: "a.rs",
+      verify: "cargo test a",
+    },
+    {
+      text: "next",
+      checked: false,
+      id: "S2",
+      state: "todo",
+      commit: null,
+      change: "b.rs",
+      verify: "cargo test b",
+    },
+  ]
+
+  it("lays out the goal, then steps with the current one open, then the full body", async () => {
+    const prdText = "## 目标\n\n任务做完就归档\n\n## 记录\n\n- 一行"
+    getTaskView.mockResolvedValue(
+      view({
+        prd: "/repo/.berth/tasks/10-01-demo.md",
+        prdText,
+        steps: FILE_STEPS,
+        currentStep: "S2",
+      })
+    )
+    renderDetail()
+    const goal = await screen.findByText("任务做完就归档", { selector: "p" })
+    const step = screen.getByText("ticked in the file")
+    const editor = screen.getByTestId("task-body-editor")
+    expect(editor.textContent).toBe(prdText)
+    expect(
+      goal.compareDocumentPosition(step) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      step.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(step.closest("li")!.dataset.stepState).toBe("committed")
+    expect(screen.getByText("next").closest("li")!.dataset.current).toBe("true")
+    // 当前步默认展开改哪里、怎么验证；其他步点开才看。
+    expect(screen.getByText("cargo test b")).toBeVisible()
+    expect(screen.queryByText("cargo test a")).not.toBeInTheDocument()
+    await userEvent.click(step)
+    expect(screen.getByText("cargo test a")).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "0d99670" }))
+    expect(openCommitDiff).toHaveBeenCalledWith("0d99670abc", undefined, "")
+  })
+
+  it("edits steps on the task page and saves them to the task file", async () => {
+    getTaskView.mockResolvedValue(
+      view({
+        prd: "/repo/.berth/tasks/10-01-demo.md",
+        prdText: "正文",
+        steps: FILE_STEPS,
+      })
+    )
+    saveTask.mockResolvedValue({ ok: true, result: {} })
+    renderDetail()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit steps" })
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Add step" }))
+    await userEvent.type(screen.getByLabelText("S3 What to do"), "new")
+    await userEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(saveTask).toHaveBeenCalledWith(7, "10-01-demo", {
+        steps: [
+          {
+            id: "S1",
+            do: "ticked in the file",
+            change: "a.rs",
+            verify: "cargo test a",
+            commit: "0d99670abc",
+          },
+          { id: "S2", do: "next", change: "b.rs", verify: "cargo test b" },
+          { id: "S3", do: "new", change: "", verify: "" },
+        ],
+      })
+    )
+  })
+
+  it("opens a linked session, falling back to its snapshot when the source is gone", async () => {
+    const session = {
+      agent: "claude",
+      id: "s1",
+      title: "修标题",
+      cwd: "/repo",
+      snapshot: "/repo/.berth/local/task-sessions/10-01-demo/claude-s1.md",
+    }
+    getTaskView.mockResolvedValue(view({ sessions: [session] }))
+    openSession.mockImplementation(
+      async (_session: unknown, onUnavailable: () => void) => onUnavailable()
+    )
+    renderDetail()
+    await userEvent.click(await screen.findByRole("button", { name: /修标题/ }))
+    expect(openSession).toHaveBeenCalledWith(
+      {
+        agent: "claude",
+        sessionId: "s1",
+        cwd: "/repo",
+        title: "修标题",
+      },
+      expect.any(Function)
+    )
+    expect(openFilePreview).toHaveBeenCalledWith(session.snapshot)
+  })
+
+  it("omits the goal summary for a legacy task without one, and steps without any", async () => {
+    getTaskView.mockResolvedValue(view({ prdText: "# 旧任务", steps: [] }))
+    renderDetail()
+    await screen.findByText("# 旧任务")
+    expect(screen.queryByText("Edit steps")).not.toBeInTheDocument()
+    expect(screen.getAllByText("# 旧任务")).toHaveLength(1)
   })
 
   it("completes and archives without terminating members or removing the environment", async () => {

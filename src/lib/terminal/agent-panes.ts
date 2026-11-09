@@ -201,9 +201,9 @@ export function refreshAgentPanes(): void {
   tick()
 }
 
-/** 订阅全部 pane 行；挂载即参与共享轮询。 */
-export function useAllAgentPanes(): AgentPaneRow[] {
-  useEffect(acquire, [])
+/** 订阅全部 pane 行；挂载且 `enabled` 时参与共享轮询（侧栏隐藏时传 false）。 */
+export function useAllAgentPanes(enabled = true): AgentPaneRow[] {
+  useEffect(() => (enabled ? acquire() : undefined), [enabled])
   return useAgentPaneStore((state) => state.rows)
 }
 

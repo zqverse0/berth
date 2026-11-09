@@ -12,7 +12,7 @@ interface NotifyOptions {
 function push(level: AlertLevel) {
   return (message: string, options?: NotifyOptions) => {
     const action = options?.action
-    useAppUiStore
+    return useAppUiStore
       .getState()
       .pushAlert(
         level,
@@ -24,6 +24,10 @@ function push(level: AlertLevel) {
 }
 
 const info = push("info")
+
+/** 收回一条提示（进行中的提示，事情结束后不该留在告警中心）。 */
+export const dismissToast = (id: string) =>
+  useAppUiStore.getState().dismissAlert(id)
 
 export const toast = Object.assign(info, {
   success: info,

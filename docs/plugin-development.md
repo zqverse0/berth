@@ -138,6 +138,7 @@ export default {
 | `args(inputs)` | 启动前 | 该 CLI 的参数数组；拼进 `ctx.args` 最前面 |
 | `isNativePlugin(dir)` | 有专家插件时，逐个问 | 本 Agent 能否原生加载这个目录；不导出 = 全部跳过 |
 | `launch(ctx)` | 启动 | 退出码 |
+| `inspect(ctx)` | 可选；用户打开启动清单时按需运行，只读 | `ReportItem[]`：核对声明与实际（如声明了却没加载的 MCP）；不实现则显示「未验证」。不能产生费用 |
 
 `ctx` 常用字段（完整定义看 d.ts 的 `LaunchContext`）：
 
@@ -151,7 +152,9 @@ export default {
 | `ctx.unattended` | 定时任务无人值守启动 |
 | `ctx.paths` | `package`（只读）、`tmp`、`cwd`、`home` |
 | `ctx.hookCommand(event)` | 接到 Agent 原生 hook 上的命令（群组状态）；静默、永不失败 |
-| `ctx.plan({...})` | 往 stderr 打一行 `berth-<id>-plan: {...}`，记录本次装配了什么，排查用 |
+| `ctx.assets` | 专家全部资产按类型分组：`{ prompt, skills, mcp, plugins, 开放类型… }`，每项 `{ name, path, spec? }` |
+| `ctx.report([{kind, id, status, reason?, source?}])` | 报告每项资产的结果（`applied` / `converted` / `skipped` / `isolated` / `kept` / `unknown`），可多次调用；没报告的资产显示为未处理 |
+| `ctx.plan({...})` | 记录本次装配了什么，进启动清单「计划」一栏 |
 
 ### 4.4 隔离：只做会话级
 
@@ -232,8 +235,9 @@ export default async function (argv) {
 ```bash
 berth tools check <id>                                   # 静态自检：接入了哪些位置、有没有多余文件
 berth tools launch <tools>/<id>/launch.js --plugins <专家>  # 专家的插件各自 native / skipped
+berth tools launch <tools>/<id>/launch.js --inspect <清单 id>  # 对一份启动清单运行 inspect 钩子
 berth terminal create --project <项目> --agent <id> --input expert=<专家>   # 真实启动，与启动栏同一路径
-berth terminal capture -t <终端>                         # 看 plan 行和 Agent 输出
+berth terminal capture -t <终端>                         # 看 Agent 输出（装配结果看启动清单 $BERTH_LAUNCH_MANIFEST）
 berth tools run <id> private/x.js [参数]                 # 单独跑包内脚本
 ```
 
@@ -244,7 +248,7 @@ berth tools run <id> private/x.js [参数]                 # 单独跑包内脚�
 3. 用 `scripts/dev-trial berth …` 跑上面的命令（走 dev 实例的 CLI 与 termd）；
 4. 改了宿主接口（`src-tauri/tool/berth-plugin-api/`）后先 `pnpm tauri:prepare-sidecars` 重建 dev 的 berth-cli。
 
-验收至少覆盖：`check` clean；`plan` 行里 skills / MCP / 插件正确；发一句话能收到回复；退出后会话目录已删除。
+验收至少覆盖：`check` clean；启动清单（`$BERTH_HOME/run/launches/`）里每项资产都有结果，没有未处理项；发一句话能收到回复；退出后会话目录已删除。
 
 ## 8. 常见坑
 

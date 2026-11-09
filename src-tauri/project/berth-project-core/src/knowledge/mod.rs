@@ -1,14 +1,9 @@
-//! `.berth/knowledge/` 知识库：扫描、搜索、过期、改状态与体检；想法见 [`ideas`]。GUI 记忆面板与 CLI `berth knowledge` 共用。
+//! `.berth/knowledge/` 知识库：扫描、搜索、过期、改状态与体检。GUI 记忆面板与 CLI `berth knowledge` 共用。
 //!
 //! 错误统一用 `std::io::Error`：参数不合法为 `InvalidInput`，其余是文件 / git 的 I/O 错误。
 
-pub mod classifier;
-pub mod exchanges;
-pub mod handoff;
-pub mod journal;
-pub mod ideas;
+pub mod inbox;
 pub mod model;
-pub mod rules;
 mod parser;
 mod service;
 

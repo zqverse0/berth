@@ -2,59 +2,41 @@
 
 /**
  * 知识星图：笔记按类型分层排在同心圆上（`orbit-layout.ts`），连线往圆心弯成弦。
- * 悬停 / 选中高亮一度邻居，右侧是笔记详情。静态内容画在 SVG 里；选中的轨道与亮起的圈
+ * 悬停 / 选中高亮一度邻居；选中与筛选词和侧栏「记忆」共用（`useKnowledgeFocus`），详情在侧栏。静态内容画在 SVG 里；选中的轨道与亮起的圈
  * 放在 HTML 层只动 transform（WebKitGTK 上 SVG 内部的动画每帧重画）。
  */
 
 import { useMemo, useState, type CSSProperties } from "react"
-import { useFormatter, useNow, useTranslations } from "next-intl"
+import { useTranslations } from "next-intl"
+import { RING_COLOR } from "@/knowledge/components/note-detail"
+import { useKnowledgeFocus } from "@/knowledge/hooks/use-knowledge-focus"
 import {
   ORBIT_RINGS,
   orbitLayout,
   type OrbitNode,
   type OrbitRing,
 } from "@/knowledge/lib/orbit-layout"
-import type {
-  Idea,
-  KnowledgeDocument,
-  KnowledgeEdge,
-} from "@/knowledge/model/types"
+import type { KnowledgeDocument, KnowledgeEdge } from "@/knowledge/model/types"
 import { cn } from "@/lib/utils"
-
-const RING_COLOR: Record<OrbitRing, string> = {
-  map: "var(--chart-1)",
-  concept: "var(--chart-5)",
-  module: "var(--chart-2)",
-  record: "var(--chart-4)",
-  idea: "var(--chart-3)",
-}
 
 export function KnowledgeOrbit({
   documents,
   edges,
-  ideas,
-  onOpenNote,
-  onOpenCode,
+  onSelectNote,
 }: {
   documents: KnowledgeDocument[]
   edges: KnowledgeEdge[]
-  ideas: Idea[]
-  /** vault 根相对路径（与 `KnowledgeDocument.path` / `Idea.path` 同口径） */
-  onOpenNote: (path: string) => void
-  onOpenCode: (code: string) => void
+  /** 点了节点（已写进 `useKnowledgeFocus`）：首页借此打开侧栏「记忆」看详情 */
+  onSelectNote?: (id: string) => void
 }) {
   const t = useTranslations("Knowledge.orbit")
-  const tIdea = useTranslations("Knowledge.ideas.status")
-  const format = useFormatter()
-  const now = useNow({ updateInterval: 60_000 })
   const layout = useMemo(
-    () => orbitLayout(documents, edges, ideas),
-    [documents, edges, ideas]
+    () => orbitLayout(documents, edges),
+    [documents, edges]
   )
-  const [selected, setSelected] = useState<string | null>(null)
+  const { selected: focused, query, select } = useKnowledgeFocus()
   const [hover, setHover] = useState<string | null>(null)
   const [hidden, setHidden] = useState<ReadonlySet<OrbitRing>>(new Set())
-  const [query, setQuery] = useState("")
 
   const byId = useMemo(
     () => new Map(layout.nodes.map((node) => [node.id, node])),
@@ -78,6 +60,13 @@ export function KnowledgeOrbit({
     const index = outer.indexOf(ring)
     return ring === "map" ? t("center") : t("ring", { n: index + 1 })
   }
+  const selectedNode = focused ? byId.get(focused) : undefined
+  // 选中的笔记不在这份 vault 里（换了项目）时当作没选中
+  const selected = selectedNode ? focused : null
+  const setSelected = (id: string | null) => {
+    select(id)
+    if (id) onSelectNote?.(id)
+  }
   const focus = selected ?? hover
   const near = new Set(
     focus
@@ -96,7 +85,6 @@ export function KnowledgeOrbit({
     top: `${((y - vb.y) / vb.height) * 100}%`,
     width: `${(diameter / vb.width) * 100}%`,
   })
-  const selectedNode = selected ? byId.get(selected) : undefined
 
   const toggleRing = (ring: OrbitRing) => {
     // 藏起选中节点所在的层，选中跟着取消，不在看不见的点上画轨道
@@ -131,16 +119,12 @@ export function KnowledgeOrbit({
             </button>
           ))}
         </div>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t("filter")}
-          className="ml-auto hidden w-48 rounded border @3xl:block bg-background px-2 py-1 text-xs outline-none focus:border-primary"
-        />
+        <span className="ml-auto hidden text-xs text-muted-foreground @3xl:inline">
+          {t("selectHint")}
+        </span>
       </div>
 
-      {/* 窄屏（移动端）只留星图，选中节点后详情排到星图下方 */}
-      <div className="grid @3xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div>
         <div
           className="relative self-start"
           style={{ aspectRatio: `${vb.width} / ${vb.height}` }}
@@ -196,7 +180,6 @@ export function KnowledgeOrbit({
               const dim =
                 focus != null && node.id !== focus && !near.has(node.id)
               const strong = node.id === focus || near.has(node.id)
-              const pending = node.idea?.status === "待讨论"
               const match = q !== "" && node.title.toLowerCase().includes(q)
               let label: {
                 x: number
@@ -246,14 +229,6 @@ export function KnowledgeOrbit({
                     }
                     strokeWidth={match ? 2 : 1.5}
                   />
-                  {pending && (
-                    <circle
-                      r={node.size + 3}
-                      fill="none"
-                      stroke={RING_COLOR.idea}
-                      strokeDasharray="2 2"
-                    />
-                  )}
                   <text
                     x={label.x}
                     y={label.y}
@@ -301,166 +276,7 @@ export function KnowledgeOrbit({
             </>
           )}
         </div>
-
-        <div
-          className={cn(
-            "max-h-[640px] overflow-auto border-t p-4 @3xl:block @3xl:border-t-0 @3xl:border-l",
-            !selectedNode && "hidden"
-          )}
-        >
-          {selectedNode ? (
-            <NodeDetail
-              node={selectedNode}
-              kind={
-                selectedNode.document?.noteType ??
-                `${t("rings.idea")} · ${tIdea(selectedNode.idea!.status)}`
-              }
-              updated={(() => {
-                const at =
-                  selectedNode.document?.modifiedAt ??
-                  selectedNode.idea?.modifiedAt
-                return at ? format.relativeTime(new Date(at * 1000), now) : null
-              })()}
-              outgoing={(relations.out.get(selectedNode.id) ?? []).map(
-                (id) => byId.get(id)!
-              )}
-              backlinks={(relations.back.get(selectedNode.id) ?? []).map(
-                (id) => byId.get(id)!
-              )}
-              onSelect={setSelected}
-              onOpenNote={onOpenNote}
-              onOpenCode={onOpenCode}
-            />
-          ) : (
-            <div className="text-xs text-muted-foreground">
-              <p>{t("hint")}</p>
-              <h4 className="mt-4 mb-1.5 font-medium">{t("layers")}</h4>
-              {rings.map((ring) => (
-                <div key={ring} className="flex items-center gap-1.5 py-0.5">
-                  <i
-                    className="size-1.5 rounded-full"
-                    style={{ background: RING_COLOR[ring] }}
-                  />
-                  <span className="text-foreground">{t(`rings.${ring}`)}</span>
-                  <span className="ml-auto">
-                    {layout.nodes.filter((node) => node.ring === ring).length}
-                  </span>
-                </div>
-              ))}
-              <h4 className="mt-4 mb-1.5 font-medium">{t("recent")}</h4>
-              {[...documents]
-                .sort((a, b) => b.modifiedAt - a.modifiedAt)
-                .slice(0, 5)
-                .map((document) => (
-                  <NodeRow
-                    key={document.id}
-                    node={byId.get(document.id)!}
-                    onSelect={setSelected}
-                  />
-                ))}
-            </div>
-          )}
-        </div>
       </div>
-    </div>
-  )
-}
-
-function NodeRow({
-  node,
-  onSelect,
-}: {
-  node: OrbitNode
-  onSelect: (id: string) => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(node.id)}
-      className="-mx-1.5 flex w-[calc(100%+12px)] items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground hover:bg-accent"
-    >
-      <i
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ background: RING_COLOR[node.ring] }}
-      />
-      <span className="truncate">{node.title}</span>
-    </button>
-  )
-}
-
-function NodeDetail({
-  node,
-  kind,
-  updated,
-  outgoing,
-  backlinks,
-  onSelect,
-  onOpenNote,
-  onOpenCode,
-}: {
-  node: OrbitNode
-  kind: string
-  updated: string | null
-  outgoing: OrbitNode[]
-  backlinks: OrbitNode[]
-  onSelect: (id: string) => void
-  onOpenNote: (path: string) => void
-  onOpenCode: (code: string) => void
-}) {
-  const t = useTranslations("Knowledge")
-  const document = node.document
-  const path = document?.path ?? node.idea?.path
-  const excerpt = document?.excerpt ?? node.idea?.text ?? ""
-  const list = (title: string, nodes: OrbitNode[]) =>
-    nodes.length > 0 && (
-      <>
-        <h4 className="mt-3.5 mb-1.5 text-[11px] font-medium text-muted-foreground">
-          {title} {nodes.length}
-        </h4>
-        {nodes.map((other) => (
-          <NodeRow key={other.id} node={other} onSelect={onSelect} />
-        ))}
-      </>
-    )
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <i
-          className="size-2 rounded-full"
-          style={{ background: RING_COLOR[node.ring] }}
-        />
-        {[kind, document?.status, updated].filter(Boolean).join(" · ")}
-      </div>
-      <h3 className="mt-1 mb-2 text-base font-semibold">{node.title}</h3>
-      <p className="line-clamp-5 text-xs text-muted-foreground">{excerpt}</p>
-      {document && document.code.length > 0 && (
-        <>
-          <h4 className="mt-3.5 mb-1.5 text-[11px] font-medium text-muted-foreground">
-            {t("orbit.code")}
-          </h4>
-          {document.code.map((code) => (
-            <button
-              key={code}
-              type="button"
-              onClick={() => onOpenCode(code)}
-              className="-mx-1.5 block w-[calc(100%+12px)] truncate rounded px-1.5 py-0.5 text-left font-mono text-xs text-chart-5 hover:bg-accent"
-            >
-              {code}
-            </button>
-          ))}
-        </>
-      )}
-      {list(t("relations.outgoing"), outgoing)}
-      {list(t("relations.backlinks"), backlinks)}
-      {path && (
-        <button
-          type="button"
-          onClick={() => onOpenNote(path)}
-          className="mt-3.5 rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
-        >
-          {t("orbit.open")}
-        </button>
-      )}
     </div>
   )
 }

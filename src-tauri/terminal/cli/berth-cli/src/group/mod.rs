@@ -153,9 +153,9 @@ enum GroupCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExpertCommand {
-    /// 全部专家：id、名字、在群里的终端数、规矩文件。
+    /// 全部专家：id、名字、在群里的终端数。
     Ls,
-    /// 一个专家：它的各个终端（编号、Agent、目录、状态）和规矩。
+    /// 一个专家：它的各个终端（编号、Agent、目录、状态）。
     Show { id: String },
 }
 

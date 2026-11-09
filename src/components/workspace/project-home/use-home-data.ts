@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react"
-import { listIdeas } from "@/knowledge/api/knowledge-client"
-import type { Idea } from "@/knowledge/model/types"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { gitLog } from "@/lib/api"
+import type { FolderDetail } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { listGroups } from "@/lib/agent/berth-group"
 import { getBerthStatus } from "@/lib/agent/berth-project"
 import {
@@ -23,7 +23,6 @@ interface HomeData {
   views: Map<string, BerthTaskView>
   /** 当前 checkout 的群；任务按它过滤（主目录看全部） */
   group: string | null
-  ideas: Idea[]
   /** worktree 路径 → git 概况 */
   git: Map<string, WorktreeGit>
 }
@@ -41,14 +40,13 @@ const EMPTY_BERTH = {
   tasks: [],
   views: new Map(),
   group: null,
-  ideas: [],
 } satisfies Omit<HomeData, "enabled" | "git">
 
 /**
- * 首页数据：启用状态、任务、想法，各 worktree 的 git 概况；单项失败只让那一块空着。
+ * 首页数据：启用状态、任务，各 worktree 的 git 概况；单项失败只让那一块空着。
  * `worktreePaths` 是本项目 worktree 家族（含主目录）的路径。
  *
- * 请求同时发出、按到达分三步写入：git 概况先到页面就出来，任务 / 想法随后，
+ * 请求同时发出、按到达分三步写入：git 概况先到页面就出来，任务随后，
  * 任务视图（后端要跑一串 git，大项目近一秒）最后补上；重读时沿用上一轮的值，不闪空。
  */
 export function useHomeData(folderId: number, worktreePaths: string[]) {
@@ -62,7 +60,6 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
     const rest = Promise.allSettled([
       listBerthTasks(folderId),
       listGroups(folderId),
-      listIdeas(folderId),
     ])
     const views = Promise.allSettled([listBerthTaskViews(folderId)])
     void (async () => {
@@ -95,7 +92,7 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
       }))
       if (!enabled) return
 
-      const [tasks, groups, ideas] = await rest
+      const [tasks, groups] = await rest
       if (disposed) return
       setData((prev) => ({
         ...prev!,
@@ -107,7 +104,6 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
           groups.status === "fulfilled" && groups.value.ok
             ? (groups.value.result.groups[0] ?? null)
             : null,
-        ideas: ideas.status === "fulfilled" ? ideas.value : [],
       }))
 
       const [view] = await views
@@ -126,4 +122,23 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
     }
   }, [folderId, pathsKey, revision])
   return { data, reload: useCallback(() => setRevision((r) => r + 1), []) }
+}
+
+/** worktree 家族：根项目 + 挂在它下面的 worktree，根在前。 */
+export function useWorktreeFamily(
+  folder: Pick<FolderDetail, "id" | "parent_id">
+) {
+  const allFolders = useAppWorkspaceStore((s) => s.allFolders)
+  const root = folder.parent_id ?? folder.id
+  return useMemo(
+    () =>
+      allFolders
+        .filter(
+          (f) => f.kind !== "chat" && (f.id === root || f.parent_id === root)
+        )
+        .sort((a, b) =>
+          a.id === root ? -1 : b.id === root ? 1 : a.name.localeCompare(b.name)
+        ),
+    [allFolders, root]
+  )
 }

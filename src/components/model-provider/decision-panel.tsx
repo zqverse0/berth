@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { Loader2, Play, Plus, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -22,9 +22,6 @@ import {
 } from "@/components/ui/select"
 import {
   evaluateDecision,
-  getDecisionSettings,
-  saveDecisionSettings,
-  type DecisionSettings,
   type DecisionAnswer,
   type DecisionQuestion,
   type DecisionResult,
@@ -201,14 +198,11 @@ function AnswerView({ answer }: { answer: DecisionAnswer }) {
 /** 决策面板：在服务商的模型行打开，填写内容与问题，交给该模型评估。 */
 export function DecisionPanel({
   providerId,
-  providerName,
   model,
   open,
   onOpenChange,
 }: {
   providerId: number
-  /** 档案名：「设为 Berth 决策模型」按名字记 */
-  providerName: string
   model: string
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -223,17 +217,6 @@ export function DecisionPanel({
     result: DecisionResult | null
     error: string | null
   }>({ busy: false, result: null, error: null })
-
-  /** Berth 全局决策模型；文件写错时为 null，不显示设置按钮。 */
-  const [berthModel, setBerthModel] = useState<DecisionSettings | null>(null)
-  useEffect(() => {
-    if (!open) return
-    getDecisionSettings()
-      .then((response) => setBerthModel(response.settings))
-      .catch(() => {})
-  }, [open])
-  const isBerthModel =
-    berthModel?.provider === providerName && berthModel.model === model
 
   const request = toRequest(questions)
   const canRun = Boolean(state.trim()) && request !== null && !run.busy
@@ -282,25 +265,6 @@ export function DecisionPanel({
         <DialogHeader>
           <DialogTitle>{t("title", { model })}</DialogTitle>
           <DialogDescription>{t("description")}</DialogDescription>
-          {berthModel ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{t(isBerthModel ? "isBerthModel" : "berthModelHint")}</span>
-              {isBerthModel ? null : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void saveDecisionSettings({
-                      provider: providerName,
-                      model,
-                    }).then(setBerthModel)
-                  }
-                >
-                  {t("setBerthModel")}
-                </Button>
-              )}
-            </div>
-          ) : null}
         </DialogHeader>
 
         <div className="space-y-4">

@@ -10,7 +10,7 @@ Expert 不是 Berth 的独立领域模块。专家是一份位于
 $BERTH_HOME/
 ├── prompts/<id>.md
 ├── skills/<id>/SKILL.md
-├── mcp/<id>.json            # 路径用 ${BERTH_HOME}/…，不写死设备路径
+├── mcp/<id>.json            # 路径用 ${BERTH_HOME}/…，不写死设备路径；${BERTH_EXPERT} 展开为专家 id
 ├── mcp/<id>/                # 自带 MCP 服务的源码（可选）
 ├── plugins/<id>/            # Agent 插件（上游原样）：自带哪家原生清单就给哪家用
 ├── experts/<id>.json
@@ -33,6 +33,11 @@ $BERTH_HOME/
 文件名就是专家 ID。`name` 必填；`prompt`、`skills`、`mcp`、`plugins` 可省略。
 专家表与 Agent 无关：Agent 之间的差异只写在各自 `launch.js` 里，**不为某个 Agent
 往专家表加字段**。
+
+其他键是开放字段：`"xxx": ["a"]` 对应 `$BERTH_HOME/xxx/a`，值必须是安全 ID 数组，目录必须存在且不能
+逃出 `xxx/`，键不能是宿主自用目录（`tools`、`experts`、`state`、`run`、`logs` 等，见
+`berth_tool_core::experts::RESERVED_KEYS`）。新增资产类型只加目录，由插件从 `ctx.assets.xxx` 取用，
+不改 Berth。拼错键名会因目录不存在而启动失败，错误里带键名。
 
 ```json
 {
@@ -117,5 +122,26 @@ select 取值，并读取（随即删除）服务商启动档案；各 `launch.j
 选择值。同一 JSON 也写入 `BERTH_LAUNCH_INPUTS`。Claude 用 `--settings` 叠加
 modelPicker，**不**改 `CLAUDE_CONFIG_DIR`。
 
-专家表与资产引用在启动时由宿主校验，出错即拒绝启动。MCP 敏感值只能写成完整的
+专家表与资产引用由 `berth_tool_core::experts::issues` 校验，设置页保存、设置页标记和启动共用这一套，
+出错即拒绝保存或启动（环境变量是否存在只能在启动时判断）。MCP 敏感值只能写成完整的
 `$ENV_NAME`；变量缺失应阻止本次启动，禁止明文密钥和旧 `secretRef`。
+
+插件拿到的 MCP 是中性格式（`ctx.expert.mcp`、`ctx.assets.mcp[].spec`）：宿主去掉说明字段（`name`、`description`、
+`_` 开头的键，含 `env` 内的），没写 `type` 时按 `url` → `http`、否则 `stdio` 补上。定义文件可以照常写说明；
+转成各 Agent 自己的配置归插件。
+
+## 专家记忆
+
+每个专家都有自己的记忆，不用配置：装了 `mcp/expert-memory.json`，启动时宿主就给专家带上 `memory/<专家 id>/`
+（`ctx.assets.memory`）和这个读写工具。用户在设置 → 专家 →「专家记忆」里查看和编辑，Agent 经工具读写。
+
+```text
+$BERTH_HOME/memory/<expert>/seed/*.md     # 随专家分发，只读
+$BERTH_HOME/memory/<expert>/learned/*.md  # 用户积累，更新专家包时不覆盖；同名优先于 seed
+$BERTH_HOME/memory/<expert>/MEMORY.md     # 索引，由工具和设置页生成
+$BERTH_HOME/mcp/expert-memory.json        # 读写工具
+```
+
+只存离开项目还成立的方法、偏好和经验。它和项目记忆（知识库 `.berth/knowledge`）互不联动：知识库主要给用户看，
+Agent 只在用户指定时才读。插件把索引注入提示词并报告，做不到时靠工具的 `memory_index`。选了专家时插件隔离
+自家原生记忆，隔离不了的如实报告。

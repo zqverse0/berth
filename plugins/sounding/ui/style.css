@@ -1,0 +1,127 @@
+/* 颜色与字体取宿主的 --berth-* 变量，随主题变化。 */
+:root {
+  color-scheme: light dark;
+}
+body {
+  margin: 0;
+  font: 12px/1.5 var(--berth-font-sans, system-ui, sans-serif);
+  color: var(--berth-foreground);
+  background: transparent;
+}
+main {
+  padding: 8px;
+}
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+h2 .spacer {
+  flex: 1;
+}
+.muted {
+  color: var(--berth-muted-foreground, gray);
+}
+.error {
+  color: var(--berth-destructive, #d33);
+  white-space: pre-wrap;
+}
+.banner {
+  padding: 6px 8px;
+  border: 1px solid var(--berth-border);
+  border-radius: 4px;
+}
+.card {
+  margin-bottom: 6px;
+  padding: 6px;
+  border: 1px solid var(--berth-border);
+  border-radius: 4px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.row > .grow {
+  flex: 1;
+  min-width: 0;
+}
+textarea,
+select,
+input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 3px 5px;
+  font: inherit;
+  color: inherit;
+  background: var(--berth-background);
+  border: 1px solid var(--berth-border);
+  border-radius: 3px;
+}
+.row select {
+  width: auto;
+  margin-top: 0;
+}
+textarea {
+  resize: vertical;
+  min-height: 2.6em;
+}
+button {
+  padding: 2px 8px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--berth-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--berth-primary);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.session {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--berth-border);
+}
+.session.selected .title {
+  color: var(--berth-primary);
+}
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.answer {
+  font-weight: 600;
+}
+.explanation {
+  margin-top: 2px;
+  white-space: pre-wrap;
+}
+.cite {
+  margin-right: 4px;
+  font-family: var(--berth-font-mono, monospace);
+}
+ul.findings {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.result {
+  margin: 4px 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--berth-primary);
+}

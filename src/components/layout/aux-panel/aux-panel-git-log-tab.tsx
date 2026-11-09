@@ -37,6 +37,7 @@ import {
 } from "@/components/ai-elements/commit"
 import { cn } from "@/lib/utils"
 import { GitFileTree } from "@/components/layout/git/git-file-tree"
+import { LineCounts } from "@/components/layout/git/line-counts"
 import { parseDate } from "@/components/layout/git/git-log-timeline"
 import { Button } from "@/components/ui/button"
 import {
@@ -1881,6 +1882,10 @@ export function GitLogTab({
                                       >
                                         {formatRelativeTime(entry.date, t)}
                                       </time>
+                                      <LineCounts
+                                        additions={entry.additions}
+                                        deletions={entry.deletions}
+                                      />
                                       {/* Short hash pinned to this line's end:
                                           a # glyph + the abbrev, no chip
                                           background. ms-auto (not ml-auto) so it

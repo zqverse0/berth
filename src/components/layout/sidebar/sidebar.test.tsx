@@ -1,9 +1,12 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Sidebar } from "@/components/layout/sidebar/sidebar"
-import { useSidebarViewStore } from "@/components/layout/sidebar/views"
+import {
+  useProjectPanelStore,
+  useSidebarViewStore,
+} from "@/components/layout/sidebar/views"
 import enMessages from "@/i18n/messages/en.json"
 import { useAppUiStore } from "@/stores/app-ui-store"
 
@@ -13,20 +16,25 @@ const spies = vi.hoisted(() => ({
   openTab: vi.fn(),
   // Latest props the stubbed conversation list received.
   listProps: null as {
-    pane?: "projects" | "files"
     visible?: boolean
+    summaryOnly?: boolean
   } | null,
+  panelProps: null as { visible: boolean; maximized: boolean } | null,
 }))
 
 // The project explorer is irrelevant here — stub it so the test exercises only
 // the sidebar's header and visibility wiring.
 vi.mock("@/components/conversations/sidebar/sidebar-project-list", () => ({
-  SidebarProjectList: (props: {
-    pane?: "projects" | "files"
-    visible?: boolean
-  }) => {
+  SidebarProjectList: (props: { visible?: boolean; summaryOnly?: boolean }) => {
     spies.listProps = props
     return <button type="button">Mock project explorer</button>
+  },
+}))
+vi.mock("@/components/layout/sidebar/project-panel", () => ({
+  PROJECT_PANEL_HEADER_PX: 33,
+  ProjectPanel: (props: { visible: boolean; maximized: boolean }) => {
+    spies.panelProps = props
+    return <div data-testid="project-panel" />
   },
 }))
 vi.mock("@/contexts/tab-context", () => ({
@@ -70,14 +78,35 @@ describe("Sidebar — project explorer", () => {
     ).toBeNull()
   })
 
-  it("uses the project-only explorer projection and keeps the list mounted", () => {
+  it("splits the project view into the list above and the project panel below", () => {
+    useSidebarViewStore.setState({ view: "projects" })
     renderSidebar()
 
-    expect(spies.listProps?.pane).toBe("projects")
-    expect(
-      screen.getByRole("button", { name: "Mock project explorer" })
-    ).toBeTruthy()
-    expect(screen.queryByPlaceholderText("Search conversations...")).toBeNull()
+    expect(spies.listProps?.summaryOnly).toBe(false)
+    expect(spies.panelProps?.maximized).toBe(false)
+    expect(screen.getByTestId("project-panel")).toBeTruthy()
+    expect(screen.getByRole("separator")).toBeTruthy()
+  })
+
+  it("files / Git views maximize the panel on the matching tab; projects restores", () => {
+    useSidebarViewStore.setState({ view: "projects" })
+    useProjectPanelStore.setState({ tab: "files" })
+    renderSidebar()
+
+    act(() => useSidebarViewStore.getState().setView("git"))
+    expect(spies.panelProps?.maximized).toBe(true)
+    expect(spies.listProps?.summaryOnly).toBe(true)
+    expect(useProjectPanelStore.getState().tab).toBe("changes")
+
+    act(() => useSidebarViewStore.getState().setView("files"))
+    expect(useProjectPanelStore.getState().tab).toBe("files")
+
+    // 双击分隔条在最大化与默认分割间切换
+    fireEvent.doubleClick(screen.getByRole("separator"))
+    expect(useSidebarViewStore.getState().view).toBe("projects")
+    expect(spies.listProps?.summaryOnly).toBe(false)
+    fireEvent.doubleClick(screen.getByRole("separator"))
+    expect(useSidebarViewStore.getState().view).toBe("files")
   })
 
   it("leaves the desktop view switcher to the window-level ActivityBar", () => {

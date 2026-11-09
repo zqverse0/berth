@@ -25,7 +25,7 @@ import {
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { changeTaskState } from "@/lib/agent/berth-tasks"
 import { assignTask, listGroups } from "@/lib/agent/berth-group"
-import { listIdeas } from "@/knowledge/api/knowledge-client"
+import { readFileForEdit } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { stepProgress, TASK_STATE_COLOR } from "./task-state"
 import { useTaskView, useTaskViewStore } from "./task-view-store"
@@ -101,16 +101,22 @@ export function TaskToolbar({
   const transition = (operation: "begin" | "complete" | "reopen" | "cancel") =>
     run(() => changeTaskState(folderId, task, operation))
 
-  /** 来源想法：可能已进归档，按 id 查到实际路径再打开。 */
+  /** 来源想法（「想法」插件的 `.berth/ideas/`）：可能已进归档，哪个读得到开哪个。 */
   const openIdea = async (id: string) => {
-    const ideas = await listIdeas(folderId).catch(() => [])
-    const idea = ideas.find((item) => item.id === id)
     const root = view.prd.split("/.berth/")[0]
-    if (!idea || !root) {
-      toast.error(t("ideaMissing", { id }))
-      return
+    for (const path of [
+      `.berth/ideas/${id}.idea.md`,
+      `.berth/ideas/归档/${id}.idea.md`,
+      `.berth/ideas/${id}.md`,
+      `.berth/ideas/归档/${id}.md`,
+    ]) {
+      const found = await readFileForEdit(root, path).then(
+        () => true,
+        () => false
+      )
+      if (found) return void workspace.openFilePreview(`${root}/${path}`)
     }
-    void workspace.openFilePreview(`${root}/${idea.path}`)
+    toast.error(t("ideaMissing", { id }))
   }
 
   return (

@@ -65,6 +65,11 @@ pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Va
                     std::env::set_var(LAUNCH_RECORD_ENV, text);
                 })?,
             )?;
+            // 启动清单（agent.js）：宿主直接落盘，不依赖 hook 和群组。
+            global.set(
+                "__berth_launch_manifest",
+                Function::new(ctx.clone(), |text: String| crate::agent::write_manifest(&text))?,
+            )?;
             global.set("__berth_static", statics.as_str())?;
             for (name, value) in globals {
                 global.set(*name, value.as_str())?;

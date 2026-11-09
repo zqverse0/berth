@@ -17,6 +17,7 @@ import type { PageHost } from "@/lib/plugins/plugin-page"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { PluginPageFrame } from "@/components/plugins/plugin-page-frame"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
+import { useSendToAgent } from "@/hooks/use-send-to-agent"
 import { ImagePreview } from "@/components/files/image-preview"
 import { PreviewSelectionLayer } from "@/components/content-reference/preview-selection-layer"
 import { PdfFileViewer } from "./pdf-file-viewer"
@@ -89,6 +90,7 @@ function PluginEditorTextViewer({
 }: FileViewerProps & { tab: TextFileWorkspaceTab }) {
   const { updateFileTabContent, openFilePreview } = useWorkspaceRuntimeActions()
   useFileTabSave(tab, { active })
+  const { send: sendToAgent } = useSendToAgent()
   const editors = usePluginViewsStore((state) => state.editors)
   const editor = editorForPath(editors, tab.path)
   const allFolders = useAppWorkspaceStore((state) => state.allFolders)
@@ -130,6 +132,7 @@ function PluginEditorTextViewer({
             openFile: (path) => void openFilePreview(path),
             notify: (message, kind) =>
               kind === "error" ? toast.error(message) : toast(message),
+            sendToAgent: (text) => void sendToAgent(text),
           }
         : null,
     [
@@ -143,6 +146,7 @@ function PluginEditorTextViewer({
       tab.id,
       updateFileTabContent,
       openFilePreview,
+      sendToAgent,
     ]
   )
   if (!visible || !editor || !host) return null

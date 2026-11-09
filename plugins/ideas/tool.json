@@ -1,0 +1,56 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "ideas",
+  "version": "0.1.0",
+  "requires": {
+    "process": 1,
+    "fs": 1,
+    "env": 1
+  },
+  "permissions": ["process", "fs", "project.files", "agent"],
+  "contributes": {
+    "identity": {
+      "name": "Ideas",
+      "roles": [],
+      "tags": ["ideas", "knowledge"],
+      "description": "Jot down ideas and problems in the project, one Markdown file each under .berth/ideas/, then discuss them with an agent until they land as a note, a task or a commit, or are dropped."
+    },
+    "editor": [
+      {
+        "id": "idea",
+        "title": {
+          "en": "Idea",
+          "zh-CN": "想法"
+        },
+        "suffixes": [".idea.md"],
+        "page": "ui/editor.html"
+      }
+    ],
+    "view": [
+      {
+        "id": "ideas",
+        "title": {
+          "en": "Ideas",
+          "zh-CN": "想法"
+        },
+        "icon": "icon.svg",
+        "location": "sidebar",
+        "page": "ui/index.html",
+        "new": [
+          {
+            "title": {
+              "en": "Idea",
+              "zh-CN": "想法"
+            },
+            "script": "ui/api.js",
+            "input": {
+              "action": "create"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "resources": {}
+}

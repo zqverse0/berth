@@ -318,10 +318,10 @@ fn create_writes_a_single_task_file_and_done_then_archive() {
     let path = repo.main.join(".berth/tasks").join(format!("{name}.md"));
     assert_eq!(created["prd"].as_str().unwrap(), path.to_str().unwrap());
     let text = fs::read_to_string(&path).unwrap();
-    for heading in ["## 目标", "## 不做", "## 验收", "## 记录"] {
+    for heading in ["## 目标", "## 不做", "## 试用建议", "## 记录"] {
         assert_eq!(text.matches(heading).count(), 1, "{heading}");
     }
-    assert!(!text.contains("## 步骤") && !text.contains("priority"), "{text}");
+    assert!(!text.contains("## 步骤") && !text.contains("## 验收") && !text.contains("priority"), "{text}");
     assert_eq!(created["task"]["title"], "新任务: 带冒号");
     assert_eq!(created["task"]["status"], "规划中");
     let view = show(&repo.main, Some("fresh")).unwrap();
@@ -409,9 +409,9 @@ fn single_file_task_steps_are_ticked_from_trailer_commits() {
     assert_eq!(ticked["next"]["verify"], "cat b.txt");
     assert_eq!(ticked["steps"], json!(["[x] S1 写 a", "[ ] S2 写 b"]));
     assert_eq!(ticked["notes"], json!(["- 用户补充"]));
-    assert!(ticked.get("acceptance").is_none());
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.contains(&format!("commit: {hash}")), "{text}");
+    // 像数字的短 hash 会被 YAML 加引号，这里不比引号。
+    assert!(text.contains("commit: ") && text.contains(&hash), "{text}");
     // 再勾一次不改文件。
     step(&repo.main, "flow", "S1").unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
@@ -425,9 +425,14 @@ fn single_file_task_steps_are_ticked_from_trailer_commits() {
     repo.commit(&repo.main, "b.txt", &format!("feat: b\n\nTask: {name} S2"));
     let last = step(&repo.main, "flow", "S2").unwrap();
     assert!(last["next"].is_null());
-    assert!(last["acceptance"][0].as_str().unwrap().starts_with("[ ] 待补充"));
+    // 不要求逐条确认；主目录直接提交：最后一步记下就完成并归档。
+    assert!(last.get("acceptance").is_none());
+    assert_eq!(last["settled"]["archived"], true);
+    let view = show(&repo.main, Some("flow")).unwrap();
+    assert!(view.archived && !view.abandoned);
 
     // 放弃 → 文件进归档、标已放弃；重开回到进行中。
+    reopen(&repo.main, "flow").unwrap();
     archive(&repo.main, "flow", Some("不做了")).unwrap();
     let view = show(&repo.main, Some("flow")).unwrap();
     assert!(view.archived && view.abandoned);
@@ -436,22 +441,265 @@ fn single_file_task_steps_are_ticked_from_trailer_commits() {
     assert_eq!(step(&repo.main, "demo", "S1").unwrap_err().code, "invalid_state", "旧任务没有 step");
 }
 
+/// 建好步骤（PLAN 的 S1、S2）并开工的单文件任务，返回任务名。
+fn planned_task(repo: &Repo, slug: &str) -> String {
+    new_task(repo, slug);
+    let steps: Vec<FileStep> = serde_yaml::from_str(PLAN).unwrap();
+    save(&repo.main, slug, Some(steps), None).unwrap();
+    begin(&repo.main, slug).unwrap();
+    show(&repo.main, Some(slug)).unwrap().task_dir_name
+}
+
 #[test]
-fn promote_moves_the_idea_into_a_task_background_and_archives_it() {
+fn a_worktree_task_archives_only_after_every_step_is_merged() {
     let repo = Repo::new();
-    let idea = crate::knowledge::ideas::add(&repo.main, "# 任务页可编辑\n\n现在只能看").unwrap();
-    crate::knowledge::ideas::discuss(&repo.main, &idea.id, "Agent", "用编辑器").unwrap();
-    let created = promote(&repo.main, &idea.id, None).unwrap();
-    let text = fs::read_to_string(created["prd"].as_str().unwrap()).unwrap();
-    assert!(text.contains("title: 任务页可编辑"), "{text}");
-    assert!(text.contains("## 背景") && text.contains("现在只能看") && text.contains("Agent：用编辑器"), "{text}");
-    let closed = crate::knowledge::ideas::list(&repo.main)
-        .unwrap()
-        .into_iter()
-        .find(|item| item.id == idea.id)
-        .unwrap();
-    assert_eq!(closed.status, "已落地");
-    assert!(closed.path.contains("归档"), "{}", closed.path);
+    let name = planned_task(&repo, "merged");
+    let wt = repo.worktree("feat");
+    bind(&repo.main, Some("merged"), "feat", Some("dev"), None).unwrap();
+    repo.commit(&wt, "a.txt", &format!("feat: a\n\nTask: {name} S1"));
+    repo.commit(&wt, "b.txt", &format!("feat: b\n\nTask: {name} S2"));
+    step(&wt, "merged", "S1").unwrap();
+    let last = step(&wt, "merged", "S2").unwrap();
+    assert!(last.get("settled").is_none(), "没合并不归档");
+    assert!(settle_merged(&repo.main).unwrap().is_empty());
+    assert!(!show(&repo.main, Some("merged")).unwrap().archived);
+
+    sh(&repo.main, &["git", "merge", "-q", "--no-ff", "-m", "merge", "feat"]);
+    // 记下提交的文件和合并后的状态都在主项目：下一次任务列表补上归档。
+    let settled = settle_merged(&repo.main).unwrap();
+    assert_eq!(settled.len(), 1);
+    assert_eq!(settled[0]["taskDirName"], name.as_str());
+    assert!(show(&repo.main, Some("merged")).unwrap().archived);
+    assert!(settle_merged(&repo.main).unwrap().is_empty());
+}
+
+#[test]
+fn partly_merged_stepless_legacy_and_unticked_tasks_stay_open() {
+    let repo = Repo::new();
+    // 只完成一步。
+    let name = planned_task(&repo, "partial");
+    repo.commit(&repo.main, "a.txt", &format!("feat: a\n\nTask: {name} S1"));
+    step(&repo.main, "partial", "S1").unwrap();
+    // 提交都进了分支，但最后一步还没 `step`：不抢在它前面归档。
+    repo.commit(&repo.main, "b.txt", &format!("feat: b\n\nTask: {name} S2"));
+    // 没有步骤的单文件任务。
+    new_task(&repo, "stepless");
+    save(&repo.main, "stepless", Some(Vec::new()), None).unwrap();
+    // 旧任务（Repo::new 的 demo）即使验收和步骤都勾了也不动。
+    fs::write(
+        repo.main.join(".berth/tasks/10-01-demo/prd.md"),
+        PRD.replace("[ ]", "[x]"),
+    )
+    .unwrap();
+    assert!(settle_merged(&repo.main).unwrap().is_empty());
+    for task in ["partial", "stepless", "demo"] {
+        assert!(!show(&repo.main, Some(task)).unwrap().archived, "{task}");
+    }
+}
+
+#[test]
+fn a_reopened_task_stays_open_until_a_new_step_lands() {
+    let repo = Repo::new();
+    let name = planned_task(&repo, "again");
+    repo.commit(&repo.main, "a.txt", &format!("feat: a\n\nTask: {name} S1"));
+    step(&repo.main, "again", "S1").unwrap();
+    repo.commit(&repo.main, "b.txt", &format!("feat: b\n\nTask: {name} S2"));
+    step(&repo.main, "again", "S2").unwrap();
+    assert!(show(&repo.main, Some("again")).unwrap().archived);
+
+    reopen(&repo.main, "again").unwrap();
+    assert!(settle_merged(&repo.main).unwrap().is_empty(), "重开不能马上又被归档");
+    assert!(!show(&repo.main, Some("again")).unwrap().archived);
+
+    let mut steps: Vec<FileStep> = serde_yaml::from_str(PLAN).unwrap();
+    for (item, commit) in steps.iter_mut().zip(show(&repo.main, Some("again")).unwrap().steps) {
+        item.commit = commit.commit.map(|commit| commit.hash);
+    }
+    steps.push(FileStep { id: "S3".into(), action: "修".into(), change: "c".into(), verify: "v".into(), commit: None });
+    save(&repo.main, "again", Some(steps), None).unwrap();
+    repo.commit(&repo.main, "c.txt", &format!("fix: c\n\nTask: {name} S3"));
+    assert_eq!(step(&repo.main, "again", "S3").unwrap()["settled"]["archived"], true);
+}
+
+#[test]
+fn create_and_start_report_running_tasks_and_warn_past_the_limit() {
+    let repo = Repo::new();
+    let first = planned_task(&repo, "one");
+    let created = create(
+        &repo.main,
+        CreateOptions {
+            title: "新".into(),
+            slug: Some("fresh".into()),
+            description: String::new(),
+            branch: None,
+            base: None,
+            idea: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(created["running"], json!([{"id": first, "title": "one"}]));
+    planned_task(&repo, "two");
+    planned_task(&repo, "three");
+    new_task(&repo, "four");
+    let steps: Vec<FileStep> = serde_yaml::from_str(PLAN).unwrap();
+    save(&repo.main, "four", Some(steps), None).unwrap();
+    let started = begin(&repo.main, "four").unwrap();
+    assert_eq!(started["running"].as_array().unwrap().len(), 4);
+    assert!(started["warning"].as_str().unwrap().contains("4 tasks"), "警告但不阻止");
+    assert_eq!(started["state"], "running");
+    archive(&repo.main, "four", Some("")).unwrap();
+    let again = begin(&repo.main, "three").unwrap();
+    assert!(again.get("warning").is_none(), "三个不警告");
+}
+
+#[test]
+fn list_marks_planning_tasks_untouched_for_30_days() {
+    let repo = Repo::new();
+    new_task(&repo, "old");
+    new_task(&repo, "recent");
+    let running = planned_task(&repo, "busy");
+    let age = |slug: &str| {
+        let name = show(&repo.main, Some(slug)).unwrap().task_dir_name;
+        let path = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(31 * 24 * 3600))
+            .unwrap();
+        name
+    };
+    let old = age("old");
+    age("busy");
+    let listed = list(&repo.main, false, 50).unwrap();
+    let stale = |id: &str| {
+        listed["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == id)
+            .unwrap()
+            .get("stale")
+            .cloned()
+    };
+    assert_eq!(stale(&old), Some(json!(true)));
+    let recent = show(&repo.main, Some("recent")).unwrap().task_dir_name;
+    assert_eq!(stale(&recent), None);
+    assert_eq!(stale(&running), None, "进行中的不标");
+}
+
+#[test]
+fn archiving_survives_a_failed_session_scan_and_notes_it_in_the_task() {
+    let repo = Repo::new();
+    let name = planned_task(&repo, "scan");
+    // 快照目录被一个文件占住：扫描写不了。
+    fs::write(repo.main.join(".berth/local/task-sessions"), "").unwrap();
+    let archived = archive(&repo.main, "scan", Some("")).unwrap();
+    assert!(archived["sessionScanError"].is_string(), "{archived}");
+    let path = PathBuf::from(archived["path"].as_str().unwrap());
+    assert!(path.ends_with(format!("{name}.md")) && path.is_file());
+    assert!(fs::read_to_string(path).unwrap().contains("- 归档时关联会话失败"));
+}
+
+/// 一个 Claude 形状的会话文件：工具调用的命令是 `commands`。
+fn write_session(root: &Path, id: &str, cwd: &Path, commands: &[&str]) -> PathBuf {
+    let mut lines = vec![
+        json!({"type": "user", "sessionId": id, "cwd": cwd, "message": {"role": "user", "content": format!("会话 {id}")}}),
+    ];
+    for command in commands {
+        lines.push(json!({"type": "assistant", "sessionId": id, "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t", "name": "Bash", "input": {"command": command}}]}}));
+    }
+    let path = root.join(format!("{id}.jsonl"));
+    fs::write(&path, lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")).unwrap();
+    path
+}
+
+#[test]
+fn only_task_commands_and_commit_trailers_link_a_session() {
+    let repo = Repo::new();
+    let name = planned_task(&repo, "linked");
+    let root = repo.main.parent().unwrap().join("sessions");
+    fs::create_dir_all(&root).unwrap();
+    let cwd = repo.main.canonicalize().unwrap();
+    write_session(&root, "by-command", &cwd, &[&format!("berth project . task --json step {name} S1")]);
+    write_session(&root, "by-slug", &cwd, &["cd x && berth task start linked"]);
+    write_session(&root, "by-trailer", &cwd, &[&format!("git commit -m \"feat\n\nTask: {name} S2\n\"")]);
+    // 只提到任务名、只读任务、别的任务、别的项目都不算。
+    write_session(&root, "mention", &cwd, &[&format!("cat .berth/tasks/{name}.md"), &format!("berth task show {name}"), "berth task step other S1"]);
+    let elsewhere = repo.main.parent().unwrap().canonicalize().unwrap();
+    write_session(&root, "elsewhere", &elsewhere, &[&format!("berth task step {name} S1")]);
+    let spec: berth_tool_core::sessions::SessionSpec = serde_json::from_value(json!({
+        "storage": "jsonl", "path": root, "files": "*.jsonl",
+        "session": {"record": "user", "id": "/sessionId", "project": "/cwd"},
+        "message": {"record": ["user", "assistant"], "value": "/message", "role": "/role", "content": "/content"}
+    }))
+    .unwrap();
+
+    let found = session_snapshot::scan(&repo.main, &name, &[("claude".to_owned(), spec)]).unwrap();
+    let mut ids: Vec<&str> = found.iter().map(|session| session.id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, ["by-command", "by-slug", "by-trailer"]);
+    assert!(found.iter().all(|session| session.agent == "claude" && session.title.starts_with("会话 ")));
+
+    // 任务视图列出会话和快照路径。
+    let task_file = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    file::add_sessions(&task_file, found).unwrap();
+    let view = show(&repo.main, Some("linked")).unwrap();
+    assert_eq!(view.sessions.len(), 3);
+    let linked = view.sessions.iter().find(|session| session.id == "by-command").unwrap();
+    assert_eq!(linked.cwd, cwd.to_str().unwrap());
+    assert!(Path::new(&linked.snapshot).is_file());
+
+    // 会话文件被清理后快照还在，内容是可读的对话文本。
+    fs::remove_dir_all(&root).unwrap();
+    let snapshot = fs::read_to_string(session_snapshot::snapshot_path(&repo.main, &name, "claude", "by-command")).unwrap();
+    assert!(snapshot.contains("## #1 用户\n会话 by-command"), "{snapshot}");
+    assert!(snapshot.contains("→ Bash berth project"), "{snapshot}");
+    // 快照在 local/，不进 git。
+    assert!(session_snapshot::snapshot_path(&repo.main, &name, "claude", "x").starts_with(repo.main.join(".berth/local")));
+}
+
+#[test]
+fn archiving_fills_the_knowledge_inbox_and_reopening_clears_it() {
+    use crate::knowledge::inbox;
+    let repo = Repo::new();
+    let name = planned_task(&repo, "boxed");
+    let task_file = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    file::append_note(&task_file, "S1 换了文件").unwrap();
+    assert!(fs::read_to_string(&task_file).unwrap().contains("## 记录\n\n- S1 换了文件"));
+    repo.commit(&repo.main, "a.txt", &format!("feat: a\n\nTask: {name} S1"));
+    step(&repo.main, "boxed", "S1").unwrap();
+    repo.commit(&repo.main, "b.txt", &format!("feat: b\n\nTask: {name} S2"));
+    let last = step(&repo.main, "boxed", "S2").unwrap();
+
+    let items = inbox::list(&repo.main).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!((items[0].kind.as_str(), items[0].result.as_str()), ("任务", "已完成"));
+    assert_eq!(items[0].source, name);
+    assert_eq!(last["settled"]["inbox"], 1, "归档结果带当前总数");
+    let text = fs::read_to_string(repo.main.join(&items[0].path)).unwrap();
+    assert!(text.contains("## 提交\n\n- S1 ") && text.contains("写 a"), "{text}");
+    assert!(text.contains("## 偏离记录\n\n- S1 换了文件"), "{text}");
+    assert!(text.contains("tasks/archive/"), "{text}");
+
+    reopen(&repo.main, "boxed").unwrap();
+    assert!(inbox::list(&repo.main).unwrap().is_empty());
+
+    // 放弃也进清单，带原因；旧任务（目录）同样进。
+    archive(&repo.main, "boxed", Some("不做了")).unwrap();
+    archive(&repo.main, "demo", None).unwrap();
+    let items = inbox::list(&repo.main).unwrap();
+    assert_eq!(items.len(), 2);
+    let abandoned = items.iter().find(|item| item.source == name).unwrap();
+    assert_eq!(abandoned.result, "已放弃");
+    assert!(fs::read_to_string(repo.main.join(&abandoned.path)).unwrap().contains("放弃原因：不做了"));
+
+    // 处理后不计数；再重开也不动已处理的记录。
+    let processed = inbox::done(&repo.main, &name, "不入库").unwrap();
+    assert_eq!(inbox::list(&repo.main).unwrap().len(), 1);
+    reopen(&repo.main, "boxed").unwrap();
+    assert!(repo.main.join(processed).is_file());
 }
 
 #[test]

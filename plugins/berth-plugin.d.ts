@@ -44,6 +44,11 @@ declare module "berth" {
   export interface AgentHooks {
     /** 启动栏输入 → 该 CLI 的参数。输入已按 launchbar 校验；省略时无参数。 */
     args?(inputs: LaunchInputs): string[] | Promise<string[]>
+    /**
+     * 只读核对声明与实际（如声明了却没加载的 MCP），用户打开启动清单时按需运行；省略时显示「未验证」。
+     * 只能看名字和路径，拿不到密钥；不能启动真实会话或产生费用。
+     */
+    inspect?(ctx: InspectContext): ReportItem[] | Promise<ReportItem[]>
     /** 专家的原生插件目录本 Agent 能否加载；省略时一律跳过。 */
     isNativePlugin?(dir: string): boolean | Promise<boolean>
     /** 启动 Agent，返回退出码。 */
@@ -161,6 +166,12 @@ declare module "berth" {
     readonly args: string[]
     readonly inputs: LaunchInputs
     readonly expert: Expert | null
+    /**
+     * 专家的全部资产，按类型分组（没选专家时为空）。skills / mcp / plugins 与 `expert` 同源，
+     * 但 plugins 未筛；prompt 是提示词文件（正文在 `expert.prompt`，至多一项）；
+     * 其余类型来自专家表开放字段。旧宿主没有这个字段。
+     */
+    readonly assets: Readonly<Record<string, readonly ExpertAsset[]>>
     /** 选了自定义服务商才有；没有 = 用 Agent 自己的登录。 */
     readonly provider: Provider | null
     /** Berth 能力索引，追加进系统提示词；取不到为空串。 */
@@ -179,8 +190,47 @@ declare module "berth" {
     hookCommand(
       event: "session-start" | "turn-start" | "turn-end" | "attention" | "idle"
     ): string
-    /** 记录本次启动用了哪些资产（stderr，供排查）。 */
+    /** 记录本次启动的计划（进启动清单「计划」一栏）；资产结果用 `report`。 */
     plan(details: Record<string, unknown>): void
+    /**
+     * 报告每项资产的实际结果，可多次调用；`kind` / `id` 对上 `assets` 的类型和 `name`，没报告的显示为未处理。
+     * 也可报告资产之外的项（如隔离的原生目录）。`reason` / `source` 进清单，不要写密钥。旧宿主没有：`ctx.report?.(...)`。
+     */
+    report(items: readonly ReportItem[]): void
+  }
+
+  export interface InspectContext {
+    readonly expert: { readonly id: string; readonly name: string } | null
+    /** 清单声明的资产，不含 MCP 定义（spec）。 */
+    readonly assets: Readonly<Record<string, readonly ExpertAsset[]>>
+    readonly paths: {
+      readonly package: string
+      /** 那次启动的临时目录；会话结束后已不存在。 */
+      readonly tmp: string
+      readonly cwd: string
+      readonly home: string
+    }
+  }
+
+  export interface ReportItem {
+    kind: string
+    id: string
+    status:
+      | "applied"
+      | "converted"
+      | "skipped"
+      | "isolated"
+      | "kept"
+      | "unknown"
+    reason?: string
+    source?: string
+  }
+
+  export interface ExpertAsset {
+    readonly name: string
+    readonly path: string
+    /** 只有 mcp 有：环境变量已展开的定义。 */
+    readonly spec?: unknown
   }
 
   export interface Expert {
@@ -293,7 +343,7 @@ declare module "berth" {
 
   /**
    * files@1 · 两者 · 权限 `project.files`。路径相对项目根，不能越出项目（编辑器页面的根见 `EditorContext.path`）。
-   * 页面里目前只有 `readText`、`readBase64`、`open`，其余 reject `unsupported`。
+   * 页面里目前只有 `readText`、`readBase64`、`open`（`open` 也收绝对路径），其余 reject `unsupported`。
    */
   export interface FilesApi {
     readText(path: string): Promise<string>

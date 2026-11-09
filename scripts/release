@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# 发版的唯一入口：dev → main → 公开仓库（触发安装包构建）+ 插件仓库。可在任意 worktree 里运行。
+# 流程说明见 docs/releasing/workflow.md。
+#
+#   scripts/release <版本>
+set -euo pipefail
+
+die() {
+  echo "release: $*" >&2
+  exit 1
+}
+
+# 检出某分支的 worktree 路径
+worktree_of() {
+  git worktree list --porcelain |
+    awk -v branch="branch refs/heads/$1" '/^worktree /{path=substr($0,10)} $0==branch{print path}'
+}
+
+# .berth/ 是想法、任务等内部资料，随时在变，也不进公开仓库，不拦发版
+require_clean() {
+  local dirty
+  dirty=$(git -C "$1" status --porcelain -- . ':!.berth')
+  [ -z "$dirty" ] || die "$1 有未提交的改动，先提交或 stash：
+$dirty"
+}
+
+version=${1:-}
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "用法：scripts/release <版本>，例如 scripts/release 0.38.0"
+
+dev=$(worktree_of dev)
+main=$(worktree_of main)
+[ -n "$dev" ] || die "没有检出 dev 的 worktree"
+[ -n "$main" ] || die "没有检出 main 的 worktree"
+
+# 对外的操作都在检查之后
+require_clean "$dev"
+require_clean "$main"
+if git ls-remote --exit-code --tags public "v$version" >/dev/null; then
+  die "公开仓库已有 v$version，换一个版本号"
+fi
+
+git -C "$dev" push origin dev
+
+git -C "$main" fetch -q origin main
+git -C "$main" merge -q --ff-only origin/main
+git -C "$main" merge --no-edit dev
+
+(cd "$main" && node scripts/set-version.mjs "$version")
+git -C "$main" add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+git -C "$main" commit -q -m "chore(release): 发布 $version"
+git -C "$main" push origin main
+
+# 版本号提交带回 dev，两边保持一致
+git -C "$dev" merge -q --ff-only main
+git -C "$dev" push origin dev
+
+(cd "$main" && scripts/publish-public --tag)
+(cd "$main" && scripts/publish-plugins)
+
+echo "release: $version 已发布，构建进度：gh run list -R zqverse0/berth"

@@ -17,6 +17,25 @@ function renderTree(keyboardNavigation: boolean) {
   )
 }
 
+describe("FileTree guides", () => {
+  it("draws one cell per level instead of the chevron", () => {
+    const { container } = render(
+      <FileTree expanded={new Set(["dir"])}>
+        <FileTreeFolder path="dir" name="dir" depth={0} guides={[]}>
+          <FileTreeFile
+            path="dir/a.ts"
+            name="a.ts"
+            depth={0}
+            guides={[true, false]}
+          />
+        </FileTreeFolder>
+      </FileTree>
+    )
+    expect(container.querySelectorAll("[data-tree-guide]")).toHaveLength(2)
+    expect(container.querySelector(".lucide-chevron-right")).toBeNull()
+  })
+})
+
 describe("FileTree symlink affordance", () => {
   it("marks symlink folders and files with data-symlink icons", () => {
     const { container } = render(

@@ -3,6 +3,8 @@
 export const WORKSPACE_COMMANDS = [
   { id: "switch_project", group: "project", key: "p" },
   { id: "open_project", group: "project", key: "o" },
+  { id: "switch_session", group: "project", key: "s" },
+  { id: "next_attention", group: "project", key: "j" },
   { id: "new_conversation", group: "creation", key: "n" },
   { id: "new_terminal", group: "creation", key: "c" },
   { id: "open_files", group: "views", key: "f" },
@@ -40,6 +42,9 @@ export const COMMAND_KEYS: readonly { id: WorkspaceCommandId; key?: string }[] =
 
 export const LEADER_LABEL = "Ctrl+Space"
 export const OPEN_PROJECT_SWITCHER_EVENT = "berth:open-project-switcher"
+/** 会话数据只在侧栏项目列表组装：这两条命令发事件，由列表打开会话切换器（detail 为最近用过的 tab id）/ 跳到下一个需关注。 */
+export const OPEN_SESSION_SWITCHER_EVENT = "berth:open-session-switcher"
+export const NEXT_ATTENTION_EVENT = "berth:next-attention"
 
 /** 按钮 tooltip 用的完整键位提示，例如 `Ctrl+Space B`。 */
 export function commandHint(id: WorkspaceCommandId): string {

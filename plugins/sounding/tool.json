@@ -1,0 +1,41 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "sounding",
+  "version": "0.1.0",
+  "requires": {
+    "process": 1,
+    "storage": 1,
+    "env": 1
+  },
+  "permissions": ["process"],
+  "contributes": {
+    "identity": {
+      "name": "Sounding",
+      "roles": [],
+      "tags": ["analysis", "sessions"],
+      "description": "Analyze one agent session with your own questions. Whole-session questions (yes/no, number, text, choices, findings, keyword search) use the scanner engine of inspect_scout; per-item judging (every user message or tool call) uses Jev, and its hits can point the whole-session question at the right places. Questions and results stay in Berth, not in the project.",
+      "homepage": "https://github.com/zqverse0/sounding"
+    },
+    "install": {
+      "bin": "sounding",
+      "paths": {
+        "unix": ["~/.local/bin/sounding"]
+      },
+      "version": ["--version"]
+    },
+    "view": [
+      {
+        "id": "sounding",
+        "title": {
+          "en": "Session audit",
+          "zh-CN": "会话分析"
+        },
+        "icon": "icon.svg",
+        "location": "sidebar",
+        "page": "ui/index.html"
+      }
+    ]
+  },
+  "resources": {}
+}

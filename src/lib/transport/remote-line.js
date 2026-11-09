@@ -156,7 +156,8 @@ export function createRemoteSession(options) {
     const body = json ? encoder.encode(data) : data
     return new Promise((resolve, reject) => {
       const call = {
-        cmd,
+        // runtime_bridge_operation 一个命令名下几十个方法：慢日志带上方法名才能定位。
+        cmd: payload?.args?.method ? `${cmd}:${payload.args.method}` : cmd,
         key,
         cached,
         frame: frame(meta, body),

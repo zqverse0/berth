@@ -199,6 +199,60 @@ async function ensureStatusline() {
   await fs.writeText(AGY_SETTINGS, JSON.stringify(settings, null, 2) + "\n")
 }
 
+/** 每项资产的实际结果和没转发 / 没隔离的内容进启动清单；旧宿主没有 report。 */
+function reportAssets(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  /** @type {string[]} */ skipped
+) {
+  /** @type {import("berth").ReportItem[]} */
+  const items = [
+    ...(ctx.assets?.prompt ?? []).map((asset) => ({
+      kind: "prompt",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "写进会话 agent.md 正文，追加在默认系统提示词之后",
+    })),
+    ...(ctx.assets?.skills ?? []).map((asset) => ({
+      kind: "skills",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "打进会话插件 skills/",
+    })),
+    ...(ctx.assets?.mcp ?? []).map((asset) => ({
+      kind: "mcp",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "打进会话插件 mcp_config.json",
+    })),
+    ...(ctx.assets?.memory ?? []).map((asset) => ({
+      kind: "memory",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
+    })),
+    ...(ctx.assets?.plugins ?? []).map((asset) => ({
+      kind: "plugins",
+      id: asset.name,
+      status: /** @type {const} */ ("skipped"),
+      reason: "agy 没有原生插件格式",
+    })),
+    ...skipped.map((path) => ({
+      kind: "project-config",
+      id: path,
+      status: /** @type {const} */ ("skipped"),
+      reason: "自定义 agent 不继承项目级配置，没有转发",
+    })),
+  ]
+  if (ctx.expert)
+    items.push({
+      kind: "native-memory",
+      id: "~/.gemini/antigravity-cli/knowledge",
+      status: "kept",
+      reason: "agy 没有会话级开关，无法隔离",
+    })
+  ctx.report?.(items)
+}
+
 /** @type {import("berth").AgentHooks} */
 export default {
   args(inputs) {
@@ -257,6 +311,7 @@ export default {
         ),
         projectNotForwarded: skipped,
       })
+      reportAssets(ctx, skipped)
       return await process.run("agy", ["--agent", agentName, ...ctx.args])
     } finally {
       await fs.remove(agentDir).catch(() => {})

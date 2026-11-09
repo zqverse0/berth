@@ -258,10 +258,7 @@ fn alive(params: &Value) -> ApiResult {
         .ok_or_else(|| ApiError::invalid("pid must be a positive integer"))?;
     #[cfg(unix)]
     {
-        // 信号 0 只做存在性检查；EPERM 说明进程在、只是不属于我们。
-        let ok = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-        let exists = ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        Ok(json!(exists))
+        Ok(json!(is_alive(pid as i32)))
     }
     #[cfg(not(unix))]
     {
@@ -271,6 +268,21 @@ fn alive(params: &Value) -> ApiResult {
             Reason::Unsupported,
             "process.alive is not available on this platform",
         ))
+    }
+}
+
+/// 进程是否存在。信号 0 只做存在性检查；EPERM 说明进程在、只是不属于我们。
+/// ponytail: Windows 判不了，一律当活着（调用方是清理逻辑，宁可留下）；有需要时用 OpenProcess。
+pub(crate) fn is_alive(pid: i32) -> bool {
+    #[cfg(unix)]
+    {
+        let ok = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+        ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
     }
 }
 

@@ -21,20 +21,27 @@ export async function folderIdFor(path: string, sourceFolderId: number) {
   return (await openWorktreeFolder(path, sourceFolderId)).id
 }
 
-/** 按工具 id + 会话 id 打开项目里的 Agent 会话（tab 放在会话目录所属的项目里）；失败时弹提示。 */
+/**
+ * 按工具 id + 会话 id 打开项目里的 Agent 会话（tab 放在会话目录所属的项目里）；失败时弹提示。
+ * 给了 `onUnavailable` 时打不开（原会话已被清理等）改调它，不弹提示。
+ */
 export function useOpenProjectSession(sourceFolderId: number) {
   const t = useTranslations("Folder.sessionsView")
   const { agents } = useAgentProfiles()
   const workspaceDeps = useWorkspaceRuntimeDependencies()
-  return async (session: {
-    agent: string
-    sessionId: string
-    cwd: string
-    title?: string | null
-  }) => {
+  return async (
+    session: {
+      agent: string
+      sessionId: string
+      cwd: string
+      title?: string | null
+    },
+    onUnavailable?: () => void
+  ) => {
     const projectType = agents.find((a) => a.id === session.agent)?.projectType
     if (!projectType) {
-      toast(t("cannotOpenAgent"))
+      if (onUnavailable) onUnavailable()
+      else toast(t("cannotOpenAgent"))
       return
     }
     try {
@@ -45,7 +52,8 @@ export function useOpenProjectSession(sourceFolderId: number) {
       })
       const conversation = result.conversation
       if (result.deleted || !result.sourceAvailable || !conversation) {
-        toast.error(t("sourceUnavailable"))
+        if (onUnavailable) onUnavailable()
+        else toast.error(t("sourceUnavailable"))
         return
       }
       // 会话 tab 按项目归属显示：会话在别的群目录时先切到那个项目，再在它的范围里打开。
@@ -66,7 +74,8 @@ export function useOpenProjectSession(sourceFolderId: number) {
         }
       )
     } catch (error) {
-      toast.error(t("openFailed", { error: toErrorMessage(error) }))
+      if (onUnavailable) onUnavailable()
+      else toast.error(t("openFailed", { error: toErrorMessage(error) }))
     }
   }
 }

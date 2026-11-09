@@ -21,17 +21,24 @@
 
 ## 日常流程
 
+代码只在 dev 上改，单向流动：`dev` → `main` → 公开仓库 + 插件仓库。
+
 ```bash
-# 1. berth-dev：开发、提交
-git push                        # → origin/dev
+# 平时（berth-dev）：开发、提交
+git push                        # → origin/dev，私有备份，不对外
 
-# 2. berth：合并、测试
+# 发版（任意目录）：dev 的工作区要干净（.berth/ 除外）
+scripts/release <版本>          # 推 dev → 合并进 main → 改版本号 → 推 main → 版本号带回 dev → 发公开仓库（打 tag）→ 发插件
+```
+
+`scripts/release` 组合下面的命令，只有不走完整发版时才单独用（例如 dev 有未发布的工作、要从 main 发紧急修复）：
+
+```bash
+# 在 berth 目录
 git merge dev && git push       # → origin/main（私有，不对外）
-
-# 3. 发布到公开仓库（在 berth 目录）
 scripts/publish-public          # 去掉内部资料后作为一个快照提交推到公开 main → 触发公开 Test
 scripts/publish-public --tag    # 同上，再推 v<package.json 版本> tag → 触发 Release 构建全平台安装包
-scripts/publish-plugins         # 把 plugins/ 同步到公开插件仓库 zqverse0/berth-plugins（设置页「插件仓库」从这里取）；改了插件后跑
+scripts/publish-plugins         # 把 plugins/ 同步到公开插件仓库 zqverse0/berth-plugins（设置页「插件仓库」从这里取），没有变化时什么都不做
 ```
 
 ## 注意

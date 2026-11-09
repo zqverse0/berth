@@ -1,0 +1,205 @@
+/* 颜色与字体取宿主的 --berth-* 变量，随主题变化。风格参考 Memos：圆角卡片、细边框、留白。 */
+:root {
+  color-scheme: light dark;
+  --radius: var(--berth-radius, 8px);
+  --hover: var(--berth-accent, rgba(127, 127, 127, 0.15));
+  --muted: var(--berth-muted-foreground, gray);
+}
+body {
+  margin: 0;
+  font: 13px/1.6 var(--berth-font-sans, system-ui, sans-serif);
+  color: var(--berth-foreground);
+  background: transparent;
+}
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.muted {
+  color: var(--muted);
+}
+.center {
+  padding: 16px 4px;
+  text-align: center;
+}
+.error {
+  margin: 4px;
+  color: var(--berth-destructive, #d33);
+  white-space: pre-wrap;
+}
+.grow {
+  flex: 1;
+}
+.tag {
+  color: var(--berth-primary);
+}
+.status {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--hover);
+}
+.status[data-status="讨论中"] {
+  color: var(--berth-primary);
+}
+.status[data-status="已放下"],
+.status[data-status="已落地"] {
+  opacity: 0.7;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- 侧栏 ---- */
+main {
+  padding: 8px;
+}
+.composer {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--muted);
+  border: 1px solid var(--berth-border);
+  border-radius: var(--radius);
+  background: var(--berth-card, transparent);
+}
+.composer:hover:not(:disabled) {
+  color: var(--berth-foreground);
+  border-color: var(--berth-ring, var(--berth-primary));
+}
+.card {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--berth-border);
+  border-radius: var(--radius);
+  background: var(--berth-card, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.card:hover {
+  border-color: var(--berth-ring, var(--berth-primary));
+}
+.card.closed {
+  opacity: 0.6;
+}
+.card .text {
+  display: -webkit-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 0;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+.actions {
+  display: none;
+  gap: 2px;
+  margin-left: auto;
+}
+.card:hover .actions,
+.card:focus-within .actions {
+  display: flex;
+}
+.icon {
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.icon:hover:not(:disabled) {
+  background: var(--hover);
+}
+.toggle {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.toggle:hover {
+  color: var(--berth-foreground);
+}
+
+/* ---- 工作区编辑页 ---- */
+.editor main {
+  box-sizing: border-box;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+.editor .head {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.ghost {
+  padding: 2px 10px;
+  border: 1px solid var(--berth-border);
+  border-radius: 999px;
+  font-size: 12px;
+}
+.ghost:hover {
+  color: var(--berth-foreground);
+  background: var(--hover);
+}
+.memo {
+  padding: 16px 18px;
+  border: 1px solid var(--berth-border);
+  border-radius: var(--radius);
+  background: var(--berth-card, transparent);
+}
+.memo:focus-within {
+  border-color: var(--berth-ring, var(--berth-primary));
+}
+textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 120px;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+}
+.notes {
+  margin-top: 28px;
+}
+.notes section {
+  margin-bottom: 20px;
+}
+.notes h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.notes li {
+  padding: 3px 0 3px 12px;
+  border-left: 2px solid var(--berth-border);
+  overflow-wrap: anywhere;
+}

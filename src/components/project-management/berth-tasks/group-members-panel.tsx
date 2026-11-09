@@ -161,7 +161,6 @@ function Members({ folderId }: { folderId: number }) {
         action={
           group.name ? (
             <AddExpertMenu
-              folderId={folderId}
               present={present.map((row) => row.member.name)}
               onPick={(expert) => launchExpert({ expert, agent: recentAgent })}
             />

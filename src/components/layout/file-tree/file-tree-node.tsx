@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState } from "react"
+import { createContext, useContext, useEffect, useState } from "react"
 import { revealItemInDir } from "@/lib/platform"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
@@ -16,12 +16,16 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { useSendToAgent } from "@/hooks/use-send-to-agent"
+import { readPasteEntries } from "@/hooks/workspace/use-paste-file-tree-entry"
+import { parseDeviceRef } from "@/lib/transport/device"
+import type { FileTreeClipboardEntry } from "@/stores/file-tree-clipboard-store"
 import { parentDir } from "@/components/layout/file-tree/path-utils"
 import {
   classifyGitFileState,
@@ -42,15 +46,10 @@ export async function copyPathToClipboard(
 const GITIGNORE_MUTED_CLASS = "text-muted-foreground/55"
 
 /**
- * The directory drop zone highlighted by an in-flight *desktop* native drag
- * (relative path; `""` = workspace root), or null. On the web each row derives
- * its own drop highlight from the DOM `dragover`/`dragleave` it receives; on
- * desktop WebKit suppresses those target-side events during a native drag
- * (only `dragstart`/`dragend` reach the DOM), so the highlight is instead
- * broadcast here from Tauri's native DRAG_OVER hit-test and OR-ed into each
- * row's `dropActive`. Stays null on the web, so it never forces a re-render there.
+ * 拖动中的放置目录（相对路径；`""` = 项目根），没有合法落点时为 null。由树统一判定后广播给各行：
+ * 网页端来自容器的 dragover，桌面端来自 Tauri 的 DRAG_OVER（WebKit 不发目标侧事件）。
  */
-export const DesktopDropDirContext = createContext<string | null>(null)
+export const DropDirContext = createContext<string | null>(null)
 
 export interface FileActionTarget {
   kind: "file" | "dir"
@@ -77,11 +76,29 @@ export function applyCompactDragImage(event: React.DragEvent, name: string) {
 }
 
 /**
- * Drag-and-drop bridge shared by every tree row and the workspace-root row. The
- * source of the in-flight drag lives in a ref on the container (set on
- * dragstart), so `canDropInto` can validate a hover without reading the
- * (drag-over–inaccessible) dataTransfer.
+ * 拖动原生图标（系统拖动不走 setDragImage）：与 {@link applyCompactDragImage} 同样的小标签。
  */
+export function compactDragImagePng(name: string): string {
+  const style = getComputedStyle(document.body)
+  const canvas = document.createElement("canvas")
+  const context = canvas.getContext("2d")
+  if (!context) return canvas.toDataURL("image/png")
+  const font = "12px ui-monospace, monospace"
+  context.font = font
+  const width = Math.min(context.measureText(name).width, 256)
+  canvas.width = Math.ceil(width + 16)
+  canvas.height = 22
+  // 改尺寸会重置画布状态：字体要重设。
+  context.font = font
+  context.fillStyle = style.backgroundColor
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.fillStyle = style.color
+  context.textBaseline = "middle"
+  context.fillText(name, 8, canvas.height / 2, width)
+  return canvas.toDataURL("image/png")
+}
+
+/** 每一行的拖动入口；放置由树的容器统一处理（按 `data-tree-drop-dir` 命中）。 */
 export interface TreeDndHandlers {
   /** Begin dragging `node`: stash it as the source and write the drag payload
    *  (so the composer can read a file reference off the same drag). */
@@ -93,17 +110,12 @@ export interface TreeDndHandlers {
   onEntryDrag: (clientX: number, clientY: number) => void
   /** End the current drag (drop or cancel) — clears the source. */
   onEntryDragEnd: () => void
-  /** Whether the in-flight source may drop into `destDir` (relative; `""` =
-   *  workspace root). False when there's no drag, it's a no-op (same parent), or
-   *  it would move a directory into itself/a descendant. */
-  canDropInto: (destDir: string) => boolean
-  /** Move the in-flight source into `destDir`. */
-  onDropInto: (destDir: string) => void
 }
 
 interface RenderNodeProps {
   node: FileTreeNode
-  depth: number
+  /** 连接线：每层祖先（含自己）后面还有没有兄弟；顶层为空。 */
+  guides: readonly boolean[]
   expandedPaths: ReadonlySet<string>
   workspacePath: string
   dnd: TreeDndHandlers
@@ -115,10 +127,8 @@ interface RenderNodeProps {
   gitSubmodulePaths: ReadonlySet<string>
   ancestorGitignoreIgnored: boolean
   ancestorUntracked: boolean
-  onOpenFilePreview: (path: string) => void
   onOpenFileDiff: (path: string) => void
   onOpenDirDiff: (path: string) => void
-  onOpenCommitWindow: () => void
   onRequestCompareWithBranch: (target: FileActionTarget) => void
   onRequestRollback: (target: FileActionTarget) => void
   onOpenDirInTerminal: (dirPath: string, fileName: string) => Promise<void>
@@ -126,12 +136,14 @@ interface RenderNodeProps {
   onRequestRename: (target: FileActionTarget) => void
   onRequestCreate: (parentPath: string, kind: "file" | "dir") => void
   onRequestDelete: (target: FileActionTarget) => void
-  onRefresh: () => void
+  onCopyEntry: (target: FileActionTarget) => void
+  /** 粘贴进这个目录（相对路径；`""` = 项目根）。 */
+  onPasteInto: (destDir: string) => void
 }
 
 export function RenderNode({
   node,
-  depth,
+  guides,
   expandedPaths,
   workspacePath,
   dnd,
@@ -143,10 +155,8 @@ export function RenderNode({
   gitSubmodulePaths,
   ancestorGitignoreIgnored,
   ancestorUntracked,
-  onOpenFilePreview,
   onOpenFileDiff,
   onOpenDirDiff,
-  onOpenCommitWindow,
   onRequestCompareWithBranch,
   onRequestRollback,
   onOpenDirInTerminal,
@@ -154,18 +164,17 @@ export function RenderNode({
   onRequestCreate,
   onRequestRename,
   onRequestDelete,
-  onRefresh,
+  onCopyEntry,
+  onPasteInto,
 }: RenderNodeProps) {
   const t = useTranslations("Folder.fileTreeTab")
   const tCommon = useTranslations("Folder.common")
-  // `dragging` dims this row while it is the drag source; `dropActive` lights a
-  // directory row up while a valid drop hovers it (files are never drop targets).
+  // `dragging` dims this row while it is the drag source.
   const [dragging, setDragging] = useState(false)
-  const [dropActive, setDropActive] = useState(false)
-  // Desktop native drags don't emit DOM dragover, so a directory also lights up
-  // when it's the drop zone broadcast from the Tauri DRAG_OVER hit-test.
-  const desktopDropDir = useContext(DesktopDropDirContext)
+  const dropDir = useContext(DropDirContext)
   const isGitignoreIgnored = ancestorGitignoreIgnored || node.ignored === true
+  // 对方项目的路径在本机的文件管理器里打不开。
+  const isDeviceProject = parseDeviceRef(workspacePath) !== null
 
   const systemExplorerLabel =
     typeof navigator === "undefined"
@@ -183,7 +192,6 @@ export function RenderNode({
       gitStatusByPath.get(node.path) ?? (ancestorUntracked ? "??" : undefined)
     const gitDecoration = getGitFileDecoration(gitStatusCode)
     const absolutePath = joinFsPath(workspacePath, node.path)
-    const dirPath = parentDir(absolutePath)
     const isGitMenuDisabled = !gitEnabled || isGitignoreIgnored
 
     const handleOpenInSystemExplorer = async () => {
@@ -206,7 +214,8 @@ export function RenderNode({
           <FileTreeFile
             path={node.path}
             name={node.name}
-            depth={depth}
+            depth={0}
+            guides={guides}
             symlink={isSymlink}
             title={symlinkTitle}
             className={cn(
@@ -217,10 +226,13 @@ export function RenderNode({
             )}
             suffix={gitDecoration?.badge}
             suffixClassName={gitDecoration?.className}
+            // 放在文件行上 = 放进它所在的目录（放回原位就是同目录，不移动）。
+            data-tree-drop-dir={parentDir(node.path)}
             draggable
             onDragStart={(event) => {
-              setDragging(true)
               dnd.onEntryDragStart(event, node)
+              // 对方文件改走系统拖动：HTML5 拖动已取消，不会有 dragend。
+              setDragging(!event.defaultPrevented)
             }}
             onDrag={(event) => dnd.onEntryDrag(event.clientX, event.clientY)}
             onDragEnd={() => {
@@ -230,40 +242,37 @@ export function RenderNode({
           />
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => onOpenFilePreview(node.path)}>
-            {tCommon("openFile")}
-          </ContextMenuItem>
           <SendToAgentMenuItem
             absolutePath={absolutePath}
             workspacePath={node.path}
             fileName={node.name}
           />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>{t("new")}</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem
-                onSelect={() => onRequestCreate(node.path, "file")}
-              >
-                {t("newFile")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => onRequestCreate(node.path, "dir")}
-              >
-                {t("newDirectory")}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => onCopyEntry(node)}>
+            {t("copy")}
+          </ContextMenuItem>
+          <PasteMenuItem onPaste={() => onPasteInto(parentDir(node.path))} />
+          <ContextMenuItem
+            onSelect={() =>
+              void copyPathToClipboard(absolutePath, t("toasts.copyPathFailed"))
+            }
+          >
+            {t("copyPath")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => onRequestRename(node)}>
+            {tCommon("rename")}
+          </ContextMenuItem>
+          {isDeviceProject ? null : (
+            <ContextMenuItem onSelect={() => void handleOpenInSystemExplorer()}>
+              {systemExplorerLabel}
+            </ContextMenuItem>
+          )}
           <ContextMenuSub>
             <ContextMenuSubTrigger disabled={isGitMenuDisabled}>
               {t("git")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              <ContextMenuItem
-                onSelect={() => onOpenCommitWindow()}
-                disabled={isGitMenuDisabled}
-              >
-                {t("actions.commitCode")}
-              </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => onRequestAddToVcs(node)}
                 disabled={
@@ -294,34 +303,7 @@ export function RenderNode({
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
-          <ContextMenuItem onSelect={() => onRequestRename(node)}>
-            {tCommon("rename")}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={onRefresh}>
-            {t("reloadFromDisk")}
-          </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>{t("openIn")}</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem
-                onSelect={() => void handleOpenInSystemExplorer()}
-              >
-                {systemExplorerLabel}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => void onOpenDirInTerminal(dirPath, node.name)}
-              >
-                {t("openInTerminal")}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuItem
-            onSelect={() =>
-              void copyPathToClipboard(absolutePath, t("toasts.copyPathFailed"))
-            }
-          >
-            {t("copyPath")}
-          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => onRequestDelete(node)}
             variant="destructive"
@@ -383,53 +365,31 @@ export function RenderNode({
           gitSubmodule={isRepoDir}
           title={isRepoDir ? repoDirLabel : symlinkTitle}
           iconClassName={isGitignoreIgnored ? GITIGNORE_MUTED_CLASS : undefined}
-          dropActive={dropActive || desktopDropDir === node.path}
+          dropActive={dropDir === node.path}
           dropTargetDir={node.path}
-          depth={depth}
+          depth={0}
+          guides={guides}
           rowProps={{
             draggable: true,
             className: dragging ? "opacity-70" : undefined,
             title: isRepoDir ? repoDirLabel : symlinkTitle,
             onDragStart: (event) => {
-              setDragging(true)
               dnd.onEntryDragStart(event, node)
+              setDragging(!event.defaultPrevented)
             },
             onDrag: (event) => dnd.onEntryDrag(event.clientX, event.clientY),
             onDragEnd: () => {
               setDragging(false)
-              setDropActive(false)
               dnd.onEntryDragEnd()
-            },
-            onDragOver: (event) => {
-              if (!dnd.canDropInto(node.path)) return
-              event.preventDefault()
-              event.dataTransfer.dropEffect = "move"
-              setDropActive(true)
-            },
-            onDragLeave: (event) => {
-              const related = event.relatedTarget
-              if (
-                related instanceof Node &&
-                event.currentTarget.contains(related)
-              )
-                return
-              setDropActive(false)
-            },
-            onDrop: (event) => {
-              setDropActive(false)
-              if (!dnd.canDropInto(node.path)) return
-              event.preventDefault()
-              event.stopPropagation()
-              dnd.onDropInto(node.path)
             },
           }}
         >
           {shouldRenderChildren
-            ? node.children.map((child) => (
+            ? node.children.map((child, index) => (
                 <RenderNode
                   key={child.path}
                   node={child}
-                  depth={depth + 1}
+                  guides={[...guides, index < node.children.length - 1]}
                   expandedPaths={expandedPaths}
                   workspacePath={workspacePath}
                   dnd={dnd}
@@ -441,10 +401,8 @@ export function RenderNode({
                   gitSubmodulePaths={gitSubmodulePaths}
                   ancestorGitignoreIgnored={isGitignoreIgnored}
                   ancestorUntracked={isThisDirUntracked}
-                  onOpenFilePreview={onOpenFilePreview}
                   onOpenFileDiff={onOpenFileDiff}
                   onOpenDirDiff={onOpenDirDiff}
-                  onOpenCommitWindow={onOpenCommitWindow}
                   onRequestCompareWithBranch={onRequestCompareWithBranch}
                   onRequestRollback={onRequestRollback}
                   onOpenDirInTerminal={onOpenDirInTerminal}
@@ -452,7 +410,8 @@ export function RenderNode({
                   onRequestAddToVcs={onRequestAddToVcs}
                   onRequestRename={onRequestRename}
                   onRequestDelete={onRequestDelete}
-                  onRefresh={onRefresh}
+                  onCopyEntry={onCopyEntry}
+                  onPasteInto={onPasteInto}
                 />
               ))
             : null}
@@ -477,17 +436,39 @@ export function RenderNode({
             </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => onCopyEntry(node)}>
+          {t("copy")}
+        </ContextMenuItem>
+        <PasteMenuItem onPaste={() => onPasteInto(node.path)} />
+        <ContextMenuItem
+          onSelect={() =>
+            void copyPathToClipboard(absolutePath, t("toasts.copyPathFailed"))
+          }
+        >
+          {t("copyPath")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => onRequestRename(node)}>
+          {tCommon("rename")}
+        </ContextMenuItem>
+        {isDeviceProject ? null : (
+          <ContextMenuItem
+            onSelect={() => void handleOpenDirInSystemExplorer()}
+          >
+            {systemExplorerLabel}
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem
+          onSelect={() => void onOpenDirInTerminal(absolutePath, node.name)}
+        >
+          {t("openInTerminal")}
+        </ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger disabled={isGitMenuDisabled}>
             {t("git")}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            <ContextMenuItem
-              onSelect={() => onOpenCommitWindow()}
-              disabled={isGitMenuDisabled}
-            >
-              {t("actions.commitCode")}
-            </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => onRequestAddToVcs(node)}
               disabled={isGitMenuDisabled}
@@ -515,34 +496,7 @@ export function RenderNode({
             </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
-        <ContextMenuItem onSelect={() => onRequestRename(node)}>
-          {tCommon("rename")}
-        </ContextMenuItem>
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>{t("openIn")}</ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            <ContextMenuItem
-              onSelect={() => void handleOpenDirInSystemExplorer()}
-            >
-              {systemExplorerLabel}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => void onOpenDirInTerminal(absolutePath, node.name)}
-            >
-              {t("openInTerminal")}
-            </ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-        <ContextMenuItem
-          onSelect={() =>
-            void copyPathToClipboard(absolutePath, t("toasts.copyPathFailed"))
-          }
-        >
-          {t("copyPath")}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onRefresh}>
-          {t("reloadFromDisk")}
-        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={() => onRequestDelete(node)}
           variant="destructive"
@@ -551,6 +505,32 @@ export function RenderNode({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+/** 文件树的「粘贴」：菜单打开时才挂载，这时才读剪贴板；没有可粘贴的文件时禁用。 */
+export function PasteMenuItem({ onPaste }: { onPaste: () => void }) {
+  const t = useTranslations("Folder.fileTreeTab")
+  const [entries, setEntries] = useState<FileTreeClipboardEntry[]>([])
+  useEffect(() => {
+    let disposed = false
+    void readPasteEntries().then((next) => {
+      if (!disposed) setEntries(next)
+    })
+    return () => {
+      disposed = true
+    }
+  }, [])
+  const label =
+    entries.length === 0
+      ? t("paste")
+      : entries.length === 1
+        ? t("pasteNamed", { name: entries[0].name })
+        : t("pasteCount", { count: entries.length })
+  return (
+    <ContextMenuItem disabled={entries.length === 0} onSelect={onPaste}>
+      {label}
+    </ContextMenuItem>
   )
 }
 

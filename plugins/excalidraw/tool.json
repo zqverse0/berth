@@ -21,13 +21,6 @@
         "embed": true,
         "new": [
           {
-            "title": {
-              "en": "Excalidraw drawing (Obsidian)",
-              "zh-CN": "Excalidraw 画板（Obsidian）"
-            },
-            "name": "drawing.excalidraw.md"
-          },
-          {
             "title": { "en": "Excalidraw drawing", "zh-CN": "Excalidraw 画板" },
             "name": "drawing.excalidraw"
           }

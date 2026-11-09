@@ -68,7 +68,6 @@
       "runtime": "System runtime",
       "backup": "Backup",
       "translate": "Translate",
-      "classifier": "Session classification",
       "logs": "Runtime logs"
     },
     "nav": {
@@ -1346,17 +1345,7 @@
       "filterTool": "Tool: {name}",
       "clearFilter": "Clear filter {name}",
       "openInReader": "Open in reader",
-      "noTerminalSession": "No session record for this terminal's agent in this project yet.",
-      "classify": {
-        "button": "Jev classify",
-        "hint": "Send the prompts of this session that haven't been classified to the decision model; matching passages are written straight to 「记录/」, and can be undone or recategorised under 「Memory → Jev activity」.",
-        "expert": "Expert",
-        "noExpert": "No expert",
-        "run": "Classify",
-        "running": "Classifying…",
-        "summary": "{provider} · {classified}/{rounds} answered prompts classified · {count} written",
-        "none": "Nothing written this time"
-      }
+      "noTerminalSession": "No session record for this terminal's agent in this project yet."
     },
     "conversationCard": {
       "untitledConversation": "Untitled conversation",
@@ -1454,7 +1443,6 @@
         "usedFormat": "Used {value} {unit}",
         "usageWithAbsoluteFormat": "{percent} ({absolute})",
         "resetCountdown": "Resets in {duration}",
-    "resetDone": "Reset",
         "resetDone": "Reset"
       }
     },
@@ -1473,7 +1461,8 @@
         "tasks": "Tasks",
         "memory": "Memory",
         "collaboration": "Collaboration",
-        "terminal": "Terminal"
+        "terminal": "Terminal",
+        "trajectory": "Agent trajectory"
       },
       "noFolderTitle": "No folder open",
       "noFolderHint": "Open a folder to see its contents here",
@@ -1504,6 +1493,8 @@
       "dropTabHere": "Drop tab here",
       "moveTabHere": "Move here",
       "splitRight": "Split right",
+      "pastePathHere": "Paste path",
+      "openFileHere": "Open here",
       "moveToLeftGroup": "Move to left group",
       "pinGlobal": "Show in all projects",
       "unpinGlobal": "Only show in this project",
@@ -1568,6 +1559,7 @@
       "casConflictHint": "Terminal is running. Open it from the project session manager if the tab did not appear.",
       "upgradeRequired": "Upgrade Berth to use personal terminals",
       "copyHandle": "Copy terminal ID",
+      "launchManifest": "View launch manifest",
       "handleCopied": "Copied {handle}",
       "closeTabDetach": "Close tab",
       "actionFailed": "Terminal action failed",
@@ -2111,12 +2103,14 @@
       "openInExplorer": "Open in Explorer",
       "attachToCurrentSession": "Add to session",
       "compareWithBranch": "Compare with branch...",
-      "reloadFromDisk": "Reload from disk",
       "new": "New",
       "newFile": "File",
       "newDirectory": "Directory",
-      "openIn": "Open in",
       "openInTerminal": "Open in terminal",
+      "copy": "Copy",
+      "paste": "Paste",
+      "pasteCount": "Paste {count} items",
+      "pasteNamed": "Paste “{name}”",
       "copyPath": "Copy path",
       "symlinkTooltip": "Symbolic link → {target}",
       "upload": "Upload files/folder",
@@ -2125,7 +2119,6 @@
       "actions": {
         "select": "Select",
         "unselect": "Unselect",
-        "commitCode": "Commit code",
         "rollback": "Rollback",
         "addToVcs": "Add to VCS"
       },
@@ -2135,7 +2128,6 @@
       "toasts": {
         "openDirectoryFailed": "Failed to open directory",
         "openBuiltinTerminalFailed": "Unable to open built-in terminal",
-        "openCommitWindowFailed": "Failed to open commit window",
         "noAddableFilesInDir": "No changed files in this directory can be added to VCS",
         "noRollbackFilesInDir": "No changed files in this directory can be rolled back",
         "addedToVcs": "Added {name} to VCS",
@@ -2156,6 +2148,17 @@
         "downloadSaved": "Downloaded {name}",
         "copyPathFailed": "Failed to copy path",
         "transferDirUnsupported": "Only files can be sent to another device — folders aren't supported yet.",
+        "pullNeedsUpgrade": "Berth on that device is too old — update it to drag files out.",
+        "pullingFromDevice": "Fetching {name} from the device…",
+        "pulledDragAgain": "{name} is ready here — drag it again to drop it in your file manager.",
+        "copied": "Copied {name}. Paste it into another folder or project.",
+        "pasted": "Pasted {name}",
+        "pasteNeedsUpgrade": "Berth on that device is too old — update it to paste this.",
+        "pastedCount": "Pasted {count} items",
+        "transferStartedCount": "Sending {count} files to the device",
+        "pasteFailed": "Couldn't paste",
+        "transferStarted": "Sending {name} to the device",
+        "dropPathFailed": "Couldn't paste the path into the terminal",
         "transferFailed": "Couldn't start the transfer"
       },
       "createDialog": {
@@ -3040,10 +3043,7 @@
       "incomplete": "Fill in the content and every question (choice: at least 2 distinct options; score: 2–10 levels)",
       "run": "Run",
       "confidence": "Confidence {value}",
-      "scoreValue": "Score {score}, closest to \"{level}\"",
-      "berthModelHint": "Berth's session classification and similar features use the global decision model.",
-      "setBerthModel": "Use as Berth's decision model",
-      "isBerthModel": "This is Berth's decision model"
+      "scoreValue": "Score {score}, closest to \"{level}\""
     },
     "keyGroupsSectionTitle": "Key Groups & Model Lists",
     "keyGroupsSectionHint": "Configure API keys with their respective model lists (automatically selected by model upon launch)",
@@ -3265,7 +3265,34 @@
     "promptPlaceholder": "This expert's prompt (Markdown), saved to the file shown above",
     "noMatch": "No matches",
     "pickAsset": "Click a name to see its details",
-    "noDetail": "No description file"
+    "noDetail": "No description file",
+    "memory": {
+      "title": "Expert memory",
+      "hint": "This expert's own memory, shared across projects and agents. Agents see the list at launch and read an entry when they need it. Project facts belong in the knowledge base, not here.",
+      "empty": "No memories yet",
+      "create": "New memory",
+      "seed": "preset",
+      "name": "Name",
+      "namePlaceholder": "lowercase-with-dashes",
+      "description": "Description",
+      "descriptionPlaceholder": "One line: agents decide whether to read it from this",
+      "body": "Content",
+      "save": "Save",
+      "delete": "Delete",
+      "deleteConfirm": "Delete memory {name}?",
+      "override": "Make it mine",
+      "seedHint": "Presets are read-only. Your copy takes over, and the preset stays."
+    },
+    "issues": {
+      "no-name": "Expert name is required",
+      "invalid-id": "Not a safe id (starts with a lowercase letter or digit; only lowercase letters, digits, . _ -). Launch would reject it",
+      "missing": "Not on disk",
+      "escapes": "Points outside its asset directory",
+      "reserved-key": "Reserved by Berth; can't be an asset field",
+      "invalid-key": "Field name is not a safe id",
+      "not-array": "Must be an array of ids",
+      "bad-mcp": "Not a valid MCP definition (JSON object)"
+    }
   },
   "BackupSettings": {
     "title": "Backup & Restore",
@@ -3568,6 +3595,14 @@
     "secretClear": "Clear"
   },
   "Knowledge": {
+    "inbox": {
+      "title": "To file",
+      "result": {
+        "done": "Done",
+        "abandoned": "Abandoned",
+        "dropped": "Dropped"
+      }
+    },
     "refresh": "Refresh",
     "search": "Search",
     "closeSearch": "Close search",
@@ -3577,36 +3612,13 @@
     "missingNote": "Note “{title}” does not exist",
     "empty": {
       "title": "No notes in the knowledge base yet",
-      "hint": "Notes are written and maintained by an Agent from the code (it shows you an outline first); you give input under Ideas.",
+      "hint": "Notes are written and maintained by an Agent from the code (it shows you an outline first).",
       "askAgent": "Ask an Agent",
       "agentRequest": "Run `berth guide knowledge` and follow 「更新知识库」 to write the first notes for this project: show me the outline before writing."
-    },
-    "tabs": {
-      "ideas": "Ideas",
-      "notes": "Knowledge",
-      "jev": "Jev activity"
     },
     "agent": {
       "sent": "Sent to {agent}",
       "launchFirst": "No Agent is running in this project: start one, then click again"
-    },
-    "ideas": {
-      "placeholder": "Jot down an idea or a problem in this project, #tag",
-      "saveHint": "Ctrl+Enter to save",
-      "save": "Save",
-      "empty": "No ideas yet. Write down whatever comes to mind, then discuss it with an Agent.",
-      "discuss": "Discuss with an Agent",
-      "drop": "Drop",
-      "showArchived": "Archived ({count})",
-      "restore": "Restore",
-      "hideArchived": "Hide archived",
-      "discussRequest": "Discuss idea {id} with me: run `berth guide knowledge` and follow 「处理想法」 (`berth project . knowledge idea show {id}` shows the original text).",
-      "status": {
-        "待讨论": "To discuss",
-        "讨论中": "Discussing",
-        "已落地": "Landed",
-        "已放下": "Dropped"
-      }
     },
     "outline": {
       "others": "Other notes"
@@ -3630,38 +3642,18 @@
       "backlinks": "Linked from",
       "missing": "Missing"
     },
-    "jev": {
-      "empty": "Nothing written yet. Turn on automatic classification, or click 「Jev classify」 on a session.",
-      "running": "Automatic classification is on: each time an expert Agent stops after a prompt, that prompt is sent to Jev. Only your corrections, pitfalls with a cause, and long-term decisions you approved are kept, in 「记录/」. Every call and its input are listed under Calls.",
-      "pause": "Pause",
-      "turn": "Prompt {turn}",
-      "undo": "Undo (remove from the file)",
-      "undone": "Undone",
-      "move": "Change category",
-      "callSubject": "session {session} prompt {turn}",
-      "callCost": "{ms} ms · {tokens} tokens",
-      "callSummary": "{count, plural, one {# question} other {# questions}}",
-      "callInput": "Input sent ({profile} · {model})",
-      "viewCalls": "Calls",
-      "viewWrites": "Writes",
-      "callsEmpty": "Jev has not been called for this project yet."
-    },
     "orbit": {
       "rings": {
         "map": "Maps",
         "concept": "Concepts",
         "module": "Modules",
-        "record": "Decisions & lessons",
-        "idea": "Ideas"
+        "record": "Decisions & lessons"
       },
       "center": "center",
       "ring": "ring {n}",
-      "filter": "Filter notes…",
-      "hint": "Click a node to see the note. The closer to the center, the more fundamental: maps in the middle, then concepts, modules, decisions & lessons, and undigested ideas on the outside.",
-      "layers": "Layers",
-      "recent": "Recently updated",
       "code": "Code",
-      "open": "Open note"
+      "open": "Open note",
+      "selectHint": "Click a node to see its links in the Memory sidebar"
     }
   },
   "ProjectHome": {
@@ -3669,7 +3661,7 @@
     "pulse": {
       "attention": "<b>{count}</b> waiting for you",
       "working": "<b>{count}</b> {count, plural, one {agent} other {agents}} working",
-      "tasks": "<b>{count}</b> {count, plural, one {task} other {tasks}} running",
+      "tasks": "<b>{count}</b> of {total} tasks in progress",
       "changes": "<b>{count}</b> uncommitted {count, plural, one {file} other {files}}"
     },
     "attention": {
@@ -3705,27 +3697,63 @@
       "attention": "needs you",
       "idle": "idle"
     },
-    "tasks": {
-      "title": "Current tasks",
-      "summary": "{running} in progress · {total} open",
-      "all": "All tasks",
-      "empty": "No open tasks"
+    "commits": {
+      "title": "Commits",
+      "total": "commits · last {weeks} weeks",
+      "stats": "This week {week} · longest streak {streak} days",
+      "cell": "{date} · {count} commits",
+      "month": "{month, select, 1 {Jan} 2 {Feb} 3 {Mar} 4 {Apr} 5 {May} 6 {Jun} 7 {Jul} 8 {Aug} 9 {Sep} 10 {Oct} 11 {Nov} other {Dec}}",
+      "less": "Less",
+      "more": "More",
+      "aria": "Daily heatmap of {total} commits over the last {weeks} weeks"
     },
-    "recent": {
-      "title": "Recent changes",
-      "summary": "{count} uncommitted",
-      "new": "new",
-      "open": "Open file",
-      "empty": "No changes yet"
+    "tokens": {
+      "title": "Token usage",
+      "summary": "this project's sessions · last 14 days",
+      "tokens": "Tokens",
+      "requests": "Requests",
+      "cacheHit": "Cache hit",
+      "output": "Output",
+      "empty": "No session usage in this project in the last 14 days",
+      "aria": "Daily token usage per agent over the last {days} days"
     },
     "knowledge": {
       "title": "Knowledge",
-      "summary": "{notes} notes · {ideas} ideas",
+      "summary": "{notes} notes",
       "empty": "No notes yet. Ask an agent to write the first notes from the Memory panel."
     },
     "disabled": {
       "hint": "Enable Berth to see tasks and knowledge here.",
       "enable": "Enable Berth"
+    }
+  },
+  "LaunchManifest": {
+    "title": "Launch manifest",
+    "loading": "Loading",
+    "none": "No launch manifest for this terminal: it wasn't started by Berth as an agent.",
+    "agent": "Agent",
+    "expert": "Expert",
+    "noExpert": "No expert",
+    "provider": "Provider",
+    "startedAt": "Started",
+    "cwd": "Directory",
+    "assets": "Assets ({count})",
+    "noAssets": "Nothing to report: no expert assets were provided and the plugin reported nothing.",
+    "plan": "Plan",
+    "inspection": "Verified against the agent",
+    "inspectionFailed": "Couldn't verify: {error}",
+    "unverified": "Unverified: this plugin can't check what was actually loaded.",
+    "nothingToVerify": "Nothing to verify.",
+    "prompt": "Prompt snapshot",
+    "open": "Open {path}",
+    "status": {
+      "unhandled": "Unhandled",
+      "applied": "Applied",
+      "converted": "Converted",
+      "skipped": "Skipped",
+      "isolated": "Isolated",
+      "kept": "Kept",
+      "unknown": "Unknown"
     }
   },
   "BerthTasks": {
@@ -3822,8 +3850,7 @@
       "members": "{count} members",
       "loading": "Loading…",
       "abandoned": "Abandoned",
-      "more": "More actions",
-      "toggleSteps": "Toggle steps of \"{title}\""
+      "more": "More actions"
     },
     "panes": {
       "attentionCount": "{count, plural, one {# agent needs attention} other {# agents need attention}}"
@@ -3974,6 +4001,10 @@
           "files": "Changed files ({count})",
           "noFiles": "No changed files reported yet"
         }
+      },
+      "sessions": {
+        "title": "Sessions",
+        "untitled": "Untitled session"
       },
       "steps": {
         "title": "Steps",
@@ -4171,6 +4202,14 @@
     "open_memory": {
       "title": "Open memory",
       "description": "Show the project knowledge base"
+    },
+    "switch_session": {
+      "title": "Switch session",
+      "description": "Recent first; search by title, project, agent or workspace"
+    },
+    "next_attention": {
+      "title": "Jump to what needs you",
+      "description": "Go to the next agent session waiting for you"
     }
   },
   "CommandPalette": {
@@ -4232,18 +4271,6 @@
     "unavailable": "The Agent terminal isn't available",
     "copiedInstead": "{reason}; copied to clipboard instead"
   },
-  "ClassifierSettings": {
-    "title": "Session classification",
-    "description": "TypeSafe Jev reads expert sessions and keeps only what the next Agent would get wrong without, or what you would otherwise repeat: your corrections and preferences, pitfalls with a cause, and long-term decisions you approved. They are appended to 「记录/」 in the knowledge base as leads for curating it. Process already in the session (approach, progress) is not kept. Each session also gets a handoff (「交接/expert-name/」: what was asked, what got done, what is pending, commits in the meantime) that Agents read when they need it. Every write is listed under 「Memory → Jev activity」, where you can undo it or change its category. When on, the content of Agent sessions in Berth terminals is sent to TypeSafe; sessions without an expert only get a handoff. 「Jev classify」 on a session page works regardless of this switch.",
-    "enable": "Process sessions automatically (records and handoffs)",
-    "invalid": "Fix the file and reopen this page. {error}",
-    "categories": "What to record (Jev scores each round against these)",
-    "enablePrompt": "Automatic classification is off. When on, Agent sessions in Berth terminals are sent to TypeSafe Jev, and hits and handoffs are written straight to files.",
-    "enableNow": "Turn on",
-    "decisionModel": "The decision model is set under 「Model providers」: open a model's decision panel on a decision profile and click 「Use as Berth's decision model」. Without one, the first decision profile is used.",
-    "fileHint": "Questions, criteria and thresholds are the prompts Jev receives; the defaults come from testing on real sessions. To tune them, edit classifier.json. What Jev answered for each round is under 「Memory → Jev activity → Calls」.",
-    "revealFile": "Show file"
-  },
   "PluginViews": {
     "refresh": "Refresh",
     "retry": "Try again",
@@ -4261,5 +4288,90 @@
     "exists": "{path} already exists",
     "open": "Open",
     "failed": "Clone failed"
+  },
+  "WorkspaceGroups": {
+    "defaultName": "Default",
+    "nameErrors": {
+      "empty": "Name cannot be empty",
+      "duplicate": "A workspace with this name already exists"
+    },
+    "current": "Current",
+    "attention": "Needs you",
+    "working": "Working",
+    "attentionCount": "{count} need you",
+    "workingCount": "{count} running",
+    "projectCount": "{count, plural, one {# project} other {# projects}}",
+    "more": "Workspace options",
+    "showFull": "Show everything",
+    "showRunning": "Show running only",
+    "rename": "Rename",
+    "create": "New workspace",
+    "delete": "Delete workspace",
+    "createTitle": "New workspace",
+    "renameTitle": "Rename workspace",
+    "nameLabel": "Name",
+    "emojiLabel": "Icon (optional)",
+    "save": "Save",
+    "deleteTitle": "Delete workspace \"{name}\"?",
+    "deleteDescription": "Its projects go back to \"{name}\". Projects, sessions and terminals are not affected.",
+    "moveTo": "Move to workspace",
+    "dropHere": "Drag projects here",
+    "unassigned": "Unassigned sessions",
+    "offlineReason": "Offline · see why",
+    "nextAttention": "Jump to the next session that needs you",
+    "noAttention": "No sessions need you right now",
+    "switcherTitle": "Switch session",
+    "switcherPlaceholder": "Search title, project, Agent or workspace",
+    "switcherEmpty": "No matching sessions",
+    "loadFailed": "Could not load workspaces",
+    "saveFailed": "Could not save workspaces",
+    "restoreList": "Back to the project list"
+  },
+  "ProjectPanel": {
+    "label": "Current project",
+    "onDevice": "Project on a device",
+    "noProject": "No project open",
+    "expand": "Expand panel",
+    "collapse": "Collapse panel",
+    "maximize": "Maximize",
+    "restore": "Restore"
+  },
+  "DevicePage": {
+    "gone": "This device was removed",
+    "overview": "Overview",
+    "target": "SSH target",
+    "system": "System",
+    "berthPath": "Berth on the device",
+    "version": "Version",
+    "versions": "Here {local} · there {remote}",
+    "checklist": "Checklist",
+    "steps": {
+      "ssh": "SSH connection",
+      "key": "Key login",
+      "berth": "Berth path",
+      "version": "Version",
+      "host": "Host running"
+    },
+    "states": {
+      "ok": "passed",
+      "fail": "failed",
+      "pending": "checking",
+      "skipped": "not checked"
+    },
+    "checks": {
+      "keyMissing": "Password login only: use \"Set up key login\" below to install this machine's public key",
+      "berthMissing": "Berth is not installed there; only SSH terminals are available",
+      "versionUnknown": "Berth there is too old to report its version",
+      "versionMismatch": "Versions differ: {local} here, {remote} there",
+      "berthOutdated": "Berth there is too old; upgrade it to use its projects",
+      "windowUnavailable": "Berth is not running there; it connects once opened"
+    },
+    "projects": "Projects",
+    "terminals": "Terminals",
+    "noTerminals": "No running terminals",
+    "actions": "Actions",
+    "removeTitle": "Remove device \"{name}\"?",
+    "removeDescription": "Only removes it from this machine; its projects and terminals are untouched there. Its projects leave every workspace.",
+    "cancel": "Cancel"
   }
 }

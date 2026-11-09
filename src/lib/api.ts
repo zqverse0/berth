@@ -14,6 +14,7 @@ import type {
   ProjectAgentSessionPageRequest,
   ResolveProjectAgentSessionResult,
   ProjectSessionOverview,
+  TokenUsageRow,
   SetCurrentDocumentContextRequest,
   PrimaryTab,
   PrimaryTabsSnapshot,
@@ -84,6 +85,14 @@ export async function listProjectSessionOverview(
     folderId,
     limit,
   })
+}
+
+/** 本项目近 `days` 天会话的 token 用量，按天 × Agent × 模型。 */
+export async function projectTokenUsage(
+  folderId: number,
+  days: number
+): Promise<TokenUsageRow[]> {
+  return getTransport().call("project_token_usage", { folderId, days })
 }
 
 export async function resolveProjectAgentSession(params: {
@@ -1283,6 +1292,22 @@ export async function moveFileTreeEntry(
   })
 }
 
+/**
+ * 把 `source`（绝对路径，可在别的项目）复制进 `rootPath` 下的 `destDir`；重名时自动改名。
+ * 两边必须在同一台机器上。返回新条目相对 `rootPath` 的路径。
+ */
+export async function copyFileTreeEntry(
+  source: string,
+  rootPath: string,
+  destDir: string
+): Promise<string> {
+  return getTransport().call("copy_file_tree_entry", {
+    source,
+    rootPath,
+    destDir,
+  })
+}
+
 export async function deleteFileTreeEntry(
   rootPath: string,
   path: string
@@ -1324,6 +1349,14 @@ export async function gitLog(
     allBranches: allBranches ?? null,
     withFiles: withFiles ?? null,
   })
+}
+
+/** 近 `days` 天每天的提交数（所有分支）；不是 git 仓库时为空。 */
+export async function gitCommitDays(
+  path: string,
+  days: number
+): Promise<{ date: string; count: number }[]> {
+  return getTransport().call("git_commit_days", { path, days })
 }
 
 export async function gitCurrentUser(path: string): Promise<string | null> {

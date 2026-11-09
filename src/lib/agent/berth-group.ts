@@ -317,6 +317,56 @@ export interface LaunchRecord {
   plan: Record<string, unknown> | null
 }
 
+/** 启动清单（宿主写到 `$BERTH_HOME/run/launches`）：提供了什么资产、插件报告了什么、哪些没人报告。 */
+export interface LaunchManifest {
+  id: string
+  agent: string
+  target: string | null
+  startedAt: number
+  cwd: string
+  inputs: Record<string, unknown>
+  expert: { id: string; name: string } | null
+  provider: { name: string; model: string | null } | null
+  prompt: { file: string | null; hash: string | null; text: string } | null
+  brief: number
+  declared: { kind: string; id: string; path: string }[]
+  report: {
+    kind: string
+    id: string
+    status: string
+    reason?: string
+    source?: string
+  }[]
+  unhandled: { kind: string; id: string }[]
+  plan: Record<string, unknown> | null
+}
+
+/** 这个终端最近一次启动的清单；不是 Berth 启动的 Agent 为 null。 */
+export async function readLaunchManifest(target: string) {
+  const response = await runtimeBridgeOperation<LaunchManifest | null>({
+    method: "expert.launch",
+    params: { target },
+  })
+  if (!response.ok) throw new Error(response.error.message)
+  return response.result
+}
+
+/** 插件 inspect 钩子的结果；`implemented` 为假是插件没实现，界面显示「未验证」。 */
+export interface LaunchInspection {
+  implemented: boolean
+  items: LaunchManifest["report"]
+}
+
+/** 对这个终端最近一次启动运行 inspect 钩子，核对声明与实际。 */
+export async function inspectLaunch(target: string) {
+  const response = await runtimeBridgeOperation<LaunchInspection>({
+    method: "expert.inspect",
+    params: { target },
+  })
+  if (!response.ok) throw new Error(response.error.message)
+  return response.result
+}
+
 /** `group.member`：成员详情页的数据，点开才读。 */
 export interface MemberDetail {
   name: string

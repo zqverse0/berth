@@ -10,18 +10,20 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react"
-import { revealItemInDir } from "@/lib/platform"
+import { startFileDrag } from "@/lib/platform"
 import {
   Check,
   ChevronRight,
   File,
+  FilePlus,
   Folder,
+  FolderPlus,
   Loader2,
   Search,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "@/lib/notify"
+import { dismissToast, toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
@@ -33,6 +35,22 @@ import {
   type FlatFileEntry,
 } from "@/hooks/workspace/use-file-tree"
 import { findOwningFolder } from "@/lib/files/file-open-target"
+import {
+  pastePathsIntoPane,
+  treeDropOverAt,
+} from "@/hooks/workspace/file-tree-pane-drop"
+import {
+  copyEntryToClipboard,
+  usePasteFileTreeEntry,
+} from "@/hooks/workspace/use-paste-file-tree-entry"
+import {
+  SidebarHeaderActions,
+  SidebarHeaderButton,
+} from "@/components/layout/sidebar/sidebar-header"
+import {
+  useWorkspaceLayoutStore,
+  type TreeDropOver,
+} from "@/stores/workspace-layout-store"
 import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
 import { WorkspaceDegradedBanner } from "@/components/layout/chrome/workspace-degraded-banner"
 import {
@@ -45,12 +63,14 @@ import {
   gitRollbackFile,
   moveFileTreeEntry,
   readFilePreview,
-  openCommitWindow,
   renameFileTreeEntry,
 } from "@/lib/api"
 import { isDesktop } from "@/lib/transport"
 import { emitAttachFileToSession } from "@/lib/agent/session-attachment-events"
 import {
+  cssDropPoint,
+  isOwnNativeDrag,
+  markOwnNativeDrag,
   resolveFileTreeDropZone,
   elementAtDropPosition,
   writeFileTreeDragData,
@@ -109,7 +129,7 @@ import {
 } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { joinFsPath } from "@/lib/files/path-utils"
-import { transferInto } from "@/lib/devices"
+import { pullDeviceFile, transferInto } from "@/lib/devices"
 import { parseDeviceRef } from "@/lib/transport/device"
 import {
   invalidateGitFolderCache,
@@ -127,10 +147,11 @@ import {
   prefixFileTreeNodePaths,
 } from "@/components/layout/file-tree/path-utils"
 import {
-  DesktopDropDirContext,
+  DropDirContext,
+  compactDragImagePng,
+  PasteMenuItem,
   RenderNode,
   applyCompactDragImage,
-  copyPathToClipboard,
   type FileActionTarget,
   type TreeDndHandlers,
 } from "@/components/layout/file-tree/file-tree-node"
@@ -413,12 +434,8 @@ export function FileTreeTab({
   // drag to *enter* the webview evicts the retained source so an unrelated
   // (also path-less) foreign drop can't replay a cancelled tree drag.
   const dragEndedRef = useRef(false)
-  // Desktop-only: the directory drop zone (relative path; "" = root) under the
-  // in-flight native drag, broadcast to rows via DesktopDropDirContext so they
-  // highlight it (WebKit doesn't deliver the DOM dragover that drives the web
-  // highlight). Null when no valid directory is under the cursor. Always null on
-  // the web, where the DOM path handles the highlight locally.
-  const [desktopDropDir, setDesktopDropDir] = useState<string | null>(null)
+  // 拖动中的合法放置目录（相对路径；"" = 根），经 DropDirContext 广播给各行高亮；没有落点时为 null。
+  const [dropDir, setDropDir] = useState<string | null>(null)
   // 当前原生拖动是不是系统文件（带路径）；打开的是不是对方项目（Tauri 监听只订一次，按 ref 读）。
   const osDragRef = useRef(false)
   const deviceRootRef = useRef(false)
@@ -901,8 +918,62 @@ export function FileTreeTab({
     row?.scrollIntoView({ block: "nearest" })
   }, [])
 
+  const handleCopyEntry = useCallback(
+    (target: FileActionTarget) => {
+      if (!folder?.path) return
+      copyEntryToClipboard({
+        absPath: joinFsPath(folder.path, target.path),
+        name: target.name,
+        kind: target.kind,
+      })
+      toast.success(t("toasts.copied", { name: target.name }))
+    },
+    [folder?.path, t]
+  )
+
+  const pasteEntry = usePasteFileTreeEntry()
+  const handlePasteInto = useCallback(
+    (destDir: string) => {
+      if (!folder?.path) return
+      void pasteEntry(folder.path, destDir).then((pasted) => {
+        if (pasted === null) return
+        if (destDir) {
+          setExpandedPaths((prev) => new Set(prev).add(destDir))
+        }
+        setFocusedTreePath(pasted)
+        void fetchTree()
+      })
+    },
+    [fetchTree, folder?.path, pasteEntry]
+  )
+
   const handleTreeKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        (event.key === "c" || event.key === "v")
+      ) {
+        const row = visibleTreeRows.find(
+          (item) => item.path === focusedTreePath
+        )
+        if (event.key === "c") {
+          if (!row) return
+          event.preventDefault()
+          handleCopyEntry({
+            kind: row.kind,
+            path: row.path,
+            name: row.path.split("/").pop() ?? row.path,
+          })
+        } else {
+          event.preventDefault()
+          handlePasteInto(
+            !row ? "" : row.kind === "dir" ? row.path : parentDir(row.path)
+          )
+        }
+        return
+      }
       const action = resolveTreeKeyboardAction(
         event.key,
         visibleTreeRows,
@@ -943,6 +1014,8 @@ export function FileTreeTab({
       toggleTreePath,
       folderId,
       openFilePreview,
+      handleCopyEntry,
+      handlePasteInto,
     ]
   )
 
@@ -985,10 +1058,83 @@ export function FileTreeTab({
     [closeFileTab, folder?.path, fetchTree, t]
   )
 
+  // 对方文件拖到系统文件管理器：系统拖动要本机文件，所以先拉到缓存，鼠标还按着就发起拖动。
+  // 大文件松手早了：拉完提示再拖一次（缓存命中，立刻开始）。
+  const dragDeviceFileOut = useCallback(
+    async (deviceId: number, source: string, node: FileTreeNode) => {
+      // 取文件期间松手就不再发起拖动；拖动开始后松手由 GTK 接管，页面收不到 mouseup。
+      let released = false
+      const onRelease = () => {
+        released = true
+      }
+      window.addEventListener("mouseup", onRelease, { once: true })
+      let cancel: (() => void) | null = null
+      let pullingAlert: string | null = null
+      const slow = window.setTimeout(() => {
+        pullingAlert = toast.info(
+          t("toasts.pullingFromDevice", { name: node.name }),
+          {
+            action: {
+              label: tCommon("cancel"),
+              onClick: () => cancel?.(),
+            },
+          }
+        )
+      }, 800)
+      try {
+        let local: string | null
+        try {
+          local = await pullDeviceFile(deviceId, source, (stop) => {
+            cancel = stop
+          })
+        } finally {
+          window.clearTimeout(slow)
+          if (pullingAlert) dismissToast(pullingAlert)
+          window.removeEventListener("mouseup", onRelease)
+        }
+        if (!local) return
+        if (released) {
+          toast.success(t("toasts.pulledDragAgain", { name: node.name }))
+          return
+        }
+        // 放回窗口里仍按树内拖动提交（移动、放进输入框），见 commitDesktopDrop。
+        dragSourceRef.current = {
+          relPath: node.path,
+          kind: "file",
+          parentDir: parentDir(node.path),
+        }
+        dragEndedRef.current = false
+        markOwnNativeDrag(local)
+        await startFileDrag(local, compactDragImagePng(node.name))
+        dragEndedRef.current = true
+      } catch (error) {
+        const message = toErrorMessage(error)
+        toast.error(t("toasts.transferFailed"), {
+          // 对方节点比本机旧，不认识下载请求。
+          description: message.includes("unknown variant `get_begin`")
+            ? t("toasts.pullNeedsUpgrade")
+            : message,
+        })
+      }
+    },
+    [t, tCommon]
+  )
+
   const onEntryDragStart = useCallback(
     (event: React.DragEvent, node: FileTreeNode) => {
       const rootPath = folder?.path
       if (!rootPath) return
+      const device = parseDeviceRef(rootPath)
+      if (device && node.kind === "file" && isDesktop()) {
+        event.preventDefault()
+        setFocusedTreePath(node.path)
+        void dragDeviceFileOut(
+          device.deviceId,
+          joinFsPath(device.value, node.path),
+          node
+        )
+        return
+      }
       const absPath = joinFsPath(rootPath, node.path)
       const payload: FileTreeDragPayload = {
         rootPath,
@@ -1012,16 +1158,10 @@ export function FileTreeTab({
       // this survives the whole drag.
       setFocusedTreePath(node.path)
     },
-    [folder?.path]
+    [dragDeviceFileOut, folder?.path]
   )
 
-  // Desktop drop-target highlight. WebKit swallows the target-side DOM dragover
-  // during a native drag (only source-side dragstart/drag/dragend reach the DOM
-  // — the same reason the drop is committed from Tauri's native event), so the
-  // per-row onDragOver highlight never runs on desktop. The source-side `drag`
-  // event DOES fire, with the cursor already in CSS px, so we hit-test it here to
-  // light up the directory under the cursor. Web keeps its own onDragOver path;
-  // this early-returns there so desktopDropDir stays null and forces no re-render.
+  // 桌面端的放置高亮：WebKit 拖动时不发目标侧的 dragover，但源侧的 `drag` 事件带着光标位置，据此命中。
   const onEntryDrag = useCallback((clientX: number, clientY: number) => {
     if (!isDesktop()) return
     // Some `drag` frames report (0,0) before the cursor is tracked — ignore them
@@ -1029,17 +1169,20 @@ export function FileTreeTab({
     if (clientX === 0 && clientY === 0) return
     const src = dragSourceRef.current
     if (!src) {
-      setDesktopDropDir(null)
+      setDropDir(null)
       return
     }
     const zone = resolveFileTreeDropZone(
       document.elementFromPoint(clientX, clientY)
     )
-    setDesktopDropDir(
+    setDropDir(
       zone?.kind === "dir" && canMoveEntry(src, zone.destDir)
         ? zone.destDir
         : null
     )
+    useWorkspaceLayoutStore
+      .getState()
+      .setTreeDropOver(treeDropOverAt(clientX, clientY, src.kind))
   }, [])
 
   const onEntryDragEnd = useCallback(() => {
@@ -1056,37 +1199,87 @@ export function FileTreeTab({
     } else {
       dragSourceRef.current = null
     }
-    // Drop the desktop highlight on any drag end (including cancel). `dragend`
-    // fires on desktop even though `drop` doesn't, and precedes the trailing
-    // native DRAG_DROP; the pending move still reads the retained dragSourceRef.
-    // No-op on the web (already null → React bails out).
-    setDesktopDropDir(null)
+    // Drop the highlight on any drag end (including cancel). `dragend` fires on
+    // desktop even though `drop` doesn't, and precedes the trailing native
+    // DRAG_DROP; the pending move still reads the retained dragSourceRef.
+    setDropDir(null)
+    useWorkspaceLayoutStore.getState().setTreeDropOver(null)
   }, [])
 
-  const canDropInto = useCallback((destDir: string) => {
+  // 网页端的放置：容器统一接 dragover / drop，按光标下的 `data-tree-drop-dir` 命中。
+  const dropDirAt = useCallback((target: EventTarget) => {
     const src = dragSourceRef.current
-    return src ? canMoveEntry(src, destDir) : false
+    if (!src || !(target instanceof Element)) return null
+    const zone = resolveFileTreeDropZone(target)
+    return zone?.kind === "dir" && canMoveEntry(src, zone.destDir)
+      ? zone.destDir
+      : null
   }, [])
 
-  const onDropInto = useCallback(
-    (destDir: string) => {
-      const src = dragSourceRef.current
-      dragSourceRef.current = null
-      if (!src) return
-      void handleMoveEntry(src.relPath, destDir)
+  // 放到分栏上：终端粘贴路径（对方的文件粘贴对方机器上的路径），否则在这一栏打开。
+  const commitPaneDrop = useCallback(
+    async (over: TreeDropOver, relPath: string) => {
+      const rootPath = folder?.path
+      if (!rootPath) return
+      const absPath = joinFsPath(rootPath, relPath)
+      if (over.action === "paste") {
+        const path = parseDeviceRef(absPath)?.value ?? absPath
+        if (!(await pastePathsIntoPane(over.pane, [path]))) {
+          toast.error(t("toasts.dropPathFailed"))
+        }
+        return
+      }
+      if (folderId == null) return
+      await openFilePreview(relPath, { folderId })
+      const tab = useWorkspaceFileStore
+        .getState()
+        .fileTabs.find((item) => item.kind === "file" && item.path === absPath)
+      if (tab) {
+        useWorkspaceLayoutStore
+          .getState()
+          .dropWorkspaceTab({ kind: "file", id: tab.id }, over.pane, null)
+      }
     },
-    [handleMoveEntry]
+    [folder?.path, folderId, openFilePreview, t]
   )
 
+  // 网页端放到分栏上：树和插件页自己接的 drop 已 preventDefault，这里只管剩下的。
+  useEffect(() => {
+    if (isDesktop()) return
+    const overAt = (event: DragEvent) => {
+      const src = dragSourceRef.current
+      return src && !event.defaultPrevented
+        ? treeDropOverAt(event.clientX, event.clientY, src.kind)
+        : null
+    }
+    const onDragOver = (event: DragEvent) => {
+      const over = overAt(event)
+      useWorkspaceLayoutStore.getState().setTreeDropOver(over)
+      if (!over || !event.dataTransfer) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = "copy"
+    }
+    const onDrop = (event: DragEvent) => {
+      const over = overAt(event)
+      const src = dragSourceRef.current
+      useWorkspaceLayoutStore.getState().setTreeDropOver(null)
+      if (!over || !src) return
+      event.preventDefault()
+      dragSourceRef.current = null
+      void commitPaneDrop(over, src.relPath)
+    }
+    window.addEventListener("dragover", onDragOver)
+    window.addEventListener("drop", onDrop)
+    return () => {
+      window.removeEventListener("dragover", onDragOver)
+      window.removeEventListener("drop", onDrop)
+      useWorkspaceLayoutStore.getState().setTreeDropOver(null)
+    }
+  }, [commitPaneDrop])
+
   const treeDndValue = useMemo<TreeDndHandlers>(
-    () => ({
-      onEntryDragStart,
-      onEntryDrag,
-      onEntryDragEnd,
-      canDropInto,
-      onDropInto,
-    }),
-    [onEntryDragStart, onEntryDrag, onEntryDragEnd, canDropInto, onDropInto]
+    () => ({ onEntryDragStart, onEntryDrag, onEntryDragEnd }),
+    [onEntryDragStart, onEntryDrag, onEntryDragEnd]
   )
 
   // Desktop commit path. Tauri's webview drag-drop handler always reports the
@@ -1098,7 +1291,9 @@ export function FileTreeTab({
   // and we hit-test the drop coordinates against the `data-tree-drop-*` markers
   // to decide between a directory move and a composer insert.
   const commitDesktopDrop = useCallback(
-    (paths: string[], position: { x: number; y: number }) => {
+    (droppedPaths: string[], position: { x: number; y: number }) => {
+      // 自己发起的系统拖动放回窗口：按树内拖动处理，缓存路径不是用户要传的文件。
+      const paths = isOwnNativeDrag(droppedPaths[0]) ? [] : droppedPaths
       const hit = () => resolveFileTreeDropZone(elementAtDropPosition(position))
       // 系统文件拖进打开着的对方项目的目录：传过去。
       const device = folder?.path ? parseDeviceRef(folder.path) : null
@@ -1128,7 +1323,12 @@ export function FileTreeTab({
       const rootPath = folder?.path
       if (!rootPath) return
       const zone = hit()
-      if (!zone) return
+      if (!zone) {
+        const point = cssDropPoint(position)
+        const over = treeDropOverAt(point.x, point.y, src.kind)
+        if (over) void commitPaneDrop(over, src.relPath)
+        return
+      }
       if (zone.kind === "device") {
         // 拖到另一台设备的项目里：传过去（目录暂不支持）。
         if (src.kind === "dir") {
@@ -1151,7 +1351,7 @@ export function FileTreeTab({
         })
       }
     },
-    [folder?.path, handleMoveEntry, t]
+    [commitPaneDrop, folder?.path, handleMoveEntry, t]
   )
   // Read at event time so the Tauri listener can subscribe once (below) yet
   // always see the latest folder / move handler.
@@ -1174,7 +1374,7 @@ export function FileTreeTab({
       // CSS px; elsewhere physical ÷ DPR), and only a *droppable* directory
       // (canMoveEntry) lights up — hovering a file, the composer, or an invalid
       // target clears it.
-      const resolveDesktopDropDir = (position: {
+      const resolveNativeDropDir = (position: {
         x: number
         y: number
       }): string | null => {
@@ -1190,18 +1390,29 @@ export function FileTreeTab({
         position: { x: number; y: number }
       }>(TauriEvent.DRAG_OVER, (event) => {
         if (cancelled) return
-        setDesktopDropDir(resolveDesktopDropDir(event.payload.position))
+        setDropDir(resolveNativeDropDir(event.payload.position))
+        // 系统文件的放置提示归 useOsFileDropToTerminals。
+        if (osDragRef.current) return
+        const src = dragSourceRef.current
+        const point = cssDropPoint(event.payload.position)
+        useWorkspaceLayoutStore
+          .getState()
+          .setTreeDropOver(
+            src ? treeDropOverAt(point.x, point.y, src.kind) : null
+          )
       })
       const unlistenLeave = await webview.listen(TauriEvent.DRAG_LEAVE, () => {
         if (cancelled) return
-        setDesktopDropDir(null)
+        setDropDir(null)
+        useWorkspaceLayoutStore.getState().setTreeDropOver(null)
       })
       const unlistenDrop = await webview.listen<{
         paths: string[]
         position: { x: number; y: number }
       }>(TauriEvent.DRAG_DROP, (event) => {
         if (cancelled) return
-        setDesktopDropDir(null)
+        setDropDir(null)
+        useWorkspaceLayoutStore.getState().setTreeDropOver(null)
         commitDesktopDropRef.current(
           event.payload.paths,
           event.payload.position
@@ -1215,7 +1426,8 @@ export function FileTreeTab({
         paths: string[]
       }>(TauriEvent.DRAG_ENTER, (event) => {
         if (cancelled) return
-        osDragRef.current = event.payload.paths.length > 0
+        const first = event.payload.paths[0]
+        osDragRef.current = first !== undefined && !isOwnNativeDrag(first)
         if (dragEndedRef.current) {
           dragSourceRef.current = null
           dragEndedRef.current = false
@@ -1243,7 +1455,7 @@ export function FileTreeTab({
   useEffect(() => {
     dragSourceRef.current = null
     dragEndedRef.current = false
-    setDesktopDropDir(null)
+    setDropDir(null)
   }, [folder?.path])
 
   const handleOpenDirInTerminal = useCallback(
@@ -1260,16 +1472,6 @@ export function FileTreeTab({
     },
     [folder, t, tTerminal]
   )
-
-  const handleOpenCommitWindow = useCallback(() => {
-    if (!folder) return
-    openCommitWindow(folder.id).catch((error) => {
-      const message = toErrorMessage(error)
-      toast.error(t("toasts.openCommitWindowFailed"), {
-        description: message,
-      })
-    })
-  }, [folder, t])
 
   const handleRequestCreate = useCallback(
     (parentPath: string, kind: "file" | "dir") => {
@@ -1887,21 +2089,18 @@ export function FileTreeTab({
     return baseName(folder.path)
   }, [folder?.path, t])
 
-  const systemExplorerLabel =
-    typeof navigator === "undefined"
-      ? t("openInFileManager")
-      : (() => {
-          const platform =
-            `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
-          if (platform.includes("mac")) return t("openInFinder")
-          if (platform.includes("win")) return t("openInExplorer")
-          return t("openInFileManager")
-        })()
-
   const rootTarget: FileActionTarget = useMemo(
     () => ({ kind: "dir", path: "", name: rootNodeName }),
     [rootNodeName]
   )
+
+  // 顶栏「新建」的落点：选中的文件夹，或选中文件所在的目录；没选中就是项目根。
+  const focusedRow = visibleTreeRows.find((row) => row.path === focusedTreePath)
+  const createParentDir = !focusedRow
+    ? ""
+    : focusedRow.kind === "dir"
+      ? focusedRow.path
+      : parentDir(focusedRow.path)
 
   const fileSearchBar =
     folder && !hideSearch ? (
@@ -2023,6 +2222,18 @@ export function FileTreeTab({
       {workspaceState.degraded && (
         <WorkspaceDegradedBanner onRetry={workspaceState.restart} />
       )}
+      <SidebarHeaderActions>
+        <SidebarHeaderButton
+          icon={FilePlus}
+          label={t("createDialog.newFile")}
+          onClick={() => handleRequestCreate(createParentDir, "file")}
+        />
+        <SidebarHeaderButton
+          icon={FolderPlus}
+          label={t("createDialog.newDirectory")}
+          onClick={() => handleRequestCreate(createParentDir, "dir")}
+        />
+      </SidebarHeaderActions>
       {fileSearchBar}
       {fileSearchActive && fileSearchResults}
       {!fileSearchActive && folder.path && (
@@ -2051,7 +2262,7 @@ export function FileTreeTab({
               className={cn(
                 "border-0 rounded-none bg-transparent w-max min-w-full min-h-full px-1.5 focus:outline-none focus-visible:outline-none",
                 // 放到空白处 = 放进项目根目录：整棵树着色。
-                desktopDropDir === "" && "bg-muted-foreground/10"
+                dropDir === "" && "bg-muted-foreground/10"
               )}
               expanded={expandedPaths}
               onExpandedChange={setExpandedPaths}
@@ -2059,24 +2270,39 @@ export function FileTreeTab({
               onSelect={handleTreeSelect}
               data-tree-drop-dir=""
               onDragOver={(event) => {
-                if (!treeDndValue.canDropInto("")) return
+                const dest = dropDirAt(event.target)
+                setDropDir(dest)
+                if (dest === null) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = "move"
               }}
+              onDragLeave={(event) => {
+                const related = event.relatedTarget
+                if (
+                  related instanceof Node &&
+                  event.currentTarget.contains(related)
+                )
+                  return
+                setDropDir(null)
+              }}
               onDrop={(event) => {
-                if (!treeDndValue.canDropInto("")) return
+                const dest = dropDirAt(event.target)
+                setDropDir(null)
+                const src = dragSourceRef.current
+                if (dest === null || !src) return
                 event.preventDefault()
                 event.stopPropagation()
-                treeDndValue.onDropInto("")
+                dragSourceRef.current = null
+                void handleMoveEntry(src.relPath, dest)
               }}
             >
               {folder?.path && (
-                <DesktopDropDirContext.Provider value={desktopDropDir}>
+                <DropDirContext.Provider value={dropDir}>
                   {nodes.map((node) => (
                     <RenderNode
                       key={node.path}
                       node={node}
-                      depth={0}
+                      guides={[]}
                       expandedPaths={expandedPaths}
                       workspacePath={folder.path}
                       dnd={treeDndValue}
@@ -2088,10 +2314,6 @@ export function FileTreeTab({
                       gitSubmodulePaths={gitSubmodulePaths}
                       ancestorGitignoreIgnored={false}
                       ancestorUntracked={false}
-                      onOpenFilePreview={(path) => {
-                        if (folderId == null) return
-                        void openFilePreview(path, { folderId })
-                      }}
                       onOpenFileDiff={(path) => {
                         if (folderId == null) return
                         void openWorkingTreeDiff(path, { folderId })
@@ -2103,7 +2325,6 @@ export function FileTreeTab({
                           folderId,
                         })
                       }}
-                      onOpenCommitWindow={handleOpenCommitWindow}
                       onRequestCompareWithBranch={
                         handleRequestCompareWithBranch
                       }
@@ -2113,37 +2334,22 @@ export function FileTreeTab({
                       onRequestAddToVcs={handleAddToVcs}
                       onRequestRename={handleRequestRename}
                       onRequestDelete={handleRequestDelete}
-                      onRefresh={fetchTree}
+                      onCopyEntry={handleCopyEntry}
+                      onPasteInto={handlePasteInto}
                     />
                   ))}
-                </DesktopDropDirContext.Provider>
+                </DropDirContext.Provider>
               )}
             </FileTree>
           </ScrollArea>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>{t("new")}</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem onSelect={() => handleRequestCreate("", "file")}>
-                {t("newFile")}
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => handleRequestCreate("", "dir")}>
-                {t("newDirectory")}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <PasteMenuItem onPaste={() => handlePasteInto("")} />
           <ContextMenuSub>
             <ContextMenuSubTrigger disabled={!gitEnabled}>
               {t("git")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              <ContextMenuItem
-                onSelect={() => handleOpenCommitWindow()}
-                disabled={!gitEnabled}
-              >
-                {t("actions.commitCode")}
-              </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => void handleAddToVcs(rootTarget)}
                 disabled={!gitEnabled}
@@ -2175,46 +2381,6 @@ export function FileTreeTab({
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
-          <ContextMenuItem
-            onSelect={() => {
-              void fetchTree()
-            }}
-          >
-            {t("reloadFromDisk")}
-          </ContextMenuItem>
-          {folder?.path && (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>{t("openIn")}</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
-                  onSelect={() => {
-                    void revealItemInDir(folder.path)
-                  }}
-                >
-                  {systemExplorerLabel}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onSelect={() => {
-                    void handleOpenDirInTerminal(folder.path, rootNodeName)
-                  }}
-                >
-                  {t("openInTerminal")}
-                </ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          )}
-          {folder?.path && (
-            <ContextMenuItem
-              onSelect={() =>
-                void copyPathToClipboard(
-                  folder.path,
-                  t("toasts.copyPathFailed")
-                )
-              }
-            >
-              {t("copyPath")}
-            </ContextMenuItem>
-          )}
         </ContextMenuContent>
       </ContextMenu>
 

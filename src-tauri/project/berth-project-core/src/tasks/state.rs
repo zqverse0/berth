@@ -36,6 +36,9 @@ pub(crate) struct Live {
     /// 任务引用的项目群内部键；成员归属不读取任务引用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// 重开过且还没记下新步骤：步骤早已全部合并，不能马上又被自动归档。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reopened: bool,
 }
 
 impl Live {

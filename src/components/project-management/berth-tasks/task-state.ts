@@ -50,3 +50,18 @@ export function samePath(a: string, b: string): boolean {
 export function isFileTask(view: Pick<BerthTaskView, "prd">): boolean {
   return /\.md$/.test(view.prd) && !/[\\/]prd\.md$/.test(view.prd)
 }
+
+/** 正文「## 目标」一节的内容（任务页摘要）；没有这一节时为 null。 */
+export function taskGoal(body: string): string | null {
+  const lines = body.split("\n")
+  const start = lines.findIndex((line) => line.trim() === "## 目标")
+  if (start < 0) return null
+  const end = lines.findIndex(
+    (line, index) => index > start && line.startsWith("## ")
+  )
+  const goal = lines
+    .slice(start + 1, end < 0 ? undefined : end)
+    .join("\n")
+    .trim()
+  return goal || null
+}

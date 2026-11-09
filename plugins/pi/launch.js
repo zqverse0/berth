@@ -278,6 +278,114 @@ async function inputArgs(/** @type {import("berth").LaunchContext} */ ctx) {
   return args
 }
 
+// 已知的运行状态，软链进会话没有上下文影响；其余条目在启动清单里报 unknown，CLI 升级新增的目录能被看到。
+const KNOWN_STATE = new Set([
+  "auth.json",
+  "backups",
+  "bin",
+  "extension-settings",
+  "git",
+  "install",
+  "locks.json",
+  "mcp-cache.json",
+  "mcp-onboarding.json",
+  "models-generated.json",
+  "models-store.json",
+  "models.json",
+  "npm",
+  "pi-crash.log",
+  "sessions",
+  "tmp",
+  "trust.json",
+  "web-search-cache",
+])
+
+/** 专家记忆资产：`<目录>/MEMORY.md` 索引注入提示词，正文按需经 expert-memory MCP 读。还没有记忆时不注入。 */
+async function memoryIndex(/** @type {import("berth").LaunchContext} */ ctx) {
+  const asset = ctx.assets?.memory?.[0]
+  if (!asset) return null
+  const source = `${asset.path}/MEMORY.md`
+  const text = (await fs.stat(source)) ? await fs.readText(source) : ""
+  return { name: asset.name, source, text: text.trim() }
+}
+
+/** 每项资产的实际结果和未隔离 / 未识别的目录进启动清单；旧宿主没有 report。 */
+async function reportAssets(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  /** @type {string[]} */ sharedSkills,
+  /** @type {Awaited<ReturnType<typeof memoryIndex>>} */ memory
+) {
+  const native = new Set(ctx.expert?.plugins.map((plugin) => plugin.name))
+  const source = piSourceDir(ctx.paths.home)
+  const names =
+    (await fs.stat(source))?.kind === "dir" ? await fs.list(source) : []
+  /** @type {import("berth").ReportItem[]} */
+  const items = [
+    ...(ctx.assets?.prompt ?? []).map((asset) => ({
+      kind: "prompt",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "--append-system-prompt，追加在默认系统提示词之后",
+    })),
+    ...(ctx.assets?.skills ?? []).map((asset) => ({
+      kind: "skills",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "--skill",
+    })),
+    ...(ctx.assets?.mcp ?? []).map((asset) => ({
+      kind: "mcp",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "--mcp-config",
+    })),
+    ...(ctx.assets?.plugins ?? []).map((asset) =>
+      native.has(asset.name)
+        ? {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("applied"),
+            reason: "--extension",
+          }
+        : {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("skipped"),
+            reason: "不是 Pi 原生包（package.json#pi 或 extensions/）",
+          }
+    ),
+    ...(memory
+      ? [
+          {
+            kind: "memory",
+            id: memory.name,
+            status: /** @type {const} */ ("applied"),
+            reason: memory.text
+              ? "索引经 --append-system-prompt 追加"
+              : "还没有记忆，索引为空",
+            // 还没有记忆时索引不存在，不给打不开的路径。
+            source: memory.text ? memory.source : undefined,
+          },
+        ]
+      : []),
+    ...sharedSkills.map((name) => ({
+      kind: "native-skills",
+      id: name,
+      status: /** @type {const} */ ("kept"),
+      reason: "~/.agents/skills 按 $HOME 定位，Pi 没有开关能关闭",
+    })),
+    ...names
+      .filter((name) => !USER_LEVEL.has(name) && !KNOWN_STATE.has(name))
+      .map((name) => ({
+        kind: "native-dir",
+        id: name,
+        status: /** @type {const} */ ("unknown"),
+        reason: "未识别，已软链进会话",
+      })),
+  ]
+  ctx.report?.(items)
+}
+
 /** @type {import("berth").AgentHooks} */
 export default {
   /** Pi 原生包：package.json 有 `pi` 清单，或有约定的 extensions/ 目录（docs/packages.md）。 */
@@ -309,6 +417,8 @@ export default {
 
     const args = []
     if (expert?.prompt) args.push("--append-system-prompt", expert.prompt)
+    const memory = await memoryIndex(ctx)
+    if (memory?.text) args.push("--append-system-prompt", memory.text)
     if (ctx.brief) args.push("--append-system-prompt", ctx.brief)
     for (const skill of skills) args.push("--skill", skill.path)
     for (const extension of [...extensions, ...packages])
@@ -335,17 +445,19 @@ export default {
       )
       args.push("--mcp-config", configPath)
     }
+    const sharedNames =
+      (await fs.stat(sharedSkills))?.kind === "dir"
+        ? (await fs.list(sharedSkills)).sort()
+        : []
     ctx.plan({
       expert: expert?.id ?? null,
       skills: skills.map((skill) => skill.name),
       extensions: global.extensions,
       mcp: Object.keys(servers).sort(),
       packages: (settings.packages ?? []).map(packageSource),
-      sharedSkillsNotIsolated:
-        (await fs.stat(sharedSkills))?.kind === "dir"
-          ? (await fs.list(sharedSkills)).sort()
-          : [],
+      sharedSkillsNotIsolated: sharedNames,
     })
+    await reportAssets(ctx, sharedNames, memory)
     const env = { ...providerEnv, PI_CODING_AGENT_DIR: agentDir }
     return await process.run(
       "pi",

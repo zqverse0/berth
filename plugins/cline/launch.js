@@ -161,6 +161,53 @@ async function writeModeSettings(
   return path
 }
 
+/** 每项资产的实际结果和未隔离的共享路径进启动清单；旧宿主没有 report。 */
+function reportAssets(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  /** @type {string[]} */ shared
+) {
+  /** @type {import("berth").ReportItem[]} */
+  const items = [
+    ...(ctx.assets?.prompt ?? []).map((asset) => ({
+      kind: "prompt",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "写成会话 rules/berth-expert.md",
+    })),
+    ...(ctx.assets?.skills ?? []).map((asset) => ({
+      kind: "skills",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "会话 CLINE_DIR/skills",
+    })),
+    ...(ctx.assets?.mcp ?? []).map((asset) => ({
+      kind: "mcp",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "CLINE_MCP_SETTINGS_PATH，transport 按 Cline 格式",
+    })),
+    ...(ctx.assets?.memory ?? []).map((asset) => ({
+      kind: "memory",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
+    })),
+    ...(ctx.assets?.plugins ?? []).map((asset) => ({
+      kind: "plugins",
+      id: asset.name,
+      status: /** @type {const} */ ("skipped"),
+      reason: "Cline 没有原生插件格式",
+    })),
+    ...shared.map((path) => ({
+      kind: "native-dir",
+      id: path,
+      status: /** @type {const} */ ("kept"),
+      reason: "按 $HOME 定位，Cline 没有开关能关闭",
+    })),
+  ]
+  ctx.report?.(items)
+}
+
 /** @type {import("berth").AgentHooks} */
 export default {
   args(inputs) {
@@ -218,6 +265,7 @@ export default {
       mcp: Object.keys(servers).sort(),
       sharedNotIsolated: shared,
     })
+    reportAssets(ctx, shared)
     // local：会话在本进程跑。默认 auto 会经 data/locks 找到或拉起常驻 hub，hub 用的是
     // 它自己启动时的 CLINE_DIR——既会绕过本会话镜像，也会让本会话拉起的 hub 污染之后的普通会话
     /** @type {Record<string, string>} */

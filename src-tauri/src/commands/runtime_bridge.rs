@@ -2,10 +2,10 @@
 //!
 //! Methods:
 //! - `task.*` / `group.*` — project tasks and groups
-//! - `knowledge.*` — knowledge vault（`knowledge.classify` / `experts` / `classifier` / `setClassifier`：会话 Jev 分类）
-//! - `decision.*` — 决策模型（Jev）：全局设置与一次判别（`src/decision.rs`）
+//! - `knowledge.*` — knowledge vault
 //! - `device.*` — 可 SSH 连接的其他设备（`src/devices.rs`）
-//! - `expert.*` — 设置 →「专家」：`catalog` / `save` / `create` / `delete` / `asset`（`berth_tool_core::experts`）
+//! - `expert.*` — 设置 →「专家」：`catalog` / `save` / `create` / `delete` / `asset`（`berth_tool_core::experts`）；`options`（id 与名字）
+//! - `workspaceGroups.*` — 侧栏工作区分组（`src/workspace_groups.rs`）
 //! - `berth.init` / `berth.status` — enable Berth in a project / whether it is enabled
 
 use serde::Deserialize;
@@ -112,28 +112,32 @@ pub async fn runtime_bridge_operation(
             };
         }
 
-        // 会话分类、`decision.*`（Jev）与 `device.*` 要异步、要数据库，不走下面的阻塞分发。
-        const CLASSIFY_METHODS: &[&str] = &[
-            "knowledge.classify",
-            "knowledge.experts",
-            "knowledge.classifier",
-            "knowledge.setClassifier",
-        ];
-        if CLASSIFY_METHODS.contains(&method.as_str())
-            || method.starts_with("decision.")
-            || method.starts_with("device.")
-            || method.starts_with("expert.")
+        // `device.*`、`expert.*`、`workspaceGroups.*` 是全局的（不属于某个项目），不走下面按项目的分发。
+        if ["device.", "expert.", "workspaceGroups."]
+            .iter()
+            .any(|prefix| method.starts_with(prefix))
         {
             let started = Instant::now();
             let outcome = if method.starts_with("expert.") {
-                expert_operation(&method, &params)
-            } else if method == "knowledge.experts" {
-                crate::knowledge::classify::experts()
-            } else if method == "knowledge.classifier" {
-                Ok(crate::knowledge::classify::settings())
-            } else if method.starts_with("decision.") {
-                crate::decision::dispatch(&db.conn, &method, &params).await
-            } else if method.starts_with("device.") {
+                // 读写专家目录是同步 IO：不占 async 运行时的工作线程
+                let method = method.clone();
+                tokio::task::spawn_blocking(move || expert_operation(&method, &params))
+                    .await
+                    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?
+            } else if method.starts_with("workspaceGroups.") {
+                use tauri::Manager;
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map(|dir| crate::platform::paths::resolve_effective_data_dir(&dir))
+                    .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+                let method = method.clone();
+                tokio::task::spawn_blocking(move || {
+                    crate::workspace_groups::dispatch(&data_dir, &method, &params)
+                })
+                .await
+                .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?
+            } else {
                 use tauri::Manager;
                 let mount_root = app
                     .path()
@@ -144,21 +148,6 @@ pub async fn runtime_bridge_operation(
                     .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
                 let emitter = crate::event_bridge::EventEmitter::Tauri(app.clone());
                 crate::devices::dispatch(&db, &emitter, &mount_root, &method, &params).await
-            } else if method == "knowledge.setClassifier" {
-                crate::knowledge::classify::save_settings(&params)
-            } else {
-                let folder_id = args
-                    .folder_id
-                    .ok_or_else(|| AppCommandError::invalid_input("folderId is required"))?;
-                let folder = crate::commands::folders::get_folder_core(&db, folder_id)
-                    .await
-                    .map_err(AppCommandError::from)?;
-                crate::knowledge::classify::classify_session(
-                    &db.conn,
-                    std::path::Path::new(&folder.path),
-                    &params,
-                )
-                .await
             };
             return Ok(match outcome {
                 Ok(result) => json!({
@@ -239,6 +228,10 @@ fn expert_operation(method: &str, params: &Value) -> Result<Value, String> {
     let id = params["id"].as_str().unwrap_or_default();
     match method {
         "expert.catalog" => experts::catalog(&home),
+        // 只要 id 与名字（群组「添加专家」下拉）：不像 catalog 那样读提示词正文与技能
+        "expert.options" => crate::commands::launchbar::expert_options()
+            .map(Value::from)
+            .map_err(|error| error.to_string()),
         "expert.save" => {
             let expert = serde_json::from_value(params["expert"].clone())
                 .map_err(|error| format!("专家无效：{error}"))?;
@@ -254,10 +247,29 @@ fn expert_operation(method: &str, params: &Value) -> Result<Value, String> {
         "expert.asset" => {
             experts::asset(&home, params["kind"].as_str().unwrap_or_default(), id).map(Value::from)
         }
+        "expert.memoryList" => experts::memory_list(&home, id),
+        "expert.memorySave" => experts::memory_save(
+            &home,
+            id,
+            params["name"].as_str().unwrap_or_default(),
+            params["description"].as_str().unwrap_or_default(),
+            params["body"].as_str().unwrap_or_default(),
+        )
+        .map(|()| Value::Null),
+        "expert.memoryDelete" => {
+            experts::memory_delete(&home, id, params["name"].as_str().unwrap_or_default()).map(|()| Value::Null)
+        }
         "expert.create" => {
             experts::create(&home, id, params["name"].as_str().unwrap_or(id)).map(|()| Value::Null)
         }
         "expert.delete" => experts::delete(&home, id).map(|()| Value::Null),
+        // 任意终端的启动清单（`$BERTH_HOME/run/launches`）
+        "expert.launch" => experts::latest_launch(&home, params["target"].as_str().unwrap_or_default()),
+        // 插件可选的 inspect 钩子：核对这份清单的声明与实际，按需运行
+        "expert.inspect" => {
+            let manifest = experts::latest_launch(&home, params["target"].as_str().unwrap_or_default())?;
+            berth_plugin_api::agent::inspect(&home, &manifest, Box::new(|| Value::Null))
+        }
         _ => Err(format!("Unsupported expert operation: {method}")),
     }
 }

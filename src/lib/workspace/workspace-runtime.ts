@@ -28,6 +28,7 @@ import { fileOpenStrategyFromPath } from "@/lib/files/file-open-strategy"
 import {
   buildBerthSessionTabId,
   buildTaskTabId,
+  deviceTab,
   isResourceFileTab,
   isTextFileTab,
   type BaseWorkspaceTab,
@@ -113,6 +114,10 @@ export interface WorkspaceRuntimeActions {
   ) => void
   openBerthSessionTab: (
     options: BerthSessionTabOptions,
+    deps: WorkspaceRuntimeDependencies
+  ) => void
+  openDeviceTab: (
+    options: DeviceTabOptions,
     deps: WorkspaceRuntimeDependencies
   ) => void
   reloadOpenFileBackground: (
@@ -234,6 +239,11 @@ export interface TranscriptTabOptions {
 export interface BerthSessionTabOptions {
   folderId: number
   session: string
+  title: string
+}
+
+export interface DeviceTabOptions {
+  deviceId: number
   title: string
 }
 
@@ -871,6 +881,15 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     activateLayoutTab(id, deps)
   }
 
+  const openDeviceTab = (
+    options: DeviceTabOptions,
+    deps: WorkspaceRuntimeDependencies
+  ): void => {
+    const tab = deviceTab(options.deviceId, options.title)
+    if (!currentTab(tab.id)) useWorkspaceFileStore.getState().insertFileTab(tab)
+    activateLayoutTab(tab.id, deps)
+  }
+
   const openExternalConflictDiff = (
     filePath: string,
     diskContent: string,
@@ -1412,6 +1431,7 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     openTranscriptTab,
     openTaskTab,
     openBerthSessionTab,
+    openDeviceTab,
     reloadOpenFileBackground: (path, deps) =>
       workspaceFileRuntime.reloadOpenFileBackground(path, runtimeContext(deps)),
     bumpResourceRevision: (path) =>

@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
+import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
 import type { WorkspacePane } from "@/lib/workspace/workspace-tab-placement"
 
 /**
@@ -28,12 +29,19 @@ export function WorkspacePaneDropArea({
     ({ dragging, dragOverPane, dragInsertIndex }) =>
       dragging && dragInsertIndex === null ? dragOverPane : null
   )
+  const treeDropOver = useWorkspaceLayoutStore((state) => state.treeDropOver)
+  const treeDropLabel =
+    treeDropOver?.action === "paste" ? t("pastePathHere") : t("openFileHere")
   const feedback =
     dragOverPane === pane
       ? { label: t("moveTabHere"), half: false }
       : splitZone && dragOverPane === "files-split"
         ? { label: t("splitRight"), half: true }
-        : null
+        : treeDropOver?.pane === pane
+          ? { label: treeDropLabel, half: false }
+          : splitZone && treeDropOver?.pane === "files-split"
+            ? { label: t("splitRight"), half: true }
+            : null
 
   return (
     <div

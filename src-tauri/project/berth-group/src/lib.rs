@@ -379,7 +379,7 @@ pub fn member_detail(main: &Path, member: &str) -> TaskResult<Value> {
     Ok(json!({ "name": member, "leftAt": left_at, "bodies": bodies, "files": files }))
 }
 
-/// 专家（`$BERTH_HOME/experts`）与它们在项目群里的终端；`id` 给定时只看它，并附上它的规矩。
+/// 专家（`$BERTH_HOME/experts`）与它们在项目群里的终端；`id` 给定时只看它。
 pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> TaskResult<Value> {
     let all = berth_tool_core::paths::experts(&berth_tool_core::paths::berth_home_dir())
         .map_err(|message| TaskError::new("invalid_input", message))?;
@@ -394,10 +394,6 @@ pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> Tas
             .map(|row| row["bodies"].clone())
             .unwrap_or_else(|| json!([]))
     };
-    let rules_file = |expert: &str| {
-        let file = berth_project_core::knowledge::rules::rules_file(expert);
-        ctx.main.join(&file).is_file().then_some(file)
-    };
     let Some(id) = id else {
         let rows: Vec<Value> = all
             .iter()
@@ -406,7 +402,6 @@ pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> Tas
                 json!({
                     "id": id, "name": name,
                     "terminals": bodies.as_array().map_or(0, Vec::len),
-                    "rules": rules_file(id),
                 })
             })
             .collect();
@@ -419,8 +414,6 @@ pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> Tas
     Ok(json!({
         "id": id, "name": name,
         "terminals": bodies(id),
-        "rules": rules_file(id),
-        "rules_text": berth_project_core::knowledge::rules::brief(&ctx.main, id),
     }))
 }
 

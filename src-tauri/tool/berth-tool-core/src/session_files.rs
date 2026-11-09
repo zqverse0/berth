@@ -2,17 +2,17 @@
 //! CLI `berth session` 与桌面会话视图共用；桌面 transcript 阅读器仍走 GUI 的声明式 reader。
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::sessions::{
     context_items, expand_path, file_extension, json_document_records, load_session_spec,
     matches_file_pattern, message_record, parse_usage, push_context, record_matches, select_json,
-    select_json_with_path, select_relative, session_index_record, value_string, ContextItem,
-    MessageRecord, SessionSpec,
+    select_json_with_path, select_relative, session_index_record, value_string, value_text,
+    ContextItem, MessageRecord, SessionSpec,
 };
 
 const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -72,6 +72,28 @@ pub fn records(spec: &SessionSpec, path: &Path) -> Box<dyn Iterator<Item = Value
                 .filter_map(|line| serde_json::from_slice::<Value>(&line).ok()),
         ),
     )
+}
+
+/// JSONL 文件从 `offset` 起新追加的完整行（还没写完的末行留到下次）：记录与下次的起点。
+/// 正在写的大会话文件只读增量，不必每次从头解析。
+pub fn appended_records(path: &Path, offset: u64) -> (Vec<Value>, u64) {
+    let mut bytes = Vec::new();
+    let read = fs::File::open(path).and_then(|mut file| {
+        file.seek(SeekFrom::Start(offset))?;
+        file.read_to_end(&mut bytes)
+    });
+    let Some(end) = read
+        .ok()
+        .and_then(|_| bytes.iter().rposition(|b| *b == b'\n'))
+    else {
+        return (Vec::new(), offset);
+    };
+    let records = bytes[..end]
+        .split(|b| *b == b'\n')
+        .filter(|line| line.len() <= MAX_LINE_BYTES)
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+        .collect();
+    (records, offset + end as u64 + 1)
 }
 
 /// 文件的会话记录：（canonicalize 后的 project，会话 id）；没有会话记录返回 `None`。
@@ -204,6 +226,187 @@ pub fn message_entries(record: &MessageRecord) -> Vec<Entry> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// 一轮：一条用户发言及其后的助手正文与工具调用。`n` 从 1 起；用户发言之前的内容记为第 0 轮。
+#[derive(Debug, PartialEq)]
+pub struct Turn {
+    pub n: usize,
+    pub user: Option<String>,
+    pub reply: Vec<String>,
+}
+
+pub fn turns(entries: impl Iterator<Item = Entry>) -> Vec<Turn> {
+    let mut turns: Vec<Turn> = Vec::new();
+    let mut n = 0;
+    for entry in entries {
+        match entry {
+            Entry::User(text) => {
+                n += 1;
+                turns.push(Turn {
+                    n,
+                    user: Some(text),
+                    reply: Vec::new(),
+                });
+            }
+            Entry::Text(line) | Entry::Tool(line) => {
+                if turns.is_empty() {
+                    turns.push(Turn {
+                        n: 0,
+                        user: None,
+                        reply: Vec::new(),
+                    });
+                }
+                turns.last_mut().unwrap().reply.push(line);
+            }
+        }
+    }
+    turns
+}
+
+pub fn render(turn: &Turn, user_only: bool) -> String {
+    let mut out = String::new();
+    if let Some(user) = &turn.user {
+        out.push_str(&format!("## #{} 用户\n{}\n", turn.n, user.trim_end()));
+    }
+    if !user_only && !turn.reply.is_empty() {
+        out.push_str(&format!("## #{} 助手\n{}\n", turn.n, turn.reply.join("\n")));
+    }
+    out
+}
+
+/// 整个会话的可读文本：与 `berth session show` 同一形状，不筛选不截断（任务归档时存快照用）。
+pub fn transcript(spec: &SessionSpec, path: &Path) -> String {
+    turns(entries(spec, path))
+        .iter()
+        .map(|turn| render(turn, false))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 会话的完整消息，OpenAI chat 格式（user / 带 `tool_calls` 的 assistant / tool），供 scout 等外部分析工具导入。
+/// 不截断、不折叠；思考过程与系统注入不输出。内容块键名探测与桌面 reader 的 `message_blocks` 一致。
+pub fn messages(spec: &SessionSpec, path: &Path) -> Vec<Value> {
+    let Some(message_spec) = spec.message.as_ref() else {
+        return Vec::new();
+    };
+    let mut started = false;
+    let mut out = Vec::new();
+    for value in records(spec, path) {
+        started = started || record_matches(&value, &spec.session);
+        if !started || !record_matches(&value, message_spec) {
+            continue;
+        }
+        let record = message_record(message_spec, &value);
+        if record.variant.as_ref().and_then(value_string).as_deref() == Some("reasoning") {
+            continue;
+        }
+        let field = |selector| select_relative(record.nested.as_ref(), &value, selector);
+        let items = record.content.as_ref().and_then(Value::as_array);
+        let text = record.content.as_ref().and_then(plain_text);
+        match record.role.as_ref().and_then(value_string).as_deref() {
+            Some("assistant") => {
+                let mut calls: Vec<Value> = items
+                    .into_iter()
+                    .flatten()
+                    .filter(|item| {
+                        matches!(
+                            item.get("type").and_then(Value::as_str),
+                            Some("tool_use" | "toolCall" | "tool_call")
+                        )
+                    })
+                    .filter_map(tool_call)
+                    .collect();
+                if let Some(declared) = field(message_spec.tool_calls.as_ref()) {
+                    match declared {
+                        Value::Array(values) => calls.extend(values.iter().filter_map(tool_call)),
+                        value => calls.extend(tool_call(&value)),
+                    }
+                }
+                // 没有正文的 assistant 记录本身就是工具调用（如 codex 的 function_call）。
+                if calls.is_empty() && text.is_none() {
+                    if let Some(name) = field(message_spec.tool_name.as_ref()) {
+                        calls.extend(tool_call(&json!({
+                            "name": name,
+                            "id": field(message_spec.tool_use_id.as_ref()),
+                            "arguments": field(message_spec.tool_input.as_ref()),
+                        })));
+                    }
+                }
+                if text.is_some() || !calls.is_empty() {
+                    let mut message =
+                        json!({"role": "assistant", "content": text.unwrap_or_default()});
+                    if !calls.is_empty() {
+                        message["tool_calls"] = Value::Array(calls);
+                    }
+                    out.push(message);
+                }
+            }
+            Some(role @ ("user" | "tool" | "toolResult" | "tool_result")) => {
+                let results: Vec<Value> = items
+                    .into_iter()
+                    .flatten()
+                    .filter(|item| {
+                        matches!(
+                            item.get("type").and_then(Value::as_str),
+                            Some("tool_result" | "toolResult")
+                        )
+                    })
+                    .map(|item| {
+                        tool_message(
+                            first(
+                                item,
+                                &["tool_use_id", "toolUseId", "tool_call_id", "toolCallId"],
+                            ),
+                            first(item, &["content", "output", "tool_output"]),
+                        )
+                    })
+                    .collect();
+                if !results.is_empty() {
+                    out.extend(results);
+                } else if role == "user" {
+                    out.extend(text.map(|text| json!({"role": "user", "content": text})));
+                } else {
+                    let output =
+                        field(message_spec.tool_output.as_ref()).or(record.content.clone());
+                    out.push(tool_message(
+                        field(message_spec.tool_use_id.as_ref()).as_ref(),
+                        output.as_ref(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn first<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    keys.iter().find_map(|key| item.get(*key))
+}
+
+/// 一个工具调用 → OpenAI `tool_calls` 项；也认 OpenAI 自身的 `{function: {name, arguments}}`。
+fn tool_call(item: &Value) -> Option<Value> {
+    let function = item.get("function").unwrap_or(item);
+    let name = first(function, &["name", "toolName", "tool_name"]).and_then(value_string)?;
+    let arguments = match first(function, &["arguments", "input", "args"]) {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Null) | None => "{}".to_owned(),
+        Some(value) => value.to_string(),
+    };
+    Some(json!({
+        "id": first(item, &["id", "call_id", "tool_call_id", "toolCallId"]).and_then(value_string),
+        "type": "function",
+        "function": {"name": name, "arguments": arguments},
+    }))
+}
+
+fn tool_message(id: Option<&Value>, output: Option<&Value>) -> Value {
+    json!({
+        "role": "tool",
+        "tool_call_id": id.and_then(value_string),
+        "content": output.and_then(value_text).unwrap_or_default(),
+    })
 }
 
 pub fn plain_text(content: &Value) -> Option<String> {
@@ -551,6 +754,72 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert!(found[0].path.ends_with("cold-sub.jsonl"));
         assert!(sessions_in(&spec, &cold, 3_000_000).is_empty());
+    }
+
+    /// `messages`：claude 形状（工具调用 / 结果在内容块里，思考与注入不出）与 codex 形状
+    /// （调用与结果各是一条记录，按声明的 tool_* 选择器取）都转成 OpenAI chat 消息。
+    #[test]
+    fn messages_normalize_claude_and_codex_shapes_to_openai_chat() {
+        use serde_json::json;
+        let temp = tempfile::tempdir().unwrap();
+        let claude = temp.path().join("claude.jsonl");
+        let lines = [
+            json!({"type": "user", "isMeta": true, "message": {"role": "user", "content": "<command-name>x"}}),
+            json!({"type": "user", "message": {"role": "user", "content": "修 bug"}}),
+            json!({"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "想想"},
+                {"type": "text", "text": "看一下"},
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}]}}),
+            json!({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "a.rs"}]}]}}),
+        ];
+        std::fs::write(&claude, lines.map(|line| line.to_string()).join("\n")).unwrap();
+        let spec: crate::sessions::SessionSpec = serde_json::from_value(json!({
+            "storage": "jsonl", "path": temp.path(),
+            "session": {"record": "user"},
+            "message": {"value": "/message", "role": "/role", "content": "/content",
+                "injected": {"flag": "/isMeta"}}
+        }))
+        .unwrap();
+        assert_eq!(
+            super::messages(&spec, &claude),
+            vec![
+                json!({"role": "user", "content": "修 bug"}),
+                json!({"role": "assistant", "content": "看一下", "tool_calls": [{"id": "t1", "type": "function",
+                    "function": {"name": "Bash", "arguments": "{\"command\":\"ls\"}"}}]}),
+                json!({"role": "tool", "tool_call_id": "t1", "content": "a.rs"}),
+            ]
+        );
+
+        let codex = temp.path().join("codex.jsonl");
+        let lines = [
+            json!({"type": "session_meta", "payload": {"id": "s"}}),
+            json!({"type": "response_item", "payload": {"type": "reasoning", "summary": [{"type": "summary_text", "text": "x"}]}}),
+            json!({"type": "response_item", "payload": {"type": "function_call", "name": "shell",
+                "arguments": "{\"cmd\":\"ls\"}", "call_id": "c1"}}),
+            json!({"type": "response_item", "payload": {"type": "function_call_output", "call_id": "c1", "output": "a.rs"}}),
+            json!({"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "好了"}]}}),
+        ];
+        std::fs::write(&codex, lines.map(|line| line.to_string()).join("\n")).unwrap();
+        let spec: crate::sessions::SessionSpec = serde_json::from_value(json!({
+            "storage": "jsonl", "path": temp.path(),
+            "session": {"record": "session_meta"},
+            "message": {"record": "response_item", "value": "/payload", "variant": "/type", "role": "/role",
+                "roleMap": {"function_call": "assistant", "function_call_output": "tool", "reasoning": "assistant"},
+                "content": ["/content", "/summary"], "tool_name": "/name", "tool_input": ["/input", "/arguments"],
+                "tool_output": "/output", "tool_use_id": "/call_id"}
+        }))
+        .unwrap();
+        assert_eq!(
+            super::messages(&spec, &codex),
+            vec![
+                json!({"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function",
+                    "function": {"name": "shell", "arguments": "{\"cmd\":\"ls\"}"}}]}),
+                json!({"role": "tool", "tool_call_id": "c1", "content": "a.rs"}),
+                json!({"role": "assistant", "content": "好了"}),
+            ]
+        );
     }
 }
 

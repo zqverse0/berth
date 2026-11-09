@@ -23,7 +23,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.37.5"
+version = "0.38.0"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -54,6 +54,9 @@ default = ["tauri-runtime"]
 tauri-runtime = [
     "dep:tauri",
     "dep:tauri-plugin-opener",
+    "dep:gtk",
+    "dep:drag",
+    "dep:arboard",
     "dep:tauri-plugin-dialog",
     "dep:fix-path-env",
     "dep:tauri-build",
@@ -174,6 +177,15 @@ tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 tauri-plugin-notification = { version = "2", optional = true }
 tauri-plugin-single-instance = { version = "2", optional = true }
+
+# 系统文件拖动（`src/file_drag.rs`）：HTML5 拖动带不出窗口。
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+drag = { version = "2", optional = true }
+# 系统剪贴板里的文件（`src/file_clipboard.rs`）；Linux 用 gtk。
+arboard = { version = "3.7", optional = true, default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"

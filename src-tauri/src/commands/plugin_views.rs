@@ -84,6 +84,15 @@ pub struct PluginView {
     pub page: Option<String>,
     /// tool.json `permissions`（页面里 `files` 等由前端实现的命名空间按它放行）。
     pub permissions: Vec<String>,
+    /// 工作区 tab 栏「+」菜单项。
+    pub new: Vec<PluginViewNew>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginViewNew {
+    pub title: Value,
+    pub script: String,
+    pub input: Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -339,6 +348,15 @@ fn list() -> (Vec<PluginView>, Vec<PluginEditor>) {
                     berth_tool_core::views::Source::Script(_) => None,
                 },
                 permissions: permissions.clone(),
+                new: view
+                    .new
+                    .into_iter()
+                    .map(|item| PluginViewNew {
+                        title: item.title,
+                        script: item.script,
+                        input: item.input,
+                    })
+                    .collect(),
             }
         }));
     }

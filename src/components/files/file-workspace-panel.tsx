@@ -53,6 +53,11 @@ const LazyBerthSessionView = lazy(() =>
     default: m.BerthSessionView,
   }))
 )
+const LazyDevicePage = lazy(() =>
+  import("@/components/devices/device-page").then((m) => ({
+    default: m.DevicePage,
+  }))
+)
 const LazyTranscriptReader = lazy(() =>
   import("@/sessions/components/transcript-reader").then((m) => ({
     default: m.TranscriptReader,
@@ -77,7 +82,8 @@ function isTabRendererReady(tab: FileWorkspaceTab): boolean {
   if (
     tab.kind === "transcript" ||
     tab.kind === "task" ||
-    tab.kind === "berth-session"
+    tab.kind === "berth-session" ||
+    tab.kind === "device"
   )
     return true
   if (tab.kind === "rich-diff") {
@@ -658,6 +664,17 @@ export function FileWorkspacePanel({
     return (
       <Suspense fallback={viewerFallback}>
         <LazyBerthSessionView key={activeFileTab.id} tab={activeFileTab} />
+      </Suspense>
+    )
+  }
+
+  if (activeFileTab.kind === "device") {
+    return (
+      <Suspense fallback={viewerFallback}>
+        <LazyDevicePage
+          key={activeFileTab.id}
+          deviceId={activeFileTab.deviceId}
+        />
       </Suspense>
     )
   }

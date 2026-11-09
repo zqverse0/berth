@@ -9,7 +9,6 @@ import {
   useTranscriptView,
   useTranscriptViewStore,
 } from "@/sessions/transcript-view-store"
-import { ClassifyPopover } from "./classify-popover"
 
 const DETAILS: ExchangeDetail[] = ["prompts", "answers", "full"]
 
@@ -121,13 +120,6 @@ export function TranscriptToolbar({
             </span>
           ) : null}
         </span>
-      ) : null}
-      {detail?.summary.external_id ? (
-        <ClassifyPopover
-          folderId={detail.summary.folder_id}
-          agentType={detail.summary.agent_type}
-          sessionId={detail.summary.external_id}
-        />
       ) : null}
       <div className={cn("relative w-56 min-w-28 shrink", !link && "ml-auto")}>
         <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />

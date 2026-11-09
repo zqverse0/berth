@@ -30,7 +30,9 @@
 //!   同一条节点连接、只用空闲带宽（分块、断点续传、传完对方校验哈希，见 `berth_node::transfer`）；
 //!   进度与结果发 `device://transfer { id, deviceId, source, dest, sent, total, state, error? }`，
 //!   `state` 为 `running` / `done` / `failed` / `cancelled`。同一文件再传一次即从断点续上
-//! - `device.cancelTransfer { id }` → 取消（对方保留已收到的部分，下次续传）
+//! - `device.pull { deviceId, source }` → `{ id, dest }`：把对方文件 `source` 拉到本机缓存 `dest`（拖到系统
+//!   文件管理器前用，见 `berth_node::transfer::download`）；进度同上，事件带 `pull: true`
+//! - `device.cancelTransfer { id }` → 取消（已收到的部分保留，下次续传）
 //! - 连接状态变化发 `device://node-status { deviceId, status }`
 
 use std::collections::HashMap;
@@ -279,7 +281,23 @@ pub async fn dispatch(
                 .map_err(|error| error.to_string())?
                 .ok_or("device not found")?;
             let node = node(emitter, mount_root, &row).ok_or("device.notNode")?;
-            Ok(json!({ "id": start_transfer(emitter.clone(), id, node, source, dest) }))
+            Ok(json!({ "id": start_transfer(emitter.clone(), id, node, source, dest, false) }))
+        }
+        "device.pull" => {
+            let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
+            let source = params["source"]
+                .as_str()
+                .ok_or("source is required")?
+                .to_owned();
+            let row = device::Entity::find_by_id(id)
+                .one(conn)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or("device not found")?;
+            let node = node(emitter, mount_root, &row).ok_or("device.notNode")?;
+            let dest = pull_dest(mount_root, id, &source)?;
+            let transfer = start_transfer(emitter.clone(), id, node, source, dest.clone(), true);
+            Ok(json!({ "id": transfer, "dest": dest }))
         }
         "device.cancelTransfer" => {
             let id = params["id"].as_u64().ok_or("id is required")?;
@@ -297,12 +315,40 @@ static TRANSFERS: LazyLock<Mutex<HashMap<u64, tokio::task::AbortHandle>>> =
     LazyLock::new(Default::default);
 static NEXT_TRANSFER: AtomicU64 = AtomicU64::new(1);
 
+/// 拉取的缓存路径 `<设备目录>/pull/<源路径哈希>/<文件名>`：文件名不变，拖到文件管理器里就是这个名字。
+/// ponytail: 只在下一次拉取时清掉一天前的缓存；缓存占用成问题再加上限。
+fn pull_dest(mount_root: &Path, device_id: i32, source: &str) -> Result<String, String> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let name = Path::new(source)
+        .file_name()
+        .ok_or("source has no file name")?;
+    let root = node_dir(mount_root, device_id).join("pull");
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        let expired = |entry: &std::fs::DirEntry| {
+            let age = entry.metadata().and_then(|meta| meta.modified()).ok();
+            age.and_then(|time| time.elapsed().ok())
+                .is_some_and(|age| age > PULL_CACHE_MAX_AGE)
+        };
+        for entry in entries.flatten().filter(expired) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    let dir = root.join(format!("{:016x}", hasher.finish()));
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join(name).display().to_string())
+}
+
+const PULL_CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
 fn start_transfer(
     emitter: EventEmitter,
     device_id: i32,
     node: Arc<Node>,
     source: String,
     dest: String,
+    pull: bool,
 ) -> u64 {
     let id = NEXT_TRANSFER.fetch_add(1, Ordering::Relaxed);
     let emit = {
@@ -310,7 +356,7 @@ fn start_transfer(
         move |state: &str, sent: u64, total: u64, error: Option<&str>| {
             let payload = json!({
                 "id": id, "deviceId": device_id, "source": source, "dest": dest,
-                "sent": sent, "total": total, "state": state, "error": error,
+                "sent": sent, "total": total, "state": state, "error": error, "pull": pull,
             });
             emit_event(&emitter, "device://transfer", payload);
         }
@@ -322,16 +368,20 @@ fn start_transfer(
         async move {
             let client = &node.data;
             let mut last = (0, 0);
-            let result = transfer::upload(
-                Path::new(&source),
-                &dest,
-                |request, body| client.request(&request, &body, transfer::CHUNK_DEADLINE),
-                |sent, total| {
-                    last = (sent, total);
-                    emit("running", sent, total, None);
-                },
-            )
-            .await;
+            let send = |request: Request, body: Vec<u8>| {
+                client.request(&request, &body, transfer::CHUNK_DEADLINE)
+            };
+            let progress = |sent: u64, total: u64| {
+                last = (sent, total);
+                emit("running", sent, total, None);
+            };
+            let result = if pull {
+                transfer::download(&source, Path::new(&dest), send, progress).await
+            } else {
+                transfer::upload(Path::new(&source), &dest, send, progress)
+                    .await
+                    .map(|_| ())
+            };
             TRANSFERS.lock().expect("transfers lock").remove(&id);
             match result {
                 Ok(_) => emit("done", last.1, last.1, None),

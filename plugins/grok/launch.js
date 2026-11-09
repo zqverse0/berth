@@ -20,6 +20,59 @@ const COMPAT_OFF = {
 // 用户级 Claude skills（如 ~/.claude/plugins/cache 里的插件 skills）按路径前缀隐藏；
 // claude skills 单元同时管项目 .claude/skills，所以不关单元。
 const FOREIGN_SKILL_ROOTS = ["~/.claude"]
+// 不软链进会话目录：由 Berth 按会话重新生成，或会把用户级指令 / 插件带进来。
+const NOT_MIRRORED = [
+  "AGENTS.md",
+  "agents",
+  "commands",
+  "config.toml",
+  "disabled-hooks",
+  "hooks",
+  "installed-plugins",
+  "plugins",
+  "rules",
+  "skills",
+]
+// 选了专家时不软链：原生记忆按用户共用，项目内容会混进专家。
+const NATIVE_MEMORY = ["memory", "memory-v2", "memtrace"]
+// 已知的运行状态，软链进会话没有上下文影响；其余条目在启动清单里报 unknown，CLI 升级新增的目录能被看到。
+const KNOWN_STATE = new Set([
+  ".config-init.lock",
+  ".metadata_version",
+  "CHANGELOG.json",
+  "CHANGELOG.md",
+  "README.md",
+  "active_sessions.json",
+  "active_sessions.lock",
+  "agent_id",
+  "auth.json",
+  "auth.json.lock",
+  "bin",
+  "bundled",
+  "campaigns_state.json",
+  "campaigns_state.json.lock",
+  "completions",
+  "docs",
+  "downloads",
+  "grove",
+  "last-copy.txt",
+  "logs",
+  "long-running-background-tasks",
+  "managed_config.lock",
+  "marketplace-cache",
+  "models_cache.json",
+  "relocations",
+  "sessions",
+  "settings_cache.json",
+  "slash-mru.json",
+  "tip_cursor.json",
+  "trusted_folders.toml",
+  "trusted_folders.toml.lock",
+  "upload_queue",
+  "vendor",
+  "version.json",
+  "worktrees.db",
+])
 
 // 09-plugins.md：插件目录含任一组件即可，plugin.json 可选，也认 .claude-plugin/。
 const GROK_PLUGIN_PARTS = [
@@ -83,18 +136,8 @@ async function prepareSessionHome(
   /** @type {boolean} */ trust
 ) {
   const sourceHome = grokSourceHome(ctx)
-  const excluded = new Set([
-    "AGENTS.md",
-    "agents",
-    "commands",
-    "config.toml",
-    "disabled-hooks",
-    "hooks",
-    "installed-plugins",
-    "plugins",
-    "rules",
-    "skills",
-  ])
+  const excluded = new Set(NOT_MIRRORED)
+  if (ctx.expert) for (const name of NATIVE_MEMORY) excluded.add(name)
   if (trust) {
     for (const name of ["trusted_folders.toml", "trusted_folders.toml.lock"])
       excluded.add(name)
@@ -223,6 +266,79 @@ function providerEnv(/** @type {import("berth").Provider | null} */ provider) {
   return { GROK_MODELS_BASE_URL: withV1(baseUrl), XAI_API_KEY: apiKey }
 }
 
+/** 每项资产的实际结果和未识别的目录进启动清单；旧宿主没有 report。 */
+async function reportAssets(/** @type {import("berth").LaunchContext} */ ctx) {
+  const native = new Set(ctx.expert?.plugins.map((plugin) => plugin.name))
+  const names = await fs.list(grokSourceHome(ctx))
+  /** @type {import("berth").ReportItem[]} */
+  const items = [
+    ...(ctx.assets?.prompt ?? []).map((asset) => ({
+      kind: "prompt",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "--system-prompt-override，替换默认系统提示词",
+    })),
+    ...(ctx.assets?.skills ?? []).map((asset) => ({
+      kind: "skills",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "会话目录 skills/",
+    })),
+    ...(ctx.assets?.mcp ?? []).map((asset) => ({
+      kind: "mcp",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "会话 config.toml 的 mcp_servers",
+    })),
+    ...(ctx.assets?.memory ?? []).map((asset) => ({
+      kind: "memory",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
+    })),
+    ...(ctx.assets?.plugins ?? []).map((asset) =>
+      native.has(asset.name)
+        ? {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("applied"),
+            reason: "grok plugin install 装进会话目录",
+          }
+        : {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("skipped"),
+            reason: "没有 Grok 能识别的插件结构",
+          }
+    ),
+    ...(ctx.expert
+      ? names
+          .filter((name) => NATIVE_MEMORY.includes(name))
+          .map((name) => ({
+            kind: "native-memory",
+            id: name,
+            status: /** @type {const} */ ("isolated"),
+            reason: "不进会话目录，原目录保留",
+          }))
+      : []),
+    ...names
+      .filter(
+        (name) =>
+          !NOT_MIRRORED.includes(name) &&
+          !NATIVE_MEMORY.includes(name) &&
+          !KNOWN_STATE.has(name) &&
+          !name.startsWith("berth-grok-")
+      )
+      .map((name) => ({
+        kind: "native-dir",
+        id: name,
+        status: /** @type {const} */ ("unknown"),
+        reason: "未识别，已软链进会话",
+      })),
+  ]
+  ctx.report?.(items)
+}
+
 /** 终端被关闭时宿主直接结束进程，finally 不执行：按目录名里的 pid 清掉进程已不在的旧会话目录。 */
 async function sweepStaleSessions(
   /** @type {string} */ home,
@@ -294,6 +410,7 @@ export default {
         mcp: Object.keys(servers).sort(),
         compatOff: Object.keys(COMPAT_OFF).sort(),
       })
+      await reportAssets(ctx)
       return await process.run("grok", [...args, ...ctx.args], { env })
     } finally {
       await fs.remove(sessionHome)

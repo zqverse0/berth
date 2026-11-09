@@ -229,6 +229,9 @@ pub struct GitLogEntry {
     pub date: String,
     pub message: String,
     pub files: Vec<GitLogFileChange>,
+    /// 整个提交的增删行数（带文件时由 numstat 求和，不带时取 `--shortstat`）。
+    pub additions: u32,
+    pub deletions: u32,
     pub pushed: Option<bool>,
 }
 
@@ -2309,6 +2312,49 @@ fn unquote_git_path(path: &str) -> String {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct GitCommitDay {
+    /// 本地日期 `YYYY-MM-DD`
+    pub date: String,
+    pub count: u32,
+}
+
+/// 近 `days` 天每天的提交数（所有分支，按作者日期），首页提交热力用。不是 git 仓库时为空。
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn git_commit_days(
+    path: String,
+    days: u32,
+) -> Result<Vec<GitCommitDay>, AppCommandError> {
+    let output = crate::platform::process::tokio_command("git")
+        .args(["log", "--all", "--format=%ad", "--date=short"])
+        .arg(format!("--since={days}.days"))
+        .current_dir(&path)
+        .output()
+        .await
+        .map_err(AppCommandError::io)?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(count_commit_days(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn count_commit_days(stdout: &str) -> Vec<GitCommitDay> {
+    let mut days = std::collections::BTreeMap::<&str, u32>::new();
+    for line in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        *days.entry(line).or_default() += 1;
+    }
+    days.into_iter()
+        .map(|(date, count)| GitCommitDay {
+            date: date.to_owned(),
+            count,
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn git_log(
@@ -2347,6 +2393,9 @@ pub async fn git_log(
         args.push("--raw".to_string());
         args.push("--numstat".to_string());
         args.push("--no-renames".to_string());
+    } else {
+        // 列表也要显示每个提交的 +/- 行数：shortstat 只出一行合计，不列文件。
+        args.push("--shortstat".to_string());
     }
     if skip > 0 {
         args.push(format!("--skip={}", skip));
@@ -2427,6 +2476,12 @@ pub async fn git_log(
         }
 
         if line.is_empty() {
+            continue;
+        }
+
+        if let Some((additions, deletions)) = parse_shortstat_line(line) {
+            entry.additions = additions;
+            entry.deletions = deletions;
             continue;
         }
 
@@ -2733,6 +2788,8 @@ struct GitLogEntryBuilder {
     date: String,
     message: String,
     files: GitLogFilesBuilder,
+    additions: u32,
+    deletions: u32,
 }
 
 impl GitLogEntryBuilder {
@@ -2744,6 +2801,8 @@ impl GitLogEntryBuilder {
             date: parts[3].to_string(),
             message: String::new(),
             files: GitLogFilesBuilder::default(),
+            additions: 0,
+            deletions: 0,
         }
     }
 
@@ -2763,6 +2822,14 @@ impl GitLogEntryBuilder {
     }
 
     fn finish(self) -> GitLogEntry {
+        let files = &self.files.files;
+        let (additions, deletions) = if files.is_empty() {
+            (self.additions, self.deletions)
+        } else {
+            files.iter().fold((0, 0), |(a, d), file| {
+                (a + file.additions, d + file.deletions)
+            })
+        };
         GitLogEntry {
             hash: self.hash,
             full_hash: self.full_hash,
@@ -2770,6 +2837,8 @@ impl GitLogEntryBuilder {
             date: self.date,
             message: self.message,
             files: self.files.files,
+            additions,
+            deletions,
             pushed: None,
         }
     }
@@ -2786,6 +2855,26 @@ fn parse_raw_file_line(line: &str) -> Option<(String, String)> {
         .unwrap_or('M')
         .to_string();
     Some((status, file_path))
+}
+
+/// ` 3 files changed, 10 insertions(+), 2 deletions(-)`（插入或删除为 0 时那段不出现）。
+fn parse_shortstat_line(line: &str) -> Option<(u32, u32)> {
+    let line = line.trim();
+    if !line.contains(" changed") || line.contains('\t') {
+        return None;
+    }
+    let mut additions = 0;
+    let mut deletions = 0;
+    for part in line.split(", ") {
+        let mut words = part.split_whitespace();
+        let count = words.next().and_then(|n| n.parse::<u32>().ok());
+        match (count, words.next()) {
+            (Some(n), Some(word)) if word.starts_with("insertion") => additions = n,
+            (Some(n), Some(word)) if word.starts_with("deletion") => deletions = n,
+            _ => {}
+        }
+    }
+    Some((additions, deletions))
 }
 
 fn parse_numstat_file_line(line: &str) -> Option<(u32, u32, String)> {
@@ -3034,6 +3123,26 @@ async fn get_unpushed_hashes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn commit_days_are_counted_per_date() {
+        let days = super::count_commit_days("2026-11-02\n2026-11-01\n2026-11-02\n\n");
+        let pairs: Vec<_> = days.iter().map(|d| (d.date.as_str(), d.count)).collect();
+        assert_eq!(pairs, [("2026-11-01", 1), ("2026-11-02", 2)]);
+    }
+
+    #[test]
+    fn shortstat_line_counts_insertions_and_deletions() {
+        assert_eq!(
+            super::parse_shortstat_line(" 3 files changed, 10 insertions(+), 2 deletions(-)"),
+            Some((10, 2))
+        );
+        assert_eq!(
+            super::parse_shortstat_line(" 1 file changed, 4 deletions(-)"),
+            Some((0, 4))
+        );
+        assert_eq!(super::parse_shortstat_line("12\t3\tsrc/changed.rs"), None);
+    }
+
     use super::*;
 
     #[test]

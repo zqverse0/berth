@@ -18,6 +18,12 @@ export type PluginView = {
   /** 第 2 层页面（包内路径）；null 时是第 1 层脚本视图。 */
   page?: string | null
   permissions: string[]
+  /** 工作区 tab 栏「+」菜单项：运行脚本，脚本返回 `{ path }`（绝对路径），宿主开成 tab。 */
+  new?: {
+    title: string | Record<string, string>
+    script: string
+    input: unknown
+  }[]
 }
 
 /** 启用插件声明的一个编辑器（§4.2）：按后缀接管文件，页面在 iframe 里编辑内容。 */

@@ -55,7 +55,7 @@ Berth 命令行：与 GUI 同一套功能。
   任务      berth project <项目> task create | list | show | start | assign | finish | reopen
   群组      berth project <项目> group who | read | post | spawn | join
   会话      berth project <项目> session ls | show | last
-  记忆      berth project <项目> knowledge search | for | show | idea | lint | digest | root
+  记忆      berth project <项目> knowledge search | for | show | lint | digest | root | inbox
 
 常用：
   berth terminal ls --project codeg           列出终端
@@ -230,7 +230,7 @@ enum Command {
         args: Vec<OsString>,
     },
 
-    /// 专家：`ls` 列出全部专家与它们在项目群里的终端，`show <id>` 看一个专家的终端和规矩。写作 `berth project <项目> expert`。
+    /// 专家：`ls` 列出全部专家与它们在项目群里的终端，`show <id>` 看一个专家的终端。写作 `berth project <项目> expert`。
     #[command(hide = true)]
     Expert {
         /// 子命令与参数（`ls` / `show <id>`）。
@@ -252,7 +252,7 @@ enum Command {
         check: bool,
     },
 
-    /// 记忆（项目知识库，worktree 共用主项目这一份）：检索、阅读、体检、想法、会话摘要。维护方法见 `berth guide knowledge`。
+    /// 记忆（项目知识库，worktree 共用主项目这一份）：检索、阅读、体检、会话摘要、待入库。维护方法见 `berth guide knowledge`。
     /// 写作 `berth project <项目> knowledge`。
     #[command(hide = true)]
     Knowledge {
@@ -310,11 +310,6 @@ enum KnowledgeCommand {
         #[arg(long)]
         json: bool,
     },
-    /// 想法：用户随手记的想法 / 问题，一条一个文件（`<vault>/想法/`）；Agent 讨论后把结论落到笔记。
-    Idea {
-        #[command(subcommand)]
-        command: IdeaCommand,
-    },
     /// 会话摘要：本项目（含 worktree）在游标之后的 Agent 会话，只含用户与助手文本。需要 Berth GUI 在运行。
     Digest {
         /// RFC 3339 游标；默认取 `.berth/knowledge/.curation.json` 的 `since`，都没有时读全部历史。
@@ -324,63 +319,47 @@ enum KnowledgeCommand {
         #[arg(long)]
         json: bool,
     },
+    /// 待入库清单（`待入库/`）：任务、想法归档时进来，用户说要维护知识库时逐条处理。
+    Inbox {
+        #[command(subcommand)]
+        command: InboxCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
-enum IdeaCommand {
-    /// 记一条想法；正文里的 `#标签` 收进 tags。
-    Add {
-        #[arg(required = true)]
-        text: Vec<String>,
-        /// 输出一个机器可读的 JSON 对象。
-        #[arg(long)]
-        json: bool,
-    },
-    /// 列出开放的想法（待讨论、讨论中），新的在前：id、状态、原话首行。
+enum InboxCommand {
+    /// 列出未处理的待入库。
     Ls {
-        /// 只看这一状态：待讨论 | 讨论中 | 已落地 | 已放下（后两种在归档里）。
-        #[arg(long)]
-        status: Option<String>,
         /// 输出一个机器可读的 JSON 对象。
         #[arg(long)]
         json: bool,
     },
-    /// 打印一条想法的全文（原话 + 讨论 + 结论）。
-    Show { id: String },
-    /// 改状态：待讨论 | 讨论中 | 已落地 | 已放下。
-    Status { id: String, status: String },
-    /// 在「## 讨论」下追加一条 `- MM-DD 作者：一句话`；待讨论的改为讨论中。
-    Discuss {
-        id: String,
-        #[arg(required = true)]
-        text: Vec<String>,
-        /// 谁说的：Agent（缺省）或 用户。
-        #[arg(long, default_value = "Agent")]
-        author: String,
+    /// 生成一条；同一来源再次归档时覆盖。任务归档时自动生成，这个命令给想法插件用。
+    Add {
+        /// 来源任务名或想法 id，也是文件名。
+        source: String,
+        /// 任务 | 想法。
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        title: String,
+        /// 已完成 | 已放弃 | 已放下。
+        #[arg(long)]
+        result: String,
+        /// 正文（Markdown）。
+        #[arg(long, default_value = "")]
+        body: String,
     },
-    /// 升级为任务：新建任务文件，原话与讨论进任务的「背景」，想法以 `→ 任务` 关闭归档。
-    Promote {
-        id: String,
-        /// 任务标题；缺省取想法首行。
-        #[arg(long)]
-        title: Option<String>,
+    /// 移除一条未处理的（重开时）；已处理的记录不动。
+    Remove {
+        source: String,
     },
-    /// 写结论并关闭：落到笔记 / 任务 / 提交 → 已落地；放下 → 已放下（写理由）。
-    #[command(group(clap::ArgGroup::new("conclusion").required(true).args(["note", "task", "commit", "drop"])))]
-    Close {
-        id: String,
-        /// 结论写进的知识笔记标题。
+    /// 标记处理完：写明结果并移到 `待入库/已处理/`。写笔记要先经用户确认。
+    Done {
+        source: String,
+        /// 处理结果，如「写入 [[笔记标题]]」「不入库：<理由>」。
         #[arg(long)]
-        note: Option<String>,
-        /// 转成的任务（`berth task create` 返回的 taskDirName）。
-        #[arg(long)]
-        task: Option<String>,
-        /// 一次提交就做完了：提交的短 hash。
-        #[arg(long)]
-        commit: Option<String>,
-        /// 不做了：理由。
-        #[arg(long)]
-        drop: Option<String>,
+        outcome: String,
     },
 }
 
@@ -623,6 +602,10 @@ enum SessionCommand {
         /// 与首次请求报回的精确总量（`--json` 时含各项原文）。
         #[arg(long)]
         context: bool,
+        /// 改为输出完整消息（OpenAI chat 格式的 JSON，不截断、不折叠工具调用），供 scout 等分析工具导入；
+        /// 不看 --tail / --user-only / --grep / --max-bytes。
+        #[arg(long, conflicts_with = "context")]
+        messages: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1004,6 +987,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     grep,
                     max_bytes,
                     context,
+                    messages,
                     json,
                 },
         } => {
@@ -1013,6 +997,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 grep: grep.clone(),
                 max_bytes: *max_bytes,
                 context: *context,
+                messages: *messages,
             };
             return session::show(id, agent.as_deref(), &options, *json);
         }
@@ -1127,35 +1112,23 @@ fn run(cli: Cli) -> Result<(), CliError> {
             std::process::exit(code);
         }
         Command::Knowledge {
-            command: KnowledgeCommand::Idea { command },
-        } => {
-            return match command {
-                IdeaCommand::Add { text, json } => knowledge::idea_add(&text.join(" "), *json),
-                IdeaCommand::Ls { status, json } => knowledge::idea_ls(status.as_deref(), *json),
-                IdeaCommand::Show { id } => knowledge::idea_show(id),
-                IdeaCommand::Status { id, status } => knowledge::idea_status(id, status),
-                IdeaCommand::Discuss { id, text, author } => {
-                    knowledge::idea_discuss(id, author, &text.join(" "))
-                }
-                IdeaCommand::Promote { id, title } => knowledge::idea_promote(id, title.as_deref()),
-                IdeaCommand::Close { id, note, task, commit, drop } => {
-                    use berth_project_core::knowledge::ideas::Conclusion;
-                    let conclusion = match (note, task, commit, drop) {
-                        (Some(title), ..) => Conclusion::Note(title.clone()),
-                        (_, Some(slug), ..) => Conclusion::Task(slug.clone()),
-                        (_, _, Some(sha), _) => Conclusion::Commit(sha.clone()),
-                        (.., Some(reason)) => Conclusion::Drop(reason.clone()),
-                        _ => unreachable!("clap requires one conclusion"),
-                    };
-                    knowledge::idea_close(id, &conclusion)
-                }
-            }
-            .map_err(CliError::from_runtime);
-        }
-        Command::Knowledge {
             command: KnowledgeCommand::Digest { since, json },
         } => {
             return knowledge::digest(gui_endpoint, since.clone(), *json);
+        }
+        Command::Knowledge {
+            command: KnowledgeCommand::Inbox { command },
+        } => {
+            let root = knowledge::root_project().map_err(CliError::from_runtime)?;
+            return match command {
+                InboxCommand::Ls { json } => knowledge::inbox_ls(&root, *json),
+                InboxCommand::Add { source, kind, title, result, body } => {
+                    knowledge::inbox_add(&root, kind, source, title, result, body)
+                }
+                InboxCommand::Remove { source } => knowledge::inbox_remove(&root, source),
+                InboxCommand::Done { source, outcome } => knowledge::inbox_done(&root, source, outcome),
+            }
+            .map_err(CliError::from_runtime);
         }
         Command::Guide { check: true, .. } => {
             let problems = guide::check();
@@ -1184,7 +1157,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 .as_deref()
                 .and_then(|cwd| group::brief_lines(cwd, socket))
                 .unwrap_or_default();
-            let expert = cwd.as_deref().and_then(expert_brief).unwrap_or_default();
+            let expert = expert_brief().unwrap_or_default();
             let text = include_str!("brief.md")
                 .replace("{berth}", &format!("{}{task}{expert}", init::brief_line()));
             print!("{}", guide::with_supplement("brief", &tools::brief(&text)));
@@ -1653,22 +1626,11 @@ fn parse_session(value: &str) -> Result<SessionName, CliError> {
     SessionName::new(value).map_err(|error| CliError::user(error.to_string()))
 }
 
-/// 启动栏选了专家时（pane 环境里的 `BERTH_LAUNCH_INPUTS`）：交接确切路径，以及用户给它定的规矩。
-fn expert_brief(cwd: &std::path::Path) -> Option<String> {
+/// 启动栏选了专家时（pane 环境里的 `BERTH_LAUNCH_INPUTS`）：专家名。规矩放专家提示词或项目 AGENTS.md。
+fn expert_brief() -> Option<String> {
     let inputs: serde_json::Value = serde_json::from_str(&std::env::var("BERTH_LAUNCH_INPUTS").ok()?).ok()?;
     let expert = berth_tool_core::paths::launch_expert_any(&berth_tool_core::paths::tools_root(), &inputs)?;
-    let vault = berth_project_core::knowledge::vault_project(cwd);
-    let mut lines = format!(
-        "- 你是专家 `{expert}`：之前的交接在 `.berth/knowledge/交接/{expert}/索引.md`（接手或用户问起时读）\n"
-    );
-    if let Some(rules) = berth_project_core::knowledge::rules::brief(&vault, &expert) {
-        let file = berth_project_core::knowledge::rules::rules_file(&expert);
-        lines.push_str(&format!("- 用户给你定的规矩（`{file}`），照做，不用用户再说：\n"));
-        for rule in rules.lines() {
-            lines.push_str(&format!("  {rule}\n"));
-        }
-    }
-    Some(lines)
+    Some(format!("- 你是专家 `{expert}`\n"))
 }
 
 #[cfg(test)]

@@ -10,19 +10,14 @@ const snapshot = (paths: string[]) =>
 
 describe("knowledgeWatchDirs", () => {
   it("watches .berth while the vault has nothing (it may not exist yet)", () => {
-    expect(knowledgeWatchDirs(snapshot([]), false)).toEqual(["/repo/.berth"])
+    expect(knowledgeWatchDirs(snapshot([]))).toEqual(["/repo/.berth"])
   })
 
-  it("watches the vault, ideas and each note directory once notes exist", () => {
+  it("watches the vault and each note directory once notes exist", () => {
     expect(
       knowledgeWatchDirs(
-        snapshot([".berth/knowledge/概念/a.md", ".berth/knowledge/概念/b.md"]),
-        true
+        snapshot([".berth/knowledge/概念/a.md", ".berth/knowledge/概念/b.md"])
       )
-    ).toEqual([
-      "/repo/.berth/knowledge",
-      "/repo/.berth/knowledge/想法",
-      "/repo/.berth/knowledge/概念",
-    ])
+    ).toEqual(["/repo/.berth/knowledge", "/repo/.berth/knowledge/概念"])
   })
 })

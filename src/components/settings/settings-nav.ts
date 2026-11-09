@@ -40,7 +40,6 @@ export const GENERAL_SECTIONS = {
     "runtime",
     "backup",
     "translate",
-    "classifier",
     "logs",
   ],
 } as const

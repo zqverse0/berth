@@ -85,8 +85,8 @@
 - 桥与宿主经 postMessage 说 §2.2 的 JSON-RPC：页面发 `page.hello`，宿主回通知 `page.init`（上下文、主题变量、语言），
   之后 `berth.ready` resolve。宿主发通知 `ui.theme`、`editor.externalChange`、`editor.drop`，调钩子 `editor.render`；
   页面发通知 `editor.change`、`ui.key`（带修饰键的按键，宿主当作自己的快捷键处理；Ctrl/⌘+S 归宿主保存）。
-- 宿主实现的方法：`files.readText` / `readBase64` / `open`（相对 files 根，权限 `project.files`）、`ui.notify` /
-  `openUrl`、`env.project`、`scripts.run`；`storage`、`data` 经接口层后端执行。
+- 宿主实现的方法：`files.readText` / `readBase64` / `open`（相对 files 根，权限 `project.files`；`open` 也收绝对路径，只把文件开给用户，内容不回页面）、`agent.attach`（权限 `agent`，
+  放进当前 Agent 终端的输入框，没有时复制到剪贴板）、`ui.notify` / `openUrl`、`env.project`、`scripts.run`；`storage`、`data` 经接口层后端执行。
 
 ### 2.5 界面两层
 
@@ -159,7 +159,8 @@
 | `title` | 字符串，或按语言的对象（缺当前语言取 `en`） |
 | `icon` | 包内 svg / png；省略用插件图标 |
 | `location` | `sidebar`：侧栏活动栏一个入口；`tab`：只能被 `open-view` 动作打开，在工作区标签页显示 |
-| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层（目前只能 `location: "sidebar"`，页面 `ui.context` 是 `ViewContext`） |
+| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层（目前只能 `location: "sidebar"`，页面 `ui.context` 是 `ViewContext`；打开过的侧栏页面切走时只隐藏不卸载，换项目时重载） |
+| `new` | 可选，工作区 tab 栏「+」菜单项 `{ title, script, input? }`：运行包内脚本（默认导出函数收 `input`），脚本返回 `{ path }`（绝对路径），宿主开成 tab（在当前项目之外的文件钉成全局 tab，就地可见） |
 
 `script` 默认导出 `render(req)`，返回下列视图之一（类型见 `berth-plugin.d.ts` `ViewResult`）：
 
@@ -264,6 +265,7 @@
 | 2026-10-25 | 初版：第一批命名空间 @1，接入点 identity / agent / command / view / editor / preview / extract / install / guide |
 | 2026-10-26 | process@1 加 `open`（常驻程序逐行对话）；fs@1 加 `mkdir`、`readText` 的 `tailBytes`；`ProviderModel` 加 `endpoint` |
 | 2026-10-31 | 页面环境落地（§2.4：`berth-plugin` 协议、桥脚本、JSON-RPC 通知与钩子）；`editor` 接入点（§4.2：`suffixes` / `page` / `new` / `embed`，钩子 `editor.externalChange` / `editor.drop` / `editor.render`）；`view.page`（第 2 层，目前只在侧栏）；`ui` 加 `openUrl`、`locale`，`EditorContext` 加 `mode` / `content` / `onFlush` / `onDrop` / `onRender`，页面加 `berth.ready` |
+| 2026-11-06 | 页面环境实现 `agent.attach`（随内置「想法」提取成 `ideas` 插件） |
 | 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
 
 ## 8. 与现状的迁移
@@ -277,3 +279,5 @@
   Excalidraw 与字体不再进安装包（`docs/REMOVED.md`）。
 - 内置「发现」（GitHub 趋势 / 星标）→ 官方 `gh` 插件的 `view`（第 1 层），平台第一个实验；2026-10-30 用户确认后
   删除内置代码（`docs/REMOVED.md`）。
+- 内置「想法」→ 官方 `ideas` 插件的侧栏 `view.page`；2026-11-06 删除内置代码，数据从 `.berth/knowledge/想法/` 移到
+  `.berth/ideas/`（`docs/REMOVED.md`）。

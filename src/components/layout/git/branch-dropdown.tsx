@@ -197,7 +197,7 @@ export function BranchDropdown({
   )
   // Operations shown as one block at the top of the Git list; the list resolves
   // each id to an icon and dispatches back through `runOperation`. 项目 git tab
-  // （inline）的视图入口已 tab 化（AuxPanelGitTab 顶部 tab 行），菜单块只
+  // （inline）的视图入口已 tab 化（侧栏当前项目面板的标签行（`ProjectPanel`）），菜单块只
   // 服务聊天分支 chip（legacy 弹窗路径）。
   const operations = useMemo<BranchOperationMeta[]>(() => {
     if (inline) return []
@@ -565,7 +565,7 @@ export function BranchDropdown({
 
   // Dispatch a top-of-list operation back to its handler. 菜单只服务聊天
   // 分支 chip（非 inline），走 legacy 弹窗/窗口路径；项目 git tab 的视图
-  // 切换由 AuxPanelGitTab 的 tab 行直接驱动。
+  // 切换由 侧栏当前项目面板（`ProjectPanel`）的标签行直接驱动。
   function runOperation(opId: string) {
     setDropdownOpen(false)
     switch (opId) {

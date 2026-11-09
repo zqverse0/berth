@@ -22,6 +22,16 @@ pub struct View {
     pub icon: Option<String>,
     pub location: Location,
     pub source: Source,
+    /// 工作区 tab 栏「+」菜单项。
+    pub new: Vec<NewItem>,
+}
+
+/// 「+」菜单的一项：运行包内脚本，脚本返回 `{ path }`（绝对路径），宿主把它开成 tab。
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewItem {
+    pub title: Value,
+    pub script: String,
+    pub input: Value,
 }
 
 /// 视图内容从哪来（包内相对路径）。
@@ -153,12 +163,31 @@ pub fn parse(raw: &Value) -> (Vec<View>, Vec<AssetDiagnostic>) {
                 }
             },
         };
+        let new: Option<Vec<NewItem>> = match item.get("new") {
+            None => Some(Vec::new()),
+            Some(Value::Array(entries)) => entries
+                .iter()
+                .map(|entry| {
+                    Some(NewItem {
+                        title: entry.get("title").filter(|title| valid_title(title))?.clone(),
+                        script: package_path(entry.get("script"))?.to_owned(),
+                        input: entry.get("input").cloned().unwrap_or(Value::Null),
+                    })
+                })
+                .collect(),
+            Some(_) => None,
+        };
+        let Some(new) = new else {
+            fail("new must be an array of { title, script, input? }");
+            continue;
+        };
         views.push(View {
             id: id.to_owned(),
             title: title.clone(),
             icon,
             location: place,
             source,
+            new,
         });
     }
     (views, findings)
@@ -171,7 +200,12 @@ pub fn package_paths(raw: &Value) -> Vec<&str> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .flat_map(|item| [item.get("script"), item.get("page"), item.get("icon")])
+        .flat_map(|item| {
+            let new = item.get("new").and_then(Value::as_array).into_iter().flatten();
+            [item.get("script"), item.get("page"), item.get("icon")]
+                .into_iter()
+                .chain(new.map(|entry| entry.get("script")))
+        })
         .filter_map(|value| package_path(value))
         .collect()
 }
@@ -210,6 +244,24 @@ mod tests {
         assert_eq!(findings.len(), 6);
         assert!(findings[2].message.contains("sidebar"));
         assert!(findings[3].message.contains("exactly one"));
+    }
+
+    #[test]
+    fn new_items_parse_and_a_bad_one_skips_the_view() {
+        let (views, findings) = parse(&raw(json!([
+            {
+                "id": "a", "title": "A", "location": "sidebar", "page": "ui/a.html",
+                "new": [{ "title": "A", "script": "ui/api.js", "input": { "action": "create" } }]
+            },
+            {
+                "id": "b", "title": "B", "location": "sidebar", "page": "ui/b.html",
+                "new": [{ "title": "B", "script": "../api.js" }]
+            }
+        ])));
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].new[0].script, "ui/api.js");
+        assert_eq!(views[0].new[0].input, json!({ "action": "create" }));
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]

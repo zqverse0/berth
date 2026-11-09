@@ -11,6 +11,8 @@ mod provider;
 #[cfg(feature = "tauri-runtime")]
 mod query;
 mod reconcile;
+#[cfg(feature = "tauri-runtime")]
+mod usage;
 
 pub(crate) use cursor::{
     clamp_project_agent_session_page_limit, ProjectAgentSessionCursor, ProjectAgentSessionDbCursor,
@@ -23,6 +25,8 @@ pub(crate) use provider::build_agent_parser;
 #[cfg(feature = "tauri-runtime")]
 pub(crate) use query::list_project_agent_sessions_core;
 pub(crate) use reconcile::{reconcile_project_agent_session_page, ProjectAgentSessionDbIdentity};
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use usage::{project_token_usage, TokenUsageRow};
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, TimeZone, Utc};

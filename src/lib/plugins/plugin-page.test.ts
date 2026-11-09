@@ -62,6 +62,10 @@ describe("handlePageCall", () => {
       handlePageCall(host(), "storage.get", { key: "k" })
     ).resolves.toBe("stored")
     const openFile = vi.fn()
+    await handlePageCall(host({ openFile }), "files.open", {
+      path: "/main/b.md",
+    })
+    expect(openFile).toHaveBeenLastCalledWith("/main/b.md")
     await handlePageCall(host({ openFile }), "files.open", { path: "b.md" })
     expect(openFile).toHaveBeenCalledWith("/repo/b.md")
     await expect(
@@ -70,6 +74,18 @@ describe("handlePageCall", () => {
     await expect(
       handlePageCall(host(), "ui.openUrl", { url: "javascript:alert(1)" })
     ).rejects.toMatchObject({ reason: "invalid-params" })
+  })
+  it("hands agent.attach text to the host only with the agent permission", async () => {
+    const sendToAgent = vi.fn()
+    await expect(
+      handlePageCall(host({ sendToAgent }), "agent.attach", { text: "hi" })
+    ).rejects.toMatchObject({ reason: "denied" })
+    await handlePageCall(
+      host({ permissions: ["agent"], sendToAgent }),
+      "agent.attach",
+      { label: "x", text: "hi" }
+    )
+    expect(sendToAgent).toHaveBeenCalledWith("hi")
   })
 })
 

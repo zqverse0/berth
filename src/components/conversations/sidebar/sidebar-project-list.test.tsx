@@ -1,5 +1,5 @@
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { type ReactNode, useState } from "react"
+import { type ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,6 +21,11 @@ import {
   refreshTerminalInventory,
 } from "@/lib/terminal/terminal-inventory-query"
 import { tabsForFolderScope } from "@/lib/workspace/tab-scope"
+import { useSidebarViewStore } from "@/components/layout/sidebar/views"
+import {
+  useWorkspaceGroupsStore,
+  type WorkspaceGroupsState,
+} from "@/lib/workspace-groups"
 
 // Mutable backing store the mocked tab-context hook reads from (workspace data
 // now lives in the real zustand store, seeded per test below). `tabs` is
@@ -83,6 +88,32 @@ vi.mock("@/lib/api", async (importOriginal) => {
   }
 })
 
+// 工作区读写与设备列表走 runtime bridge：工作区文件在内存里，没有设备。
+const bridge = vi.hoisted(() => ({ set: vi.fn() }))
+vi.mock("@/lib/runtime-bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/runtime-bridge")>()
+  return {
+    ...actual,
+    runtimeBridgeOperation: async (
+      args: Parameters<typeof actual.runtimeBridgeOperation>[0]
+    ) => {
+      if (args.method === "workspaceGroups.set") {
+        bridge.set(args.params?.state)
+        return { ok: true, result: null }
+      }
+      if (
+        args.method === "workspaceGroups.get" ||
+        args.method === "device.list"
+      )
+        return {
+          ok: true,
+          result: args.method === "device.list" ? [] : null,
+        }
+      return actual.runtimeBridgeOperation(args)
+    },
+  }
+})
+
 vi.mock("@/components/agent-icon", () => ({ AgentIcon: () => null }))
 
 vi.mock("@/components/ui/scroll-area", () => ({
@@ -112,9 +143,6 @@ vi.mock("@/contexts/tab-context", () => ({
       // memoized.
       tabs: store.tabSpec.map((t) => ({ kind: "conversation", ...t })),
     }),
-}))
-vi.mock("@/components/layout/aux-panel/aux-panel-file-tree-tab", () => ({
-  FileTreeTab: () => <div data-testid="project-file-tree" />,
 }))
 
 const MINUTE = 60_000
@@ -196,6 +224,8 @@ beforeEach(() => {
   terminalApi.listTerminalSessions.mockResolvedValue([])
   folderApi.updateFolderAlias.mockClear()
   store.activeFolder = null
+  useWorkspaceGroupsStore.setState({ state: null })
+  bridge.set.mockClear()
   stableWorkspaceFns.openFolder.mockClear()
   stableTabFns.activateFolderWorkspace.mockClear()
   stableTabFns.openTerminalTab.mockClear()
@@ -209,22 +239,14 @@ beforeEach(() => {
 })
 
 describe("SidebarProjectList — project explorer mode", () => {
-  // Mirrors the Sidebar host: it owns which pane is showing.
   function ProjectHarness({
     visible = true,
-    initialPane = "projects",
+    summaryOnly = false,
   }: {
     visible?: boolean
-    initialPane?: "projects" | "files"
+    summaryOnly?: boolean
   }) {
-    const [pane, setPane] = useState(initialPane)
-    return (
-      <SidebarProjectList
-        visible={visible}
-        pane={pane}
-        onOpenFiles={() => setPane("files")}
-      />
-    )
+    return <SidebarProjectList visible={visible} summaryOnly={summaryOnly} />
   }
 
   beforeEach(() => {
@@ -298,59 +320,21 @@ describe("SidebarProjectList — project explorer mode", () => {
     expect(wtRow.style.paddingLeft).not.toBe(repoRow.style.paddingLeft)
   })
 
-  it("shows the file tree in the files pane and the list in the projects pane", async () => {
+  it("covers the list with the workspace summary while the panel is maximized", () => {
     store.activeFolder = folder(1, "Repo")
+    useSidebarViewStore.setState({ view: "files" })
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ProjectHarness initialPane="files" />
+        <ProjectHarness summaryOnly />
       </NextIntlClientProvider>
     )
 
-    await waitFor(() => {
-      expect(screen.getByTestId("project-file-tree")).toBeTruthy()
-    })
-    expect(document.querySelector('[data-folder-id="1"]')).toBeNull()
-  })
-
-  it("keeps the project list as the default view", () => {
-    store.activeFolder = folder(1, "Repo")
-
-    render(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ProjectHarness />
-      </NextIntlClientProvider>
-    )
-
+    // 列表仍挂着（滚动位置不丢），上面盖一行摘要，点击还原
     expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
-    expect(screen.queryByTestId("project-file-tree")).toBeNull()
-  })
-
-  it("does not mount the file tree while the sidebar is hidden", () => {
-    store.activeFolder = folder(1, "Repo")
-
-    render(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ProjectHarness visible={false} />
-      </NextIntlClientProvider>
-    )
-
-    expect(screen.queryByTestId("project-file-tree")).toBeNull()
-  })
-
-  it("does not overlay conversation loading on the file tree search", async () => {
-    store.activeFolder = folder(1, "Repo")
-    useAppWorkspaceStore.setState({ conversationsLoading: true })
-
-    render(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ProjectHarness initialPane="files" />
-      </NextIntlClientProvider>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("project-file-tree")).toBeTruthy()
-      expect(screen.queryByTestId("sidebar-refresh-spinner")).toBeNull()
-    })
+    const summary = screen.getByTitle(enMessages.WorkspaceGroups.restoreList)
+    expect(summary.textContent).toContain("Default")
+    fireEvent.click(summary)
+    expect(useSidebarViewStore.getState().view).toBe("projects")
   })
 
   it("activates a registered project without reopening the folder", async () => {
@@ -370,7 +354,6 @@ describe("SidebarProjectList — project explorer mode", () => {
     expect(stableWorkspaceFns.openFolder).not.toHaveBeenCalled()
     expect(useAppUiStore.getState().auxView).toBe("group")
     expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
-    expect(screen.queryByTestId("project-file-tree")).toBeNull()
   })
 
   it("keeps the project list after clicking a project", async () => {
@@ -391,7 +374,6 @@ describe("SidebarProjectList — project explorer mode", () => {
 
     expect(stableTabFns.activateFolderWorkspace).toHaveBeenCalledWith(2)
     expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
-    expect(screen.queryByTestId("project-file-tree")).toBeNull()
   })
 
   it("keeps file-tree and terminal entries off the context menu", () => {
@@ -673,5 +655,115 @@ describe("SidebarProjectList — visibility prop", () => {
 
     view.rerender(<VisHarness visible />)
     expect(screen.queryByLabelText("cli-agent")).toBeTruthy()
+  })
+})
+
+describe("SidebarProjectList — workspaces", () => {
+  function groups(
+    members: WorkspaceGroupsState["members"]
+  ): WorkspaceGroupsState {
+    return {
+      version: 1,
+      groups: [
+        { id: "default", name: "Default", emoji: null, isDefault: true },
+        { id: "lab", name: "Lab", emoji: null, isDefault: false },
+      ],
+      members,
+    }
+  }
+
+  function renderList() {
+    return render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SidebarProjectList />
+      </NextIntlClientProvider>
+    )
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    const folders = [folder(1, "Repo"), folder(3, "Paper")]
+    useAppWorkspaceStore.setState({
+      folders,
+      allFolders: folders,
+      conversations: [],
+      foldersHydrated: true,
+    })
+    useWorkspaceGroupsStore.setState({
+      state: groups([{ device: 0, path: "/p/3", groupId: "lab" }]),
+    })
+    store.activeFolder = folders[0]
+  })
+
+  it("shows the current workspace in full and the others by running sessions only", async () => {
+    terminalApi.listTerminalSessions.mockResolvedValue([
+      terminal("idle-paper", 3),
+      {
+        ...terminal("busy-paper", 3),
+        agentId: "claude",
+        agentSignal: {
+          state: "attention",
+          notification: null,
+          stateChangedAt: 5,
+          progressState: "",
+          progress: 0,
+        },
+      },
+    ])
+    await refreshTerminalInventory()
+    renderList()
+
+    // Default 是当前（Repo 所在）：项目行都在；Lab 只看运行中：项目行不显示，需关注的会话写着项目名
+    expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
+    expect(document.querySelector('[data-folder-id="3"]')).toBeNull()
+    const busy = await screen.findByLabelText("busy-paper")
+    expect(busy.textContent).toContain("Paper")
+    expect(busy.textContent).toContain(enMessages.WorkspaceGroups.attention)
+    expect(screen.queryByLabelText("idle-paper")).toBeNull()
+
+    fireEvent.click(busy)
+    expect(stableTabFns.openTerminalTab).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalId: "busy-paper", folderId: 3 }),
+      true
+    )
+
+    // 手动点开 Lab：完整显示，空闲的会话也在
+    fireEvent.click(screen.getByRole("button", { name: /^Lab/ }))
+    expect(document.querySelector('[data-folder-id="3"]')).not.toBeNull()
+    expect(screen.getByLabelText("idle-paper")).toBeTruthy()
+  })
+
+  it("puts a newly opened project into the current workspace", async () => {
+    store.activeFolder = folder(3, "Paper")
+    renderList()
+
+    const opened = [folder(1, "Repo"), folder(3, "Paper"), folder(4, "Notes")]
+    act(() => {
+      useAppWorkspaceStore.setState({ folders: opened, allFolders: opened })
+    })
+
+    await waitFor(() =>
+      expect(useWorkspaceGroupsStore.getState().state?.members).toContainEqual({
+        device: 0,
+        path: "/p/4",
+        groupId: "lab",
+      })
+    )
+    expect(bridge.set).toHaveBeenCalled()
+  })
+
+  it("forgets projects that were removed from Berth", async () => {
+    useWorkspaceGroupsStore.setState({
+      state: groups([
+        { device: 0, path: "/p/3", groupId: "lab" },
+        { device: 0, path: "/p/gone", groupId: "lab" },
+      ]),
+    })
+    renderList()
+    await waitFor(() =>
+      expect(useWorkspaceGroupsStore.getState().state?.members).toEqual([
+        { device: 0, path: "/p/3", groupId: "lab" },
+      ])
+    )
   })
 })

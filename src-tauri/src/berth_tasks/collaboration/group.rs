@@ -29,7 +29,9 @@ fn required<'a>(params: &'a Value, key: &str) -> Result<&'a str, String> {
 }
 
 /// 任务摘要列表（含归档；读不了的进 `diagnostics`），与 `berth task list --archived` 同一实现。
+/// 步骤已全部合并的任务先自动归档。
 pub fn task_list(root: &Path) -> Result<Value, String> {
+    tasks::settle_merged(root).map_err(|error| error.message)?;
     tasks::list(root, true, 500).map_err(|error| error.message)
 }
 

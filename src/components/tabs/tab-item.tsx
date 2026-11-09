@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback } from "react"
+import { memo, useCallback, useState } from "react"
 import { Bot } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
@@ -20,6 +20,7 @@ import { toErrorMessage } from "@/lib/app-error"
 import { copyTextToClipboard } from "@/lib/utils"
 import { fetchTerminalHandle } from "@/lib/terminal/terminal-handle"
 import { WorkspaceTabShell } from "@/components/tabs/workspace-tab-shell"
+import { LaunchManifestDialog } from "@/components/project-management/group/launch-manifest"
 import type { WorkspaceTabRef } from "@/lib/workspace/workspace-tab-placement"
 
 interface TabItemProps {
@@ -59,6 +60,7 @@ export const TabItem = memo(function TabItem({
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
   const tTerminal = useTranslations("Folder.terminal")
+  const [manifestOpen, setManifestOpen] = useState(false)
   const resolvedFolderName =
     folderName ??
     (tab.folderId != null
@@ -131,59 +133,72 @@ export const TabItem = memo(function TabItem({
   )
 
   return (
-    <WorkspaceTabShell
-      dragRef={dragRef}
-      dataAttributes={{ "data-tab-id": tab.id }}
-      active={isActive}
-      adjacentActive={adjacentActive}
-      compact={isIconOnlyTab}
-      status={pickStatusDot(paneStatus, tab.isPinned && "pinned")}
-      icon={icon}
-      label={tab.title}
-      title={tooltip}
-      ariaLabel={tab.title}
-      closeLabel={closeAriaLabel}
-      onSelect={() => onSwitch(dragRef)}
-      onClose={handleClose}
-      // Double-click toggles pin: pin = global (visible in every project scope).
-      onDoubleClick={() => onPin(tab.id)}
-      menu={
-        <>
-          <ContextMenuItem onSelect={handleClose}>
-            {isTerminalTab(tab) ? tTerminal("closeTabDetach") : t("close")}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onCloseOthers(tab.id)}>
-            {t("closeOthers")}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => onCloseToRight(dragRef)}
-            disabled={!hasTabsToRight}
-          >
-            {t("closeToRight")}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {isTerminalTab(tab) && (
-            <ContextMenuItem onSelect={() => void handleCopyHandle()}>
-              {tTerminal("copyHandle")}
+    <>
+      <WorkspaceTabShell
+        dragRef={dragRef}
+        dataAttributes={{ "data-tab-id": tab.id }}
+        active={isActive}
+        adjacentActive={adjacentActive}
+        compact={isIconOnlyTab}
+        status={pickStatusDot(paneStatus, tab.isPinned && "pinned")}
+        icon={icon}
+        label={tab.title}
+        title={tooltip}
+        ariaLabel={tab.title}
+        closeLabel={closeAriaLabel}
+        onSelect={() => onSwitch(dragRef)}
+        onClose={handleClose}
+        // Double-click toggles pin: pin = global (visible in every project scope).
+        onDoubleClick={() => onPin(tab.id)}
+        menu={
+          <>
+            <ContextMenuItem onSelect={handleClose}>
+              {isTerminalTab(tab) ? tTerminal("closeTabDetach") : t("close")}
             </ContextMenuItem>
-          )}
-          <ContextMenuItem onSelect={() => onPin(tab.id)}>
-            {tab.isPinned ? t("unpinGlobal") : t("pinGlobal")}
-          </ContextMenuItem>
-          {groupMove && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                onSelect={() => onMoveToGroup(dragRef, groupMove)}
-              >
-                {groupMove === "files-split"
-                  ? t("splitRight")
-                  : t("moveToLeftGroup")}
+            <ContextMenuItem onSelect={() => onCloseOthers(tab.id)}>
+              {t("closeOthers")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => onCloseToRight(dragRef)}
+              disabled={!hasTabsToRight}
+            >
+              {t("closeToRight")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            {isTerminalTab(tab) && (
+              <ContextMenuItem onSelect={() => void handleCopyHandle()}>
+                {tTerminal("copyHandle")}
               </ContextMenuItem>
-            </>
-          )}
-        </>
-      }
-    />
+            )}
+            {isTerminalTab(tab) && (
+              <ContextMenuItem onSelect={() => setManifestOpen(true)}>
+                {tTerminal("launchManifest")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={() => onPin(tab.id)}>
+              {tab.isPinned ? t("unpinGlobal") : t("pinGlobal")}
+            </ContextMenuItem>
+            {groupMove && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => onMoveToGroup(dragRef, groupMove)}
+                >
+                  {groupMove === "files-split"
+                    ? t("splitRight")
+                    : t("moveToLeftGroup")}
+                </ContextMenuItem>
+              </>
+            )}
+          </>
+        }
+      />
+      {manifestOpen && isTerminalTab(tab) ? (
+        <LaunchManifestDialog
+          terminalId={tab.terminalId}
+          onClose={() => setManifestOpen(false)}
+        />
+      ) : null}
+    </>
   )
 })

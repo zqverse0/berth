@@ -49,16 +49,17 @@
 | 实体 / 迁移 | `src-tauri/project/berth-project-core/AGENTS.md` |
 | 项目内 `.berth/`（内容、写入方、`local/` 不进 git） | `.berth/tasks/10-04-berth-project-dir/prd.md` §4 |
 | Git 同步、发布到公开仓库、归档、README 截图 | `docs/releasing/workflow.md` |
-| 设计缘由、踩过的坑 | `.berth/knowledge/`（维护方法 `berth guide knowledge`） |
 | 全局模块图与数据流（需要时才读） | `docs/architecture.md` |
 
 ## 通用
 
 - 代码注释用简体中文；格式交给 Prettier / ESLint / rustfmt。
-- 主目录（dev 分支）做想法、需求设计和任务；worktree 是一个方向或子工作区，不是一任务一个，
+- 开发目录是 `~/Project/berth-dev`（dev 分支）：在这里做想法、需求设计和任务；`~/Project/berth` 是 main，
+  只用于合并和发布，不在那里改代码。worktree 是一个方向或子工作区，不是一任务一个，
   任务用 `berth task assign --group` 分进去实现和测试。
-- 用户没要求就不新建 worktree：已有对应方向就在那里做；没有就直接在主目录改，单测加 dev 实例验证后提交；
+- 用户没要求就不新建 worktree：已有对应方向就在那里做；没有就直接在 `berth-dev` 改，单测加 dev 实例验证后提交；
   要开新方向先问用户。
+- 知识库 `.berth/knowledge/` 主要给用户看：只有用户指定时才读写（维护方法 `berth guide knowledge`）。
 - 不主动往 `.berth/knowledge/` 写笔记。要记待讨论的问题就写成想法
   `.berth/ideas/<YYYY-MM-DD-HHMMSS>.idea.md`（frontmatter `type: 想法`、`status: 待讨论`，末尾留
   `## 讨论`、`## 结论`）：正文首行是短标题，再按「现状/证据、方向/候选、待定」分节。

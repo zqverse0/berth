@@ -13,7 +13,7 @@ describe("Git clone migration", () => {
       "src/components/layout/git/branch-selector-list.tsx"
     )
     const auxSource = read(
-      "src/components/layout/aux-panel/aux-panel-git-tab.tsx"
+      "src/components/layout/sidebar/project-panel.tsx"
     )
     const viewSource = read("src/components/layout/git/git-panel-view.ts")
 

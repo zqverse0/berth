@@ -56,6 +56,32 @@ export async function revealItemInDir(path: string): Promise<void> {
   await tauriReveal(path)
 }
 
+/** 把本机文件作为系统拖动发起（可拖到文件管理器），拖动结束后返回。需要鼠标还按着。 */
+/** 系统剪贴板里的文件（别的应用复制的也算）；不是桌面端或没有文件时为空。 */
+export async function readClipboardFiles(): Promise<
+  { absPath: string; name: string; kind: "file" | "dir" }[]
+> {
+  if (!isDesktop()) return []
+  return getTransport().call("clipboard_read_files", {})
+}
+
+/** 把本机文件写进系统剪贴板，文件管理器能粘贴。 */
+export async function writeClipboardFiles(paths: string[]): Promise<void> {
+  if (!isDesktop()) return
+  await getTransport().call("clipboard_write_files", { paths })
+}
+
+export async function startFileDrag(
+  path: string,
+  imagePngDataUrl: string
+): Promise<void> {
+  if (!isDesktop()) return
+  await getTransport().call("start_file_drag", {
+    path,
+    imagePng: imagePngDataUrl.split(",")[1],
+  })
+}
+
 /**
  * Open a native file/directory dialog.
  */

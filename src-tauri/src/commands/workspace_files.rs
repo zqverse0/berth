@@ -1557,6 +1557,116 @@ pub async fn move_file_tree_entry(
     Ok(rel)
 }
 
+/// Copy a file/directory into `dest_dir` of the workspace at `root_path`.
+/// `source` is absolute and may live in another project of the same machine; a
+/// taken name becomes `name copy.ext`, `name copy 2.ext`, … Symlinks stay links.
+/// Returns the new workspace-relative path.
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn copy_file_tree_entry(
+    source: String,
+    root_path: String,
+    dest_dir: String,
+) -> Result<String, AppCommandError> {
+    let root = PathBuf::from(&root_path);
+    if !root.is_dir() {
+        return Err(AppCommandError::not_found("Folder does not exist"));
+    }
+    let source = PathBuf::from(&source);
+    if !source.is_absolute() {
+        return Err(AppCommandError::invalid_input("Source must be absolute"));
+    }
+    let dest = resolve_tree_path(&root, &dest_dir)?;
+    if !dest.is_dir() {
+        return Err(AppCommandError::invalid_input(
+            "Destination is not a directory",
+        ));
+    }
+    let meta = match std::fs::symlink_metadata(&source) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(AppCommandError::not_found("Source file does not exist"));
+        }
+        Err(e) => return Err(AppCommandError::io(e)),
+    };
+    // Copying a directory into itself would recurse into its own copy.
+    if meta.is_dir() && dest.starts_with(&source) {
+        return Err(AppCommandError::invalid_input(
+            "Cannot copy a directory into itself",
+        ));
+    }
+    let name = source
+        .file_name()
+        .ok_or_else(|| AppCommandError::invalid_input("Cannot copy path without a name"))?;
+    let target = free_copy_target(&dest, name);
+
+    let copied = target.clone();
+    tokio::task::spawn_blocking(move || {
+        copy_entry(&source, &copied).inspect_err(|_| {
+            let _ = std::fs::remove_dir_all(&copied);
+            let _ = std::fs::remove_file(&copied);
+        })
+    })
+    .await
+    .map_err(|e| AppCommandError::io_error("Copy task failed").with_detail(e.to_string()))?
+    .map_err(AppCommandError::io)?;
+
+    let rel = target
+        .strip_prefix(&root)
+        .map_err(|e| {
+            AppCommandError::invalid_input("Failed to compute relative path")
+                .with_detail(e.to_string())
+        })?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok(rel)
+}
+
+/// First unused path for `name` in `dir`. `symlink_metadata` also counts dangling links.
+fn free_copy_target(dir: &Path, name: &std::ffi::OsStr) -> PathBuf {
+    let path = Path::new(name);
+    let stem = path.file_stem().unwrap_or(name).to_string_lossy();
+    let ext = path
+        .extension()
+        .map(|ext| format!(".{}", ext.to_string_lossy()))
+        .unwrap_or_default();
+    let mut candidate = dir.join(name);
+    let mut round = 1;
+    while std::fs::symlink_metadata(&candidate).is_ok() {
+        let suffix = if round == 1 {
+            " copy".to_string()
+        } else {
+            format!(" copy {round}")
+        };
+        candidate = dir.join(format!("{stem}{suffix}{ext}"));
+        round += 1;
+    }
+    candidate
+}
+
+fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(from)?;
+    if meta.file_type().is_symlink() {
+        let link = std::fs::read_link(from)?;
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(link, to);
+        #[cfg(windows)]
+        return if from.is_dir() {
+            std::os::windows::fs::symlink_dir(link, to)
+        } else {
+            std::os::windows::fs::symlink_file(link, to)
+        };
+    }
+    if !meta.is_dir() {
+        return std::fs::copy(from, to).map(|_| ());
+    }
+    std::fs::create_dir(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        copy_entry(&entry.path(), &to.join(entry.file_name()))?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn delete_file_tree_entry(
     root_path: String,
@@ -1789,6 +1899,38 @@ mod workspace_confinement_tests {
             std::fs::symlink_metadata(root.path().join("sub/link.txt")).expect("moved link exists");
         assert!(meta.file_type().is_symlink(), "entry stays a symlink");
         assert!(!root.path().join("link.txt").exists(), "old link gone");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod file_tree_copy_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn copy_renames_on_conflict_and_copies_directories() {
+        let root = tempfile::tempdir().expect("root");
+        std::fs::write(root.path().join("a.txt"), b"x").expect("write");
+        std::fs::create_dir(root.path().join("dir")).expect("mkdir");
+        std::fs::write(root.path().join("dir/b.txt"), b"y").expect("write");
+        std::os::unix::fs::symlink("b.txt", root.path().join("dir/link")).expect("symlink");
+        let root_path = root.path().to_string_lossy().into_owned();
+        let source = |rel: &str| root.path().join(rel).to_string_lossy().into_owned();
+        let copy = |from: String, dest: &'static str| {
+            copy_file_tree_entry(from, root_path.clone(), dest.to_string())
+        };
+
+        assert_eq!(copy(source("a.txt"), "").await.unwrap(), "a copy.txt");
+        assert_eq!(copy(source("a.txt"), "").await.unwrap(), "a copy 2.txt");
+        assert_eq!(copy(source("a.txt"), "dir").await.unwrap(), "dir/a.txt");
+
+        assert_eq!(copy(source("dir"), "").await.unwrap(), "dir copy");
+        assert!(root.path().join("dir copy/b.txt").exists());
+        assert!(std::fs::symlink_metadata(root.path().join("dir copy/link"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        assert!(copy(source("dir"), "dir").await.is_err(), "not into itself");
     }
 }
 

@@ -1,10 +1,11 @@
 /**
  * Shared drag-and-drop contract for the workspace file tree. A single MIME type
- * and payload shape are read by three independent drop targets:
+ * and payload shape are read by these independent drop targets:
  *  - the tree itself (drop a node onto a directory → move it there),
  *  - the message composer (drop a node onto the input → insert a file reference),
  *  - an open plugin editor page (the host forwards the drop into its iframe;
- *    Excalidraw adds a card linking to the file).
+ *    Excalidraw adds a card linking to the file),
+ *  - a workspace pane (open the file there, or paste the path into its terminal).
  *
  * The payload is serialized as JSON on a private MIME type so it can't be
  * confused with an OS file drop (`dataTransfer.files` / the `"Files"` type) or a
@@ -136,13 +137,33 @@ export type FileTreeDropZone =
  * 桌面端 Tauri 原生拖放事件（Over / Drop）的坐标 → 该点下的元素。macOS（窗口点）与
  * Linux（GTK 逻辑像素）报的已是 CSS 像素；只有 Windows 按物理像素报，需除以 DPR（未实测）。
  */
+export function cssDropPoint(position: { x: number; y: number }): {
+  x: number
+  y: number
+} {
+  const scale =
+    detectPlatform() === "windows" ? window.devicePixelRatio || 1 : 1
+  return { x: position.x / scale, y: position.y / scale }
+}
+
 export function elementAtDropPosition(position: {
   x: number
   y: number
 }): Element | null {
-  const scale =
-    detectPlatform() === "windows" ? window.devicePixelRatio || 1 : 1
-  return document.elementFromPoint(position.x / scale, position.y / scale)
+  const { x, y } = cssDropPoint(position)
+  return document.elementFromPoint(x, y)
+}
+
+/**
+ * 对方文件发起的系统拖动用的本机缓存路径（最近一次）。原生拖放事件带着它回到窗口时，
+ * 据此认出是自己的拖动而不是系统文件。
+ */
+let ownNativeDragPath: string | null = null
+export function markOwnNativeDrag(path: string): void {
+  ownNativeDragPath = path
+}
+export function isOwnNativeDrag(path: string | undefined): boolean {
+  return path !== undefined && path === ownNativeDragPath
 }
 
 /** Parse a {@link FILE_TREE_DROP_DEVICE_ATTR} value. */
@@ -155,12 +176,11 @@ export function parseDeviceDropZone(
 
 /**
  * Resolve the drop zone under `element` by walking up to the nearest marked
- * ancestor. Used by the desktop drop path, where Tauri's webview consumes the
- * HTML5 `drop` event before WebKit dispatches it to the DOM (its native
- * drag-drop handler always reports the drop as handled), so a drag is committed
- * from Tauri's own drag-drop event by hit-testing the drop coordinates rather
- * than from a `drop` handler that never runs. Returns null when the point isn't
- * over a directory row, the workspace-root row, or a composer.
+ * ancestor: a folder row is itself, a file row is its parent directory, blank
+ * tree space is the root. The web path passes the DOM event target; the desktop
+ * path hit-tests the drop coordinates, because Tauri's webview consumes the
+ * HTML5 `drop` before WebKit dispatches it. Returns null when the point isn't
+ * over the tree or a composer.
  */
 export function resolveFileTreeDropZone(
   element: Element | null

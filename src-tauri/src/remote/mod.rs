@@ -96,6 +96,9 @@ const SENT_KEEP_BYTES: usize = 2 * 1024 * 1024;
 const CLOSE_BYE: u16 = 4000;
 /// 空闲时的心跳间隔：shim 久收不到数据就判定连接已死并重连（iOS 切后台后连接常无声断掉）。
 const HEARTBEAT: Duration = Duration::from_secs(15);
+/// 远程诊断：超过它的事件、超过它的单次发送记 warn。
+const LARGE_EVENT_BYTES: usize = 64 * 1024;
+const SLOW_SEND: Duration = Duration::from_secs(1);
 /// 响应切块大小：3 Mbps 下约 40ms 一块，块与块之间让终端和事件插队。
 const CHUNK_BYTES: usize = 16 * 1024;
 /// 内核未发送数据上限：约一块响应，慢链路上排队不超过百毫秒级。
@@ -439,6 +442,10 @@ impl Remote {
             serde_json::to_string(event).unwrap_or_default(),
             if payload.is_empty() { "null" } else { payload }
         );
+        if line.len() > LARGE_EVENT_BYTES {
+            // 事件整条发、不切块不压缩：慢链路上一条大事件就能让页面超过判活时限
+            tracing::warn!("[remote] large event {event}: {} bytes", line.len());
+        }
         let message = Message::Text(line.into());
         for client in self.clients.lock().expect("remote clients").values() {
             if !client.events.lock().expect("client events").contains(event) {
@@ -643,9 +650,17 @@ async fn serve(
                 },
                 message = next_outgoing(&client) => {
                     client.sent.lock().expect("client sent").record(&message);
+                    let (bytes, started) = (message.len(), Instant::now());
                     if let Err(error) = socket.send(message).await {
                         ended = format!("send error: {error}");
                         break;
+                    }
+                    // 一次发送卡住期间读循环不转、pong 也回不去：页面 10 秒没数据就断线重连
+                    if started.elapsed() > SLOW_SEND {
+                        tracing::warn!(
+                            "[remote] {client_id}: slow send {bytes} bytes in {}ms",
+                            started.elapsed().as_millis()
+                        );
                     }
                     heartbeat.reset();
                 }

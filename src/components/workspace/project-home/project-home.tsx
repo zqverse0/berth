@@ -3,27 +3,31 @@
 /**
  * 项目首页模块。中间左栏没有 tab、或点了 tab 条的软件图标时显示，懒加载，不显示就整块卸载。
  *
- * - `project-home.tsx`  页面：脉搏条 → 需要你 → worktree 与 Agent（港湾）→ Agent 轨迹 → 当前任务 → 最近变更 → 知识星图
- * - `recent-changes.tsx` 最近变更：实时 +/- 行数，就地展开 diff，标出哪个 Agent 改的
- * - `trajectory.tsx` / `use-trajectory.ts`  Agent 轨迹：今天各会话的每一问与工具调用
+ * 首页只放图与摘要，列表在侧栏（任务、Git 改动、Agent 轨迹、知识库笔记）。
+ *
+ * - `project-home.tsx`  页面：脉搏条 → 需要你 → worktree 与 Agent（港湾）→ 提交热力 + Token 用量 → 知识星图
  * - `harbor.tsx`        港湾：一个泊位一个 worktree，船的状态 = 那里 Agent 的状态
- * - `use-home-data.ts`  启用状态、任务、想法、各 worktree 的 git 概况
+ * - `commit-heatmap.tsx` 提交热力：本仓库每天的提交数
+ * - `token-usage.tsx`   Token 用量：本项目会话近 14 天按 Agent 的用量
+ * - `use-home-data.ts`  启用状态、任务、各 worktree 的 git 概况
  * - `boat-layout.ts`    船的路径（取自 public/icon-animated.svg）
- * - 知识星图是知识库的组件：`src/knowledge/components/knowledge-orbit.tsx`
+ * - 知识星图是知识库的组件：`src/knowledge/components/knowledge-orbit.tsx`，详情在侧栏「记忆」
  * - 动画 CSS 在 `src/app/globals.css` 的 `.berth-harbor-*` / `.berth-orbit-*`
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useMemo, type ReactNode } from "react"
 import { useFormatter, useNow, useTranslations } from "next-intl"
 import { toast } from "sonner"
 import {
   MAIN_GROUP,
   taskRunState,
-  type TaskRunState,
 } from "@/components/project-management/berth-tasks/task-state"
-import { useSidebarViewStore } from "@/components/layout/sidebar/views"
+import { LineCounts } from "@/components/layout/git/line-counts"
+import {
+  useSidebarViewStore,
+  type SidebarView,
+} from "@/components/layout/sidebar/views"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useWorkspaceStateStore } from "@/hooks/workspace/use-workspace-state-store"
 import { KnowledgeOrbit } from "@/knowledge/components/knowledge-orbit"
 import {
@@ -31,8 +35,6 @@ import {
   useKnowledgePathRefresh,
 } from "@/knowledge/hooks/use-knowledge-path-refresh"
 import { useKnowledgeSnapshot } from "@/knowledge/hooks/use-knowledge-snapshot"
-import { OPEN_IDEA_STATUSES } from "@/knowledge/model/types"
-import { openCodePath } from "@/knowledge/preview/vault-note"
 import { enableBerth } from "@/lib/agent/berth-project"
 import { type BerthTaskView } from "@/lib/agent/berth-tasks"
 import {
@@ -45,11 +47,10 @@ import { cn } from "@/lib/utils"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
+import { CommitHeatmap } from "./commit-heatmap"
 import { Harbor, type BerthTask, type HarborBerth } from "./harbor"
-import { LineCounts, RecentChanges } from "./recent-changes"
-import { Trajectory, TrajectoryLegend } from "./trajectory"
-import { useHomeData } from "./use-home-data"
-import { useTrajectory } from "./use-trajectory"
+import { TokenUsage } from "./token-usage"
+import { useHomeData, useWorktreeFamily } from "./use-home-data"
 
 /** 没有打开的 tab（或点了 tab 条的软件图标）时，中间工作区显示的项目首页。 */
 export function ProjectHome() {
@@ -58,14 +59,12 @@ export function ProjectHome() {
   return <ProjectHomeBody key={activeFolder.id} folder={activeFolder} />
 }
 
-/** 当前任务的排序：在做的在前，再按优先级。 */
-const STATE_ORDER: Record<TaskRunState, number> = {
-  running: 0,
-  merged: 1,
-  planning: 2,
-  completed: 3,
+/** 打开侧栏的某个视图（侧栏收起时先展开）。 */
+function showSidebarView(view: SidebarView) {
+  useSidebarViewStore.getState().setView(view)
+  if (!useAppUiStore.getState().sidebarOpen)
+    useAppUiStore.getState().toggleSidebar()
 }
-const TASK_LIMIT = 6
 
 function Section({
   id,
@@ -123,12 +122,18 @@ const b = (chunks: ReactNode) => (
   <b className="font-semibold text-foreground">{chunks}</b>
 )
 
-/** 顶部脉搏条：一行扫完全局，点哪项滚到对应区块。 */
+/** 顶部脉搏条：一行扫完全局；点了滚到首页对应区块，或打开侧栏里的列表。 */
 function Pulse({
   items,
 }: {
   items: (
-    | { key: string; label: ReactNode; target: string; hot?: boolean }
+    | {
+        key: string
+        label: ReactNode
+        hot?: boolean
+        target?: string
+        onClick?: () => void
+      }
     | false
   )[]
 }) {
@@ -141,9 +146,11 @@ function Pulse({
               key={item.key}
               type="button"
               onClick={() =>
-                document
-                  .getElementById(item.target)
-                  ?.scrollIntoView({ behavior: "smooth" })
+                item.onClick
+                  ? item.onClick()
+                  : document
+                      .getElementById(item.target ?? "")
+                      ?.scrollIntoView({ behavior: "smooth" })
               }
               className={cn(
                 "hover:text-foreground",
@@ -220,59 +227,20 @@ function ProjectHomeBody({
   folder: NonNullable<ReturnType<typeof useActiveFolder>["activeFolder"]>
 }) {
   const t = useTranslations("ProjectHome")
-  const { openFilePreview, openTaskTab } = useWorkspaceRuntimeActions()
-  const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const gitHeads = useAppWorkspaceStore((s) => s.gitHeads)
   const panes = useAllAgentPanes()
 
-  // worktree 家族：根项目 + 挂在它下面的 worktree，根在前
   const root = folder.parent_id ?? folder.id
-  const family = useMemo(
-    () =>
-      allFolders
-        .filter(
-          (f) => f.kind !== "chat" && (f.id === root || f.parent_id === root)
-        )
-        .sort((a, b) =>
-          a.id === root ? -1 : b.id === root ? 1 : a.name.localeCompare(b.name)
-        ),
-    [allFolders, root]
-  )
+  const family = useWorktreeFamily(folder)
   const familyPaths = useMemo(() => family.map((f) => f.path), [family])
   const { data, reload } = useHomeData(folder.id, familyPaths)
   const { git } = useWorkspaceStateStore(folder.path)
 
-  // 轨迹：本项目 Agent 起停、换状态（多半是一问开始 / 结束）时重读会话列表
-  const paneKey = panes
-    .filter(
-      (row) =>
-        row.descriptor.agentId &&
-        family.some((f) => f.id === paneFolderId(row.descriptor, family))
-    )
-    .map((row) => `${row.descriptor.terminalId}:${row.state}`)
-    .join(",")
-  const lanes = useTrajectory(folder.id, family, paneKey)
-  const [focusFile, setFocusFile] = useState<string | null>(null)
-  // 当前目录里的文件 → 今天最后改它的 Agent（会话按最近活动排，倒着走让最近的覆盖）
-  const touched = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const lane of [...lanes].reverse()) {
-      if (lane.folderId !== folder.id) continue
-      for (const turn of lane.turns ?? [])
-        for (const call of turn.calls)
-          for (const file of call.files) map.set(file, lane.item.agent)
-    }
-    return map
-  }, [lanes, folder.id])
   const enabled = data?.enabled ?? false
   const { snapshot, refresh } = useKnowledgeSnapshot(folder.id, enabled)
 
-  // 星图是活的：知识库、想法目录一有变化就重读（监听不递归，按目录登记）
-  const hasIdeas = (data?.ideas.length ?? 0) > 0
-  const watchDirs = useMemo(
-    () => knowledgeWatchDirs(snapshot, hasIdeas),
-    [snapshot, hasIdeas]
-  )
+  // 星图是活的：知识库一有变化就重读（监听不递归，按目录登记）
+  const watchDirs = useMemo(() => knowledgeWatchDirs(snapshot), [snapshot])
   const refreshAll = useCallback(() => {
     void refresh()
     reload()
@@ -332,35 +300,19 @@ function ProjectHomeBody({
       : useTabStore.getState().activateFolderWorkspace(folderId)
 
   // 与任务侧栏一致：主目录看所有群的任务，worktree 只看本群
-  const tasks = data.tasks
-    .filter(
-      (task) =>
-        !task.archived &&
-        taskRunState(task, data.views.get(task.id)) !== "completed" &&
-        (!data.group ||
-          data.group === MAIN_GROUP ||
-          (data.views.get(task.id)?.group ?? MAIN_GROUP) === data.group)
-    )
-    .map((task) => ({
-      task,
-      state: taskRunState(task, data.views.get(task.id)),
-    }))
-    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state])
-  const running = tasks.filter(({ state }) => state === "running").length
-  const openTasksView = () => {
-    useSidebarViewStore.getState().setView("tasks")
-    if (!useAppUiStore.getState().sidebarOpen)
-      useAppUiStore.getState().toggleSidebar()
-  }
+  const tasks = data.tasks.filter(
+    (task) =>
+      !task.archived &&
+      (!data.group ||
+        data.group === MAIN_GROUP ||
+        (data.views.get(task.id)?.group ?? MAIN_GROUP) === data.group)
+  )
+  const states = tasks.map((task) =>
+    taskRunState(task, data.views.get(task.id))
+  )
+  const running = states.filter((state) => state === "running").length
+  const open = states.filter((state) => state !== "completed").length
 
-  // vault 在主项目（hub）：从别的 checkout 点笔记，文件属于主项目——点击是明确想看，直接切过去
-  const openNote = (path: string) => {
-    const vaultRoot = (snapshot?.root ?? folder.path).replace(/[\\/]+$/, "")
-    void openFilePreview(`${vaultRoot}/${path}`, {
-      folderId: folder.id,
-      switchToOwner: true,
-    })
-  }
   const enable = () =>
     void enableBerth(folder.id).then(
       (response) =>
@@ -368,7 +320,6 @@ function ProjectHomeBody({
       (cause) => toast.error(String(cause))
     )
   const documents = snapshot?.documents ?? []
-  const ideas = data.ideas.filter((idea) => OPEN_IDEA_STATUSES.has(idea.status))
   const head = gitHeads.get(folder.id)
 
   return (
@@ -398,8 +349,12 @@ function ProjectHomeBody({
               },
               enabled && {
                 key: "tasks",
-                label: t.rich("pulse.tasks", { count: running, b }),
-                target: "home-tasks",
+                label: t.rich("pulse.tasks", {
+                  count: running,
+                  total: open,
+                  b,
+                }),
+                onClick: () => showSidebarView("tasks"),
               },
               {
                 key: "changes",
@@ -423,7 +378,7 @@ function ProjectHomeBody({
                     )}
                   </>
                 ),
-                target: "home-changes",
+                onClick: () => showSidebarView("git"),
               },
             ]}
           />
@@ -448,104 +403,43 @@ function ProjectHomeBody({
           <Harbor berths={berths} onOpen={openBerth} />
         </Section>
 
-        <Section
-          id="home-trajectory"
-          className="mt-7"
-          title={t("trajectory.title")}
-          summary={t("trajectory.summary", { count: lanes.length })}
-          action={<TrajectoryLegend />}
-        >
-          <Trajectory
-            folderId={folder.id}
-            lanes={lanes}
-            focusFile={focusFile}
-          />
-        </Section>
+        {!enabled && (
+          <div className="mt-7">
+            <EnableHint onEnable={enable} />
+          </div>
+        )}
 
-        <Section
-          id="home-tasks"
-          className="mt-7"
-          title={t("tasks.title")}
-          summary={
-            enabled
-              ? t("tasks.summary", { running, total: tasks.length })
-              : undefined
-          }
-          action={
-            enabled && (
+        <div className="mt-7 grid gap-7 @3xl:grid-cols-2">
+          <Section
+            title={t("commits.title")}
+            action={
               <button
                 type="button"
-                onClick={openTasksView}
+                onClick={() => showSidebarView("git")}
                 className="hover:text-primary"
               >
-                {t("tasks.all")} →
+                Git →
               </button>
-            )
-          }
-        >
-          {!enabled ? (
-            <EnableHint onEnable={enable} />
-          ) : tasks.length === 0 ? (
-            <p className="py-2 text-xs text-muted-foreground">
-              {t("tasks.empty")}
-            </p>
-          ) : (
-            tasks.slice(0, TASK_LIMIT).map(({ task, state }) => (
-              <button
-                key={task.id}
-                type="button"
-                title={task.id}
-                onClick={() =>
-                  openTaskTab({
-                    folderId: folder.id,
-                    taskDirName: task.id,
-                    title: task.title,
-                  })
-                }
-                className="-mx-2.5 flex w-[calc(100%+20px)] items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left hover:bg-accent"
-              >
-                <span
-                  className={cn(
-                    "size-2 shrink-0 rounded-full border-[1.5px] border-muted-foreground",
-                    state === "running" &&
-                      "border-primary bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_18%,transparent)]"
-                  )}
-                />
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate",
-                    state === "running" && "font-medium"
-                  )}
-                >
-                  {task.title}
-                </span>
-              </button>
-            ))
-          )}
-        </Section>
-
-        <div id="home-changes" className="mt-7 scroll-mt-4">
-          <RecentChanges
-            folderPath={folder.path}
-            git={git}
-            touched={touched}
-            onFocusFile={setFocusFile}
-            onOpenFile={(path) =>
-              void openFilePreview(path, { folderId: folder.id })
             }
-          />
+          >
+            <div className="rounded-lg border bg-card px-4 py-3.5">
+              <CommitHeatmap path={folder.path} />
+            </div>
+          </Section>
+          <Section title={t("tokens.title")} summary={t("tokens.summary")}>
+            <div className="rounded-lg border bg-card px-4 py-3.5">
+              <TokenUsage folderId={folder.id} />
+            </div>
+          </Section>
         </div>
 
         {enabled && snapshot && (
           <Section
             className="mt-7"
             title={t("knowledge.title")}
-            summary={t("knowledge.summary", {
-              notes: documents.length,
-              ideas: ideas.length,
-            })}
+            summary={t("knowledge.summary", { notes: documents.length })}
           >
-            {documents.length === 0 && ideas.length === 0 ? (
+            {documents.length === 0 ? (
               <p className="py-2 text-xs text-muted-foreground">
                 {t("knowledge.empty")}
               </p>
@@ -553,16 +447,7 @@ function ProjectHomeBody({
               <KnowledgeOrbit
                 documents={documents}
                 edges={snapshot.edges}
-                ideas={ideas}
-                onOpenNote={openNote}
-                onOpenCode={(code) =>
-                  openCodePath(
-                    folder.path,
-                    code,
-                    (path) =>
-                      void openFilePreview(path, { folderId: folder.id })
-                  )
-                }
+                onSelectNote={() => showSidebarView("memory")}
               />
             )}
           </Section>

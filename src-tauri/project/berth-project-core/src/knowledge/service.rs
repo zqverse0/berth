@@ -39,6 +39,9 @@ pub fn snapshot(project_root: &Path) -> io::Result<KnowledgeSnapshot> {
         document.path.hash(&mut hasher);
         document.modified_at.hash(&mut hasher);
     }
+    // 待入库读不了不影响笔记。
+    let inbox = super::inbox::list(project_root).unwrap_or_default();
+    inbox.iter().for_each(|item| item.path.hash(&mut hasher));
     Ok(KnowledgeSnapshot {
         root: project_root.display().to_string(),
         revision: format!("{}:{:016x}", vault.documents.len(), hasher.finish()),
@@ -46,6 +49,8 @@ pub fn snapshot(project_root: &Path) -> io::Result<KnowledgeSnapshot> {
         documents: vault.documents,
         edges: vault.edges,
         diagnostics: vault.diagnostics,
+        inbox,
+        inbox_dir: super::inbox::existing_dir(project_root),
     })
 }
 
@@ -545,15 +550,6 @@ pub fn lint(project_root: &Path) -> io::Result<LintReport> {
     if report.notes > 0 && !project_root.join(VAULT_DIR).join(HOME_NOTE).is_file() {
         report.errors.push(format!("缺少 {HOME_NOTE}（面板首页）"));
     }
-    for idea in super::ideas::list(project_root)? {
-        if !super::ideas::IDEA_STATUSES.contains(&idea.status.as_str()) {
-            report.errors.push(format!(
-                "{}: status `{}` 不在约定取值内",
-                note(&idea.path),
-                idea.status
-            ));
-        }
-    }
     for path in stale(project_root)?.paths {
         report.warnings.push(format!(
             "{}: 可能过期（code 在 verified_at 之后有提交）",
@@ -659,8 +655,10 @@ fn format_problems(
     problems
 }
 
-/// vault 里的 `.md` 都是笔记，除了根目录的 `README.md`（给人看的指针）、`想法/`（见 [`super::ideas`]）
-/// 与 Jev 写的 `记录/`、`交接/`（见 [`super::journal`]）、专家规矩 `专家/`（见 [`super::rules`]）。
+/// 已删除的会话分类、内置想法（已移到「想法」插件的 `.berth/ideas/`）、已退役的专家规矩写过的目录：旧库里可能还有，不当笔记。
+const LEGACY_DIRS: [&str; 4] = ["记录", "交接", "想法", "专家"];
+
+/// vault 里的 `.md` 都是笔记，除了根目录的 `README.md`（给人看的指针）、旧版写的目录（[`LEGACY_DIRS`]）与待入库清单。
 fn is_note(path: &Path, vault_root: &Path) -> bool {
     let root_readme = path.parent() == Some(vault_root)
         && path
@@ -669,9 +667,8 @@ fn is_note(path: &Path, vault_root: &Path) -> bool {
             .is_some_and(|name| name.eq_ignore_ascii_case("README.md"));
     is_markdown(path)
         && !root_readme
-        && !path.starts_with(vault_root.join(super::ideas::IDEAS_DIR))
-        && !super::journal::is_journal(vault_root, path)
-        && !path.starts_with(vault_root.join(super::rules::RULES_DIR))
+        && !LEGACY_DIRS.iter().any(|dir| path.starts_with(vault_root.join(dir)))
+        && !path.starts_with(vault_root.join(super::inbox::DIR))
 }
 
 fn resolve_edges(
@@ -753,6 +750,21 @@ mod tests {
         let path = root.join(VAULT_DIR).join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn the_inbox_is_not_notes() {
+        let root = tempfile::tempdir().unwrap();
+        note(root.path(), "模块/A.md", "---\ntype: 模块\n---\n# A");
+        super::super::inbox::add(root.path(), "任务", "t", "T", "已完成", "[[没有的笔记]]").unwrap();
+        super::super::inbox::add(root.path(), "任务", "u", "U", "已完成", "").unwrap();
+        super::super::inbox::done(root.path(), "u", "不入库").unwrap();
+        let result = snapshot(root.path()).unwrap();
+        assert_eq!(result.documents.len(), 1);
+        assert_eq!(result.inbox.len(), 1, "只算未处理的");
+        assert_eq!(result.inbox_dir.as_deref(), Some(".berth/knowledge/待入库"));
+        let report = lint(root.path()).unwrap();
+        assert!(report.errors.iter().chain(&report.warnings).all(|line| !line.contains("待入库")), "{report:?}");
     }
 
     #[test]

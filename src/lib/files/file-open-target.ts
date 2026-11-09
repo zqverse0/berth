@@ -249,3 +249,16 @@ export async function expandHomePath(path: string): Promise<string> {
     return path
   }
 }
+
+/**
+ * 插件打开文件的选项：tab 只显示在文件所属项目，当前项目之外的文件（想法在主项目，当前可能是
+ * worktree）钉成全局 tab，用户才能就地看到，不用切项目。
+ */
+export function openInPlaceOptions(
+  path: string,
+  root: string | null | undefined
+): { lifetime: "global" } | undefined {
+  return root && isPathUnderRoot(path, root)
+    ? undefined
+    : { lifetime: "global" }
+}

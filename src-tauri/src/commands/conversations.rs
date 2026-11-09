@@ -327,6 +327,27 @@ pub async fn list_project_session_overview(
     .map_err(AppCommandError::task_execution_failed)
 }
 
+/// 首页「Token 用量」：本项目近 `days` 天会话的用量，按天 × Agent × 模型。
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn project_token_usage(
+    db: tauri::State<'_, AppDatabase>,
+    folder_id: i32,
+    days: u32,
+) -> Result<Vec<crate::sessions::TokenUsageRow>, AppCommandError> {
+    let folder = folder_service::get_folder_by_id(&db.conn, folder_id)
+        .await
+        .map_err(AppCommandError::from)?
+        .ok_or_else(|| AppCommandError::not_found("Folder not found"))?;
+    let days = days.clamp(1, 90);
+    tokio::task::spawn_blocking(move || {
+        crate::sessions::project_token_usage(std::path::Path::new(&folder.path), days)
+    })
+    .await
+    .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
+    .map_err(AppCommandError::task_execution_failed)
+}
+
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_conversation(
     agent_type: AgentType,

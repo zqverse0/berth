@@ -11,6 +11,10 @@ import {
   writeFileTreeDragData,
   type FileTreeDragPayload,
 } from "@/lib/files/file-tree-dnd"
+import {
+  canMoveEntry,
+  parentDir,
+} from "@/components/layout/file-tree/path-utils"
 
 /** Minimal in-memory stand-in for `DataTransfer` (jsdom's is not faithful). */
 class MockDataTransfer {
@@ -156,5 +160,34 @@ describe("resolveFileTreeDropZone", () => {
       kind: "dir",
       destDir: "pkg",
     })
+  })
+})
+
+describe("releasing a tree drag over a row", () => {
+  // 文件行标自己所在的目录、容器标根：对应 RenderNode 与 FileTreeTab 的标记。
+  const tree = document.createElement("div")
+  tree.setAttribute(FILE_TREE_DROP_DIR_ATTR, "")
+  const row = document.createElement("div")
+  row.setAttribute(FILE_TREE_DROP_DIR_ATTR, parentDir("src/a/foo.ts"))
+  tree.appendChild(row)
+
+  it("resolves to the row's own directory, not the root", () => {
+    expect(resolveFileTreeDropZone(row)).toEqual({
+      kind: "dir",
+      destDir: "src/a",
+    })
+  })
+
+  it("is not a move when dropped back in place", () => {
+    const zone = resolveFileTreeDropZone(row)
+    const source = {
+      relPath: "src/a/foo.ts",
+      kind: "file" as const,
+      parentDir: "src/a",
+    }
+    expect(zone?.kind === "dir" && canMoveEntry(source, zone.destDir)).toBe(
+      false
+    )
+    expect(canMoveEntry(source, "")).toBe(true)
   })
 })

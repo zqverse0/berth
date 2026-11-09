@@ -4,17 +4,19 @@ import { useEffect } from "react"
 import { useTranslations } from "next-intl"
 import { MessageResponse } from "@/components/ai-elements/message"
 import type { TaskWorkspaceTab } from "@/lib/files/file-workspace-tab"
-import { isFileTask } from "./task-state"
+import { isFileTask, taskGoal } from "./task-state"
 import { TaskBodyEditor } from "./task-body-editor"
 import { TaskSchedule } from "./task-schedule"
+import { TaskSessions } from "./task-sessions"
+import { TaskSteps } from "./task-steps"
 import { useTaskView, useTaskViewStore } from "./task-view-store"
 
 /** 单任务派生视图要跑几条 git：比群时间线慢一档。 */
 const VIEW_POLL_MS = 5000
 
 /**
- * 任务页：标题 + 直接编辑任务文件正文。状态与操作在上方工具栏（TaskToolbar），
- * 步骤在左侧任务列表里展开看；这里负责轮询，工具栏读同一份视图。
+ * 任务页，从上到下：标题、目标摘要（只读）、步骤、关联会话、可编辑的完整正文。
+ * 状态与操作在上方工具栏（TaskToolbar）；这里负责轮询，工具栏读同一份视图。
  */
 export function TaskDetail({ tab }: { tab: TaskWorkspaceTab }) {
   const t = useTranslations("BerthTasks.group")
@@ -45,14 +47,33 @@ export function TaskDetail({ tab }: { tab: TaskWorkspaceTab }) {
     )
   }
 
+  const fileTask = isFileTask(view)
+  const goal = taskGoal(view.prdText)
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background ws-transparent-bg text-sm">
       <h1 className="shrink-0 truncate px-6 pb-1 pt-5 text-xl font-semibold">
         {view.title}
       </h1>
+      {goal ? (
+        <p className="shrink-0 whitespace-pre-wrap px-6 pb-1 text-muted-foreground">
+          {goal}
+        </p>
+      ) : null}
       <TaskSchedule folderId={tab.folderId} task={view.taskDirName} />
+      {view.steps.length > 0 || fileTask || view.sessions?.length ? (
+        <div className="max-h-[40%] shrink-0 overflow-y-auto border-b px-5 pb-2 pt-1">
+          <TaskSteps
+            folderId={tab.folderId}
+            view={view}
+            editable={fileTask}
+            onSaved={() => load(tab.folderId, tab.taskDirName)}
+          />
+          <TaskSessions folderId={tab.folderId} view={view} />
+        </div>
+      ) : null}
       <main className="flex min-h-0 flex-1 flex-col">
-        {isFileTask(view) ? (
+        {fileTask ? (
           <TaskBodyEditor
             folderId={tab.folderId}
             task={view.taskDirName}

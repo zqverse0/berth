@@ -27,6 +27,7 @@ import {
 import { buildFileTabId } from "@/lib/files/file-tab-id"
 import {
   buildBerthSessionTabId,
+  deviceTab,
   buildTaskTabId,
   buildTranscriptTabId,
 } from "@/lib/files/file-workspace-tab"
@@ -53,6 +54,9 @@ function fileRef(id: string, type?: FileWorkspaceTab["kind"]): WorkspaceTabRef {
 }
 
 function restoreTab(tab: PersistedFileReaderTab): FileWorkspaceTab {
+  if (tab.kind === "device") {
+    return deviceTab(tab.deviceId, tab.title)
+  }
   if (tab.kind === "berth-session") {
     return {
       id: buildBerthSessionTabId(tab.folderId, tab.session),

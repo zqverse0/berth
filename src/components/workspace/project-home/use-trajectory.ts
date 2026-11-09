@@ -6,7 +6,6 @@ import {
   classifyToolKind,
   type ToolKindLabel,
 } from "@/lib/adapters/tool-kind-classifier"
-import { extractFilePaths } from "@/lib/agent/session-files"
 import { normalizeToolName } from "@/lib/agent/tool-call-normalization"
 import {
   listProjectSessionOverview,
@@ -32,8 +31,6 @@ const LIVE_MS = 5 * 60_000
 export interface TrajectoryCall {
   kind: ToolKindLabel
   title: string
-  /** 改到的文件，相对会话所在目录（在目录外的保持原样） */
-  files: string[]
 }
 
 export interface TrajectoryTurn {
@@ -73,14 +70,10 @@ function text(turn: MessageTurn | null): string {
 const summaries = new WeakMap<DbConversationDetail, TrajectoryTurn[]>()
 
 /** 今天的每一问：提问、工具调用（类型、一行标题、改到的文件）、回答开头。按转录对象缓存。 */
-function summarize(
-  detail: DbConversationDetail,
-  root: string
-): TrajectoryTurn[] {
+function summarize(detail: DbConversationDetail): TrajectoryTurn[] {
   const cached = summaries.get(detail)
   if (cached) return cached
   const since = startOfToday()
-  const prefix = `${trimSlash(root)}/`
   const turns = exchangesOf(detail)
     .filter(
       (exchange) =>
@@ -96,17 +89,10 @@ function summarize(
         for (const block of turn.blocks) {
           if (block.type !== "tool_use") continue
           const name = normalizeToolName(block.tool_name)
-          const kind = classifyToolKind(name)
           calls.push({
-            kind,
+            kind: classifyToolKind(name),
             title:
               deriveToolTitle(name, block.input_preview) ?? block.tool_name,
-            files:
-              kind === "edit"
-                ? extractFilePaths(block.input_preview).map((path) =>
-                    path.startsWith(prefix) ? path.slice(prefix.length) : path
-                  )
-                : [],
           })
         }
       const answer = text(exchange.answer)
@@ -208,7 +194,6 @@ export function useTrajectory(
         key,
         item,
         folderId: folder.id,
-        root: folder.path,
         live: item.liveMember != null || now - item.updatedAt < LIVE_MS,
         conversationId: ids[key] ?? null,
       },
@@ -247,7 +232,7 @@ export function useTrajectory(
         item: lane.item,
         folderId: lane.folderId,
         live: lane.live,
-        turns: details[index] ? summarize(details[index], lane.root) : null,
+        turns: details[index] ? summarize(details[index]) : null,
       })),
     // lanes 每次渲染新建；内容由 items / ids / details 决定
     // eslint-disable-next-line react-hooks/exhaustive-deps

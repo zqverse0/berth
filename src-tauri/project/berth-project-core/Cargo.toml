@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 async-trait = "0.1"
+# 任务归档时按 sessions.json 读各 Agent 的会话。
+berth-tool-core = { path = "../../tool/berth-tool-core" }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 # `.berth/knowledge` 扫描（knowledge 模块）：与 GUI 同版本。

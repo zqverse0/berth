@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore, type DragEvent } from "react"
 import { useTranslations } from "next-intl"
-import { Copy, Loader2, RefreshCw, X } from "lucide-react"
+import { Copy, RefreshCw, X } from "lucide-react"
 import { toast } from "@/lib/notify"
 import { toErrorMessage } from "@/lib/app-error"
 import {
@@ -20,39 +20,26 @@ import {
   transferInto,
   useDeviceTransfers,
   useDeviceOverview,
-  type Device,
   type NodeOverview,
 } from "@/lib/devices"
 import { cn } from "@/lib/utils"
-import { copyPathToClipboard } from "@/components/layout/file-tree/file-tree-node"
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
-import { ProjectActiveSessionStrip } from "./project-active-session-strip"
+  copyPathToClipboard,
+  PasteMenuItem,
+} from "@/components/layout/file-tree/file-tree-node"
+import { usePasteFileTreeEntry } from "@/hooks/workspace/use-paste-file-tree-entry"
+import { ContextMenuItem } from "@/components/ui/context-menu"
 import { connectDevice } from "@/lib/transport"
 import { refreshTerminalInventory } from "@/lib/terminal/terminal-inventory-query"
 import { refreshAgentPanes } from "@/lib/terminal/agent-panes"
-import { projectRowOrder } from "./project-list-order"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { useAppUiStore } from "@/stores/app-ui-store"
-import { useTabStore } from "@/contexts/tab-context"
 import {
   deviceFolderId,
   deviceLineState,
   devicePath,
-  parseDeviceFolderId,
   setDeviceRoots,
   watchDeviceLines,
 } from "@/lib/transport/device"
-import {
-  ProjectRowButton,
-  RAIL_AXIS,
-  SESSION_STRIP_INDENT,
-  projectBlockClass,
-} from "./project-row-face"
 
 function indent(depth: number) {
   return { paddingLeft: `${depth * 12 + 8}px` }
@@ -65,7 +52,7 @@ function indent(depth: number) {
 /** 系统文件拖动中、放下即传到这一行：由 {@link useOsFileDropToDevices} 直接标在 DOM 上，不触发渲染。 */
 const DROP_ACTIVE_ATTR = "data-drop-active"
 
-function useDeviceDrop(deviceId: number, live: boolean) {
+export function useDeviceDrop(deviceId: number, live: boolean) {
   const t = useTranslations("Folder.fileTreeTab")
   return (dir: string) =>
     live
@@ -164,7 +151,7 @@ export function useOsFileDropToDevices() {
 }
 
 /** 传到这台设备的文件：进度、取消；失败或取消后可重试（从断点续上）或移除。 */
-function DeviceTransfers({ deviceId }: { deviceId: number }) {
+export function DeviceTransfers({ deviceId }: { deviceId: number }) {
   const t = useTranslations("Folder.sidebar.devices")
   const { transfers, dismiss } = useDeviceTransfers(deviceId, (dest) =>
     toast.success(
@@ -307,125 +294,58 @@ function lineProblem(
   return "remote.reconnecting"
 }
 
+/** 一台节点设备的概览与连线问题，由 {@link DeviceFeed} 上报给项目列表。 */
+export interface DeviceFeedState {
+  overview: NodeOverview | null
+  problem: ReturnType<typeof lineProblem>
+}
+
 /**
- * 节点设备下的项目：对方侧栏里打开的项目，排法、外观与本机项目行一致（worktree 挂在根项目下），
- * 每个项目下是它在对方的终端。点项目或终端就选中它：主窗口内容区切到这个对方项目。
+ * 节点设备的数据源（不渲染）：读概览（离线时用缓存）、在线时把对方项目并入本机工作区并连上对方 GUI，
+ * 结果上报给项目列表，对方项目与本机项目在同一张列表里按工作区显示。
  */
-export function DeviceProjects({
-  device,
+export function DeviceFeed({
+  deviceId,
   live,
-  onAddProject,
+  onUpdate,
 }: {
-  device: Pick<Device, "id" | "name">
+  deviceId: number
   /** 数据通道在线；否则只用缓存。 */
   live: boolean
-  onAddProject: () => void
+  onUpdate: (deviceId: number, feed: DeviceFeedState) => void
 }) {
-  const t = useTranslations("Folder.sidebar.devices")
-  const tFileTree = useTranslations("Folder.fileTreeTab")
-  const overview = useDeviceOverview(device.id)
-  const drop = useDeviceDrop(device.id, live)
-  const line = useDeviceWorkspace(device.id, overview, live)
+  const overview = useDeviceOverview(deviceId)
+  const line = useDeviceWorkspace(deviceId, overview, live)
   const problem = live && line && !line.open ? lineProblem(line.error) : null
+  useEffect(() => {
+    onUpdate(deviceId, { overview, problem })
+  }, [deviceId, overview, problem, onUpdate])
+  return null
+}
 
-  const activeFolderId = useAppWorkspaceStore((state) => state.activeFolderId)
-  const selected =
-    activeFolderId == null ? null : parseDeviceFolderId(activeFolderId)
-  const selectedId = selected?.deviceId === device.id ? selected.folderId : null
-
-  // 与本机项目一样：选中即进这个项目，群组是项目主页。没连上时调用在会话里排队，连上即出。
-  const open = (project: number) => {
-    if (!live) return
-    useTabStore
-      .getState()
-      .activateFolderWorkspace(deviceFolderId(device.id, project))
-    useAppUiStore.setState({ auxView: "group" })
-  }
-
-  const projects = overview?.projects ?? []
-  const byId = new Map(projects.map((project) => [project.id, project]))
-  const rows = projectRowOrder(projects)
-
+/** 对方项目行右键菜单里的对方专属项：复制路径、粘贴到对方。 */
+export function DeviceProjectMenuItems({
+  deviceId,
+  path,
+}: {
+  deviceId: number
+  path: string
+}) {
+  const tFileTree = useTranslations("Folder.fileTreeTab")
+  const paste = usePasteFileTreeEntry()
   return (
-    <div
-      className={cn(!live && "opacity-60")}
-      title={live ? undefined : t("remote.offline")}
-    >
-      {problem ? (
-        <p className="flex min-h-7 items-center px-8 text-xs text-muted-foreground">
-          {t(problem)}
-        </p>
-      ) : null}
-      {!overview ? (
-        <p className="flex h-7 items-center gap-1.5 px-8 text-xs text-muted-foreground">
-          {live ? (
-            <>
-              <Loader2 aria-hidden className="size-3 animate-spin" />
-              {t("remote.loading")}
-            </>
-          ) : (
-            t("remote.noCache")
-          )}
-        </p>
-      ) : rows.length === 0 ? (
-        <button
-          type="button"
-          onClick={onAddProject}
-          className="h-7 px-8 text-left text-xs text-muted-foreground hover:text-foreground"
-        >
-          {t("emptyDevice")}
-        </button>
-      ) : (
-        rows.map((row, index) => {
-          const project = byId.get(row.folderId)!
-          const railBelow = rows[index + 1]?.nested === true
-          return (
-            <div
-              key={project.id}
-              className={projectBlockClass(selectedId === project.id)}
-            >
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <div className="flex h-[2rem] items-center">
-                    <ProjectRowButton
-                      name={project.name}
-                      alias={project.alias}
-                      path={project.path}
-                      pinned={project.pinned_at != null}
-                      selected={selectedId === project.id}
-                      worktree={row.worktree}
-                      nested={row.nested}
-                      branch={project.git_branch}
-                      disabled={!live}
-                      onClick={() => open(project.id)}
-                      {...drop(project.path)}
-                    />
-                  </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onSelect={() =>
-                      void copyPathToClipboard(
-                        project.path,
-                        tFileTree("toasts.copyPathFailed")
-                      )
-                    }
-                  >
-                    <Copy className="h-4 w-4" />
-                    {tFileTree("copyPath")}
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-              <ProjectActiveSessionStrip
-                folderId={deviceFolderId(device.id, project.id)}
-                indent={SESSION_STRIP_INDENT}
-                railAxis={row.nested || railBelow ? RAIL_AXIS : undefined}
-              />
-            </div>
-          )
-        })
-      )}
-      <DeviceTransfers deviceId={device.id} />
-    </div>
+    <>
+      <ContextMenuItem
+        onSelect={() =>
+          void copyPathToClipboard(path, tFileTree("toasts.copyPathFailed"))
+        }
+      >
+        <Copy className="h-4 w-4" />
+        {tFileTree("copyPath")}
+      </ContextMenuItem>
+      <PasteMenuItem
+        onPaste={() => void paste(devicePath(deviceId, path), "")}
+      />
+    </>
   )
 }

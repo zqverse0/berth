@@ -39,6 +39,8 @@ const b = doc("终端运行时", {
 })
 const c = doc("孤立")
 const snapshot: KnowledgeSnapshot = {
+  inbox: [],
+  inboxDir: null,
   root: "/p",
   revision: "",
   generatedAt: "",

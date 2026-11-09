@@ -51,6 +51,11 @@ export const WORKSPACE_TAB_REGISTRY = {
     defaultPane: "files",
     section: "regular",
   },
+  device: {
+    collection: "file",
+    defaultPane: "files",
+    section: "regular",
+  },
   conversation: {
     collection: "primary",
     defaultPane: "files",

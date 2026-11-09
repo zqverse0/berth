@@ -14,7 +14,6 @@ import { useLocale, useTranslations } from "next-intl"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { toast } from "@/lib/notify"
 import { BackupSettings } from "@/components/settings/backup-settings"
-import { ClassifierSettings } from "@/components/settings/classifier-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { RemoteAccessSettingsSection } from "@/components/settings/remote-access-settings"
 import { SystemRuntimeSettings } from "@/components/settings/system-runtime-settings"
@@ -415,7 +414,6 @@ export function AdvancedSettings() {
         {shown("runtime") && <SystemRuntimeSettings />}
         {shown("backup") && <BackupSettings />}
         {shown("translate") && <TranslateSettings />}
-        {shown("classifier") && <ClassifierSettings />}
         {shown("logs") && <LogsSettings />}
       </div>
     </ScrollArea>

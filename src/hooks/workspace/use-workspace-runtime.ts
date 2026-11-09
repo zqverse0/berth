@@ -11,6 +11,7 @@ import {
   type BranchDiffOptions,
   type ReadonlyTextPreviewOptions,
   type BerthSessionTabOptions,
+  type DeviceTabOptions,
   type TaskTabOptions,
   type TranscriptTabOptions,
   type WorkingTreeDiffOptions,
@@ -41,6 +42,7 @@ export interface BoundWorkspaceRuntimeActions {
   openTranscriptTab: (options: TranscriptTabOptions) => void
   openTaskTab: (options: TaskTabOptions) => void
   openBerthSessionTab: (options: BerthSessionTabOptions) => void
+  openDeviceTab: (options: DeviceTabOptions) => void
   reloadOpenFileBackground: (path: string) => Promise<void>
   bumpResourceRevision: (path: string) => void
   applyExternalReload: (path: string, fetched: FileEditContent) => void
@@ -179,6 +181,8 @@ export function useWorkspaceRuntimeActions(options?: {
         workspaceRuntime.openTaskTab(options, deps),
       openBerthSessionTab: (options: BerthSessionTabOptions) =>
         workspaceRuntime.openBerthSessionTab(options, deps),
+      openDeviceTab: (options: DeviceTabOptions) =>
+        workspaceRuntime.openDeviceTab(options, deps),
       reloadOpenFileBackground: (path: string) =>
         workspaceRuntime.reloadOpenFileBackground(path, deps),
       bumpResourceRevision: workspaceRuntime.bumpResourceRevision,

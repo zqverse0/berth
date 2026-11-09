@@ -285,22 +285,6 @@ impl DeclarativeSessionParser {
         Ok(details)
     }
 
-    /// 已知会话文件的详情（会话分类按成员绑定的文件读取）；只支持 jsonl 存储。
-    pub(crate) fn detail_at(&self, path: &Path) -> Result<ConversationDetail, ParseError> {
-        if storage_kind(&self.spec.storage)? == Storage::Sqlite {
-            return Err(ParseError::InvalidData(
-                "only jsonl / json session storage is supported".into(),
-            ));
-        }
-        let parsed = parse_jsonl(path, &self.spec, true)?;
-        let id = parsed.id.clone().unwrap_or_else(|| {
-            path.file_stem()
-                .map(|value| value.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        });
-        self.detail_from_parsed(parsed, &id)
-    }
-
     fn list_jsonl(
         &self,
         request: &NativeConversationPageRequest,
@@ -2077,7 +2061,7 @@ fn value_preview(value: &Value) -> Option<String> {
     value_text(value).map(|text| truncate_str(&text, 4000))
 }
 
-fn parse_time(value: &Value) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_time(value: &Value) -> Option<DateTime<Utc>> {
     if let Some(text) = value.as_str() {
         return text.parse::<DateTime<Utc>>().ok();
     }

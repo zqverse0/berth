@@ -11,6 +11,7 @@ mod git;
 mod hub;
 mod ops;
 pub mod session_links;
+mod session_snapshot;
 mod state;
 mod view;
 
@@ -23,13 +24,13 @@ pub(crate) use hub::checkout_root;
 pub(crate) use hub::hub_elsewhere;
 pub use hub::{main_project, resolve, Scope, HUB_MARKER};
 pub use ops::{
-    task_dir, parse_task_run, run_result_path, run_stamp, run_stamp_now, write_run_result, INCOMPLETE_MARK,
+    parse_task_run, run_result_path, run_stamp, run_stamp_now, write_run_result, INCOMPLETE_MARK,
     RUNS_DIR, TASK_RUN_ENV,
     archive, assign, begin, bind, complete, create, done, finish, finish_group, list, migrate,
-    open_tasks_in_group, promote, reopen, save, show, step, unbind, views, CreateOptions,
+    open_tasks_in_group, reopen, save, settle_merged, show, step, unbind, views, CreateOptions,
     FinishOptions,
 };
-pub use file::FileStep;
+pub use file::{FileSession, FileStep};
 pub use view::TaskView;
 
 /// 给 Agent 看的工作流错误：`code` 是稳定的机器可读值，沿用旧脚本的取值。

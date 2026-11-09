@@ -61,6 +61,20 @@ pub enum Request {
         /// 内容 sha256。
         sha256: String,
     },
+    /// 开始一次下载：回 `{ size, sha256 }`。
+    GetBegin {
+        /// 对方项目之内的绝对路径。
+        path: String,
+    },
+    /// 下载一块：内容在回复的原始字节里，不超过 `len`（上限 [`MAX_PUT_CHUNK`]）；到文件尾为空。
+    GetChunk {
+        /// 对方项目之内的绝对路径。
+        path: String,
+        /// 本块起点。
+        offset: u64,
+        /// 要的字节数。
+        len: u64,
+    },
     /// 设备窗口的连接隧道：打开一条到对方 GUI 设备 socket 的字节流（编号由客户端给）。
     Connect {
         /// 流编号。
@@ -111,9 +125,11 @@ impl Request {
     pub fn priority(&self) -> Priority {
         match self {
             Request::Connect { lane, .. } | Request::Send { lane, .. } => (*lane).into(),
-            Request::PutBegin { .. } | Request::PutChunk { .. } | Request::PutFinish { .. } => {
-                Priority::Bulk
-            }
+            Request::PutBegin { .. }
+            | Request::PutChunk { .. }
+            | Request::PutFinish { .. }
+            | Request::GetBegin { .. }
+            | Request::GetChunk { .. } => Priority::Bulk,
             _ => Priority::Normal,
         }
     }

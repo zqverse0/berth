@@ -1,4 +1,4 @@
-//! `berth knowledge root|search|for|show|lint|digest`：知识库只有主项目一份，所有命令在 worktree 里也解析到它。
+//! `berth knowledge root|search|for|show|lint|digest|inbox`：知识库只有主项目一份，所有命令在 worktree 里也解析到它。
 //! 体检在 `berth_project_core::knowledge`（与 GUI 记忆面板同一实现）；
 //! 会话摘要经控制面请求 GUI 的项目会话浏览器生成（`knowledge.digest`）。
 
@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use berth_control_proto::KnowledgeDigestParams;
+use berth_project_core::knowledge::inbox;
 use berth_project_core::knowledge::model::SearchHit;
 use berth_project_core::{knowledge, tasks};
 
@@ -31,6 +32,52 @@ fn vault_project(cwd: &Path) -> Result<PathBuf, String> {
 /// `berth knowledge root`
 pub(crate) fn root() -> Result<PathBuf, String> {
     Ok(vault_project(&current_dir()?)?.join(".berth/knowledge"))
+}
+
+/// 当前目录所在项目的主项目（`inbox` 子命令用）。
+pub(crate) fn root_project() -> Result<PathBuf, String> {
+    vault_project(&current_dir()?)
+}
+
+/// `berth knowledge inbox ls`
+pub(crate) fn inbox_ls(root: &Path, json: bool) -> Result<(), String> {
+    let items = inbox::list(root).map_err(|error| error.to_string())?;
+    if json {
+        return print_json(&serde_json::json!({ "count": items.len(), "items": items }));
+    }
+    println!("待入库 {} 条", items.len());
+    for item in &items {
+        println!(
+            "{}  [{} · {} · {}] {}",
+            item.source, item.kind, item.result, item.archived_at, item.title
+        );
+    }
+    Ok(())
+}
+
+/// `berth knowledge inbox add`
+pub(crate) fn inbox_add(
+    root: &Path,
+    kind: &str,
+    source: &str,
+    title: &str,
+    result: &str,
+    body: &str,
+) -> Result<(), String> {
+    let item = inbox::add(root, kind, source, title, result, body).map_err(|error| error.to_string())?;
+    print_json(&item)
+}
+
+/// `berth knowledge inbox remove`
+pub(crate) fn inbox_remove(root: &Path, source: &str) -> Result<(), String> {
+    let removed = inbox::remove(root, source).map_err(|error| error.to_string())?;
+    print_json(&serde_json::json!({ "removed": removed }))
+}
+
+/// `berth knowledge inbox done`
+pub(crate) fn inbox_done(root: &Path, source: &str, outcome: &str) -> Result<(), String> {
+    let path = inbox::done(root, source, outcome).map_err(|error| error.to_string())?;
+    print_json(&serde_json::json!({ "path": path }))
 }
 
 /// 检索文本输出的上限：Agent 每次查询只花这么多上下文。
@@ -128,85 +175,6 @@ pub(crate) fn covering(path: &str, json: bool) -> Result<(), String> {
     }
     print!("{}", format_hits(&hits, &[]));
     Ok(())
-}
-
-/// `berth knowledge idea add`
-pub(crate) fn idea_add(text: &str, json: bool) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let idea = knowledge::ideas::add(&root, text).map_err(|error| error.to_string())?;
-    if json {
-        return print_json(&idea);
-    }
-    println!("{}  {}", idea.id, idea.path);
-    Ok(())
-}
-
-/// `berth knowledge idea ls`
-pub(crate) fn idea_ls(status: Option<&str>, json: bool) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let ideas = knowledge::ideas::list(&root)
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        // 不指定状态时只列开放的；已落地 / 已放下在归档里，用 --status 查。
-        .filter(|idea| match status {
-            Some(status) => idea.status == status,
-            None => matches!(idea.status.as_str(), "待讨论" | "讨论中"),
-        })
-        .collect::<Vec<_>>();
-    if json {
-        return print_json(&serde_json::json!({ "ideas": ideas }));
-    }
-    if ideas.is_empty() {
-        println!("没有想法。");
-    }
-    for idea in &ideas {
-        let first = idea.text.lines().next().unwrap_or_default();
-        let first: String = first.chars().take(60).collect();
-        println!("{}  {}  {first}", idea.id, idea.status);
-    }
-    Ok(())
-}
-
-/// `berth knowledge idea show`
-pub(crate) fn idea_show(id: &str) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let content = knowledge::ideas::show(&root, id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("没有想法 {id}；用 berth project . knowledge idea ls 查 id"))?;
-    print!("{content}");
-    Ok(())
-}
-
-/// `berth knowledge idea status`
-pub(crate) fn idea_status(id: &str, status: &str) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let idea =
-        knowledge::ideas::set_status(&root, id, status).map_err(|error| error.to_string())?;
-    println!("{}  {}", idea.id, idea.status);
-    Ok(())
-}
-
-/// `berth knowledge idea discuss`
-pub(crate) fn idea_discuss(id: &str, author: &str, text: &str) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let idea = knowledge::ideas::discuss(&root, id, author, text).map_err(|error| error.to_string())?;
-    println!("{}  {}", idea.id, idea.status);
-    Ok(())
-}
-
-/// `berth knowledge idea close`
-pub(crate) fn idea_close(id: &str, conclusion: &knowledge::ideas::Conclusion) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let idea = knowledge::ideas::close(&root, id, conclusion).map_err(|error| error.to_string())?;
-    println!("{}  {}  {}", idea.id, idea.status, idea.path);
-    Ok(())
-}
-
-/// `berth knowledge idea promote`
-pub(crate) fn idea_promote(id: &str, title: Option<&str>) -> Result<(), String> {
-    let root = vault_project(&current_dir()?)?;
-    let created = berth_project_core::tasks::promote(&root, id, title).map_err(|error| error.message)?;
-    print_json(&created)
 }
 
 /// `berth knowledge show`

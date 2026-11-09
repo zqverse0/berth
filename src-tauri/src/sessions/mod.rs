@@ -10,7 +10,8 @@ mod scan_diagnostics;
 
 #[cfg(feature = "tauri-runtime")]
 pub(crate) use project::{
-    list_project_agent_sessions_core, project_session_overview, ProjectSessionOverview,
+    list_project_agent_sessions_core, project_session_overview, project_token_usage,
+    ProjectSessionOverview, TokenUsageRow,
 };
 pub(crate) use project::{
     build_agent_parser, session_group_link, forget_project_index, ProjectAgentSessionDbCursor,

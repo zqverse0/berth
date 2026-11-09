@@ -34,10 +34,17 @@ export interface DeviceNode {
 /** 对方打开的一个项目：与本机侧栏同一份 `FolderDetail`（层级、别名、分支、排序）。 */
 export type NodeProject = FolderDetail
 
-/** 设备概览（`berth node` 的 `device` 视图）。 */
+/** 设备概览（`berth node` 的 `device` 视图，`berth-cli` node/views.rs）。 */
 export interface NodeOverview {
   host: string
   os: string
+  arch?: string
+  /** 对方 Berth 版本；旧版不报 */
+  version?: string
+  /** 对方 GUI 的设备 socket；GUI 没在运行为 null，旧版不报（字段缺失） */
+  window?: string | null
+  /** GUI 没在运行但能起无界面宿主 */
+  hostable?: boolean
   projects: NodeProject[]
 }
 
@@ -162,6 +169,8 @@ export interface DeviceTransfer {
   total: number
   state: "running" | "done" | "failed" | "cancelled"
   error: string | null
+  /** 对方 → 本机缓存（`device.pull`）：`source` 是对方路径，`dest` 是缓存路径。 */
+  pull?: boolean
 }
 
 /** 把本机文件传到对方 `dest`（绝对路径）；同一文件再传一次即从断点续上。 */
@@ -184,6 +193,39 @@ export const transferInto = (
 export const cancelDeviceTransfer = (id: number) =>
   call<null>("device.cancelTransfer", { id })
 
+/**
+ * 把对方文件拉到本机缓存，返回缓存路径；被取消返回 `null`。`onStarted` 给出取消函数。
+ * 按设备与来源认事件：任务可能在 `device.pull` 回复之前就发出事件。
+ */
+export async function pullDeviceFile(
+  deviceId: number,
+  source: string,
+  onStarted: (cancel: () => void) => void
+): Promise<string | null> {
+  let off = () => {}
+  try {
+    return await new Promise<string | null>((resolve, reject) => {
+      subscribe<DeviceTransfer>("device://transfer", (event) => {
+        if (!event.pull || event.deviceId !== deviceId) return
+        if (event.source !== source) return
+        if (event.state === "done") resolve(event.dest)
+        else if (event.state === "cancelled") resolve(null)
+        else if (event.state === "failed") reject(event.error ?? "failed")
+      })
+        .then((unsubscribe) => {
+          off = unsubscribe
+          return call<{ id: number }>("device.pull", { deviceId, source })
+        })
+        .then(({ id }) =>
+          onStarted(() => void cancelDeviceTransfer(id).catch(() => {}))
+        )
+        .catch(reject)
+    })
+  } finally {
+    off()
+  }
+}
+
 /** 传到这台设备的传输：进行中、失败、取消的留着（可重试 / 移除），完成的自动消失。 */
 export function useDeviceTransfers(
   deviceId: number,
@@ -199,7 +241,7 @@ export function useDeviceTransfers(
     let disposed = false
     let unsubscribe: (() => void) | null = null
     void subscribe<DeviceTransfer>("device://transfer", (event) => {
-      if (disposed || event.deviceId !== deviceId) return
+      if (disposed || event.deviceId !== deviceId || event.pull) return
       if (event.state === "done") onDoneRef.current?.(event.dest)
       setTransfers((prev) => {
         // 重试是新的 id：同一源与目标只留最新一条。
@@ -240,4 +282,94 @@ export function nodeOnline(
 /** 连接失败是否因为还没配免密登录（服务器要密码）。 */
 export function needsKeySetup(message: string | null | undefined): boolean {
   return /permission denied|publickey|password/i.test(message ?? "")
+}
+
+/** 设备检查清单的一项：SSH 连接 → 密钥 → berth 路径 → 版本 → 宿主运行。 */
+export type DeviceCheckItem = {
+  id: "ssh" | "key" | "berth" | "version" | "host"
+  state: "ok" | "fail" | "pending" | "skipped"
+  /** 说明文案的键（`DevicePage.checks.<键>`）及参数；没有时显示 `raw` */
+  reason?: {
+    key:
+      | "keyMissing"
+      | "berthMissing"
+      | "versionUnknown"
+      | "versionMismatch"
+      | "berthOutdated"
+      | "windowUnavailable"
+    values?: Record<string, string>
+  }
+  /** 原文：ssh 的错误、对方 berth 路径等 */
+  raw?: string | null
+}
+
+/**
+ * 由一次检测（`device.check`）、对方概览与连线状态得出检查清单。前一项不通时后面的不检（`skipped`），
+ * 还没有结果的为 `pending`。
+ */
+export function deviceChecklist(input: {
+  check: DeviceCheck | null
+  /** 对方 berth 路径；没装为 null */
+  berth: string | null
+  overview: NodeOverview | null
+  localVersion: string | null
+  /** 到对方 GUI 的连线：连上为 open；没连上带原因（`device.*` 错误码或断线说明） */
+  line: { open: boolean; error: string | null } | null
+}): DeviceCheckItem[] {
+  const { check, berth, overview, localVersion, line } = input
+  if (!check)
+    return (["ssh", "key", "berth", "version", "host"] as const).map((id) => ({
+      id,
+      state: "pending",
+    }))
+  const keyIssue = !check.ok && needsKeySetup(check.message)
+  const reached = check.ok || keyIssue
+  const ssh: DeviceCheckItem = reached
+    ? { id: "ssh", state: "ok" }
+    : { id: "ssh", state: "fail", raw: check.message }
+  const key: DeviceCheckItem = !reached
+    ? { id: "key", state: "skipped" }
+    : keyIssue
+      ? {
+          id: "key",
+          state: "fail",
+          reason: { key: "keyMissing" },
+          raw: check.message,
+        }
+      : { id: "key", state: "ok" }
+  const berthItem: DeviceCheckItem = !check.ok
+    ? { id: "berth", state: "skipped" }
+    : berth
+      ? { id: "berth", state: "ok", raw: berth }
+      : { id: "berth", state: "fail", reason: { key: "berthMissing" } }
+  const hasBerth = berthItem.state === "ok"
+  const remote = overview?.version
+  const version: DeviceCheckItem = !hasBerth
+    ? { id: "version", state: "skipped" }
+    : !overview || !localVersion
+      ? { id: "version", state: "pending" }
+      : !remote
+        ? { id: "version", state: "fail", reason: { key: "versionUnknown" } }
+        : remote === localVersion
+          ? { id: "version", state: "ok", raw: remote }
+          : {
+              id: "version",
+              state: "fail",
+              reason: {
+                key: "versionMismatch",
+                values: { local: localVersion, remote },
+              },
+            }
+  const host: DeviceCheckItem = !hasBerth
+    ? { id: "host", state: "skipped" }
+    : line?.open
+      ? { id: "host", state: "ok" }
+      : overview && overview.window === undefined
+        ? { id: "host", state: "fail", reason: { key: "berthOutdated" } }
+        : overview && overview.window === null && !overview.hostable
+          ? { id: "host", state: "fail", reason: { key: "windowUnavailable" } }
+          : line?.error
+            ? { id: "host", state: "fail", raw: line.error }
+            : { id: "host", state: "pending" }
+  return [ssh, key, berthItem, version, host]
 }

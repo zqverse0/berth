@@ -31,7 +31,7 @@ function nextId(steps: BerthTaskPlanStep[]): string {
 }
 
 /**
- * 任务页右栏：步骤是任务进度的唯一展示处。每步「做什么」，展开看改哪里、怎么验证、提交；
+ * 任务页的步骤区：步骤是任务进度的唯一展示处。每步「做什么」，当前步默认展开改哪里、怎么验证，其他步点开看；
  * 单文件任务可随时编辑（写回 frontmatter 的 `steps`），旧任务只读。
  */
 export function TaskSteps({

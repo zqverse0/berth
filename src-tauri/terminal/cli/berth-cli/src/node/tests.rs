@@ -211,6 +211,16 @@ async fn node_reports_errors_and_rejects_other_protocol_versions() {
         matches!(&reply, Reply::Err(error) if error.kind == "forbidden"),
         "{reply:?}"
     );
+    let get = Request::GetBegin {
+        path: "/etc/passwd".into(),
+    };
+    session.send(Outgoing::request(2, Priority::Normal, api::encode(&get, &[])));
+    let events = exchange(&mut conn, &mut session, 1).await;
+    let (_, reply) = reply_of(&events[0]).unwrap();
+    assert!(
+        matches!(&reply, Reply::Err(error) if error.kind == "forbidden"),
+        "{reply:?}"
+    );
 
     let mut stream = UnixStream::connect(&path).await.unwrap();
     let hello = Frame::Hello {

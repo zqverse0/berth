@@ -32,6 +32,21 @@ interface Expert {
   plugins: string[]
 }
 
+/** 宿主校验出的不合规引用（`experts::issues`），`code` 对应 `issues.*` 文案。 */
+interface AssetIssue {
+  kind: string
+  id: string
+  code:
+    | "no-name"
+    | "invalid-id"
+    | "missing"
+    | "escapes"
+    | "reserved-key"
+    | "invalid-key"
+    | "not-array"
+    | "bad-mcp"
+}
+
 interface ExpertEntry {
   id: string
   expert: Expert
@@ -39,6 +54,7 @@ interface ExpertEntry {
   promptText: string | null
   modified: number | null
   error: string | null
+  issues: AssetIssue[]
 }
 
 interface Catalog {
@@ -47,6 +63,8 @@ interface Catalog {
   skills: { id: string; description: string | null }[]
   mcp: string[]
   plugins: string[]
+  /** 目录里有但 id 不合规的资产：启动会被拒，不能勾选 */
+  invalid: Record<AssetKind, string[]>
 }
 
 /** 页面上正在编辑的一份：专家字段 + 提示词正文，一起保存。 */
@@ -57,6 +75,14 @@ interface Draft {
 
 type AssetKind = "skills" | "mcp" | "plugins"
 const ASSET_KINDS: AssetKind[] = ["skills", "mcp", "plugins"]
+
+/** 一条专家记忆：Agent 能读到的就是这些。`seed` 是预置的，只读。 */
+interface MemoryEntry {
+  name: string
+  source: "seed" | "learned"
+  description: string
+  body: string
+}
 
 async function call<T>(method: string, params: Record<string, unknown> = {}) {
   const response = await runtimeBridgeOperation<T>({ method, params })
@@ -80,7 +106,7 @@ export default function ExpertsSettingsPage() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [kind, setKind] = useState<AssetKind>("skills")
+  const [kind, setKind] = useState<AssetKind | "memory">("skills")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -273,7 +299,7 @@ export default function ExpertsSettingsPage() {
                   <span className="min-w-0 flex-1 truncate">
                     {entry.expert.name || entry.id}
                   </span>
-                  {entry.error ? (
+                  {entry.error || entry.issues.length > 0 ? (
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                   ) : null}
                 </span>
@@ -293,6 +319,19 @@ export default function ExpertsSettingsPage() {
                 <p className="rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive">
                   {t("invalid", { error: selected.error })}
                 </p>
+              ) : null}
+              {selected.issues.length > 0 ? (
+                <ul className="space-y-0.5 rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive">
+                  {selected.issues.map((issue) => (
+                    <li key={`${issue.kind}/${issue.id}`}>
+                      <span className="font-mono">
+                        {issue.id ? `${issue.kind}/${issue.id}` : issue.kind}
+                      </span>
+                      {" · "}
+                      {t(`issues.${issue.code}`)}
+                    </li>
+                  ))}
+                </ul>
               ) : null}
               <div className="flex items-center gap-2">
                 <Button
@@ -384,24 +423,39 @@ export default function ExpertsSettingsPage() {
                       </span>
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => setKind("memory")}
+                    className={cn(
+                      "rounded-md px-3 py-1 text-sm hover:bg-accent",
+                      kind === "memory" && "bg-muted font-medium"
+                    )}
+                  >
+                    {t("memory.title")}
+                  </button>
                 </div>
-                <AssetPicker
-                  key={kind}
-                  kind={kind}
-                  selected={draft.expert[kind]}
-                  candidates={
-                    kind === "skills"
-                      ? catalog.skills
-                      : catalog[kind].map((id) => ({ id, description: null }))
-                  }
-                  usage={usage[kind]}
-                  onChange={(items) =>
-                    setDraft({
-                      ...draft,
-                      expert: { ...draft.expert, [kind]: items },
-                    })
-                  }
-                />
+                {kind === "memory" ? (
+                  <ExpertMemory key={selected.id} expertId={selected.id} />
+                ) : (
+                  <AssetPicker
+                    key={kind}
+                    kind={kind}
+                    selected={draft.expert[kind]}
+                    candidates={
+                      kind === "skills"
+                        ? catalog.skills
+                        : catalog[kind].map((id) => ({ id, description: null }))
+                    }
+                    invalid={catalog.invalid[kind]}
+                    usage={usage[kind]}
+                    onChange={(items) =>
+                      setDraft({
+                        ...draft,
+                        expert: { ...draft.expert, [kind]: items },
+                      })
+                    }
+                  />
+                )}
               </section>
             </>
           ) : (
@@ -414,6 +468,204 @@ export default function ExpertsSettingsPage() {
 }
 
 /**
+ * 专家记忆：列表就是 Agent 能读到的全部，选中一条在右边直接改。保存即生效（下次启动进索引），
+ * 不跟专家表一起保存。跨项目共用；项目相关的内容放知识库，不放这里。
+ */
+function ExpertMemory({ expertId }: { expertId: string }) {
+  const t = useTranslations("ExpertsSettings.memory")
+  const [entries, setEntries] = useState<MemoryEntry[] | null>(null)
+  // null = 没选；name 为空 = 正在新建。
+  const [editing, setEditing] = useState<MemoryEntry | null>(null)
+  const [isNew, setIsNew] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    const next = await call<MemoryEntry[]>("expert.memoryList", {
+      id: expertId,
+    })
+    setEntries(next)
+    return next
+  }, [expertId])
+
+  useEffect(() => {
+    void load().catch((cause: unknown) => toast.error(toErrorMessage(cause)))
+  }, [load])
+
+  const readonly = editing?.source === "seed"
+
+  const save = async () => {
+    if (!editing) return
+    setSaving(true)
+    try {
+      await call("expert.memorySave", {
+        id: expertId,
+        name: editing.name.trim(),
+        description: editing.description,
+        body: editing.body,
+      })
+      const next = await load()
+      setEditing(next.find((item) => item.name === editing.name.trim()) ?? null)
+      setIsNew(false)
+    } catch (cause) {
+      toast.error(toErrorMessage(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (
+      !editing ||
+      !(await confirmDialog(t("deleteConfirm", { name: editing.name })))
+    )
+      return
+    try {
+      await call("expert.memoryDelete", { id: expertId, name: editing.name })
+      await load()
+      setEditing(null)
+    } catch (cause) {
+      toast.error(toErrorMessage(cause))
+    }
+  }
+
+  return (
+    <div className="grid min-h-0 flex-1 grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-col border-r">
+        <div className="shrink-0 p-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-full"
+            onClick={() => {
+              setEditing({
+                name: "",
+                source: "learned",
+                description: "",
+                body: "",
+              })
+              setIsNew(true)
+            }}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            {t("create")}
+          </Button>
+        </div>
+        <ul className="min-h-0 flex-1 overflow-auto px-1 pb-2">
+          {entries?.map((entry) => (
+            <li key={entry.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(entry)
+                  setIsNew(false)
+                }}
+                className={cn(
+                  "w-full rounded-md px-2 py-1 text-left hover:bg-accent",
+                  !isNew && editing?.name === entry.name && "bg-muted"
+                )}
+              >
+                <span className="block truncate font-mono text-xs">
+                  {entry.name}
+                  {entry.source === "seed" ? (
+                    <span className="ml-1.5 font-sans text-[11px] text-muted-foreground">
+                      {t("seed")}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {entry.description}
+                </span>
+              </button>
+            </li>
+          ))}
+          {entries?.length === 0 ? (
+            <li className="px-2 py-1 text-xs text-muted-foreground">
+              {t("empty")}
+            </li>
+          ) : null}
+        </ul>
+      </div>
+      {editing ? (
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto p-4">
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">{t("name")}</span>
+            <Input
+              className="font-mono"
+              value={editing.name}
+              disabled={!isNew}
+              placeholder={t("namePlaceholder")}
+              onChange={(event) =>
+                setEditing({ ...editing, name: event.target.value })
+              }
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">
+              {t("description")}
+            </span>
+            <Input
+              value={editing.description}
+              disabled={readonly}
+              placeholder={t("descriptionPlaceholder")}
+              onChange={(event) =>
+                setEditing({ ...editing, description: event.target.value })
+              }
+            />
+          </label>
+          <label className="block flex-1 space-y-1">
+            <span className="text-xs text-muted-foreground">{t("body")}</span>
+            <Textarea
+              className="min-h-48 font-mono text-xs"
+              value={editing.body}
+              disabled={readonly}
+              onChange={(event) =>
+                setEditing({ ...editing, body: event.target.value })
+              }
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            {readonly ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => setEditing({ ...editing, source: "learned" })}
+                >
+                  {t("override")}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {t("seedHint")}
+                </span>
+              </>
+            ) : (
+              <>
+                <Button size="sm" onClick={() => void save()} disabled={saving}>
+                  {t("save")}
+                </Button>
+                {!isNew &&
+                entries?.find((item) => item.name === editing.name)?.source ===
+                  "learned" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto text-destructive"
+                    onClick={() => void remove()}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    {t("delete")}
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="p-4 text-xs text-muted-foreground">{t("hint")}</p>
+      )}
+    </div>
+  )
+}
+
+/**
  * 一类资产：左边只列名字，勾选即加入 / 移除（已选的排在前面）；点名字在右边看完整说明。
  * 列表里找不到的已选项（目录里已删除）标红，取消勾选后才能保存。
  */
@@ -421,12 +673,14 @@ function AssetPicker({
   kind,
   selected,
   candidates,
+  invalid,
   usage,
   onChange,
 }: {
   kind: AssetKind
   selected: string[]
   candidates: { id: string; description: string | null }[]
+  invalid: string[]
   usage: Map<string, number>
   onChange: (items: string[]) => void
 }) {
@@ -473,6 +727,7 @@ function AssetPicker({
         <ul className="min-h-0 flex-1 overflow-auto px-1 pb-2">
           {rows.map((item) => {
             const missing = !known.has(item.id)
+            const unsafe = invalid.includes(item.id)
             const count = usage.get(item.id) ?? 0
             return (
               <li
@@ -484,6 +739,7 @@ function AssetPicker({
               >
                 <Checkbox
                   checked={selected.includes(item.id)}
+                  disabled={unsafe && !selected.includes(item.id)}
                   onCheckedChange={() => toggle(item.id)}
                   aria-label={item.id}
                 />
@@ -492,12 +748,22 @@ function AssetPicker({
                   onClick={() => setFocused(item.id)}
                   className={cn(
                     "min-w-0 flex-1 truncate text-left font-mono text-xs",
-                    missing && "text-destructive line-through"
+                    missing && "text-destructive line-through",
+                    unsafe && "text-destructive"
                   )}
-                  title={missing ? t("missing") : item.id}
+                  title={
+                    missing
+                      ? t("missing")
+                      : unsafe
+                        ? t("issues.invalid-id")
+                        : item.id
+                  }
                 >
                   {item.id}
                 </button>
+                {unsafe ? (
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                ) : null}
                 <span
                   className="shrink-0 text-[11px] text-muted-foreground"
                   title={t("usedBy", { count })}

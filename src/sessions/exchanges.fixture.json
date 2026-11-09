@@ -1,5 +1,5 @@
 {
-  "description": "会话一问一答分组的共用样例：src/sessions/exchanges.test.ts 与 berth-project-core knowledge::exchanges 都要分出 expected。",
+  "description": "会话一问一答分组的测试样例（src/sessions/exchanges.test.ts）。",
   "turns": [
     {
       "id": "t0",

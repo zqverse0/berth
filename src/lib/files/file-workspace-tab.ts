@@ -109,6 +109,15 @@ export interface BerthSessionWorkspaceTab extends BaseWorkspaceTab {
   readonly: true
 }
 
+/** 一台设备的设备页：概览、检查清单、项目、终端与操作。不属于任何项目，跨项目可见。 */
+export interface DeviceWorkspaceTab extends BaseWorkspaceTab {
+  kind: "device"
+  folderId: null
+  deviceId: number
+  path: null
+  readonly: true
+}
+
 export interface WorkspaceFileRef {
   rootPath: string
   path: string
@@ -129,6 +138,28 @@ export function buildBerthSessionTabId(
   return `berth-session:${folderId}:${session}`
 }
 
+export function buildDeviceTabId(deviceId: number): string {
+  return `device:${deviceId}`
+}
+
+/** 设备页 tab（打开与恢复共用）。 */
+export function deviceTab(deviceId: number, title: string): DeviceWorkspaceTab {
+  return {
+    id: buildDeviceTabId(deviceId),
+    kind: "device",
+    folderId: null,
+    deviceId,
+    lifetime: "global",
+    title,
+    description: null,
+    path: null,
+    readonly: true,
+    loading: false,
+    saveState: "idle",
+    saveError: null,
+  }
+}
+
 export type FileWorkspaceTab =
   | TextFileWorkspaceTab
   | ResourceFileWorkspaceTab
@@ -137,6 +168,7 @@ export type FileWorkspaceTab =
   | TranscriptWorkspaceTab
   | TaskWorkspaceTab
   | BerthSessionWorkspaceTab
+  | DeviceWorkspaceTab
 
 export function isTextFileTab(
   tab: FileWorkspaceTab

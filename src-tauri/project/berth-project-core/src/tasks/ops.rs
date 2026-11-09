@@ -10,11 +10,17 @@ use super::group;
 use super::fsutil::{self, MAX_JSON_BYTES};
 use super::git;
 use super::hub::{self, berth_dir, Scope};
+use super::session_snapshot;
 use super::state::{self, Live};
 use super::view::{self, TaskView};
 use super::{TaskError, TaskResult};
+use crate::knowledge::inbox;
 
 const TASK_REF_MAX: usize = 128;
+/// 进行中超过这么多，`start` 给出警告（不阻止）。
+const RUNNING_WARN: usize = 3;
+/// 规划任务这么久没动，列表标 `stale`（不自动处理）。
+const STALE_PLANNING: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
 struct Ctx {
     /// 发起命令的 checkout（内容在这里读写）。
@@ -164,11 +170,6 @@ fn live_with(record: &Value, entry: Option<&Live>) -> Live {
     live
 }
 
-/// 任务目录（含已归档的）；会话分类往里写 `交接.md`。
-pub fn task_dir(main: &Path, name: &str) -> Option<PathBuf> {
-    find_task(main, name).ok().map(|(path, _)| path)
-}
-
 /// 定时运行结果的根目录 `.berth/runs/<任务名>/`（进 git）。不放进任务目录：单文件任务没有目录，
 /// `tasks/` 下的目录又都会被当成任务；按任务名存，归档时不用搬。
 pub const RUNS_DIR: &str = "runs";
@@ -282,6 +283,34 @@ fn live_of(main: &Path, name: &str) -> TaskResult<Live> {
         .unwrap_or_default())
 }
 
+/// 进行中的任务（id、标题）：`create` / `start` 的返回带上，提醒先把它们做完。
+fn running_tasks(ctx: &Ctx) -> TaskResult<Vec<Value>> {
+    let live = state::load(&ctx.main)?;
+    Ok(task_dirs(&ctx.main, false)
+        .into_iter()
+        .filter_map(|(directory, _)| {
+            let record = record(&directory).ok()?;
+            let name = dir_name(&directory);
+            let running = live_with(&record, live.tasks.get(&name)).status.as_deref() == Some("in_progress");
+            running.then(|| json!({"id": name, "title": view::record_title(&record, &name)}))
+        })
+        .collect())
+}
+
+/// 任务文件多久没改过；文件时间不可靠时（如刚 clone）偏向「刚动过」，宁可少标。
+fn untouched_for(directory: &Path) -> std::time::Duration {
+    let path = if file::is_file_task(directory) {
+        directory.to_path_buf()
+    } else {
+        directory.join("task.json")
+    };
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------- 只读
 
 /// 任务摘要列表；读不了的任务进 `diagnostics`。与 [`views`] 同一退回规则（`.berth/tasks` 没有任务时读旧 `.trellis`）。
@@ -330,14 +359,20 @@ pub fn list(workspace: &Path, include_archived: bool, limit: usize) -> TaskResul
         } else {
             live_with(&record, live.tasks.get(&name))
         };
-        tasks.push(json!({
+        let status = entry.status.unwrap_or_else(|| "planning".to_owned());
+        let stale = !archived && status == "planning" && untouched_for(&directory) >= STALE_PLANNING;
+        let mut task = json!({
             "id": name,
             "title": view::record_title(&record, &name),
-            "status": entry.status.unwrap_or_else(|| "planning".to_owned()),
+            "status": status,
             "etag": task_etag(&directory)?,
             "archived": archived,
             "group": task_group,
-        }));
+        });
+        if stale {
+            task["stale"] = json!(true);
+        }
+        tasks.push(task);
     }
     let limit = limit.clamp(1, 500);
     let truncated = tasks.len() > limit;
@@ -443,6 +478,7 @@ fn legacy_live(record: &Value) -> Live {
         cancel_reason: None,
         updated_at: None,
         group: None,
+        reopened: false,
     }
 }
 
@@ -482,7 +518,7 @@ pub fn create(workspace: &Path, options: CreateOptions) -> TaskResult<Value> {
     fs::create_dir_all(&root)?;
     // 文件名就是任务引用；分支、worktree、群是本机实时状态，在主项目 local/tasks.json。
     let description = options.description.trim();
-    let body = if description.is_empty() { file::skeleton(None) } else { description.to_owned() };
+    let body = if description.is_empty() { file::skeleton() } else { description.to_owned() };
     let text = file::render(title, options.idea.as_deref(), &body)?;
     let result = (|| -> TaskResult<Value> {
         fsutil::atomic_write(&directory, text.as_bytes())?;
@@ -501,6 +537,7 @@ pub fn create(workspace: &Path, options: CreateOptions) -> TaskResult<Value> {
             "task": record,
             "etag": task_etag(&directory)?,
             "prd": directory.to_string_lossy(),
+            "running": running_tasks(&ctx)?,
         }))
     })();
     if result.is_err() {
@@ -580,7 +617,8 @@ pub fn done(workspace: &Path, reference: Option<&str>) -> TaskResult<Value> {
 }
 
 /// 显式开始任务，仅改变任务状态，不创建或清理群环境。
-/// 单文件任务先检查规划（每步 do / change / verify 都填了），返回任务文件与第一步。
+/// 单文件任务先检查规划（每步 do / change / verify 都填了），返回任务文件与第一步；
+/// 也带上进行中的任务，超过 [`RUNNING_WARN`] 个时警告，但不阻止。
 pub fn begin(workspace: &Path, reference: &str) -> TaskResult<Value> {
     let ctx = context(workspace)?;
     let (directory, archived) = resolve(&ctx, Some(reference))?;
@@ -606,11 +644,19 @@ pub fn begin(workspace: &Path, reference: &str) -> TaskResult<Value> {
         entry.updated_at = Some(state::now());
         Ok(())
     })?;
+    let running = running_tasks(&ctx)?;
+    if running.len() > RUNNING_WARN {
+        result["warning"] = json!(format!(
+            "{} tasks are in progress: finish the running ones first if you can",
+            running.len()
+        ));
+    }
+    result["running"] = json!(running);
     Ok(result)
 }
 
 /// 勾掉一步：要求已有带 `Task: <任务> S<n>` 尾注的提交，在主项目那份任务文件里记下提交；
-/// 返回下一步、全部步骤一览与记录末几行，做完最后一步时返回验收项。
+/// 返回下一步、全部步骤一览与记录末几行；最后一步记下后全部已合并就归档（`settled`）。
 pub fn step(workspace: &Path, reference: &str, step: &str) -> TaskResult<Value> {
     let ctx = context(workspace)?;
     let (path, archived) = resolve(&ctx, Some(reference))?;
@@ -641,6 +687,13 @@ pub fn step(workspace: &Path, reference: &str, step: &str) -> TaskResult<Value> 
         };
         steps[index].commit = Some(commit.hash);
         file::save(&path, Some(&steps), None)?;
+        // 重开后又做了新步骤：恢复自动收尾。
+        state::update(&ctx.main, |live| {
+            if let Some(entry) = live.tasks.get_mut(&name) {
+                entry.reopened = false;
+            }
+            Ok(())
+        })?;
     }
     let body = file::body(&file::read(&path)?).to_owned();
     let next = steps.iter().find(|item| item.commit.is_none());
@@ -660,12 +713,12 @@ pub fn step(workspace: &Path, reference: &str, step: &str) -> TaskResult<Value> 
         "notes": file::section_tail(&body, "记录", 5),
     });
     if next.is_none() {
-        let (_, acceptance) = view::checklists(&body);
-        result["acceptance"] = json!(acceptance
-            .iter()
-            .map(|item| format!("[{}] {}", if item.checked { "x" } else { " " }, item.text))
-            .collect::<Vec<_>>());
-        result["then"] = json!("All steps done: check every acceptance item, then `berth task finish`");
+        if all_merged(&ctx, &path)? {
+            result["settled"] = settle(&ctx, &path, None)?;
+            result["then"] = json!("All steps are merged, so the task was completed and archived: tell the user what was archived");
+        } else {
+            result["then"] = json!("All steps are committed: the task archives itself once they are merged into its target branch (a reopened task with no new step needs `berth task finish`)");
+        }
     }
     Ok(result)
 }
@@ -688,38 +741,6 @@ pub fn save(
         body.as_ref().map(|(base, next)| (base.as_str(), next.as_str())),
     )?;
     Ok(json!({"taskDirName": dir_name(&path), "etag": task_etag(&path)?}))
-}
-
-/// 想法升级为任务：原话与讨论带进任务的「背景」，想法以 `→ 任务 <名>` 关闭并归档。
-pub fn promote(workspace: &Path, idea: &str, title: Option<&str>) -> TaskResult<Value> {
-    let ctx = context(workspace)?;
-    let io = |error: std::io::Error| TaskError::new("io_error", error.to_string());
-    let (text, discussion) = crate::knowledge::ideas::background(&ctx.main, idea)
-        .map_err(io)?
-        .ok_or_else(|| TaskError::new("not_found", format!("Idea {idea} not found")))?;
-    let title = title
-        .map(str::to_owned)
-        .unwrap_or_else(|| text.lines().next().unwrap_or_default().trim_start_matches("# ").chars().take(60).collect());
-    let mut background = text;
-    if !discussion.is_empty() {
-        background.push_str("\n\n讨论：\n\n");
-        background.push_str(&discussion);
-    }
-    let created = create(
-        workspace,
-        CreateOptions {
-            title,
-            slug: None,
-            description: file::skeleton(Some(&background)),
-            branch: None,
-            base: None,
-            idea: Some(idea.to_owned()),
-        },
-    )?;
-    let name = created["taskDirName"].as_str().unwrap_or_default().to_owned();
-    crate::knowledge::ideas::close(&ctx.main, idea, &crate::knowledge::ideas::Conclusion::Task(name))
-        .map_err(io)?;
-    Ok(created)
 }
 
 /// 本群里没做完的任务（目录名），不含 `except`。`main` 是主项目目录。
@@ -766,6 +787,7 @@ fn settle(ctx: &Ctx, directory: &Path, cancel_reason: Option<&str>) -> TaskResul
         let entry = live.tasks.entry(name.clone()).or_default();
         entry.status = Some("completed".to_owned());
         entry.abandoned = false;
+        entry.reopened = false;
         entry.cancel_reason = cancel_reason.map(|reason| reason.trim().to_owned());
         if entry.completed_at.is_none() || cancel_reason.is_some() {
             entry.completed_at = Some(state::today());
@@ -797,7 +819,7 @@ fn settle(ctx: &Ctx, directory: &Path, cancel_reason: Option<&str>) -> TaskResul
         .unwrap_or_else(|| group::MAIN_GROUP.to_owned());
     let all_archived = group != group::MAIN_GROUP
         && open_tasks_in_group(&ctx.main, &group, Some(&name))?.is_empty();
-    Ok(json!({
+    let mut result = json!({
         "taskDirName": name,
         "archived": true,
         "state": "completed",
@@ -805,7 +827,104 @@ fn settle(ctx: &Ctx, directory: &Path, cancel_reason: Option<&str>) -> TaskResul
         "path": destination.to_string_lossy(),
         "group": group,
         "groupAllArchived": all_archived,
-    }))
+    });
+    if file::is_file_task(&destination) {
+        // 任务已经归档了：扫描失败只注明，不回退。
+        match session_snapshot::link(&ctx.main, &name, &destination) {
+            Ok(count) => result["sessions"] = json!(count),
+            Err(error) => {
+                let _ = file::append_note(&destination, &format!("归档时关联会话失败：{}", error.message));
+                result["sessionScanError"] = json!(error.message);
+            }
+        }
+    }
+    if let Err(error) = add_to_inbox(&ctx.main, &name, &destination, cancel_reason) {
+        result["inboxError"] = json!(error.to_string());
+    }
+    // 告诉 Agent 当前总数；不等于要去处理，用户说要维护时才处理。
+    if let Ok(items) = inbox::list(&ctx.main) {
+        result["inbox"] = json!(items.len());
+    }
+    Ok(result)
+}
+
+/// 归档的任务进知识库的待入库清单：来源、结果类型，以及提交、偏离记录和关联会话。
+fn add_to_inbox(
+    main: &Path,
+    name: &str,
+    destination: &Path,
+    cancel_reason: Option<&str>,
+) -> TaskResult<()> {
+    let record = record(destination)?;
+    let source = destination.strip_prefix(main).unwrap_or(destination);
+    let mut body = format!("任务文件：`{}`\n", source.display());
+    if let Some(idea) = record.get("idea").and_then(Value::as_str) {
+        body.push_str(&format!("\n来源想法：{idea}\n"));
+    }
+    if let Some(reason) = cancel_reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+        body.push_str(&format!("\n放弃原因：{reason}\n"));
+    }
+    if file::is_file_task(destination) {
+        let mut section = |heading: &str, lines: Vec<String>| {
+            if !lines.is_empty() {
+                body.push_str(&format!("\n## {heading}\n\n{}\n", lines.join("\n")));
+            }
+        };
+        section(
+            "提交",
+            file::steps(&record)?
+                .iter()
+                .filter_map(|step| {
+                    let commit = step.commit.as_ref()?;
+                    Some(format!("- {} {commit} {}", step.id, step.action))
+                })
+                .collect(),
+        );
+        // ponytail: 记录一节按 1000 行封顶，真有更长的再说。
+        section("偏离记录", file::section_tail(file::body(&file::read(destination)?), "记录", 1000));
+        section(
+            "关联会话",
+            file::sessions(&record)
+                .iter()
+                .map(|session| format!("- {}:{} {}", session.agent, session.id, session.title))
+                .collect(),
+        );
+    }
+    let result = if cancel_reason.is_some() { file::ABANDONED } else { file::DONE };
+    inbox::add(main, "任务", name, &view::record_title(&record, name), result, &body)?;
+    Ok(())
+}
+
+/// 自动收尾的条件：单文件任务的每一步都记下了提交（`step`）且已进入目标分支。
+/// 只有提交没记下的不算，免得列表轮询抢在 `step` 之前归档；刚重开的不算，否则重开马上又被归档。
+fn all_merged(ctx: &Ctx, directory: &Path) -> TaskResult<bool> {
+    if !file::is_file_task(directory) {
+        return Ok(false);
+    }
+    let record = record(directory)?;
+    let steps = file::steps(&record)?;
+    if steps.is_empty() || steps.iter().any(|step| step.commit.is_none()) {
+        return Ok(false);
+    }
+    let name = dir_name(directory);
+    let entry = live_with(&record, state::load(&ctx.main)?.tasks.get(&name));
+    if entry.reopened {
+        return Ok(false);
+    }
+    let (effective, _) = grouped(&ctx.main, &name, &entry);
+    let view = view::build(&ctx.main, directory, &record, &effective, false)?;
+    Ok(view.steps.iter().all(|step| step.state == "merged"))
+}
+
+/// 归档步骤已全部合并的任务（worktree 合并后的任务靠它补上），返回归档结果。
+/// 任务列表前调用；单个任务读不了或归档失败不影响列表，下次再试。
+pub fn settle_merged(workspace: &Path) -> TaskResult<Vec<Value>> {
+    let ctx = context(workspace)?;
+    Ok(task_dirs(&ctx.main, false)
+        .into_iter()
+        .filter(|(directory, _)| all_merged(&ctx, directory).unwrap_or(false))
+        .filter_map(|(directory, _)| settle(&ctx, &directory, None).ok())
+        .collect())
 }
 
 /// 完成即归档（一次操作）。
@@ -851,6 +970,7 @@ pub fn reopen(workspace: &Path, reference: &str) -> TaskResult<Value> {
         let entry = live.tasks.entry(name.clone()).or_default();
         entry.status = Some("in_progress".to_owned());
         entry.abandoned = false;
+        entry.reopened = true;
         entry.cancel_reason = None;
         entry.completed_at = None;
         entry.updated_at = Some(state::now());
@@ -863,6 +983,8 @@ pub fn reopen(workspace: &Path, reference: &str) -> TaskResult<Value> {
     if file::is_file_task(&destination) {
         file::set_status(&destination, file::RUNNING)?;
     }
+    // 再次归档时重新生成；已处理的记录不动。
+    let _ = inbox::remove(&ctx.main, &name);
     Ok(json!({"taskDirName": name, "archived": false, "state": "running"}))
 }
 

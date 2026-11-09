@@ -54,6 +54,8 @@ export interface WorkspaceLayoutState {
   dragOverPane: WorkspacePane | null
   /** Gap position in the target pane's strip; null = its content area. */
   dragInsertIndex: number | null
+  /** 文件树的条目正拖到这一栏上（放下即打开 / 粘贴路径），驱动分栏的放置提示。 */
+  treeDropOver: TreeDropOver | null
 
   placementScope: (folderId: number | null) => string
   setActivePane: (pane: WorkspacePane) => void
@@ -82,6 +84,7 @@ export interface WorkspaceLayoutState {
     index?: number | null
   ) => void
   endWorkspaceTabDrag: () => void
+  setTreeDropOver: (over: TreeDropOver | null) => void
   /** Move `tab` into `pane` at strip position `index` (null = append) and select it. */
   dropWorkspaceTab: (
     tab: WorkspaceTabRef,
@@ -93,6 +96,11 @@ export interface WorkspaceLayoutState {
     fileTabs: readonly { id: string }[]
   ) => void
   reset: () => void
+}
+
+export interface TreeDropOver {
+  pane: WorkspacePane
+  action: "open" | "paste"
 }
 
 const EMPTY_PLACEMENT: WorkspaceTabPlacement = {}
@@ -254,6 +262,7 @@ export function createInitialWorkspaceLayoutState(): Pick<
   | "dragging"
   | "dragOverPane"
   | "dragInsertIndex"
+  | "treeDropOver"
 > {
   return {
     activePane: "conversation",
@@ -266,6 +275,7 @@ export function createInitialWorkspaceLayoutState(): Pick<
     dragging: null,
     dragOverPane: null,
     dragInsertIndex: null,
+    treeDropOver: null,
   }
 }
 
@@ -465,6 +475,13 @@ export const useWorkspaceLayoutStore = create<WorkspaceLayoutState>()(
 
     endWorkspaceTabDrag: () =>
       set({ dragging: null, dragOverPane: null, dragInsertIndex: null }),
+
+    setTreeDropOver: (over) => {
+      const current = get().treeDropOver
+      if (current?.pane === over?.pane && current?.action === over?.action)
+        return
+      set({ treeDropOver: over })
+    },
 
     dropWorkspaceTab: (tab, pane, index) => {
       if (tab.kind === "global" || !isVisibleTab(get(), tab)) return

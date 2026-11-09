@@ -1,3 +1,4 @@
+import { deviceTab } from "@/lib/files/file-workspace-tab"
 import { describe, expect, it } from "vitest"
 import {
   parseFileReaderState,
@@ -157,6 +158,13 @@ describe("file reader persistence", () => {
         title: "Berth · what changed?",
         folderId: 7,
       },
+    ])
+  })
+
+  it("restores a device page tab", () => {
+    const state = serializeFileReaderState([deviceTab(3, "gpu")], null)
+    expect(parseFileReaderState(JSON.stringify(state)).tabs).toEqual([
+      { kind: "device", deviceId: 3, title: "gpu", folderId: null },
     ])
   })
 })

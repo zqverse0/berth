@@ -920,7 +920,6 @@ function ProviderDetailForm({
       {provider && decisionModel ? (
         <DecisionPanel
           providerId={provider.id}
-          providerName={provider.name}
           model={decisionModel}
           open
           onOpenChange={(open) => {

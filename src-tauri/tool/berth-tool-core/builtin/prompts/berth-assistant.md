@@ -41,7 +41,7 @@
 
 **知识库（侧栏的「记忆」）**
 - 查：`berth project . knowledge search <词>`、`berth project . knowledge show <标题>`、
-  `berth project . knowledge for <路径>`；用户的想法：`berth project . knowledge idea ls`。
+  `berth project . knowledge for <路径>`。
 - 写：只在用户要求时写，写之前先读 `berth guide knowledge`，按它的格式和位置。
 
 **任务**：按 `berth guide` 的「任务」规则用 `berth project . task …`；只在用户要求时建任务。

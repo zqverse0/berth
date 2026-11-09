@@ -18,6 +18,7 @@ import {
   ChevronRightIcon,
   FileSymlink,
   FolderGit2,
+  FolderOpenIcon,
   FolderSymlink,
 } from "lucide-react"
 import {
@@ -65,7 +66,7 @@ export function fileTreeRowElementId(treeId: string, path: string): string {
 // hover / selection / drop highlight spans the whole row at any depth. When
 // `depth` is omitted (callers that nest purely via <FileTreeFolder> children),
 // the classic margin/border/padding wrapper indentation is used, unchanged.
-const FILE_TREE_INDENT_STEP_REM = 1.5
+const FILE_TREE_INDENT_STEP_REM = 1
 function rowPaddingLeftStyle(
   depth: number | undefined,
   base: CSSProperties | undefined
@@ -76,6 +77,34 @@ function rowPaddingLeftStyle(
     ...base,
   }
 }
+
+/**
+ * `tree` 命令式连接线：每层一格，`guides[i]` = 这一层的节点后面还有兄弟。最后一格是行自己
+ * （`├─` / `└─`），前面是祖先（`│` / 空）。竖线对齐上一层文件夹图标的中心，线从图标下方长出来。
+ */
+const GUIDE_LINE_CLASS = "absolute left-[7px] bg-muted-foreground/40"
+const FileTreeGuides = ({ guides }: { guides: readonly boolean[] }) =>
+  guides.length === 0 ? null : (
+    // -my 铺满行的上下内边距，线才连续；-mr 抵消行的 gap，每层缩进固定一格。
+    <span aria-hidden className="-my-0.5 -mr-1 flex shrink-0 self-stretch">
+      {guides.map((hasNext, level) => {
+        const own = level === guides.length - 1
+        return (
+          <span key={level} data-tree-guide="" className="relative w-3">
+            {hasNext ? (
+              <span className={cn(GUIDE_LINE_CLASS, "inset-y-0 w-px")} />
+            ) : null}
+            {own && hasNext ? (
+              <span className={cn(GUIDE_LINE_CLASS, "top-1/2 h-px w-1")} />
+            ) : null}
+            {own && !hasNext ? (
+              <span className="absolute left-[7px] top-0 h-1/2 w-1 rounded-bl-[3px] border-b border-l border-muted-foreground/40" />
+            ) : null}
+          </span>
+        )
+      })}
+    </span>
+  )
 
 // Default noop for context default value
 // oxlint-disable-next-line eslint(no-empty-function)
@@ -202,8 +231,8 @@ export type FileTreeFolderProps = HTMLAttributes<HTMLDivElement> & {
    * owned by the folder and are not overridable here.
    */
   rowProps?: ButtonHTMLAttributes<HTMLButtonElement>
-  /** Render a drop-target highlight on the header row (a valid DnD drop is
-   *  hovering this folder). */
+  /** Render a drop-target highlight on the header row and, more faintly, on the
+   *  expanded subtree (a valid DnD drop would land in this folder). */
   dropActive?: boolean
   /**
    * Marks this folder's header row as a directory drop zone for file-tree DnD,
@@ -220,6 +249,11 @@ export type FileTreeFolderProps = HTMLAttributes<HTMLDivElement> & {
    * depth. When omitted, the classic wrapper indentation is used unchanged.
    */
   depth?: number
+  /**
+   * 用 `tree` 式连接线代替箭头（见 {@link FileTreeGuides}）；缩进由线占位，`depth` 传 0。
+   * 展开态靠打开的图标和淡色填充表达。
+   */
+  guides?: readonly boolean[]
   /**
    * When true, render the folder as a symlink (FolderSymlink icon). Used for
    * workspace-internal directory links (e.g. shared tool state).
@@ -239,6 +273,7 @@ export const FileTreeFolder = ({
   dropActive,
   dropTargetDir,
   depth,
+  guides,
   symlink = false,
   gitSubmodule = false,
   className,
@@ -265,6 +300,8 @@ export const FileTreeFolder = ({
   } = useContext(FileTreeContext)
   const isExpanded = expandedPaths.has(path)
   const isSelected = selectedPath === path
+  const expandedTint =
+    guides && isExpanded && "fill-current [fill-opacity:0.18]"
 
   const handleOpenChange = useCallback(() => {
     togglePath(path)
@@ -283,7 +320,11 @@ export const FileTreeFolder = ({
     <FileTreeFolderContext.Provider value={folderContextValue}>
       <Collapsible onOpenChange={handleOpenChange} open={isExpanded}>
         <div
-          className={cn("", className)}
+          className={cn(
+            // 放进这个文件夹：连同已展开的子项一起浅色，一眼看出落点范围。
+            dropActive && "rounded bg-muted-foreground/10",
+            className
+          )}
           id={fileTreeRowElementId(treeId, path)}
           aria-selected={isSelected}
           aria-expanded={isExpanded}
@@ -295,8 +336,8 @@ export const FileTreeFolder = ({
           <CollapsibleTrigger asChild>
             <button
               className={cn(
-                "flex w-max min-w-full items-center gap-1 rounded py-1 text-left transition-colors",
-                depth == null ? "px-2" : "pr-2",
+                "flex w-max min-w-full items-center gap-1 rounded text-left transition-colors",
+                depth == null ? "px-2 py-1" : "pr-2 py-0.5",
                 // A selected row — or a directory being hovered as a drop target
                 // — gets the same static tint with NO hover change; only idle
                 // rows show the hover affordance.
@@ -322,17 +363,22 @@ export const FileTreeFolder = ({
               // caller-provided tabIndex unchanged.
               tabIndex={keyboardNavigation ? -1 : rowRest.tabIndex}
             >
-              <ChevronRightIcon
-                className={cn(
-                  "size-4 shrink-0 text-muted-foreground transition-transform",
-                  isExpanded && "rotate-90"
-                )}
-              />
+              {guides ? (
+                <FileTreeGuides guides={guides} />
+              ) : (
+                <ChevronRightIcon
+                  className={cn(
+                    "size-4 shrink-0 text-muted-foreground transition-transform",
+                    isExpanded && "rotate-90"
+                  )}
+                />
+              )}
               <FileTreeIcon>
                 {gitSubmodule ? (
                   <FolderGit2
                     className={cn(
                       "size-4 shrink-0 text-chart-3",
+                      expandedTint,
                       iconClassName
                     )}
                     aria-hidden
@@ -341,6 +387,7 @@ export const FileTreeFolder = ({
                   <FolderSymlink
                     className={cn(
                       "size-4 shrink-0 text-chart-3",
+                      expandedTint,
                       iconClassName
                     )}
                     aria-hidden
@@ -350,12 +397,16 @@ export const FileTreeFolder = ({
                   (() => {
                     const folderConfig = getFolderIconConfig(name)
                     const ClosedIcon = folderConfig.icon
-                    const OpenIcon = folderConfig.openIcon ?? folderConfig.icon
+                    // 没有箭头时特殊目录也要看得出展开，统一用打开的文件夹。
+                    const OpenIcon =
+                      folderConfig.openIcon ??
+                      (guides ? FolderOpenIcon : folderConfig.icon)
                     return isExpanded ? (
                       <OpenIcon
                         className={cn(
                           "size-4 shrink-0",
                           folderConfig.colorClass,
+                          expandedTint,
                           iconClassName
                         )}
                       />
@@ -416,6 +467,8 @@ export type FileTreeFileProps = HTMLAttributes<HTMLDivElement> & {
   /** Nesting depth (0 = top level). See {@link FileTreeFolderProps.depth}: when
    *  provided the row is full-width and indents its content via padding. */
   depth?: number
+  /** 连接线，见 {@link FileTreeFolderProps.guides}。 */
+  guides?: readonly boolean[]
   /**
    * When true (and no custom `icon` is provided), render FileSymlink instead
    * of the default file icon.
@@ -430,6 +483,7 @@ export const FileTreeFile = ({
   name,
   icon,
   depth,
+  guides,
   symlink = false,
   suffix,
   suffixClassName,
@@ -461,8 +515,8 @@ export const FileTreeFile = ({
     <FileTreeFileContext.Provider value={fileContextValue}>
       <div
         className={cn(
-          "flex w-max min-w-full cursor-pointer items-center gap-1 rounded py-1 transition-colors",
-          depth == null ? "px-2" : "pr-2",
+          "flex w-max min-w-full cursor-pointer items-center gap-1 rounded transition-colors",
+          depth == null ? "px-2 py-1" : "pr-2 py-0.5",
           // Selected rows keep a static tint (no hover change); idle rows show
           // the hover affordance.
           isSelected ? "bg-muted-foreground/20" : "hover:bg-muted/50",
@@ -480,8 +534,12 @@ export const FileTreeFile = ({
       >
         {children ?? (
           <>
-            {/* Spacer for alignment */}
-            <span className="size-4" />
+            {guides ? (
+              <FileTreeGuides guides={guides} />
+            ) : (
+              /* Spacer for alignment */
+              <span className="size-4" />
+            )}
             <FileTreeIcon>
               {icon ??
                 (symlink ? (

@@ -64,6 +64,10 @@ pub struct KnowledgeSnapshot {
     pub documents: Vec<KnowledgeDocument>,
     pub edges: Vec<KnowledgeEdge>,
     pub diagnostics: Vec<KnowledgeDiagnostic>,
+    /// 未处理的待入库。
+    pub inbox: Vec<super::inbox::InboxItem>,
+    /// 待入库目录的项目相对路径；目录还不存在时为空（不存在的目录监听不了）。
+    pub inbox_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,17 +138,4 @@ pub struct StaleResult {
 pub struct SetStatusResult {
     pub path: String,
     pub status: String,
-}
-
-/// 一条想法（`<vault>/想法/<id>.md`）。`text` 是用户原话：正文第一个 `## ` 之前。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Idea {
-    /// 文件名（不含 `.md`），即创建时间 `YYYY-MM-DD-HHMMSS`。
-    pub id: String,
-    pub path: String,
-    pub status: String,
-    pub tags: Vec<String>,
-    pub text: String,
-    pub modified_at: u64,
 }

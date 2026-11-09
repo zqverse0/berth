@@ -1,4 +1,3 @@
-import { runtimeBridgeOperation } from "@/lib/runtime-bridge"
 import { getTransport } from "@/lib/transport"
 
 /**
@@ -195,55 +194,4 @@ export async function evaluateDecision(params: {
   questions: Record<string, DecisionQuestion>
 }): Promise<DecisionResult> {
   return getTransport().call("model_provider_systemone", params)
-}
-
-/** Berth 全局决策模型（`~/.berth/decision.json`）：空字符串 = 自动（第一个决策档案 / 档案的第一个模型）。 */
-export interface DecisionSettings {
-  provider: string
-  model: string
-}
-
-async function decisionCall<T>(
-  method: string,
-  params?: Record<string, unknown>
-) {
-  const response = await runtimeBridgeOperation<T>({ method, params })
-  if (!response.ok) throw new Error(response.error.message)
-  return response.result
-}
-
-export function getDecisionSettings() {
-  return decisionCall<{
-    settings: DecisionSettings | null
-    error: string | null
-    profiles: { name: string; models: string[] }[]
-  }>("decision.settings")
-}
-
-export function saveDecisionSettings(settings: DecisionSettings) {
-  return decisionCall<DecisionSettings>("decision.setSettings", { settings })
-}
-
-/** 一次 Jev 调用的记录（`decision.calls`）：谁调的、为谁调、完整输入与答案。 */
-export interface DecisionCall {
-  id: string
-  at: string
-  /** 调用方，如 `knowledge.classify` */
-  caller: string
-  subject: { project?: string; session?: string; turn?: number }
-  profile: string
-  /** 实际作答的模型版本 */
-  model: string
-  state: unknown
-  questions: Record<string, DecisionQuestion>
-  /** 出错时没有 */
-  answers?: Record<string, DecisionAnswer>
-  usage: { input_tokens: number; output_tokens: number }
-  ms: number
-  error?: string
-}
-
-/** 最近的调用，新的在前；`project`（主项目路径）只留这个项目的。 */
-export function listDecisionCalls(project?: string, limit = 50) {
-  return decisionCall<DecisionCall[]>("decision.calls", { project, limit })
 }

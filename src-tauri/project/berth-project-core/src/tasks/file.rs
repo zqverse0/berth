@@ -1,5 +1,7 @@
 //! 单文件任务 `.berth/tasks/<MM-DD-slug>.md`：frontmatter（title / status / idea / steps）+ 固定骨架正文。
-//! 步骤在 frontmatter 的 `steps`（id / do / change / verify / commit），正文只放目标、背景、不做、验收、记录。
+//! 归档时关联到的会话在 frontmatter 的 `sessions`（快照不进 git，见 `session_snapshot`）。
+//! 步骤在 frontmatter 的 `steps`（id / do / change / verify / commit），正文只放目标、背景、不做、试用建议、记录。
+//! 「试用建议」写给用户试用时看，可留空，不是阶段；旧任务的「验收」仍能读。
 //! status 只由 `berth task` 命令写；分支、worktree、群这些本机绑定仍在 `local/tasks.json`。
 //! 旧任务（目录 + task.json + prd.md）照旧可读，不迁移。
 
@@ -35,14 +37,23 @@ pub struct FileStep {
     pub commit: Option<String>,
 }
 
-/// 新任务的正文骨架；`background` 是升级来源想法的原话与讨论。
-pub(crate) fn skeleton(background: Option<&str>) -> String {
-    let background = background
-        .map(|text| format!("## 背景\n\n{}\n\n", text.trim()))
-        .unwrap_or_default();
+/// 归档时关联到的一个会话。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileSession {
+    pub agent: String,
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    /// 会话目录：任务页按它打开原会话。
+    #[serde(default)]
+    pub cwd: String,
+}
+
+/// 新任务的正文骨架。
+pub(crate) fn skeleton() -> String {
     format!(
-        "## 目标\n\n{TODO}：一句话结果。\n\n{background}## 不做\n\n- {TODO}\n\n\
-         ## 验收\n\n- [ ] {TODO}：端到端可检查的结果\n\n## 记录\n"
+        "## 目标\n\n{TODO}：一句话结果。\n\n## 不做\n\n- {TODO}\n\n\
+         ## 试用建议\n\n## 记录\n"
     )
 }
 
@@ -94,6 +105,14 @@ pub(crate) fn steps(record: &Value) -> TaskResult<Vec<FileStep>> {
             TaskError::new("invalid_json", format!("Malformed steps: {error}"))
         }),
     }
+}
+
+/// 记录里的会话；写坏时当没有，不影响读任务。
+pub(crate) fn sessions(record: &Value) -> Vec<FileSession> {
+    record
+        .get("sessions")
+        .and_then(|sessions| serde_json::from_value(sessions.clone()).ok())
+        .unwrap_or_default()
 }
 
 /// 去掉 frontmatter 的正文（任务页编辑的就是它）。
@@ -155,6 +174,41 @@ pub(crate) fn save(
         map.insert("steps".into(), steps_yaml(steps)?);
     }
     fsutil::atomic_write(path, compose(&map, next_body)?.as_bytes())
+}
+
+/// 记下关联的会话，和已有的合并：重开后再归档时，已被清理的旧会话仍留在列表里。
+pub(crate) fn add_sessions(path: &Path, found: Vec<FileSession>) -> TaskResult<()> {
+    let text = read(path)?;
+    let mut map = mapping(path, &text)?;
+    let mut all = sessions(&record(path)?);
+    for session in found {
+        match all.iter_mut().find(|item| item.agent == session.agent && item.id == session.id) {
+            Some(item) => *item = session,
+            None => all.push(session),
+        }
+    }
+    let value = serde_yaml::to_value(all).map_err(|error| TaskError::new("io_error", error.to_string()))?;
+    map.insert("sessions".into(), value);
+    fsutil::atomic_write(path, compose(&map, body(&text))?.as_bytes())
+}
+
+/// 在正文「记录」一节末尾追加一行；没有这一节就新建。
+pub(crate) fn append_note(path: &Path, note: &str) -> TaskResult<()> {
+    let text = read(path)?;
+    let map = mapping(path, &text)?;
+    let lines: Vec<&str> = body(&text).trim_end().lines().collect();
+    let next = match lines.iter().position(|line| line.trim() == "## 记录") {
+        Some(start) => {
+            let end = lines[start + 1..]
+                .iter()
+                .position(|line| line.starts_with("## "))
+                .map_or(lines.len(), |offset| start + 1 + offset);
+            let tail = lines[end..].join("\n");
+            format!("{}\n\n- {note}\n\n{tail}", lines[..end].join("\n").trim_end())
+        }
+        None => format!("{}\n\n## 记录\n\n- {note}", lines.join("\n")),
+    };
+    fsutil::atomic_write(path, compose(&map, &next)?.as_bytes())
 }
 
 /// 开工前检查：至少一步，每步的 do / change / verify 都填了且不是占位。

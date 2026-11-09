@@ -5,6 +5,7 @@ import { useLocale } from "next-intl"
 import { toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
+import { useSendToAgent } from "@/hooks/use-send-to-agent"
 import { localizedTitle, type PluginView } from "@/lib/plugins/plugin-views"
 import {
   connectPluginPage,
@@ -17,7 +18,11 @@ import {
   hasFileTreeDragType,
   readFileTreeDragPayload,
 } from "@/lib/files/file-tree-dnd"
-import { isPathUnderRoot } from "@/lib/files/file-open-target"
+import {
+  isPathUnderRoot,
+  openInPlaceOptions,
+} from "@/lib/files/file-open-target"
+import { cn } from "@/lib/utils"
 
 /**
  * 插件页面（第 2 层）的 iframe：无边框透明背景，主题变量、按键、调用由 `connectPluginPage` 接上。
@@ -29,6 +34,7 @@ export function PluginPageFrame({
   host,
   externalContent,
   acceptFileDrop = false,
+  deferReveal = false,
   title,
 }: {
   /** 包内 html 路径。 */
@@ -37,8 +43,11 @@ export function PluginPageFrame({
   /** 编辑器：文件当前内容；不是页面自己交来的就推给页面。 */
   externalContent?: string
   acceptFileDrop?: boolean
+  /** 页面画好首屏才显示，加载中的空白（主题下发前还可能是不透明底色）不露出来。 */
+  deferReveal?: boolean
   title: string
 }) {
+  const [revealed, setRevealed] = useState(!deferReveal)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const connection = useRef<PageConnection | null>(null)
   const hostRef = useRef(host)
@@ -50,13 +59,17 @@ export function PluginPageFrame({
   useEffect(() => {
     const frame = frameRef.current
     if (!frame) return
-    const linked = connectPluginPage(frame, {
-      ...hostRef.current,
-      onChange: (content) => {
-        lastPageContent.current = content
-        hostRef.current.onChange?.(content)
+    const linked = connectPluginPage(
+      frame,
+      {
+        ...hostRef.current,
+        onChange: (content) => {
+          lastPageContent.current = content
+          hostRef.current.onChange?.(content)
+        },
       },
-    })
+      () => setRevealed(true)
+    )
     connection.current = linked
     return () => {
       linked.dispose()
@@ -129,7 +142,10 @@ export function PluginPageFrame({
         title={title}
         src={pluginAssetUrl(host.plugin, page)}
         sandbox={pluginFrameSandbox()}
-        className="block h-full w-full border-0 bg-transparent"
+        className={cn(
+          "block h-full w-full border-0 bg-transparent",
+          !revealed && "invisible"
+        )}
       />
       {treeDragging && (
         <div
@@ -151,6 +167,7 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
   const { activeFolder } = useActiveFolder()
   const locale = useLocale()
   const { openFilePreview } = useWorkspaceRuntimeActions()
+  const { send: sendToAgent } = useSendToAgent()
   const host = useMemo<PageHost>(
     () => ({
       plugin: view.plugin,
@@ -165,16 +182,24 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
         : null,
       locale,
       context: { kind: "view", id: view.id, params: {} },
-      openFile: (path) => void openFilePreview(path),
+      openFile: (path) =>
+        void openFilePreview(
+          path,
+          openInPlaceOptions(path, activeFolder?.path)
+        ),
       notify: (message, kind) =>
         kind === "error" ? toast.error(message) : toast(message),
+      sendToAgent: (text) => void sendToAgent(text),
     }),
-    [view, activeFolder, locale, openFilePreview]
+    [view, activeFolder, locale, openFilePreview, sendToAgent]
   )
   return (
+    // 页面只在载入时读项目：换项目要重新载入
     <PluginPageFrame
+      key={activeFolder?.id ?? ""}
       page={view.page ?? ""}
       host={host}
+      deferReveal
       title={localizedTitle(view.title, locale)}
     />
   )

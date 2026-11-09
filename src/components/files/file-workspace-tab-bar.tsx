@@ -22,12 +22,16 @@ import {
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { createFileTreeEntry } from "@/lib/api"
 import { createUniqueRootFile } from "@/lib/files/create-unique-root-file"
+import { openInPlaceOptions } from "@/lib/files/file-open-target"
+import type { WorkspaceFileOpenOptions } from "@/lib/workspace/workspace-runtime"
 import { toErrorMessage } from "@/lib/app-error"
 import { toast } from "@/lib/notify"
 import {
   localizedTitle,
+  runPluginAction,
   usePluginViewsStore,
   type PluginEditor,
+  type PluginView,
 } from "@/lib/plugins/plugin-views"
 import { workspaceTabKey } from "@/lib/workspace/workspace-tab-placement"
 import { useAppUiStore } from "@/stores/app-ui-store"
@@ -128,6 +132,35 @@ function pluginFilePresets(
   )
 }
 
+function NewFileMenuRow({
+  label,
+  ext,
+  title,
+  disabled,
+  onClick,
+}: {
+  label: string
+  ext?: string
+  title?: string
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+    >
+      <span className="truncate">{label}</span>
+      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+        {ext}
+      </span>
+    </button>
+  )
+}
+
 /** 在当前项目根目录新建文件并打开：输入完整文件名，或点预设类型。 */
 function NewFileButton() {
   const t = useTranslations("Folder.fileTreeTab")
@@ -139,6 +172,7 @@ function NewFileButton() {
   const { trackTrigger, content: paneContent } = usePaneBoundary()
   const locale = useLocale()
   const editors = usePluginViewsStore((state) => state.editors)
+  const views = usePluginViewsStore((state) => state.views)
   const presets = useMemo<FilePreset[]>(
     () => [
       ...FILE_PRESETS.map((preset) => ({
@@ -151,24 +185,16 @@ function NewFileButton() {
   )
   if (!activeFolder) return null
 
-  const create = async (preset?: FilePreset) => {
-    const trimmed = name.trim()
-    if (!trimmed && !preset) return
+  const createAndOpen = async (
+    make: () => Promise<string>,
+    options: (path: string) => WorkspaceFileOpenOptions | undefined
+  ) => {
     setCreating(true)
     try {
-      // 预设：填了名字就用它（去掉重复的后缀），否则用默认名；重名自动加序号
-      const path = preset
-        ? await createUniqueRootFile(
-            activeFolder.path,
-            (trimmed.endsWith(preset.ext)
-              ? trimmed.slice(0, -preset.ext.length)
-              : trimmed) || preset.stem,
-            preset.ext
-          )
-        : await createFileTreeEntry(activeFolder.path, "", trimmed, "file")
+      const path = await make()
       setOpen(false)
       setName("")
-      void openFilePreview(path, { folderId: activeFolder.id })
+      void openFilePreview(path, options(path))
     } catch (error) {
       toast.error(t("toasts.createFailed"), {
         description: toErrorMessage(error),
@@ -177,6 +203,51 @@ function NewFileButton() {
       setCreating(false)
     }
   }
+
+  const create = (preset?: FilePreset) => {
+    const trimmed = name.trim()
+    if (!trimmed && !preset) return
+    return createAndOpen(
+      () =>
+        // 预设：填了名字就用它（去掉重复的后缀），否则用默认名；重名自动加序号
+        preset
+          ? createUniqueRootFile(
+              activeFolder.path,
+              (trimmed.endsWith(preset.ext)
+                ? trimmed.slice(0, -preset.ext.length)
+                : trimmed) || preset.stem,
+              preset.ext
+            )
+          : createFileTreeEntry(activeFolder.path, "", trimmed, "file"),
+      () => ({ folderId: activeFolder.id })
+    )
+  }
+
+  // 插件视图的 `new`：文件由插件脚本建（位置、内容它定），可能不在当前项目里
+  const createFromPlugin = (
+    plugin: string,
+    item: NonNullable<PluginView["new"]>[number]
+  ) =>
+    createAndOpen(
+      async () => {
+        const result = await runPluginAction({
+          plugin,
+          script: item.script,
+          input: item.input,
+          project: {
+            id: String(activeFolder.id),
+            name: activeFolder.name,
+            root: activeFolder.path,
+          },
+        })
+        const path = (result as { path?: unknown } | null)?.path
+        if (typeof path !== "string") {
+          throw new Error(`${plugin}: ${item.script} returned no path`)
+        }
+        return path
+      },
+      (path) => openInPlaceOptions(path, activeFolder.path)
+    )
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -212,20 +283,29 @@ function NewFileButton() {
         </form>
         <div className="mt-1.5 flex flex-col">
           {presets.map((preset) => (
-            <button
+            <NewFileMenuRow
               key={preset.key}
-              type="button"
-              disabled={creating}
+              label={preset.label}
+              ext={preset.ext}
               title={t("createDialog.presetHint")}
+              disabled={creating}
               onClick={() => void create(preset)}
-              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
-            >
-              <span className="truncate">{preset.label}</span>
-              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                {preset.ext}
-              </span>
-            </button>
+            />
           ))}
+          {views.flatMap((view) =>
+            (view.new ?? []).map((item) => (
+              <NewFileMenuRow
+                key={`${view.plugin}/${view.id}/${item.script}`}
+                label={localizedTitle(item.title, locale)}
+                ext={
+                  editors.find((editor) => editor.plugin === view.plugin)
+                    ?.suffixes[0]
+                }
+                disabled={creating}
+                onClick={() => void createFromPlugin(view.plugin, item)}
+              />
+            ))
+          )}
         </div>
       </PopoverContent>
     </Popover>

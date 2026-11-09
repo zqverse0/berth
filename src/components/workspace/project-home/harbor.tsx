@@ -15,7 +15,7 @@ import { useWorkspaceStateStore } from "@/hooks/workspace/use-workspace-state-st
 import type { PaneAgentState } from "@/lib/terminal/agent-panes"
 import { cn } from "@/lib/utils"
 import { AFT_SAIL, FORE_SAIL, HULL, MAIN_SAIL } from "./boat-layout"
-import { LineCounts } from "./recent-changes"
+import { LineCounts } from "@/components/layout/git/line-counts"
 import type { WorktreeGit } from "./use-home-data"
 
 /** 分到这个 worktree 的任务；`done` = 已提交的步骤数。 */

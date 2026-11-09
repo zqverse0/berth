@@ -1,7 +1,7 @@
-//! 节点接收文件传输：只碰已注册项目根之内的路径（符号链接解析后判断）。
+//! 节点的文件传输（收与发）：只碰已注册项目根之内的路径（符号链接解析后判断）。
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -159,6 +159,28 @@ pub(crate) fn put_finish(scope: &Scope, path: &str, sha256: &str) -> Result<Valu
     Ok(json!({ "dir": false, "size": meta.len(), "version": file_version(&meta) }))
 }
 
+/// 下载开始：文件的大小与哈希。
+pub(crate) fn get_begin(scope: &Scope, path: &str) -> Result<Value, ApiError> {
+    let source = scope.resolve(path, false)?;
+    let meta = fs::metadata(&source).map_err(|error| io_error(&source, error))?;
+    if !meta.is_file() {
+        return Err(ApiError::new("invalid", format!("{} is not a file", source.display())));
+    }
+    Ok(json!({ "size": meta.len(), "sha256": sha256_file(&source)? }))
+}
+
+/// 读一块，到文件尾为空。
+pub(crate) fn get_chunk(scope: &Scope, path: &str, offset: u64, len: u64) -> Result<Vec<u8>, ApiError> {
+    let source = scope.resolve(path, false)?;
+    let mut file = fs::File::open(&source).map_err(|error| io_error(&source, error))?;
+    file.seek(SeekFrom::Start(offset)).map_err(|error| io_error(&source, error))?;
+    let mut bytes = Vec::new();
+    file.take(len)
+        .read_to_end(&mut bytes)
+        .map_err(|error| io_error(&source, error))?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +208,24 @@ mod tests {
             assert_eq!(scope.resolve(&format!("{root}/link"), false).unwrap_err().kind, "forbidden");
         }
         assert_eq!(scope.resolve("relative", false).unwrap_err().kind, "invalid");
+    }
+
+    #[test]
+    fn download_reads_chunks_inside_projects_only() {
+        let (dir, scope, root) = scope();
+        let file = format!("{root}/a.bin");
+        fs::write(&file, b"hello world").unwrap();
+        let info = get_begin(&scope, &file).unwrap();
+        assert_eq!(info["size"], 11);
+        assert_eq!(info["sha256"], hex(&Sha256::digest(b"hello world")));
+        assert_eq!(get_chunk(&scope, &file, 6, 100).unwrap(), b"world");
+        assert_eq!(get_chunk(&scope, &file, 11, 100).unwrap(), b"");
+        assert_eq!(get_begin(&scope, &root).unwrap_err().kind, "invalid");
+
+        fs::write(dir.path().join("secret"), "x").unwrap();
+        let outside = dir.path().join("secret").display().to_string();
+        assert_eq!(get_begin(&scope, &outside).unwrap_err().kind, "forbidden");
+        assert_eq!(get_chunk(&scope, &outside, 0, 1).unwrap_err().kind, "forbidden");
     }
 
     #[test]

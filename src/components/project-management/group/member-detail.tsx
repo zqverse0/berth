@@ -11,13 +11,13 @@ import { toErrorMessage } from "@/lib/app-error"
 import {
   memberLabel,
   readMemberDetail,
-  type LaunchRecord,
   type MemberDetail as Detail,
 } from "@/lib/agent/berth-group"
 import type { ContextSource } from "@/lib/types"
 import { StartupContext } from "@/sessions/components/startup-context"
 import { folderIdFor } from "@/sessions/project/open-project-session"
 import { paneNumber, type MemberRow } from "./group-model"
+import { PlanValue, planEntries } from "./launch-manifest"
 
 type Body = Detail["bodies"][number]
 
@@ -66,37 +66,6 @@ function Section({
     </section>
   )
 }
-
-/** 启动计划的一项：字符串数组显示成标签，其余原样显示。 */
-function PlanValue({ value }: { value: unknown }) {
-  if (Array.isArray(value) && value.every((item) => typeof item === "string"))
-    return (
-      <span className="flex flex-wrap gap-1">
-        {value.map((item) => (
-          <span
-            key={item}
-            className="rounded border border-border/60 px-1 font-mono text-[10px]"
-          >
-            {item}
-          </span>
-        ))}
-      </span>
-    )
-  if (typeof value === "string") return <>{value}</>
-  return <code className="font-mono text-[10px]">{JSON.stringify(value)}</code>
-}
-
-const planEntries = (plan: LaunchRecord["plan"]) =>
-  Object.entries(plan ?? {}).filter(
-    ([, value]) =>
-      value != null &&
-      !(Array.isArray(value) && value.length === 0) &&
-      !(
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        Object.keys(value).length === 0
-      )
-  )
 
 /** 会话文件里记下的启动上下文（每一项的来源、文件、估算 token）；没有会话时为 null。 */
 function useSessionContext(folderId: number, body: Body | undefined) {

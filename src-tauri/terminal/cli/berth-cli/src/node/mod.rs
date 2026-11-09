@@ -573,6 +573,11 @@ fn file_request(scope: &files::Scope, request: Request, body: &[u8]) -> Result<(
             value(files::put_chunk(scope, &path, &sha256, offset, body).map(|offset| json!({ "offset": offset })))
         }
         Request::PutFinish { path, sha256 } => value(files::put_finish(scope, &path, &sha256)),
+        Request::GetBegin { path } => value(files::get_begin(scope, &path)),
+        Request::GetChunk { path, offset, len } => {
+            let len = len.min(api::MAX_PUT_CHUNK as u64);
+            Ok((Value::Null, files::get_chunk(scope, &path, offset, len)?))
+        }
         other => Err(ApiError::new("invalid", format!("unexpected request {other:?}"))),
     }
 }

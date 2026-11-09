@@ -37,6 +37,8 @@ export interface PageHost {
   /** `files.open`：在工作区打开（绝对路径）。 */
   openFile?: (absPath: string) => void
   notify?: (message: string, kind: "info" | "error") => void
+  /** `agent.attach`：放进当前 Agent 的输入框（不提交）。 */
+  sendToAgent?: (text: string) => void
 }
 
 export interface PageConnection {
@@ -162,6 +164,9 @@ export function resolvePagePath(path: unknown): string {
   return parts.join("/")
 }
 
+const isAbsolutePath = (path: string) =>
+  path.startsWith("/") || /^[a-z]:[\\/]/i.test(path)
+
 const requireFiles = (host: PageHost): string => {
   if (!host.permissions.includes("project.files")) {
     throw new PageError(
@@ -198,6 +203,11 @@ export async function handlePageCall(
     }
     case "files.open": {
       const root = requireFiles(host)
+      // 绝对路径原样打开：只把文件开给用户看，内容不回页面（想法在主项目，可能不在当前 worktree 里）。
+      if (typeof params.path === "string" && isAbsolutePath(params.path)) {
+        host.openFile?.(params.path)
+        return null
+      }
       const rel = resolvePagePath(params.path)
       host.openFile?.(`${root.replace(/[\\/]+$/, "")}/${rel}`)
       return null
@@ -219,6 +229,19 @@ export async function handlePageCall(
         params.kind === "error" ? "error" : "info"
       )
       return null
+    case "agent.attach": {
+      if (!host.permissions.includes("agent")) {
+        throw new PageError(
+          "denied",
+          'agent needs permission "agent" in tool.json'
+        )
+      }
+      if (!host.sendToAgent) {
+        throw new PageError("unsupported", "agent is not available here")
+      }
+      host.sendToAgent(String(params.text ?? ""))
+      return null
+    }
     case "env.project":
       return host.project
     case "scripts.run":
@@ -251,12 +274,26 @@ type RpcMessage = {
   error?: { code: number; message: string; data?: { reason?: string } }
 }
 
-/** 接上一个已挂载的 iframe：页面每次（重）载入发 `page.hello`，宿主回 `page.init`。 */
+/** 页面没发调用时，`page.init` 之后等这么久就算就绪。 */
+const SETTLE_FALLBACK_MS = 400
+
+/**
+ * 接上一个已挂载的 iframe：页面每次（重）载入发 `page.hello`，宿主回 `page.init`。
+ * `onSettled`：页面首屏大概画好了（首个调用已回复，或没有调用），只调一次。
+ */
 export function connectPluginPage(
   frame: HTMLIFrameElement,
-  initial: PageHost
+  initial: PageHost,
+  onSettled?: () => void
 ): PageConnection {
   let host = initial
+  let settled = false
+  const settle = () => {
+    if (settled) return
+    settled = true
+    // 回复送达后页面还要画一帧
+    requestAnimationFrame(() => requestAnimationFrame(() => onSettled?.()))
+  }
   let seq = 0
   const waiting = new Map<
     number,
@@ -291,20 +328,23 @@ export function connectPluginPage(
     }
     if (message.id !== undefined) {
       const id = message.id
-      handlePageCall(host, message.method, params).then(
-        (result) => post({ id, result: result ?? null }),
-        (error: unknown) =>
-          post({
-            id,
-            error: {
-              code: -32001,
-              message: error instanceof Error ? error.message : String(error),
-              data: {
-                reason: error instanceof PageError ? error.reason : "internal",
+      handlePageCall(host, message.method, params)
+        .then(
+          (result) => post({ id, result: result ?? null }),
+          (error: unknown) =>
+            post({
+              id,
+              error: {
+                code: -32001,
+                message: error instanceof Error ? error.message : String(error),
+                data: {
+                  reason:
+                    error instanceof PageError ? error.reason : "internal",
+                },
               },
-            },
-          })
-      )
+            })
+        )
+        .finally(settle)
       return
     }
     switch (message.method) {
@@ -326,6 +366,7 @@ export function connectPluginPage(
           const pending = queue
           queue = []
           pending.forEach(deliver)
+          setTimeout(settle, SETTLE_FALLBACK_MS)
         })
         break
       case "editor.change":

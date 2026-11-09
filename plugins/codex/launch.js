@@ -19,6 +19,37 @@ const EXCLUDED = new Set([
   "rules",
   "skills",
 ])
+// 选了专家时不软链：原生记忆按用户共用，项目内容会混进专家。
+const isNativeMemory = (/** @type {string} */ name) =>
+  name === "memories" || /^memories_\d+\.sqlite/.test(name)
+// 已知的运行状态，软链进会话没有上下文影响；其余条目在启动清单里报 unknown，CLI 升级新增的目录能被看到。
+const KNOWN_STATE = new Set([
+  ".personality_migration",
+  ".sandbox_migration",
+  ".sqlite-maintenance.lock",
+  ".tmp",
+  "app-server-daemon",
+  "attachments",
+  "auth.json",
+  "cache",
+  "cc-switch-model-catalog.json",
+  "history.jsonl",
+  "installation_id",
+  "log",
+  "mcp-oauth-locks",
+  "packages",
+  "session_index.jsonl",
+  "sessions",
+  "shell_snapshots",
+  "thread-writer-locks",
+  "tmp",
+  "tui-thread-reference-capabilities",
+  "version.json",
+  "work",
+])
+const isKnownState = (/** @type {string} */ name) =>
+  KNOWN_STATE.has(name) ||
+  /^(goals|logs|queue|state|thread_history)_\d+\.sqlite/.test(name)
 // Codex hook 事件 → Berth hook 事件。
 /** @type {Record<string, "session-start" | "turn-start" | "turn-end" | "attention" | "idle">} */
 const BERTH_HOOKS = {
@@ -141,7 +172,11 @@ async function prepareSessionHome(
   const source = userCodexHome(ctx)
   const names = (await fs.stat(source)) ? await fs.list(source) : []
   for (const name of names) {
-    if (!EXCLUDED.has(name) && !name.startsWith("berth-expert-"))
+    if (
+      !EXCLUDED.has(name) &&
+      !name.startsWith("berth-expert-") &&
+      !(ctx.expert && isNativeMemory(name))
+    )
       await fs.symlink(`${source}/${name}`, `${home}/${name}`)
   }
   const config = await readConfig(source)
@@ -282,8 +317,10 @@ async function writeProfile(
     await fs.writeText(path, prompt, { mode: 0o600 })
     profile.model_instructions_file = path
   }
-  // Berth 能力索引：developer_instructions 追加，不替换 Codex 默认指令。
-  if (ctx.brief) profile.developer_instructions = ctx.brief
+  // Berth 能力索引和专家记忆索引：developer_instructions 追加，不替换 Codex 默认指令。
+  const memory = await memoryIndex(ctx)
+  const developer = [memory?.text, ctx.brief].filter(Boolean).join("\n\n")
+  if (developer) profile.developer_instructions = developer
   const configured = Object.keys((await readConfig(home)).plugins ?? {})
   const plugins = [...new Set([...configured, ...selected])].sort()
   if (plugins.length)
@@ -446,6 +483,96 @@ async function sweepStaleSessions(
   }
 }
 
+/** 专家记忆资产：`<目录>/MEMORY.md` 索引注入提示词，正文按需经 expert-memory MCP 读。还没有记忆时不注入。 */
+async function memoryIndex(/** @type {import("berth").LaunchContext} */ ctx) {
+  const asset = ctx.assets?.memory?.[0]
+  if (!asset) return null
+  const source = `${asset.path}/MEMORY.md`
+  const text = (await fs.stat(source)) ? await fs.readText(source) : ""
+  return { name: asset.name, source, text: text.trim() }
+}
+
+/** 每项资产的实际结果和未识别的目录进启动清单；旧宿主没有 report。 */
+async function reportAssets(/** @type {import("berth").LaunchContext} */ ctx) {
+  const memory = await memoryIndex(ctx)
+  const native = new Set(ctx.expert?.plugins.map((plugin) => plugin.name))
+  const source = userCodexHome(ctx)
+  const names = (await fs.stat(source)) ? await fs.list(source) : []
+  /** @type {import("berth").ReportItem[]} */
+  const items = [
+    ...(ctx.assets?.prompt ?? []).map((asset) => ({
+      kind: "prompt",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "model_instructions_file，替换 Codex 默认指令",
+    })),
+    ...(ctx.assets?.skills ?? []).map((asset) => ({
+      kind: "skills",
+      id: asset.name,
+      status: /** @type {const} */ ("applied"),
+      reason: "会话目录 skills/",
+    })),
+    ...(ctx.assets?.mcp ?? []).map((asset) => ({
+      kind: "mcp",
+      id: asset.name,
+      status: /** @type {const} */ ("converted"),
+      reason: "profile 的 mcp_servers",
+    })),
+    ...(ctx.assets?.plugins ?? []).map((asset) =>
+      native.has(asset.name)
+        ? {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("applied"),
+            reason: "会话 marketplace",
+          }
+        : {
+            kind: "plugins",
+            id: asset.name,
+            status: /** @type {const} */ ("skipped"),
+            reason: "没有 .codex-plugin/plugin.json",
+          }
+    ),
+    ...(memory
+      ? [
+          {
+            kind: "memory",
+            id: memory.name,
+            status: /** @type {const} */ ("applied"),
+            reason: memory.text
+              ? "索引追加进 developer_instructions"
+              : "还没有记忆，索引为空",
+            // 还没有记忆时索引不存在，不给打不开的路径。
+            source: memory.text ? memory.source : undefined,
+          },
+        ]
+      : []),
+    ...(ctx.expert
+      ? names.filter(isNativeMemory).map((name) => ({
+          kind: "native-memory",
+          id: name,
+          status: /** @type {const} */ ("isolated"),
+          reason: "不进会话目录，原文件保留",
+        }))
+      : []),
+    ...names
+      .filter(
+        (name) =>
+          !EXCLUDED.has(name) &&
+          !name.startsWith("berth-expert-") &&
+          !isNativeMemory(name) &&
+          !isKnownState(name)
+      )
+      .map((name) => ({
+        kind: "native-dir",
+        id: name,
+        status: /** @type {const} */ ("unknown"),
+        reason: "未识别，已软链进会话",
+      })),
+  ]
+  ctx.report?.(items)
+}
+
 /** @type {import("berth").AgentHooks} */
 export default {
   args(inputs) {
@@ -486,6 +613,7 @@ export default {
       await installPlugins(selected, env)
       await writeBerthHooks(ctx, home, env)
       const profile = await writeProfile(ctx, home, selected)
+      await reportAssets(ctx)
       const args = [
         "--profile",
         profile,

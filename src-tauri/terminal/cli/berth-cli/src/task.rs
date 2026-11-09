@@ -22,7 +22,7 @@ pub(crate) struct TaskArgs {
 
 #[derive(Debug, Subcommand)]
 enum TaskCommand {
-    /// 新建任务文件 `.berth/tasks/<MM-DD-slug>.md`（frontmatter 步骤 + 目标 / 不做 / 验收 / 记录），归入当前所在的群。
+    /// 新建任务文件 `.berth/tasks/<MM-DD-slug>.md`（frontmatter 步骤 + 目标 / 不做 / 试用建议 / 记录），归入当前所在的群。
     Create {
         title: String,
         #[arg(long)]
@@ -30,11 +30,11 @@ enum TaskCommand {
         /// 任务正文（Markdown，按同一骨架写，不含步骤）；缺省生成待补充的骨架。
         #[arg(long, default_value = "")]
         description: String,
-        /// 来源想法 id（`berth knowledge idea ls` 里的）。
+        /// 来源想法 id（「想法」插件 `.berth/ideas/` 下的文件名，不含 `.md`）。
         #[arg(long)]
         idea: Option<String>,
     },
-    /// 任务摘要列表（任务页列表）；在 worktree 里只列分到它的群的任务。
+    /// 任务摘要列表（任务页列表）；在 worktree 里只列分到它的群的任务。步骤已全部合并的任务先自动归档，结果在 `settled`。
     List {
         /// 包含已归档的任务。
         #[arg(long)]
@@ -128,7 +128,14 @@ fn execute(args: &TaskArgs, workspace: &Path) -> Result<Value, TaskError> {
                 idea: idea.clone(),
             },
         ),
-        TaskCommand::List { archived, limit } => tasks::list(workspace, *archived, *limit),
+        TaskCommand::List { archived, limit } => {
+            let settled = tasks::settle_merged(workspace)?;
+            let mut listed = tasks::list(workspace, *archived, *limit)?;
+            if !settled.is_empty() {
+                listed["settled"] = json!(settled);
+            }
+            Ok(listed)
+        }
         TaskCommand::Views => encode(json!({ "tasks": tasks::views(workspace)? })),
         TaskCommand::Show { reference } => encode(tasks::show(workspace, reference.as_deref())?),
         TaskCommand::Start { reference } => tasks::begin(workspace, reference),

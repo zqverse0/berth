@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
-import { ChevronRight } from "lucide-react"
 import {
   type BerthTaskList,
   type BerthTaskSummary,
@@ -12,13 +11,7 @@ import {
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { cn } from "@/lib/utils"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
-import { TaskSteps } from "./task-steps"
-import {
-  isFileTask,
-  stepProgress,
-  TASK_STATE_COLOR,
-  taskRunState,
-} from "./task-state"
+import { stepProgress, TASK_STATE_COLOR, taskRunState } from "./task-state"
 
 /** 派生视图的刷新间隔：进度来自 git 与任务文件，没有事件推送，轮询。 */
 const VIEW_POLL_MS = 5000
@@ -31,8 +24,7 @@ interface BerthTasksPanelProps {
 /**
  * 任务列表：只列任务本身，按状态平铺（进行中 / 规划中），完成与放弃折进「已归档」。
  * 群组在侧栏「群组」视图里看。列哪些任务由后端按主项目记录决定（worktree 只列分到它的群的任务），
- * 派生视图只补进度，不决定成员。
- * 任务行可展开看步骤（中间打开着的任务默认展开），步骤也在这里编辑。
+ * 派生视图只补进度，不决定成员。每行只有标题、状态和进度，步骤在任务页看和编辑。
  */
 export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
   const t = useTranslations("BerthTasks.tasks")
@@ -62,14 +54,13 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
     return () => clearInterval(timer)
   }, [load])
 
-  /** 中间工作区当前打开的本项目任务：它的步骤默认展开。 */
+  /** 中间工作区当前打开的本项目任务：高亮它那一行。 */
   const activeTask = useWorkspaceFileStore((state) => {
     const tab = state.fileTabs.find((item) => item.id === state.activeFileTabId)
     return tab?.kind === "task" && tab.folderId === folderId
       ? tab.taskDirName
       : null
   })
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   /** 详情在中间工作区的任务 tab 里看。 */
   const openTask = (task: BerthTaskSummary) =>
@@ -101,11 +92,6 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
         const abandoned = state === "completed" && Boolean(view?.abandoned)
         const stateLabel = abandoned ? t("abandoned") : t(`runState.${state}`)
         const active = task.id === activeTask
-        // 有步骤才能展开；单文件任务没步骤时展开给「添加步骤」。
-        const expandable = Boolean(
-          view && (view.steps.length > 0 || isFileTask(view))
-        )
-        const open = expandable && (expanded[task.id] ?? active)
         const done = closed(task)
         const percent = progress
           ? Math.round((progress.done / progress.total) * 100)
@@ -124,7 +110,7 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
                 data-task-state={state}
                 data-abandoned={abandoned || undefined}
                 aria-current={active ? "page" : undefined}
-                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 py-1 pl-2 text-left"
+                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left"
                 title={`${task.id}\n${stateLabel}${progress ? ` · ${progress.done}/${progress.total}` : ""}`}
                 onClick={() => openTask(task)}
               >
@@ -164,44 +150,7 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
                   </span>
                 ) : null}
               </button>
-              {/* 箭头固定在右侧，展开与否不影响左侧色点对齐 */}
-              <span className="flex w-6 shrink-0 justify-center">
-                {expandable ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded p-0.5 text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                      !open &&
-                        !active &&
-                        "opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-                    )}
-                    aria-label={t("toggleSteps", { title: task.title })}
-                    aria-expanded={open}
-                    onClick={() =>
-                      setExpanded({ ...expanded, [task.id]: !open })
-                    }
-                  >
-                    <ChevronRight
-                      aria-hidden="true"
-                      className={cn(
-                        "size-3.5 transition-transform",
-                        open && "rotate-90"
-                      )}
-                    />
-                  </button>
-                ) : null}
-              </span>
             </div>
-            {open && view ? (
-              <div className="mb-1 ml-[11px] mt-0.5 border-l border-border pl-2.5 pr-1">
-                <TaskSteps
-                  folderId={folderId}
-                  view={view}
-                  editable={isFileTask(view)}
-                  onSaved={load}
-                />
-              </div>
-            ) : null}
           </li>
         )
       })}

@@ -212,16 +212,10 @@ describe("BerthTasksPanel", () => {
       verify: "cargo test b",
     },
   ]
-  const fileTask = (taskDirName: string): BerthTaskView => ({
-    ...view(taskDirName, "running", FILE_STEPS),
-    prd: `/repo/.berth/tasks/${taskDirName}.md`,
-    currentStep: "S2",
-  })
-
-  it("expands the open task's steps in the list and highlights the current step", async () => {
+  it("keeps a row to title, state and progress and highlights the open task", async () => {
     listBerthTaskViews.mockResolvedValue({
       ok: true,
-      result: { tasks: [fileTask("a"), fileTask("b")] },
+      result: { tasks: [view("a", "running", FILE_STEPS)] },
     })
     useWorkspaceFileStore.setState({
       fileTabs: [
@@ -235,86 +229,10 @@ describe("BerthTasksPanel", () => {
       ],
       activeFileTabId: "t",
     })
-    renderPanel({
-      tasks: [summary("a", "in_progress"), summary("b", "in_progress")],
-    })
-    // 只有中间打开着的 a 默认展开，并且高亮。
-    expect(await screen.findAllByText("ticked in the file")).toHaveLength(1)
-    expect(row("Task a").getAttribute("aria-current")).toBe("page")
-    expect(row("Task b").getAttribute("aria-current")).toBeNull()
-    const first = screen.getByText("ticked in the file").closest("li")!
-    expect(first.dataset.stepState).toBe("committed")
-    expect(screen.getByText("next").closest("li")!.dataset.current).toBe("true")
-    // 当前步默认展开改哪里、怎么验证；其他步点开才看。
-    expect(screen.getByText("cargo test b")).toBeVisible()
-    expect(screen.queryByText("cargo test a")).not.toBeInTheDocument()
-    await userEvent.click(screen.getByText("ticked in the file"))
-    expect(screen.getByText("cargo test a")).toBeVisible()
-    await userEvent.click(screen.getByRole("button", { name: "0d99670" }))
-    expect(openCommitDiff).toHaveBeenCalledWith("0d99670", undefined, "")
-
-    await userEvent.click(
-      screen.getByRole("button", { name: 'Toggle steps of "Task b"' })
-    )
-    expect(screen.getAllByText("ticked in the file")).toHaveLength(2)
-  })
-
-  it("edits a task's steps from the list and saves them to the task file", async () => {
-    listBerthTaskViews.mockResolvedValue({
-      ok: true,
-      result: { tasks: [fileTask("a")] },
-    })
-    saveTask.mockResolvedValue({ ok: true, result: {} })
     renderPanel({ tasks: [summary("a", "in_progress")] })
-    await userEvent.click(
-      await screen.findByRole("button", { name: 'Toggle steps of "Task a"' })
-    )
-    await userEvent.click(screen.getByRole("button", { name: "Edit steps" }))
-    await userEvent.click(screen.getByRole("button", { name: "Add step" }))
-    await userEvent.type(screen.getByLabelText("S3 What to do"), "new")
-    await userEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() =>
-      expect(saveTask).toHaveBeenCalledWith(7, "a", {
-        steps: [
-          {
-            id: "S1",
-            do: "ticked in the file",
-            change: "a.rs",
-            verify: "cargo test a",
-            commit: "0d99670",
-          },
-          { id: "S2", do: "next", change: "b.rs", verify: "cargo test b" },
-          { id: "S3", do: "new", change: "", verify: "" },
-        ],
-      })
-    )
-  })
-
-  it("does not expand an open legacy task that has no steps", async () => {
-    listBerthTaskViews.mockResolvedValue({
-      ok: true,
-      result: { tasks: [view("old", "running")] },
-    })
-    useWorkspaceFileStore.setState({
-      fileTabs: [
-        {
-          id: "t",
-          kind: "task",
-          folderId: 7,
-          taskDirName: "old",
-          title: "old",
-        } as never,
-      ],
-      activeFileTabId: "t",
-    })
-    renderPanel({ tasks: [summary("old", "in_progress")] })
-    await waitFor(() =>
-      expect(row("Task old").dataset.taskState).toBe("running")
-    )
-    expect(row("Task old").getAttribute("aria-current")).toBe("page")
-    expect(
-      screen.queryByRole("button", { name: 'Toggle steps of "Task old"' })
-    ).not.toBeInTheDocument()
+    await waitFor(() => expect(row("Task a").dataset.taskState).toBe("running"))
+    expect(row("Task a").getAttribute("aria-current")).toBe("page")
+    expect(screen.queryByText("ticked in the file")).not.toBeInTheDocument()
     expect(screen.queryByText("Edit steps")).not.toBeInTheDocument()
   })
 })

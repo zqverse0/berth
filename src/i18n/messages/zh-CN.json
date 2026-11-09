@@ -68,7 +68,6 @@
       "runtime": "系统运行时",
       "backup": "备份",
       "translate": "翻译",
-      "classifier": "会话分类",
       "logs": "运行日志"
     },
     "nav": {
@@ -1325,17 +1324,7 @@
       "filterTool": "工具：{name}",
       "clearFilter": "清除筛选 {name}",
       "openInReader": "在阅读区打开",
-      "noTerminalSession": "这个终端的 Agent 在本项目还没有会话记录。",
-      "classify": {
-        "button": "Jev 分类",
-        "hint": "把这个会话还没分类的提问发给决策模型判别，命中的原文直接写进「记录/」，在「记忆 → Jev 动态」里可以撤销、改类。",
-        "expert": "专家",
-        "noExpert": "不指定专家",
-        "run": "开始分类",
-        "running": "分类中…",
-        "summary": "{provider} · 有回答的 {rounds} 问已分类 {classified} 问 · 本次写入 {count} 条",
-        "none": "本次没有写入"
-      }
+      "noTerminalSession": "这个终端的 Agent 在本项目还没有会话记录。"
     },
     "conversationCard": {
       "untitledConversation": "未命名会话",
@@ -1433,7 +1422,6 @@
         "usedFormat": "已用 {value} {unit}",
         "usageWithAbsoluteFormat": "{percent}（{absolute}）",
         "resetCountdown": "{duration} 后重置",
-    "resetDone": "已重置",
         "resetDone": "已重置"
       }
     },
@@ -1452,7 +1440,8 @@
         "tasks": "任务",
         "memory": "记忆",
         "collaboration": "协同",
-        "terminal": "终端"
+        "terminal": "终端",
+        "trajectory": "Agent 轨迹"
       },
       "noFolderTitle": "暂无打开的文件夹",
       "noFolderHint": "打开一个文件夹后在这里查看",
@@ -1483,6 +1472,8 @@
       "dropTabHere": "将标签拖放到此处",
       "moveTabHere": "移到这里",
       "splitRight": "向右拆分",
+      "pastePathHere": "粘贴路径",
+      "openFileHere": "在这里打开",
       "moveToLeftGroup": "移到左栏",
       "pinGlobal": "在所有项目中显示",
       "unpinGlobal": "仅在本项目中显示",
@@ -1547,6 +1538,7 @@
       "casConflictHint": "终端正在运行。如果标签未出现，请从项目会话管理器打开。",
       "upgradeRequired": "请升级 Berth 以使用个人终端",
       "copyHandle": "复制终端 ID",
+      "launchManifest": "查看启动清单",
       "handleCopied": "已复制 {handle}",
       "closeTabDetach": "关闭标签",
       "actionFailed": "终端操作失败",
@@ -2090,12 +2082,14 @@
       "openInExplorer": "在资源管理器打开",
       "attachToCurrentSession": "添加到会话",
       "compareWithBranch": "与分支比较...",
-      "reloadFromDisk": "从磁盘重新加载",
       "new": "新建",
       "newFile": "文件",
       "newDirectory": "目录",
-      "openIn": "打开于",
       "openInTerminal": "在终端打开",
+      "copy": "复制",
+      "paste": "粘贴",
+      "pasteCount": "粘贴 {count} 项",
+      "pasteNamed": "粘贴“{name}”",
       "copyPath": "复制路径",
       "symlinkTooltip": "符号链接 → {target}",
       "upload": "上传文件/目录",
@@ -2104,7 +2098,6 @@
       "actions": {
         "select": "选择",
         "unselect": "取消选择",
-        "commitCode": "提交代码",
         "rollback": "回滚",
         "addToVcs": "添加到 VCS"
       },
@@ -2114,7 +2107,6 @@
       "toasts": {
         "openDirectoryFailed": "打开目录失败",
         "openBuiltinTerminalFailed": "无法打开内置终端",
-        "openCommitWindowFailed": "打开提交窗口失败",
         "noAddableFilesInDir": "该目录下没有可添加到 VCS 的变更文件",
         "noRollbackFilesInDir": "该目录下没有可回滚的变更文件",
         "addedToVcs": "已添加 {name} 到 VCS",
@@ -2135,6 +2127,17 @@
         "downloadSaved": "已下载 {name}",
         "copyPathFailed": "复制路径失败",
         "transferDirUnsupported": "只能把文件传到其他设备，暂不支持文件夹。",
+        "pullNeedsUpgrade": "对方设备的 Berth 版本过旧，升级后才能把文件拖出来。",
+        "pullingFromDevice": "正在从对方设备取 {name}…",
+        "pulledDragAgain": "{name} 已取到本机，再拖一次即可放到文件管理器。",
+        "copied": "已复制 {name}，可到其他目录或项目粘贴",
+        "pasted": "已粘贴 {name}",
+        "pasteNeedsUpgrade": "对方设备的 Berth 版本过旧，升级后才能粘贴。",
+        "pastedCount": "已粘贴 {count} 项",
+        "transferStartedCount": "正在把 {count} 个文件传到对方设备",
+        "pasteFailed": "粘贴失败",
+        "transferStarted": "正在把 {name} 传到对方设备",
+        "dropPathFailed": "无法把路径粘贴到终端",
         "transferFailed": "无法开始传输"
       },
       "createDialog": {
@@ -3019,10 +3022,7 @@
       "incomplete": "请填完内容与每个问题（选择至少 2 个不重名选项，打分 2–10 个等级）",
       "run": "运行",
       "confidence": "置信度 {value}",
-      "scoreValue": "分值 {score}，最接近「{level}」",
-      "berthModelHint": "Berth 的会话分类等功能用全局决策模型。",
-      "setBerthModel": "设为 Berth 决策模型",
-      "isBerthModel": "这是 Berth 的决策模型"
+      "scoreValue": "分值 {score}，最接近「{level}」"
     },
     "keyGroupsSectionTitle": "分组密钥与模型列表",
     "keyGroupsSectionHint": "每个分组配置专属的 API Key 及其对应的模型列表（启动时按选中的模型自动选用对应 Key）",
@@ -3244,7 +3244,34 @@
     "promptPlaceholder": "这个专家的提示词（Markdown），保存后写入左侧显示的文件",
     "noMatch": "没有匹配项",
     "pickAsset": "点左侧名字查看详情",
-    "noDetail": "没有说明文件"
+    "noDetail": "没有说明文件",
+    "memory": {
+      "title": "专家记忆",
+      "hint": "这个专家自己的记忆，跨项目、跨 Agent 共用。Agent 启动时看到这份列表，需要时读正文。项目相关的内容放知识库，不放这里。",
+      "empty": "还没有记忆",
+      "create": "新建记忆",
+      "seed": "预置",
+      "name": "名字",
+      "namePlaceholder": "小写字母加短横线",
+      "description": "描述",
+      "descriptionPlaceholder": "一行，Agent 靠它判断要不要读这条",
+      "body": "正文",
+      "save": "保存",
+      "delete": "删除",
+      "deleteConfirm": "删除记忆 {name}？",
+      "override": "复制为我的记忆",
+      "seedHint": "预置记忆只读。你的副本会优先生效，预置的保留。"
+    },
+    "issues": {
+      "no-name": "专家名不能为空",
+      "invalid-id": "不是安全 id（小写字母或数字开头，只含小写字母、数字、. _ -），启动时会被拒绝",
+      "missing": "磁盘上不存在",
+      "escapes": "逃出了资产目录",
+      "reserved-key": "是 Berth 保留目录，不能作资产字段",
+      "invalid-key": "字段名不是安全 id",
+      "not-array": "必须是 id 数组",
+      "bad-mcp": "不是合法的 MCP 定义（JSON 对象）"
+    }
   },
   "BackupSettings": {
     "title": "备份与恢复",
@@ -3547,6 +3574,14 @@
     "secretClear": "清除"
   },
   "Knowledge": {
+    "inbox": {
+      "title": "待入库",
+      "result": {
+        "done": "已完成",
+        "abandoned": "已放弃",
+        "dropped": "已放下"
+      }
+    },
     "refresh": "刷新",
     "search": "搜索",
     "closeSearch": "关闭搜索",
@@ -3556,36 +3591,13 @@
     "missingNote": "笔记「{title}」不存在",
     "empty": {
       "title": "知识库还没有笔记",
-      "hint": "笔记由 Agent 读代码来写和维护（会先给你看提纲），你在「想法」里提意见。",
+      "hint": "笔记由 Agent 读代码来写和维护（会先给你看提纲）。",
       "askAgent": "交给 Agent",
       "agentRequest": "运行 `berth guide knowledge`，按「更新知识库」给这个项目写第一批笔记：先把提纲给我确认再写。"
-    },
-    "tabs": {
-      "ideas": "想法",
-      "notes": "知识",
-      "jev": "Jev 动态"
     },
     "agent": {
       "sent": "已发给 {agent}",
       "launchFirst": "本项目没有在运行的 Agent：先启动一个，再点一次"
-    },
-    "ideas": {
-      "placeholder": "随手记下想法或项目里的问题，#标签",
-      "saveHint": "Ctrl+Enter 保存",
-      "save": "记下",
-      "empty": "还没有想法。想到什么就记一笔，之后交给 Agent 一起讨论。",
-      "discuss": "和 Agent 讨论",
-      "drop": "放下",
-      "showArchived": "已归档（{count}）",
-      "restore": "恢复",
-      "hideArchived": "收起已归档",
-      "discussRequest": "和我讨论想法 {id}：先运行 `berth guide knowledge`，按「处理想法」做（`berth project . knowledge idea show {id}` 看原话）。",
-      "status": {
-        "待讨论": "待讨论",
-        "讨论中": "讨论中",
-        "已落地": "已落地",
-        "已放下": "已放下"
-      }
     },
     "outline": {
       "others": "其他笔记"
@@ -3609,38 +3621,18 @@
       "backlinks": "被引用",
       "missing": "不存在"
     },
-    "jev": {
-      "empty": "还没有写入。开启自动分类，或在会话页点「Jev 分类」。",
-      "running": "自动分类开启中：专家 Agent 每停下一问，就把这一问发给 Jev 判别。只记你的纠正、带原因的坑、你批准的长期决定，写进「记录/」；每次调用和输入都列在「调用」里。",
-      "pause": "暂停",
-      "turn": "第 {turn} 问",
-      "undo": "撤销（从文件里删掉）",
-      "undone": "已撤销",
-      "move": "改类",
-      "callSubject": "会话 {session} 第 {turn} 问",
-      "callCost": "{ms} ms · {tokens} tokens",
-      "callSummary": "{count} 道题",
-      "callInput": "发出的输入（{profile} · {model}）",
-      "viewCalls": "调用",
-      "viewWrites": "写入",
-      "callsEmpty": "这个项目还没有调用过 Jev。"
-    },
     "orbit": {
       "rings": {
         "map": "地图",
         "concept": "概念",
         "module": "模块",
-        "record": "决策与经验",
-        "idea": "想法"
+        "record": "决策与经验"
       },
       "center": "中心",
       "ring": "第 {n} 圈",
-      "filter": "筛选笔记…",
-      "hint": "点任意节点查看笔记。越往里越核心：地图在中心，往外是概念、模块、决策与经验，最外圈是待消化的想法。",
-      "layers": "分层",
-      "recent": "最近更新",
       "code": "代码",
-      "open": "打开笔记"
+      "open": "打开笔记",
+      "selectHint": "点节点在侧栏「记忆」看关联"
     }
   },
   "ProjectHome": {
@@ -3648,7 +3640,7 @@
     "pulse": {
       "attention": "<b>{count}</b> 个等你处理",
       "working": "<b>{count}</b> 个 Agent 干活中",
-      "tasks": "<b>{count}</b> 个任务进行中",
+      "tasks": "<b>{count}</b> 个任务进行中 · 共 {total}",
       "changes": "<b>{count}</b> 个文件未提交"
     },
     "attention": {
@@ -3684,27 +3676,63 @@
       "attention": "等你处理",
       "idle": "空闲"
     },
-    "tasks": {
-      "title": "当前任务",
-      "summary": "{running} 个进行中 · 共 {total} 个",
-      "all": "全部任务",
-      "empty": "没有未完成的任务"
+    "commits": {
+      "title": "提交",
+      "total": "次提交 · 近 {weeks} 周",
+      "stats": "本周 {week} · 最长连续 {streak} 天",
+      "cell": "{date} · {count} 次提交",
+      "month": "{month}月",
+      "less": "少",
+      "more": "多",
+      "aria": "近 {weeks} 周共 {total} 次提交的每日热力图"
     },
-    "recent": {
-      "title": "最近变更",
-      "summary": "{count} 个文件未提交",
-      "new": "新文件",
-      "open": "打开文件",
-      "empty": "还没有改动记录"
+    "tokens": {
+      "title": "Token 用量",
+      "summary": "本项目会话 · 近 14 天",
+      "tokens": "Token",
+      "requests": "请求",
+      "cacheHit": "缓存命中",
+      "output": "输出",
+      "empty": "近 14 天本项目没有会话用量",
+      "aria": "近 {days} 天各 Agent 每日 token 用量"
     },
     "knowledge": {
       "title": "知识库",
-      "summary": "{notes} 篇笔记 · {ideas} 个想法",
+      "summary": "{notes} 篇笔记",
       "empty": "知识库还没有笔记。在记忆面板里让 Agent 写第一批笔记。"
     },
     "disabled": {
       "hint": "启用 Berth 后，这里显示任务与知识库。",
       "enable": "启用 Berth"
+    }
+  },
+  "LaunchManifest": {
+    "title": "启动清单",
+    "loading": "加载中",
+    "none": "这个终端没有启动清单：它不是由 Berth 启动的 Agent。",
+    "agent": "Agent",
+    "expert": "专家",
+    "noExpert": "未选专家",
+    "provider": "服务商",
+    "startedAt": "启动时间",
+    "cwd": "目录",
+    "assets": "资产（{count}）",
+    "noAssets": "没有可显示的内容：未提供专家资产，插件也没有报告。",
+    "plan": "计划",
+    "inspection": "实际核对",
+    "inspectionFailed": "核对失败：{error}",
+    "unverified": "未验证：这个插件不能核对实际加载的内容。",
+    "nothingToVerify": "没有需要核对的内容。",
+    "prompt": "提示词快照",
+    "open": "打开 {path}",
+    "status": {
+      "unhandled": "未处理",
+      "applied": "已应用",
+      "converted": "已转换",
+      "skipped": "已跳过",
+      "isolated": "已隔离",
+      "kept": "已保留",
+      "unknown": "未知"
     }
   },
   "BerthTasks": {
@@ -3801,8 +3829,7 @@
       "members": "{count} 个成员",
       "loading": "正在读取…",
       "abandoned": "已放弃",
-      "more": "更多操作",
-      "toggleSteps": "展开 / 收起「{title}」的步骤"
+      "more": "更多操作"
     },
     "panes": {
       "attentionCount": "{count} 个 Agent 需要关注"
@@ -3953,6 +3980,10 @@
           "files": "改过的文件（{count}）",
           "noFiles": "还没有汇报过改动的文件"
         }
+      },
+      "sessions": {
+        "title": "关联会话",
+        "untitled": "未命名会话"
       },
       "steps": {
         "title": "步骤",
@@ -4150,6 +4181,14 @@
     "open_memory": {
       "title": "打开记忆",
       "description": "显示项目知识库"
+    },
+    "switch_session": {
+      "title": "切换会话",
+      "description": "最近用过的在前，输入标题、项目、Agent 或工作区搜索"
+    },
+    "next_attention": {
+      "title": "跳到需关注",
+      "description": "依次切到等你处理的 Agent 会话"
     }
   },
   "CommandPalette": {
@@ -4232,18 +4271,6 @@
     "unavailable": "Agent 终端暂不可用",
     "copiedInstead": "{reason}，已复制到剪贴板"
   },
-  "ClassifierSettings": {
-    "title": "会话分类",
-    "description": "用 TypeSafe Jev 判别专家会话，只记下一个 Agent 不知道就会做错、或要你再说一遍的东西：你的纠正和偏好、带原因的坑、你批准的长期决定，追加到知识库「记录/」，作为整理知识库的线索。会话里本来就有的过程（思路、执行）不记。每个会话还会写一份交接（「交接/专家名/」：问了什么、做了什么、待办、同期提交），Agent 接手时按需读取。每次写入都列在「记忆 → Jev 动态」，可以撤销、改类。开启后，Berth 终端里的 Agent 会话内容会发送给 TypeSafe；没选专家的会话只写交接。会话页的「Jev 分类」不受这个开关限制。",
-    "enable": "自动处理会话（记录与交接）",
-    "invalid": "修好文件后重新打开本页。{error}",
-    "categories": "记录哪些（Jev 每轮按这些判别）",
-    "enablePrompt": "自动分类未开启。开启后，Berth 终端里的 Agent 会话会发送给 TypeSafe Jev 判别，命中的原文与交接直接写进文件。",
-    "enableNow": "开启自动分类",
-    "decisionModel": "决策模型在「模型服务商」里设置：打开决策档案某个模型的决策面板，点「设为 Berth 决策模型」；没设时自动用第一个决策档案。",
-    "fileHint": "问法、判定标准和阈值是交给 Jev 的题目，默认值来自真实会话实测；要调就改 classifier.json。每轮 Jev 怎么答的，在「记忆 → Jev 动态 → 调用」里看。",
-    "revealFile": "在文件夹中显示"
-  },
   "PluginViews": {
     "refresh": "刷新",
     "retry": "重试",
@@ -4261,5 +4288,90 @@
     "exists": "{path} 已存在",
     "open": "打开",
     "failed": "克隆失败"
+  },
+  "WorkspaceGroups": {
+    "defaultName": "默认",
+    "nameErrors": {
+      "empty": "名称不能为空",
+      "duplicate": "已有同名工作区"
+    },
+    "current": "当前",
+    "attention": "需关注",
+    "working": "工作中",
+    "attentionCount": "{count} 需关注",
+    "workingCount": "{count} 运行",
+    "projectCount": "{count} 个项目",
+    "more": "工作区选项",
+    "showFull": "显示全部",
+    "showRunning": "只看运行中",
+    "rename": "重命名",
+    "create": "新建工作区",
+    "delete": "删除工作区",
+    "createTitle": "新建工作区",
+    "renameTitle": "重命名工作区",
+    "nameLabel": "名称",
+    "emojiLabel": "图标（可选）",
+    "save": "保存",
+    "deleteTitle": "删除工作区「{name}」？",
+    "deleteDescription": "其中的项目回到「{name}」，项目、会话和终端不受影响。",
+    "moveTo": "移到工作区",
+    "dropHere": "把项目拖到这里",
+    "unassigned": "未归属会话",
+    "offlineReason": "离线 · 查看原因",
+    "nextAttention": "跳到下一个需关注的会话",
+    "noAttention": "没有需关注的会话",
+    "switcherTitle": "切换会话",
+    "switcherPlaceholder": "搜索标题、项目、Agent 或工作区",
+    "switcherEmpty": "没有匹配的会话",
+    "loadFailed": "读取工作区失败",
+    "saveFailed": "保存工作区失败",
+    "restoreList": "回到项目列表"
+  },
+  "ProjectPanel": {
+    "label": "当前项目",
+    "onDevice": "设备上的项目",
+    "noProject": "没有打开项目",
+    "expand": "展开面板",
+    "collapse": "收起面板",
+    "maximize": "最大化",
+    "restore": "还原"
+  },
+  "DevicePage": {
+    "gone": "这台设备已移除",
+    "overview": "概览",
+    "target": "SSH 目标",
+    "system": "对方系统",
+    "berthPath": "对方 Berth",
+    "version": "版本",
+    "versions": "本机 {local} · 对方 {remote}",
+    "checklist": "检查清单",
+    "steps": {
+      "ssh": "SSH 连接",
+      "key": "免密登录",
+      "berth": "Berth 路径",
+      "version": "版本",
+      "host": "宿主运行"
+    },
+    "states": {
+      "ok": "通过",
+      "fail": "失败",
+      "pending": "检测中",
+      "skipped": "未检测"
+    },
+    "checks": {
+      "keyMissing": "需要密码登录：用下方「配置免密登录」装上本机公钥",
+      "berthMissing": "对方没有装 Berth，只能开 SSH 终端",
+      "versionUnknown": "对方 Berth 版本过旧，不报版本",
+      "versionMismatch": "版本不一致：本机 {local}，对方 {remote}",
+      "berthOutdated": "对方 Berth 版本过旧，升级后才能使用它的项目",
+      "windowUnavailable": "对方 Berth 没在运行，打开后自动连上"
+    },
+    "projects": "项目",
+    "terminals": "终端",
+    "noTerminals": "没有运行中的终端",
+    "actions": "操作",
+    "removeTitle": "移除设备「{name}」？",
+    "removeDescription": "只从本机移除这台设备，对方的项目与终端不受影响；它的项目从各工作区消失。",
+    "cancel": "取消"
   }
 }

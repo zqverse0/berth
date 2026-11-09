@@ -1,17 +1,23 @@
 "use client"
 
 /**
- * 首页「Agent 轨迹」：一个会话一条泳道，一个节点 = 一问，柱子 = 这一问里的工具调用（颜色 = 类型）。
+ * 侧栏「Agent 轨迹」：一个会话一条泳道，一个节点 = 一问，柱子 = 这一问里的工具调用（颜色 = 类型）。
  * 点节点就地展开这一问（提问、调用清单、回答开头），不跳走；「打开会话」才去会话页。
- * 悬停「最近变更」的文件时，改过它的柱子高亮（`focusFile`）。
  */
 
 import { useEffect, useRef, useState } from "react"
 import { useFormatter, useTranslations } from "next-intl"
 import type { ToolKindLabel } from "@/lib/adapters/tool-kind-classifier"
+import type { FolderDetail } from "@/lib/types"
+import { paneFolderId, useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import { cn } from "@/lib/utils"
 import { useOpenProjectSession } from "@/sessions/project/open-project-session"
-import type { TrajectoryLane, TrajectoryTurn } from "./use-trajectory"
+import { useWorktreeFamily } from "./use-home-data"
+import {
+  useTrajectory,
+  type TrajectoryLane,
+  type TrajectoryTurn,
+} from "./use-trajectory"
 
 const TICK_LIMIT = 40
 
@@ -41,41 +47,42 @@ export function TrajectoryLegend() {
   )
 }
 
-export function Trajectory({
-  folderId,
-  lanes,
-  focusFile,
-}: {
-  folderId: number
-  lanes: TrajectoryLane[]
-  focusFile: string | null
-}) {
+/** 侧栏视图：本项目（worktree 家族）今天的会话；Agent 起停、换状态时重读。 */
+export function TrajectorySidebar({ folder }: { folder: FolderDetail }) {
   const t = useTranslations("ProjectHome.trajectory")
-  if (lanes.length === 0)
-    return <p className="py-2 text-xs text-muted-foreground">{t("empty")}</p>
+  const family = useWorktreeFamily(folder)
+  const panes = useAllAgentPanes()
+  const paneKey = panes
+    .filter(
+      (row) =>
+        row.descriptor.agentId &&
+        family.some((f) => f.id === paneFolderId(row.descriptor, family))
+    )
+    .map((row) => `${row.descriptor.terminalId}:${row.state}`)
+    .join(",")
+  const lanes = useTrajectory(folder.id, family, paneKey)
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      {lanes.map((lane) => (
-        <Lane
-          key={lane.key}
-          folderId={folderId}
-          lane={lane}
-          focusFile={focusFile}
-        />
-      ))}
+    <div className="@container flex h-full min-h-0 flex-col">
+      <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="mb-1">{t("summary", { count: lanes.length })}</div>
+        <TrajectoryLegend />
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {lanes.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            {t("empty")}
+          </p>
+        ) : (
+          lanes.map((lane) => (
+            <Lane key={lane.key} folderId={folder.id} lane={lane} />
+          ))
+        )}
+      </div>
     </div>
   )
 }
 
-function Lane({
-  folderId,
-  lane,
-  focusFile,
-}: {
-  folderId: number
-  lane: TrajectoryLane
-  focusFile: string | null
-}) {
+function Lane({ folderId, lane }: { folderId: number; lane: TrajectoryLane }) {
   const t = useTranslations("ProjectHome.trajectory")
   const format = useFormatter()
   const openSession = useOpenProjectSession(folderId)
@@ -135,7 +142,6 @@ function Lane({
               turn={item}
               selected={item.key === selected}
               running={lane.live && item.key === lastKey && !item.answer}
-              focusFile={focusFile}
               time={
                 item.startedAt
                   ? format.dateTime(new Date(item.startedAt), {
@@ -210,14 +216,12 @@ function TurnNode({
   turn,
   selected,
   running,
-  focusFile,
   time,
   onSelect,
 }: {
   turn: TrajectoryTurn
   selected: boolean
   running: boolean
-  focusFile: string | null
   time: string
   onSelect: () => void
 }) {
@@ -242,20 +246,12 @@ function TurnNode({
             +{turn.calls.length - shown.length}
           </span>
         )}
-        {shown.map((call, index) => {
-          const hit = focusFile != null && call.files.includes(focusFile)
-          return (
-            <i
-              key={index}
-              className={cn(
-                "h-3 w-1 rounded-[1px] transition-[opacity,transform]",
-                kindClass(call.kind),
-                focusFile != null && !hit && "opacity-20",
-                hit && "origin-bottom scale-y-[1.35]"
-              )}
-            />
-          )
-        })}
+        {shown.map((call, index) => (
+          <i
+            key={index}
+            className={cn("h-3 w-1 rounded-[1px]", kindClass(call.kind))}
+          />
+        ))}
         {running && (
           <i className="berth-harbor-pulse h-3 w-1 rounded-[1px] bg-chart-2" />
         )}

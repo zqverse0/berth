@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, lazy, Suspense, memo } from "react"
+import { useEffect, useRef, useState, lazy, Suspense, memo } from "react"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -16,9 +16,21 @@ import {
   SidebarViewNav,
 } from "@/components/layout/sidebar/activity-bar"
 import {
+  panelView,
+  useProjectPanelStore,
   useSidebarViewLabel,
   useSidebarViewStore,
 } from "@/components/layout/sidebar/views"
+import {
+  PROJECT_PANEL_HEADER_PX,
+  ProjectPanel,
+} from "@/components/layout/sidebar/project-panel"
+import {
+  SplitHandle,
+  SplitPane,
+  SplitView,
+  type SplitViewHandle,
+} from "@/components/ui/split-view"
 import { SidebarHeader } from "@/components/layout/sidebar/sidebar-header"
 import {
   pluginSidebarViewId,
@@ -30,11 +42,6 @@ import {
   useSettingsTitle,
 } from "@/components/settings/settings-sidebar"
 
-const LazyGitTab = lazy(() =>
-  import("@/components/layout/aux-panel/aux-panel-git-tab").then((m) => ({
-    default: m.AuxPanelGitTab,
-  }))
-)
 const LazyTasksPage = lazy(() =>
   import("@/components/project-management/pages/berth-tasks").then((m) => ({
     default: m.BerthTasksPage,
@@ -45,6 +52,12 @@ const LazyGroupPanel = lazy(() =>
     (m) => ({ default: m.GroupMembersPanel })
   )
 )
+const LazyTrajectorySidebar = lazy(() =>
+  import("@/components/workspace/project-home/trajectory").then((m) => ({
+    default: m.TrajectorySidebar,
+  }))
+)
+
 const LazyMemoryPage = lazy(() =>
   import("@/knowledge/pages/knowledge-sidebar").then((m) => ({
     default: m.KnowledgeSidebar,
@@ -62,6 +75,105 @@ const LazyPluginSidebarPage = lazy(() =>
   }))
 )
 
+/** 上下分栏：上方项目列表的高度占比（%），存本地。 */
+const SPLIT_KEY = "berth.sidebar.projectSplit"
+const DEFAULT_TOP = 60
+/** 下方最大化时上方只剩一行工作区摘要。 */
+const SUMMARY_PX = 30
+const MIN_PANE_PX = 96
+
+function loadTopRatio(): number {
+  const saved = Number(localStorage.getItem(SPLIT_KEY))
+  return saved > 0 && saved < 100 ? saved : DEFAULT_TOP
+}
+
+/**
+ * 项目视图：上为项目列表，下为当前项目面板。`maximized`（视图为文件 / Git）时上方收成一行摘要，
+ * 面板收起时下方只剩标题行；拖动分隔条调整并记住，双击在默认分割与下方最大化间切换。
+ */
+function ProjectSplit({
+  visible,
+  maximized,
+}: {
+  visible: boolean
+  maximized: boolean
+}) {
+  const collapsed = useProjectPanelStore((s) => s.collapsed)
+  const setView = useSidebarViewStore((s) => s.setView)
+  const splitRef = useRef<SplitViewHandle>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const topRatio = useRef<number | null>(null)
+  topRatio.current ??= loadTopRatio()
+  const mode = maximized ? "max" : collapsed ? "collapsed" : "split"
+  useEffect(() => {
+    const top = topRatio.current ?? DEFAULT_TOP
+    // 收起：下方只留标题行，按容器实际高度换成百分比
+    const header =
+      (PROJECT_PANEL_HEADER_PX /
+        Math.max(1, boxRef.current?.clientHeight ?? 1)) *
+      100
+    splitRef.current?.setLayout(
+      mode === "split"
+        ? [top, 100 - top]
+        : mode === "max"
+          ? [0, 100]
+          : [100 - header, header]
+    )
+  }, [mode])
+
+  return (
+    <div ref={boxRef} className="h-full min-h-0">
+      <SplitView
+        ref={splitRef}
+        direction="vertical"
+        className="h-full"
+        onLayout={(layout) => {
+          if (mode !== "split" || layout.length !== 2) return
+          topRatio.current = layout[0]
+          try {
+            localStorage.setItem(SPLIT_KEY, String(layout[0]))
+          } catch {
+            // 存不下只影响重启后的高度
+          }
+        }}
+      >
+        <SplitPane
+          order={1}
+          defaultSize={topRatio.current}
+          minSizePx={mode === "split" ? MIN_PANE_PX : 0}
+          collapsed={mode === "max"}
+          collapsedSizePx={SUMMARY_PX}
+        >
+          <div className="flex h-full min-h-0 flex-col overflow-hidden pt-1.5">
+            <SidebarProjectList
+              visible={visible}
+              summaryOnly={mode === "max"}
+            />
+          </div>
+        </SplitPane>
+        <SplitHandle
+          onDoubleClick={() =>
+            setView(
+              maximized
+                ? "projects"
+                : panelView(useProjectPanelStore.getState().tab)
+            )
+          }
+        />
+        <SplitPane
+          order={2}
+          defaultSize={100 - topRatio.current}
+          minSizePx={mode === "split" ? MIN_PANE_PX : 0}
+          collapsed={mode === "collapsed"}
+          collapsedSizePx={PROJECT_PANEL_HEADER_PX}
+        >
+          <ProjectPanel visible={visible} maximized={maximized} />
+        </SplitPane>
+      </SplitView>
+    </div>
+  )
+}
+
 const tabFallback = (
   <div className="h-full w-full animate-pulse bg-card/40" aria-hidden="true" />
 )
@@ -74,8 +186,11 @@ export const Sidebar = memo(function Sidebar() {
   const isMobile = useIsMobile()
   const currentView = useSidebarViewStore((state) => state.view)
   const setView = useSidebarViewStore((state) => state.setView)
-  const explorerPane =
-    currentView === "projects" || currentView === "files" ? currentView : null
+  // 文件 / Git 不再是单独的视图：下方面板切到对应标签并最大化
+  const explorer =
+    currentView === "projects" ||
+    currentView === "files" ||
+    currentView === "git"
   const projectCount = useAppWorkspaceStore((s) => s.folders.length)
   const fileSearchRequest = useAppUiStore((s) => s.projectFileSearchRequest)
   const getViewLabel = useSidebarViewLabel()
@@ -95,6 +210,13 @@ export const Sidebar = memo(function Sidebar() {
     if (fileSearchRequest > 0) setView("files")
   }, [fileSearchRequest, setView])
 
+  // 进文件 / Git 视图：面板切到对应标签
+  useEffect(() => {
+    const panel = useProjectPanelStore.getState()
+    if (currentView === "files" && panel.tab !== "files") panel.setTab("files")
+    if (currentView === "git" && panel.tab === "files") panel.setTab("changes")
+  }, [currentView])
+
   // 插件视图：插件被停用或删掉后回到项目视图。
   const pluginViews = usePluginViewsStore((s) => s.views)
   const pluginView = currentView.startsWith("plugin:")
@@ -103,6 +225,11 @@ export const Sidebar = memo(function Sidebar() {
   useEffect(() => {
     if (currentView.startsWith("plugin:") && !pluginView) setView("projects")
   }, [currentView, pluginView, setView])
+  // 打开过的页面视图保持挂载、切走只隐藏：切回来不用重建 iframe，也不会闪。
+  const [visitedPages, setVisitedPages] = useState<readonly string[]>([])
+  if (pluginView?.page && !visitedPages.includes(currentView)) {
+    setVisitedPages([...visitedPages, currentView])
+  }
 
   // A pending file-tree reveal also targets the file pane.
   const pendingRevealPath = useAppUiStore((s) => s.pendingRevealPath)
@@ -132,7 +259,7 @@ export const Sidebar = memo(function Sidebar() {
         title={
           <>
             {currentViewLabel}
-            {currentView === "projects" && projectCount > 0 ? (
+            {explorer && projectCount > 0 ? (
               <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                 {projectCount}
               </span>
@@ -152,22 +279,11 @@ export const Sidebar = memo(function Sidebar() {
         ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {explorerPane && (
-            <div className="flex flex-col flex-1 min-h-0 overflow-hidden pt-1.5">
-              <SidebarProjectList
-                pane={explorerPane}
-                onOpenFiles={() => setView("files")}
-                visible={isOpen}
-              />
-            </div>
-          )}
-
-          {currentView === "git" && (
-            <div className="h-full min-h-0 overflow-hidden">
-              <Suspense fallback={tabFallback}>
-                <LazyGitTab />
-              </Suspense>
-            </div>
+          {explorer && (
+            <ProjectSplit
+              visible={isOpen}
+              maximized={currentView !== "projects"}
+            />
           )}
 
           {currentView === "group" && (
@@ -220,20 +336,51 @@ export const Sidebar = memo(function Sidebar() {
             </div>
           )}
 
+          {currentView === "trajectory" && (
+            <div className="h-full min-h-0 overflow-hidden">
+              {activeFolder ? (
+                <Suspense fallback={tabFallback}>
+                  <LazyTrajectorySidebar
+                    key={activeFolder.id}
+                    folder={activeFolder}
+                  />
+                </Suspense>
+              ) : (
+                <AuxPanelNoFolderEmpty />
+              )}
+            </div>
+          )}
+
           {currentView === "settings" && <SettingsSidebar open={isOpen} />}
 
-          {pluginView && (
+          {pluginViews
+            .filter(
+              (view) =>
+                view.page && visitedPages.includes(pluginSidebarViewId(view))
+            )
+            .map((view) => {
+              const id = pluginSidebarViewId(view)
+              return (
+                <div
+                  key={id}
+                  hidden={id !== currentView}
+                  className="h-full min-h-0 overflow-hidden"
+                >
+                  <Suspense fallback={tabFallback}>
+                    <LazyPluginSidebarPage view={view} />
+                  </Suspense>
+                </div>
+              )
+            })}
+
+          {pluginView && !pluginView.page && (
             <div className="h-full min-h-0 overflow-hidden">
               <Suspense fallback={tabFallback}>
-                {pluginView.page ? (
-                  <LazyPluginSidebarPage key={currentView} view={pluginView} />
-                ) : (
-                  <LazyPluginViewPanel
-                    key={currentView}
-                    plugin={pluginView.plugin}
-                    view={pluginView.id}
-                  />
-                )}
+                <LazyPluginViewPanel
+                  key={currentView}
+                  plugin={pluginView.plugin}
+                  view={pluginView.id}
+                />
               </Suspense>
             </div>
           )}
