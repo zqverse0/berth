@@ -12,9 +12,7 @@ describe("Git clone migration", () => {
     const selectorSource = read(
       "src/components/layout/git/branch-selector-list.tsx"
     )
-    const auxSource = read(
-      "src/components/layout/sidebar/project-panel.tsx"
-    )
+    const auxSource = read("src/components/layout/sidebar/project-panel.tsx")
     const viewSource = read("src/components/layout/git/git-panel-view.ts")
 
     expect(branchSource).not.toContain('id: "clone"')

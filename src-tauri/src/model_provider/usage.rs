@@ -663,7 +663,7 @@ mod tests {
         let declaration = sample_declaration("${home}/auth.json");
         let json = serde_json::json!({
             "planType": "plus",
-            "session": { "used": 12.4, "reset": 4_000_000_000 },
+            "session": { "used": 12.4, "reset": 4_000_000_000_i64},
             "config": { "used": { "val": "30" }, "limit": { "val": "100" } },
             "end": "2096-01-02T03:04:05Z"
         });
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(window.remaining, Some(1.0));
         assert_eq!(window.resets_at, Some(1_700_000_000_000));
 
-        let future = serde_json::json!({ "pct": 90, "reset": 4_000_000_000 });
+        let future = serde_json::json!({ "pct": 90, "reset": 4_000_000_000_i64});
         assert_eq!(map_window(&spec, &future).unwrap().used_percent, Some(90));
     }
 
@@ -781,7 +781,7 @@ mod tests {
             "config": {
                 "used": {"val": 2},
                 "monthlyLimit": {"val": 0},
-                "billingPeriodEnd": 4_000_000_000
+                "billingPeriodEnd": 4_000_000_000_i64
             }
         });
         let state = map_usage_response("grok", &declaration, json);

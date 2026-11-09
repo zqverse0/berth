@@ -10,7 +10,7 @@ use tokio::sync::oneshot;
 
 #[tauri::command]
 pub async fn start_file_drag(
-    window: tauri::Window,
+    window: tauri::Window<crate::Rt>,
     path: PathBuf,
     image_png: String,
 ) -> Result<(), String> {
@@ -33,7 +33,7 @@ pub async fn start_file_drag(
 
 #[cfg(target_os = "linux")]
 fn begin(
-    window: &tauri::Window,
+    window: &tauri::Window<crate::Rt>,
     path: &Path,
     image: Vec<u8>,
     ended: oneshot::Sender<()>,
@@ -96,7 +96,7 @@ fn begin(
 
 #[cfg(not(target_os = "linux"))]
 fn begin(
-    window: &tauri::Window,
+    window: &tauri::Window<crate::Rt>,
     path: &Path,
     image: Vec<u8>,
     ended: oneshot::Sender<()>,
