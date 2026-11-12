@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   deviceFolderId,
+  deviceSession,
   devicePath,
   deviceTerminalId,
   parseDeviceFolderId,
   parseDeviceRef,
   routeArgs,
+  subscribeDevices,
 } from "./device"
 
 describe("device routing", () => {
@@ -61,5 +63,34 @@ describe("device routing", () => {
       deviceId: 4,
       value: "/srv/a",
     })
+  })
+})
+
+const sessions = vi.hoisted(
+  () => [] as { onEvent: (name: string, payload: unknown) => void }[]
+)
+vi.mock("./remote-line", () => ({
+  createRemoteSession: (options: {
+    onEvent: (name: string, payload: unknown) => void
+  }) => {
+    sessions.push(options)
+    return { open: true, setEvents: () => {}, call: async () => null }
+  },
+}))
+
+describe("device broadcasts", () => {
+  it("unscoped wake-ups arrive without a path; scoped ones need one", () => {
+    deviceSession(7, async () => 1)
+    const wake = vi.fn()
+    const scoped = vi.fn()
+    const offWake = subscribeDevices("agent://changed", wake, false)
+    const offScoped = subscribeDevices("agent://changed", scoped)
+    sessions.at(-1)!.onEvent("agent://changed", null)
+    expect(wake).toHaveBeenCalledTimes(1)
+    expect(scoped).not.toHaveBeenCalled()
+    offWake()
+    offScoped()
+    sessions.at(-1)!.onEvent("agent://changed", null)
+    expect(wake).toHaveBeenCalledTimes(1)
   })
 })

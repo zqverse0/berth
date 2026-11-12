@@ -1,0 +1,44 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "smart-search",
+  "version": "0.1.0",
+  "requires": {
+    "http": 1,
+    "fs": 1,
+    "env": 1,
+    "storage": 1,
+    "knowledge": 1
+  },
+  "permissions": ["network", "fs", "knowledge", "agent", "project.files"],
+  "knowledge": {
+    "usage": {
+      "kind": "guide",
+      "title": {
+        "en": "Web search",
+        "zh-CN": "联网搜索"
+      },
+      "path": "usage.md"
+    }
+  },
+  "contributes": {
+    "identity": {
+      "name": "Smart Search（联网搜索）",
+      "roles": [],
+      "tags": ["search", "web", "research"],
+      "description": "Web search for the user and agents: AI answers with sources (xAI / OpenAI-compatible), source lists (Zhipu, Exa, Tavily, Firecrawl), library docs (Context7) and page fetching. Every search and fetch is kept as a record to reuse; pages can be saved to the knowledge base 来源."
+    },
+    "view": [
+      {
+        "id": "search",
+        "title": {
+          "en": "Search",
+          "zh-CN": "搜索"
+        },
+        "icon": "icon.svg",
+        "location": "sidebar",
+        "page": "ui/index.html"
+      }
+    ]
+  }
+}

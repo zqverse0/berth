@@ -13,7 +13,7 @@ use super::stream::run_stream_worker;
 use super::terminal_manager::{short_id, terminal_error_from_sdk, TerminalSessionManager};
 use crate::terminal::error::TerminalError;
 use crate::terminal::protocol::{
-    SubscriberControl, TerminalAttachment, TerminalResume, TerminalSnapshot,
+    AttachPace, SubscriberControl, TerminalAttachment, TerminalResume, TerminalSnapshot,
 };
 
 impl TerminalSessionManager {
@@ -42,9 +42,11 @@ impl TerminalSessionManager {
             tokio::sync::watch::channel(SubscriberControl::Attached { sequence: 0 });
         let stop = Arc::new(CancellationToken::new());
         let attachment_stop = Arc::clone(&stop);
+        let pace = AttachPace::default();
         let handle = SubscriberHandle {
             stop: stop.clone(),
             control_tx: control_tx.clone(),
+            pace: pace.clone(),
         };
 
         // The Berth terminal SDK transport actor is spawned on the Tokio runtime that
@@ -179,6 +181,7 @@ impl TerminalSessionManager {
             data_rx,
             control_rx,
             stop: attachment_stop,
+            pace,
         })
     }
 

@@ -31,7 +31,6 @@ vi.mock("@/components/conversations/sidebar/sidebar-project-list", () => ({
   },
 }))
 vi.mock("@/components/layout/sidebar/project-panel", () => ({
-  PROJECT_PANEL_HEADER_PX: 33,
   ProjectPanel: (props: { visible: boolean; maximized: boolean }) => {
     spies.panelProps = props
     return <div data-testid="project-panel" />
@@ -88,25 +87,22 @@ describe("Sidebar — project explorer", () => {
     expect(screen.getByRole("separator")).toBeTruthy()
   })
 
-  it("files / Git views maximize the panel on the matching tab; projects restores", () => {
+  it("maximizes the panel from the store; double-clicking the handle toggles it", () => {
     useSidebarViewStore.setState({ view: "projects" })
-    useProjectPanelStore.setState({ tab: "files" })
+    useProjectPanelStore.setState({ tab: "files", maximized: false })
     renderSidebar()
 
-    act(() => useSidebarViewStore.getState().setView("git"))
+    act(() => useProjectPanelStore.getState().setMaximized(true))
     expect(spies.panelProps?.maximized).toBe(true)
     expect(spies.listProps?.summaryOnly).toBe(true)
-    expect(useProjectPanelStore.getState().tab).toBe("changes")
-
-    act(() => useSidebarViewStore.getState().setView("files"))
-    expect(useProjectPanelStore.getState().tab).toBe("files")
 
     // 双击分隔条在最大化与默认分割间切换
     fireEvent.doubleClick(screen.getByRole("separator"))
-    expect(useSidebarViewStore.getState().view).toBe("projects")
+    expect(useProjectPanelStore.getState().maximized).toBe(false)
     expect(spies.listProps?.summaryOnly).toBe(false)
     fireEvent.doubleClick(screen.getByRole("separator"))
-    expect(useSidebarViewStore.getState().view).toBe("files")
+    expect(useProjectPanelStore.getState().maximized).toBe(true)
+    act(() => useProjectPanelStore.getState().setMaximized(false))
   })
 
   it("leaves the desktop view switcher to the window-level ActivityBar", () => {
@@ -139,8 +135,13 @@ describe("Sidebar — desktop visibility lifecycle", () => {
     spies.listProps = null
   })
 
-  it("switches to the files view when a file-tree reveal is requested", () => {
+  it("shows the files tab without maximizing when a file-tree reveal is requested", () => {
     useSidebarViewStore.setState({ view: "tasks" })
+    useProjectPanelStore.setState({
+      tab: "changes",
+      collapsed: true,
+      maximized: false,
+    })
     useAppUiStore.setState({ sidebarOpen: false })
     renderSidebar()
 
@@ -149,7 +150,12 @@ describe("Sidebar — desktop visibility lifecycle", () => {
     })
 
     expect(useAppUiStore.getState().sidebarOpen).toBe(true)
-    expect(useSidebarViewStore.getState().view).toBe("files")
+    expect(useSidebarViewStore.getState().view).toBe("projects")
+    expect(useProjectPanelStore.getState()).toMatchObject({
+      tab: "files",
+      collapsed: false,
+      maximized: false,
+    })
   })
 
   it("threads visible=true to the project explorer when open", () => {

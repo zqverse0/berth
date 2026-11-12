@@ -32,7 +32,7 @@ export function WorkspacePaneContent({
   hidden = false,
 }: {
   pane: WorkspacePane
-  /** Another surface (settings) covers this pane. */
+  /** Another surface (settings, the aux group view) covers this pane. */
   hidden?: boolean
 }) {
   const { activeKey, activeFileTabId, paneFileTabIds, otherPaneFileTabIds } =
@@ -128,7 +128,7 @@ export function WorkspacePaneContent({
       })}
       {/* Primary tabs stack here; only the visible one takes pointer events. */}
       <div className="pointer-events-none absolute inset-0">
-        <ConversationDetailPanel pane={pane} />
+        <ConversationDetailPanel pane={pane} hidden={hidden} />
       </div>
       {showHome && (
         <div className="absolute inset-0 z-10">

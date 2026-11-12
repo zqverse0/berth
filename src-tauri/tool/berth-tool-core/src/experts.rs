@@ -406,7 +406,7 @@ fn stems(dir: &Path, extension: &str) -> Result<Vec<String>, String> {
 }
 
 /// SKILL.md frontmatter 的 `description`：单行（可带引号）或 `>` / `|` 折行块。
-fn description(text: &str) -> Option<String> {
+pub(crate) fn description(text: &str) -> Option<String> {
     let mut lines = text.strip_prefix("---")?.lines().skip(1).take_while(|line| line.trim_end() != "---");
     let first = lines.by_ref().find_map(|line| line.strip_prefix("description:"))?.trim();
     let value = if first.is_empty() || first.starts_with(['>', '|']) {

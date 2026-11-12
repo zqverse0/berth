@@ -34,6 +34,8 @@ declare module "berth" {
 
   export interface BerthError extends Error {
     readonly reason: ErrorReason
+    /** 附加数据，如 `knowledge.addSource` 的 `conflict` 带 `{ path }`。 */
+    readonly data?: unknown
   }
 
   export type Unsubscribe = () => void
@@ -320,6 +322,8 @@ declare module "berth" {
   export interface FsApi {
     /** `tailBytes`：只读末尾这么多字节（大日志），切断的字符按替换符解码。 */
     readText(path: string, options?: { tailBytes?: number }): Promise<string>
+    /** 二进制文件（如图片）读成 base64，上限 16 MiB。 */
+    readBase64(path: string): Promise<string>
     /** 原子写；父目录不存在时创建；mode 默认 0o644。 */
     writeText(
       path: string,
@@ -390,7 +394,20 @@ declare module "berth" {
       query: string
     ): Promise<Array<{ title: string; path: string; excerpt: string }>>
     addIdea(text: string): Promise<{ id: string }>
-  }
+    /**
+     * 仅脚本：按 url 查知识库「来源」笔记（末尾 `/` 不计），返回绝对路径。不在项目里 reject `not-found`。
+     */
+    findSource(url: string): Promise<{ path: string } | null>
+    /**
+     * 仅脚本：写 `.berth/knowledge/来源/<标题>.md`（`type: 来源`、`kind: other`、url、title、added_at、
+     * `digested: false`，`meta` 并入，正文是 `markdown`）。同 url 已有时 reject `conflict`，`data.path` 指向它。
+     */
+    addSource(source: {
+      url: string
+      title: string
+      markdown: string
+      meta?: Record<string, unknown>
+    }): Promise<{ path: string }>
 
   /** agent@1 · 两者 · 权限 `agent`。放进当前 Agent 的输入框，用户确认后才发送。 */
   export interface AgentApi {
@@ -406,26 +423,56 @@ declare module "berth" {
     readonly dir: string | null
   }
 
-  /** http@1 · 脚本 · 权限 `network` */
+  export interface HttpRequestOptions {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    /** 单次尝试的超时，默认 30000。 */
+    timeoutMs?: number
+    /**
+     * 连接错误 / 超时 / 429 / 5xx 时由宿主退避重试（500 ms 起翻倍，遵守 Retry-After，单次等待不超过
+     * `maxWaitMs`，默认 10000）。`attempts` 含首次，默认 1（不重试）。次数用完仍是 429 / 5xx 就返回该响应。
+     */
+    retry?: { attempts: number; maxWaitMs?: number }
+  }
+
+  export interface HttpResponse {
+    status: number
+    headers: Record<string, string>
+    text: string
+  }
+
+  /** http@1 · 脚本 · 权限 `network`。运行被取消时进行中的请求 reject `cancelled`。 */
   export interface HttpApi {
-    fetch(
-      url: string,
-      options?: {
-        method?: string
-        headers?: Record<string, string>
-        body?: string
-        timeoutMs?: number
-      }
-    ): Promise<{
-      status: number
-      headers: Record<string, string>
-      text: string
-    }>
+    fetch(url: string, options?: HttpRequestOptions): Promise<HttpResponse>
+    /** 并发发出、按原顺序返回；单项失败只体现在该项，不整体 reject（取消除外）。 */
+    fetchAll(
+      requests: Array<HttpRequestOptions & { url: string }>
+    ): Promise<
+      Array<HttpResponse | { error: { reason: ErrorReason; message: string } }>
+    >
+  }
+
+  /**
+   * editor@1 · 脚本 · 无需权限（`render` 写文件，要 `fs`）。本插件编辑器在 Berth 窗口里的能力：
+   * `render` 请窗口用本插件 `embed` 编辑器的页面（`onRender`）把文件渲染成图片写到 `out`。
+   * 只在 `berth tools run|call` 里可用，要求 Berth 开着；路径为绝对路径或 `~` 开头。
+   */
+  export interface EditorApi {
+    render(
+      path: string,
+      options: { out: string; format?: string }
+    ): Promise<{ out: string; mime: string; bytes: number }>
   }
 
   /** scripts@1 · 页面 · 无需权限。运行本包脚本，返回它默认导出函数的返回值。 */
   export interface ScriptsApi {
-    run<T = unknown>(script: string, input?: unknown): Promise<T>
+    /** `signal` abort 时立即 reject `cancelled`，宿主中断脚本与进行中的 http 请求。 */
+    run<T = unknown>(
+      script: string,
+      input?: unknown,
+      options?: { signal?: AbortSignal }
+    ): Promise<T>
   }
 
   /**
@@ -448,6 +495,16 @@ declare module "berth" {
     readonly kind: "view"
     readonly id: string
     readonly params: Readonly<Record<string, string>>
+    /** 侧栏页面：从文件树拖进来，`path` 相对当前项目根（根外是绝对路径）。 */
+    onDrop?(
+      listener: (item: {
+        name: string
+        kind: "file" | "dir"
+        path: string
+        x: number
+        y: number
+      }) => void
+    ): Unsubscribe
   }
 
   /**
@@ -479,12 +536,16 @@ declare module "berth" {
         y: number
       }) => void
     ): Unsubscribe
-    /** `embed` 模式：把文件渲染成图片 data URL（null = 空）。 */
+    /**
+     * `embed` 模式：把文件渲染成图片 data URL（null = 空）。`format` 来自脚本的
+     * `berth.editor.render`（如 `"png"`），这时要返回 base64 data URL；Markdown 嵌入不带它。
+     */
     onRender(
       render: (input: {
         path: string
         content: string
         theme: "light" | "dark"
+        format?: string
       }) => Promise<string | null> | string | null
     ): Unsubscribe
   }
@@ -496,6 +557,11 @@ declare module "berth" {
     /** 进程环境变量（只读快照）；仅脚本环境有内容。 */
     readonly vars: Readonly<Record<string, string>>
     project(): Promise<{ id: string; name: string; root: string } | null>
+    /**
+     * 调用方 Agent：脚本由 Berth 启动的 Agent 经 `berth tools run|call` 调用时为 `{ id, expert? }`；
+     * 页面、用户自己在终端跑时为 null。
+     */
+    agent(): Promise<{ id: string; expert?: string } | null>
   }
 
   /** data@1 · 脚本 · 无需权限 */
@@ -519,6 +585,7 @@ declare module "berth" {
     readonly env: EnvApi
     readonly data: DataApi
     readonly http: HttpApi
+    readonly editor: EditorApi
   }
 }
 

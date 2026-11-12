@@ -53,6 +53,8 @@ export interface WorkspaceSectionsInput<S extends SectionSession> {
   sessions: readonly S[]
   /** 当前选中的项目（含 worktree），决定哪个工作区是「当前」；没有时第一个工作区算当前 */
   current: { device: number; folderId: number } | null
+  /** 切到没有项目的工作区时选中的它：没有当前项目可推导，优先于 `current` */
+  selectedGroup?: string | null
   /** 用户手动设过的完整 / 只看运行中，优先于自动收放 */
   manual: Readonly<Record<string, boolean>>
 }
@@ -73,7 +75,7 @@ export function workspaceSections<S extends SectionSession>(
   sections: WorkspaceSection<S>[]
   unassigned: S[]
 } {
-  const { state, devices, sessions, current, manual } = input
+  const { state, devices, sessions, current, selectedGroup, manual } = input
   const sessionsAt = new Map<string, S[]>()
   for (const session of sessions) {
     const key = `${session.device}:${session.folderId}`
@@ -105,7 +107,11 @@ export function workspaceSections<S extends SectionSession>(
   }
 
   // 没有选中项目（或它不在列表里）时第一个工作区算当前，列表不至于只剩标题
-  currentGroup ??= state.groups[0]?.id ?? null
+  currentGroup =
+    state.groups.find((group) => group.id === selectedGroup)?.id ??
+    currentGroup ??
+    state.groups[0]?.id ??
+    null
   const sections = state.groups.map((group): WorkspaceSection<S> => {
     const rows = rowsByGroup.get(group.id) ?? []
     const all = rows.flatMap((row) => row.sessions)
@@ -127,4 +133,34 @@ export function workspaceSections<S extends SectionSession>(
     (session) => !placed.has(`${session.device}:${session.folderId}`)
   )
   return { sections, unassigned }
+}
+
+/** 每个工作区上次停留的项目与标签页。 */
+export interface WorkspaceLast {
+  folderId: number
+  tabId: string | null
+}
+
+export type WorkspaceSwitchTarget<S> =
+  | { kind: "session"; session: S }
+  | { kind: "folder"; folderId: number }
+  | { kind: "empty" }
+
+/** 切换工作区的落点：上次的会话 → 上次的项目 → 第一个项目 → 没有项目。 */
+export function workspaceSwitchTarget<
+  S extends SectionSession & { tabId?: string | null },
+>(
+  section: Pick<WorkspaceSection<S>, "rows">,
+  last: WorkspaceLast | undefined
+): WorkspaceSwitchTarget<S> {
+  const session = last?.tabId
+    ? section.rows
+        .flatMap((row) => row.sessions)
+        .find((item) => item.tabId === last.tabId)
+    : undefined
+  if (session) return { kind: "session", session }
+  const folderId =
+    section.rows.find((row) => row.slot.folderId === last?.folderId)?.slot
+      .folderId ?? section.rows[0]?.slot.folderId
+  return folderId == null ? { kind: "empty" } : { kind: "folder", folderId }
 }

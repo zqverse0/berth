@@ -1585,6 +1585,8 @@ export interface CreateTerminalSessionRequest {
   providerId?: number | null
   /** 当次启动选中的模型 id。 */
   modelId?: string | null
+  /** 当次启动选中的分组 id（同一模型在多个分组里时）；缺省按模型匹配分组。 */
+  providerGroup?: string | null
   folderId?: number | null
   rows: number
   cols: number

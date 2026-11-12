@@ -12,7 +12,7 @@ use super::snapshot::resize_snapshot_for_pane;
 use super::terminal_manager::{operation_error_for_terminal, TerminalSessionManager};
 use super::validation::{clamp_grid, input_text};
 use crate::terminal::error::TerminalErrorCode;
-use crate::terminal::protocol::{SubscriberControl, TerminalSnapshot};
+use crate::terminal::protocol::{AttachPace, SubscriberControl, TerminalSnapshot};
 
 impl TerminalSessionManager {
     /// Delivers background text and its submit key as one completed daemon action.
@@ -59,7 +59,8 @@ impl TerminalSessionManager {
         &self,
         terminal_id: &str,
         client_id: &str,
-    ) -> Result<(Arc<Mutex<()>>, Arc<CancellationToken>), TerminalOperationError> {
+    ) -> Result<(Arc<Mutex<()>>, Arc<CancellationToken>, AttachPace), TerminalOperationError>
+    {
         let sessions = self.inner.sessions.lock().expect("terminal index lock");
         let record = sessions
             .get(terminal_id)
@@ -68,7 +69,23 @@ impl TerminalSessionManager {
             .subscribers
             .get(client_id)
             .ok_or(TerminalErrorCode::TerminalTransportDisconnected)?;
-        Ok((record.input_lock.clone(), subscriber.stop.clone()))
+        Ok((
+            record.input_lock.clone(),
+            subscriber.stop.clone(),
+            subscriber.pace.clone(),
+        ))
+    }
+
+    /// 页面报告这一次 attach 的终端是否在显示：隐藏时宿主放慢发包，转为可见立即补发。
+    pub fn set_attached_visible(
+        &self,
+        terminal_id: &str,
+        client_id: &str,
+        visible: bool,
+    ) -> Result<(), TerminalOperationError> {
+        let (_, _, pace) = self.attached_input_context(terminal_id, client_id)?;
+        pace.set_visible(visible);
+        Ok(())
     }
 
     /// Writes input with Berth's ordered-client ACK semantics.
@@ -114,7 +131,8 @@ impl TerminalSessionManager {
         let resolved = self
             .resolve_terminal(terminal_id)
             .map_err(operation_error_for_terminal)?;
-        let (input_lock, subscriber_stop) = self.attached_input_context(terminal_id, client_id)?;
+        let (input_lock, subscriber_stop, pace) =
+            self.attached_input_context(terminal_id, client_id)?;
         let _input_guard = input_lock.lock().expect("terminal input lock");
         let accepted = {
             let sessions = self.inner.sessions.lock().expect("terminal index lock");
@@ -132,6 +150,9 @@ impl TerminalSessionManager {
         if input_sequence != accepted.saturating_add(1) {
             return Err(TerminalErrorCode::InputOutOfOrder.into());
         }
+
+        // 在写入 PTY 前标记：紧随其后的回显不等合包节拍，立即发给页面。
+        pace.mark_input();
 
         // Do not hold the session index mutex while waiting for the Berth terminal
         // executor or the PTY write. The input lock above preserves ordering
@@ -196,7 +217,7 @@ impl TerminalSessionManager {
         let size = TerminalSizeSpec::new(cols, rows);
         let terminal_id_owned = terminal_id.to_string();
         let backend = self.inner.backend_instance_id.clone();
-        let (input_lock, _) = self.attached_input_context(terminal_id, client_id)?;
+        let (input_lock, _, _) = self.attached_input_context(terminal_id, client_id)?;
         let _input_guard = input_lock.lock().expect("terminal input lock");
         let accepted = {
             let sessions = self.inner.sessions.lock().expect("terminal index lock");

@@ -26,7 +26,12 @@ import type {
  */
 export function ConversationDetailPanel({
   pane: hostPane,
-}: { pane?: WorkspacePane } = {}) {
+  hidden = false,
+}: {
+  pane?: WorkspacePane
+  /** 整个 tab 组被别的视图盖住（辅助面板切到群组、面板收起、设置页）：终端按不可见处理。 */
+  hidden?: boolean
+} = {}) {
   const tTerminal = useTranslations("Folder.terminal")
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const allTabs = useTabStore((s) => s.tabs)
@@ -126,7 +131,7 @@ export function ConversationDetailPanel({
         <TerminalView
           terminalId={tab.terminalId}
           isActive={active}
-          isVisible={paneVisible}
+          isVisible={paneVisible && !hidden}
           onProcessExited={(terminalId, exitCode) =>
             handleTerminalExit(
               terminalId,

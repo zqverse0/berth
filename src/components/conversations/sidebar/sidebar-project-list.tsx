@@ -18,7 +18,6 @@ import {
   FolderInput,
   FolderOpenDot,
   FolderPlus,
-  LayoutGrid,
   MoreHorizontal,
   Pin,
   Search,
@@ -68,8 +67,9 @@ import { copyPathToClipboard } from "@/components/layout/file-tree/file-tree-nod
 import {
   SidebarHeaderActions,
   SidebarHeaderButton,
+  SidebarHeaderTitle,
 } from "@/components/layout/sidebar/sidebar-header"
-import { useSidebarViewStore } from "@/components/layout/sidebar/views"
+import { useProjectPanelStore } from "@/components/layout/sidebar/views"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -115,16 +115,16 @@ import {
   DeviceFeed,
   DeviceProjectMenuItems,
   useDeviceDrop,
+  useOsFileDropToDevices,
   type DeviceFeedState,
 } from "./device-projects"
 import {
   AddDeviceDialog,
   STATUS_DOT,
-  useDeviceList,
-  useDeviceStatus,
+  notifyDevicesChanged,
+  useDevices,
   type DeviceStatus,
 } from "@/components/devices/devices"
-import { DeviceBar } from "./device-bar"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { SessionRow } from "./session-row"
 import {
@@ -137,12 +137,29 @@ import { useSidebarDrag } from "./use-sidebar-drag"
 import {
   WorkspaceGroupDialog,
   WorkspaceGroupHeader,
+  WorkspaceSwitcher,
 } from "./workspace-group-header"
-import { workspaceSections, type SectionFolder } from "./workspace-sections"
+import {
+  workspaceSections,
+  workspaceSwitchTarget,
+  type SectionFolder,
+  type WorkspaceLast,
+} from "./workspace-sections"
 
 const RECONCILE_AFTER_SLIDE_MS = 300
 /** 用户手动设过的工作区「完整 / 只看运行中」：界面状态，存本地，不进工作区文件。 */
 const EXPANDED_KEY = "berth.sidebar.workspaceGroups.expanded"
+
+/** 每个工作区上次停留的项目与标签页：界面状态，存本地。 */
+const WORKSPACE_LAST_KEY = "berth.sidebar.workspaceLast"
+
+function loadWorkspaceLast(): Record<string, WorkspaceLast> {
+  try {
+    return JSON.parse(localStorage.getItem(WORKSPACE_LAST_KEY) ?? "{}")
+  } catch {
+    return {}
+  }
+}
 
 function loadExpanded(): Record<string, boolean> {
   try {
@@ -570,6 +587,7 @@ export function SidebarProjectList({
   const {
     closeTabsByFolder,
     activateFolderWorkspace,
+    leaveFolderWorkspace,
     openTerminalTab,
     switchTab,
   } = useTabActions()
@@ -580,18 +598,29 @@ export function SidebarProjectList({
     [allFolders]
   )
   // ── Search box ─────────────────────────────────────────────────────────────
+  const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState("")
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const closeSearch = useCallback(() => {
+    setSearching(false)
+    setQuery("")
+  }, [])
+  const openSearch = useCallback(() => {
+    // 面板最大化时上方只有一行，放不下搜索框和结果
+    useProjectPanelStore.getState().setMaximized(false)
+    setSearching(true)
+    requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [])
 
   useEffect(() => {
     const openProjectList = () => {
       setQuery("")
-      requestAnimationFrame(() => searchInputRef.current?.focus())
+      openSearch()
     }
     window.addEventListener(OPEN_PROJECT_SWITCHER_EVENT, openProjectList)
     return () =>
       window.removeEventListener(OPEN_PROJECT_SWITCHER_EVENT, openProjectList)
-  }, [])
+  }, [openSearch])
 
   // 项目视图每次变为可见，对全部 root 与 git 对账一次：worktree 以 git 为准，
   // 非活动项目没有 HEAD 轮询，靠这里补齐。不依赖列表内容，避免对账结果回灌再触发。
@@ -627,19 +656,24 @@ export function SidebarProjectList({
   const {
     devices,
     loaded: devicesLoaded,
-    reload: reloadDevices,
-  } = useDeviceList(visible)
-  const { statusOf } = useDeviceStatus(devices, reloadDevices)
+    statusOf,
+    reportProblem,
+  } = useDevices()
   const { openDeviceTab } = useWorkspaceRuntimeActions()
+  useOsFileDropToDevices()
   const [feeds, setFeeds] = useState<Record<number, DeviceFeedState>>({})
-  const handleFeed = useCallback((deviceId: number, feed: DeviceFeedState) => {
-    setFeeds((prev) =>
-      prev[deviceId]?.overview === feed.overview &&
-      prev[deviceId]?.problem === feed.problem
-        ? prev
-        : { ...prev, [deviceId]: feed }
-    )
-  }, [])
+  const handleFeed = useCallback(
+    (deviceId: number, feed: DeviceFeedState) => {
+      reportProblem(deviceId, feed.problem)
+      setFeeds((prev) =>
+        prev[deviceId]?.overview === feed.overview &&
+        prev[deviceId]?.problem === feed.problem
+          ? prev
+          : { ...prev, [deviceId]: feed }
+      )
+    },
+    [reportProblem]
+  )
   const rowDevices = useMemo(
     () =>
       new Map(
@@ -740,6 +774,9 @@ export function SidebarProjectList({
     }
   }, [expanded])
 
+  // 切到没有项目的工作区：没有当前项目可推导，记下它；选中项目后自动失效
+  const [emptyGroup, setEmptyGroup] = useState<string | null>(null)
+
   const current = useMemo(() => {
     if (activeFolder == null || !listFolderById.has(activeFolder.id))
       return null
@@ -762,11 +799,41 @@ export function SidebarProjectList({
         ],
         sessions,
         current,
+        selectedGroup: activeFolder == null ? emptyGroup : null,
         manual: expanded,
       }),
-    [current, devices, expanded, groups, listFolders, sessions]
+    [
+      activeFolder,
+      current,
+      devices,
+      emptyGroup,
+      expanded,
+      groups,
+      listFolders,
+      sessions,
+    ]
   )
   const currentGroupId = sections.find((section) => section.current)?.group.id
+
+  // 每个工作区上次停留的项目与标签页：切回来时恢复
+  const lastByGroup = useRef<Record<string, WorkspaceLast> | null>(null)
+  lastByGroup.current ??= loadWorkspaceLast()
+  const activeFolderId = activeFolder?.id
+  useEffect(() => {
+    if (!currentGroupId || activeFolderId == null) return
+    lastByGroup.current![currentGroupId] = {
+      folderId: activeFolderId,
+      tabId: activeTabId,
+    }
+    try {
+      localStorage.setItem(
+        WORKSPACE_LAST_KEY,
+        JSON.stringify(lastByGroup.current)
+      )
+    } catch {
+      // 存不下只影响重启后切回工作区的落点
+    }
+  }, [activeFolderId, activeTabId, currentGroupId])
 
   /** root 项目的（设备, 路径）：worktree 跟着 root，孤儿 worktree 用自己的。 */
   const rootOf = useCallback(
@@ -931,6 +998,40 @@ export function SidebarProjectList({
       useAppUiStore.getState().showAuxView("terminals")
     },
     [openTerminalTab, switchTab]
+  )
+
+  const listViewport = useRef<HTMLElement | null>(null)
+  const switchWorkspace = useCallback(
+    (groupId: string) => {
+      if (groupId === currentGroupId) return
+      const section = sections.find((item) => item.group.id === groupId)
+      if (!section) return
+      // 切换后两个工作区回到自动收放，列表回到顶部
+      setExpanded((prev) => {
+        const next = { ...prev }
+        delete next[groupId]
+        if (currentGroupId) delete next[currentGroupId]
+        return next
+      })
+      if (listViewport.current) listViewport.current.scrollTop = 0
+      const target = workspaceSwitchTarget(
+        section,
+        lastByGroup.current?.[groupId]
+      )
+      if (target.kind === "session") selectSession(target.session)
+      else if (target.kind === "folder") handleSelectFolder(target.folderId)
+      else {
+        setEmptyGroup(groupId)
+        leaveFolderWorkspace()
+      }
+    },
+    [
+      currentGroupId,
+      handleSelectFolder,
+      leaveFolderWorkspace,
+      sections,
+      selectSession,
+    ]
   )
 
   // 所有工作区（含收起的）与未归属的会话，按列表顺序
@@ -1129,6 +1230,22 @@ export function SidebarProjectList({
         : [],
     [listFolderById, matches, q, sections]
   )
+  const sessionHits = useMemo(
+    () =>
+      q
+        ? listedSessions.filter((session) =>
+            session.title.toLocaleLowerCase().includes(q)
+          )
+        : [],
+    [listedSessions, q]
+  )
+  const pickSearchedFolder = useCallback(
+    (folderId: number) => {
+      handleSelectFolder(folderId)
+      closeSearch()
+    },
+    [closeSearch, handleSelectFolder]
+  )
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const openFolderButton = (
@@ -1176,7 +1293,8 @@ export function SidebarProjectList({
   const renderSession = (
     session: SidebarSession,
     indent: string,
-    trailing?: string | null
+    trailing?: string | null,
+    afterSelect?: () => void
   ) => (
     <SessionRow
       key={session.id}
@@ -1187,14 +1305,18 @@ export function SidebarProjectList({
       active={session.tabId != null && session.tabId === activeTabId}
       indent={indent}
       trailing={trailing}
-      onSelect={() => selectSession(session)}
+      onSelect={() => {
+        selectSession(session)
+        afterSelect?.()
+      }}
     />
   )
 
   const renderRow = (
     row: (typeof sections)[number]["rows"][number],
     groupId: string,
-    withSessions: boolean
+    withSessions: boolean,
+    onSelect = handleSelectFolder
   ) => {
     const folder = listFolderById.get(row.slot.folderId)!
     return (
@@ -1213,7 +1335,7 @@ export function SidebarProjectList({
           idle={row.sessions.length === 0}
           groups={row.slot.worktree ? null : groups.groups}
           groupId={groupId}
-          onSelect={handleSelectFolder}
+          onSelect={onSelect}
           onNewWorktree={handleNewWorktree}
           onRemoveFromWorkspace={handleRemoveFromWorkspace}
           onDeleteWorktree={handleDeleteWorktree}
@@ -1234,6 +1356,20 @@ export function SidebarProjectList({
     )
   }
 
+  const sectionSummary = (section: (typeof sections)[number]) =>
+    section.attention + section.working > 0
+      ? [
+          section.attention > 0
+            ? tGroups("attentionCount", { count: section.attention })
+            : null,
+          section.working > 0
+            ? tGroups("workingCount", { count: section.working })
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : tGroups("projectCount", { count: section.projectCount })
+
   const runningIndent = sessionIndent(false)
   let body: React.ReactNode
   if (
@@ -1248,12 +1384,22 @@ export function SidebarProjectList({
       </div>
     )
   } else if (q) {
-    // 搜索：跨工作区平铺匹配的项目
+    // 搜索：跨工作区平铺匹配的项目与会话，点结果后收起
     body = (
       <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
         <div className="flex flex-col pt-1">
-          {searchHits.map((row) => renderRow(row, "", true))}
-          {searchHits.length === 0 ? (
+          {searchHits.map((row) =>
+            renderRow(row, "", false, pickSearchedFolder)
+          )}
+          {sessionHits.map((session) =>
+            renderSession(
+              session,
+              runningIndent,
+              projectLabel(session.folderId),
+              closeSearch
+            )
+          )}
+          {searchHits.length + sessionHits.length === 0 ? (
             <div className="px-3 py-3 text-center text-xs text-muted-foreground">
               {t("noProjectsFound")}
             </div>
@@ -1263,30 +1409,23 @@ export function SidebarProjectList({
     )
   } else {
     body = (
-      <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
+      <ScrollArea
+        className="min-h-0 flex-1 px-1.5 pb-1.5"
+        onViewportRef={(element) => {
+          listViewport.current = element
+        }}
+      >
         <div className="flex flex-col">
           {sections.map((section) => {
             const { group } = section
-            const summary =
-              section.attention + section.working > 0
-                ? [
-                    section.attention > 0
-                      ? tGroups("attentionCount", { count: section.attention })
-                      : null,
-                    section.working > 0
-                      ? tGroups("workingCount", { count: section.working })
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                : tGroups("projectCount", { count: section.projectCount })
             return (
               <section key={group.id} aria-label={group.name}>
                 <WorkspaceGroupHeader
                   group={group}
                   current={section.current}
                   full={section.full}
-                  summary={summary}
+                  summary={sectionSummary(section)}
+                  onSwitch={() => switchWorkspace(group.id)}
                   onToggle={() =>
                     setExpanded((prev) => ({
                       ...prev,
@@ -1305,12 +1444,12 @@ export function SidebarProjectList({
                     section.rows.map((row) => renderRow(row, group.id, true))
                   ) : (
                     <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
-                      <span className="min-w-0 flex-1 truncate">
-                        {tGroups("dropHere")}
+                      <span className="min-w-0 truncate">
+                        {tGroups("noProjects")}
                       </span>
                       <button
                         type="button"
-                        className="shrink-0 hover:text-foreground"
+                        className="shrink-0 text-primary hover:underline"
                         onClick={() => {
                           addTarget.current = group.id
                           void openFolderPicker()
@@ -1376,7 +1515,7 @@ export function SidebarProjectList({
       {summaryOnly ? (
         <button
           type="button"
-          onClick={() => useSidebarViewStore.getState().setView("projects")}
+          onClick={() => useProjectPanelStore.getState().setMaximized(false)}
           title={tGroups("restoreList")}
           className="absolute inset-0 z-10 flex items-start gap-1.5 truncate bg-sidebar px-3 pt-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
         >
@@ -1396,101 +1535,111 @@ export function SidebarProjectList({
           })()}
         </button>
       ) : null}
-      {summaryOnly ? null : (
-        <SidebarHeaderActions>
-          {attention.length > 0 ? (
-            <button
-              type="button"
-              onClick={jumpToAttention}
-              title={tGroups("nextAttention")}
-              className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[0.6875rem] font-medium text-amber-600 hover:bg-accent dark:text-amber-400"
-            >
-              <span
-                aria-hidden
-                className="size-1.5 rounded-full bg-amber-500"
-              />
-              {tGroups("attentionCount", { count: attention.length })}
-            </button>
-          ) : null}
-          {activeFolder && activeIsRepo ? (
-            <SidebarHeaderButton
-              icon={FolderGit2}
-              label={t("newWorktreeForActive")}
-              onClick={() => handleNewWorktree(activeFolder.id)}
-            />
-          ) : null}
+      <SidebarHeaderTitle>
+        <WorkspaceSwitcher
+          items={sections.map((section) => ({
+            group: section.group,
+            current: section.current,
+            summary: sectionSummary(section),
+          }))}
+          onSwitch={switchWorkspace}
+          onCreate={() => setEditingGroup({ group: null })}
+        />
+      </SidebarHeaderTitle>
+      <SidebarHeaderActions>
+        {attention.length > 0 ? (
+          <button
+            type="button"
+            onClick={jumpToAttention}
+            title={tGroups("nextAttention")}
+            className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[0.6875rem] font-medium text-amber-600 hover:bg-accent dark:text-amber-400"
+          >
+            <span aria-hidden className="size-1.5 rounded-full bg-amber-500" />
+            {tGroups("attentionCount", { count: attention.length })}
+          </button>
+        ) : null}
+        {activeFolder && activeIsRepo ? (
           <SidebarHeaderButton
-            icon={LayoutGrid}
-            label={tGroups("create")}
-            onClick={() => setEditingGroup({ group: null })}
+            icon={FolderGit2}
+            label={t("newWorktreeForActive")}
+            onClick={() => handleNewWorktree(activeFolder.id)}
           />
-          <SidebarHeaderButton
-            icon={FolderPlus}
-            label={t("addProject")}
-            onClick={() => void openFolderPicker()}
-          />
-          <SidebarHeaderButton
-            icon={Server}
-            label={t("devices.addTitle")}
-            onClick={() => setAddDeviceOpen(true)}
-          />
-        </SidebarHeaderActions>
-      )}
+        ) : null}
+        <SidebarHeaderButton
+          icon={Search}
+          label={t("searchProjectsPlaceholder")}
+          onClick={searching ? closeSearch : openSearch}
+        />
+        <SidebarHeaderButton
+          icon={FolderPlus}
+          label={t("addProject")}
+          onClick={() => void openFolderPicker()}
+        />
+        <SidebarHeaderButton
+          icon={Server}
+          label={t("devices.addTitle")}
+          onClick={() => setAddDeviceOpen(true)}
+        />
+      </SidebarHeaderActions>
 
-      <div className="shrink-0 border-b border-border/50 px-1.5 py-1.5">
-        <div className="relative">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            ref={searchInputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.nativeEvent.isComposing) return
-              // 回车切项目：有搜索词取第一条匹配，空搜索回到上一个项目
-              const { recentFolderIds } = useAppWorkspaceStore.getState()
-              const target = q
-                ? searchHits[0]?.slot.folderId
-                : recentFolderIds.find(
-                    (id) => id !== activeFolder?.id && folderById.has(id)
-                  )
-              if (target == null) return
-              event.preventDefault()
-              handleSelectFolder(target)
-              setQuery("")
-            }}
-            placeholder={t("searchProjectsPlaceholder")}
-            className="h-8 rounded-full bg-muted/30 pl-8 pr-8 text-sm"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label={t("clearSearch")}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
+      {searching && !summaryOnly ? (
+        <div className="shrink-0 border-b border-border/50 px-1.5 py-1.5">
+          <div className="relative">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              ref={searchInputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.stopPropagation()
+                  closeSearch()
+                  return
+                }
+                if (event.key !== "Enter" || event.nativeEvent.isComposing)
+                  return
+                // 回车切项目：有搜索词取第一条匹配，空搜索回到上一个项目
+                const { recentFolderIds } = useAppWorkspaceStore.getState()
+                const target = q
+                  ? searchHits[0]?.slot.folderId
+                  : recentFolderIds.find(
+                      (id) => id !== activeFolder?.id && folderById.has(id)
+                    )
+                if (target == null) {
+                  if (!sessionHits[0]) return
+                  selectSession(sessionHits[0])
+                } else handleSelectFolder(target)
+                event.preventDefault()
+                closeSearch()
+              }}
+              placeholder={t("searchProjectsPlaceholder")}
+              className="h-8 rounded-full bg-muted/30 pl-8 pr-8 text-sm"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label={t("clearSearch")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {body}
 
-      <DeviceBar
-        devices={devices}
-        statusOf={statusOf}
-        feeds={feeds}
-        onAdd={() => setAddDeviceOpen(true)}
-      />
       <AddDeviceDialog
         // 每次打开重新挂载，表单从空白开始。
         key={addDeviceOpen ? "add-device-open" : "add-device-closed"}
         open={addDeviceOpen}
         onOpenChange={setAddDeviceOpen}
-        onAdded={reloadDevices}
+        onAdded={notifyDevicesChanged}
       />
       <SessionSwitcher
         open={switcherRecent != null}

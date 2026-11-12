@@ -21,7 +21,7 @@ pub use terminal_tauri::{
     __cmd__terminal_attach_channel, __cmd__terminal_create, __cmd__terminal_detach,
     __cmd__terminal_get_session, __cmd__terminal_list_sessions, __cmd__terminal_remove_record,
     __cmd__terminal_resize_attached, __cmd__terminal_send_key, __cmd__terminal_send_line,
-    __cmd__terminal_terminate,
+    __cmd__terminal_set_attached_visible, __cmd__terminal_terminate,
     __cmd__terminal_write_attached_raw,
 };
 #[cfg(feature = "tauri-runtime")]
@@ -30,7 +30,7 @@ pub use terminal_tauri::{
     __tauri_command_name_terminal_detach, __tauri_command_name_terminal_get_session,
     __tauri_command_name_terminal_list_sessions, __tauri_command_name_terminal_remove_record,
     __tauri_command_name_terminal_resize_attached, __tauri_command_name_terminal_send_key,
-    __tauri_command_name_terminal_send_line,
+    __tauri_command_name_terminal_send_line, __tauri_command_name_terminal_set_attached_visible,
     __tauri_command_name_terminal_terminate, __tauri_command_name_terminal_write_attached_raw,
 };
 #[cfg(feature = "tauri-runtime")]
@@ -39,8 +39,8 @@ pub use terminal_tauri::{attach_terminal_to_sink, TerminalPacketSink};
 pub use terminal_tauri::{
     terminal_attach_channel, terminal_create, terminal_detach, terminal_get_session,
     terminal_list_sessions, terminal_remove_record, terminal_resize_attached, terminal_send_key,
-    terminal_send_line,
-    terminal_terminate, terminal_write_attached_raw,
+    terminal_send_line, terminal_set_attached_visible, terminal_terminate,
+    terminal_write_attached_raw,
 };
 #[path = "terminal_types.rs"]
 mod terminal_types;

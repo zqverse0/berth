@@ -2,7 +2,15 @@
 
 import { useState, type PointerEvent } from "react"
 import { useTranslations } from "next-intl"
-import { MoreHorizontal, PencilLine, Plus, Trash2 } from "lucide-react"
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  PencilLine,
+  Plus,
+  Trash2,
+} from "lucide-react"
 import {
   checkWorkspaceName,
   type WorkspaceGroup,
@@ -19,6 +27,13 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -28,7 +43,7 @@ import {
 import { WORKSPACE_DROP_ATTR } from "./use-sidebar-drag"
 
 /**
- * 工作区标题：点击在「完整 / 只看运行中」间切换；右键或「更多」改名、新建、删除（「默认」没有删除）。
+ * 工作区标题：点标题切换到该工作区，点左侧箭头在「完整 / 只看运行中」间切换；右键或「更多」改名、新建、删除（「默认」没有删除）。
  * 整行是项目的放下目标，也能拖动调整顺序。
  */
 export function WorkspaceGroupHeader({
@@ -36,6 +51,7 @@ export function WorkspaceGroupHeader({
   current,
   full,
   summary,
+  onSwitch,
   onToggle,
   onDragStart,
   onRename,
@@ -47,6 +63,7 @@ export function WorkspaceGroupHeader({
   full: boolean
   /** 右侧摘要：需关注 / 运行数，或项目数 */
   summary: string
+  onSwitch: () => void
   onToggle: () => void
   onDragStart: (event: PointerEvent) => void
   onRename: () => void
@@ -59,15 +76,38 @@ export function WorkspaceGroupHeader({
       <ContextMenuTrigger asChild>
         <div
           {...{ [WORKSPACE_DROP_ATTR]: group.id }}
-          className="group/ws mt-1 flex h-7 items-center rounded-md pr-1 hover:bg-accent/60 data-[drop-active]:bg-accent data-[drop-active]:ring-1 data-[drop-active]:ring-primary/40"
+          className={cn(
+            "group/ws mt-1 flex h-7 items-center rounded-md pr-1 pl-0.5 hover:bg-accent/60 data-[drop-active]:bg-accent data-[drop-active]:ring-1 data-[drop-active]:ring-primary/40",
+            current &&
+              "sticky top-0 z-10 bg-[color-mix(in_srgb,var(--primary)_18%,var(--sidebar))] shadow-[inset_3px_0_0_var(--primary)] hover:bg-[color-mix(in_srgb,var(--primary)_24%,var(--sidebar))]"
+          )}
         >
           <button
             type="button"
             aria-expanded={full}
+            aria-label={`${group.name}: ${full ? t("showRunning") : t("showFull")}`}
             title={full ? t("showRunning") : t("showFull")}
             onClick={onToggle}
+            className="ml-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {full ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+          </button>
+          <button
+            type="button"
+            aria-current={current ? "true" : undefined}
+            title={current ? undefined : t("switchTo")}
+            onClick={onSwitch}
             onPointerDown={onDragStart}
-            className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className={cn(
+              "flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+              current
+                ? "font-semibold text-foreground"
+                : "text-muted-foreground"
+            )}
           >
             {group.emoji ? (
               <span aria-hidden className="shrink-0">
@@ -75,11 +115,6 @@ export function WorkspaceGroupHeader({
               </span>
             ) : null}
             <span className="min-w-0 truncate">{group.name}</span>
-            {current ? (
-              <span className="shrink-0 rounded bg-primary/10 px-1 text-[0.625rem] font-normal text-primary">
-                {t("current")}
-              </span>
-            ) : null}
             <span className="ml-auto shrink-0 truncate pl-2 text-[0.6875rem] font-normal text-muted-foreground">
               {summary}
             </span>
@@ -128,6 +163,56 @@ export function WorkspaceGroupHeader({
         )}
       </ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+/** 顶栏的工作区下拉：显示当前工作区，列出全部工作区及其需关注 / 运行数，选中即切换。 */
+export function WorkspaceSwitcher({
+  items,
+  onSwitch,
+  onCreate,
+}: {
+  items: { group: WorkspaceGroup; current: boolean; summary: string }[]
+  onSwitch: (groupId: string) => void
+  onCreate: () => void
+}) {
+  const t = useTranslations("WorkspaceGroups")
+  const active = items.find((item) => item.current)?.group
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("workspaceMenu")}
+          title={t("workspaceMenu")}
+          className="-ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] font-semibold text-sidebar-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/60"
+        >
+          {active?.emoji ? <span aria-hidden>{active.emoji}</span> : null}
+          <span className="min-w-0 truncate">{active?.name}</span>
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="max-h-[60vh] w-64 overflow-y-auto"
+      >
+        {items.map(({ group, current, summary }) => (
+          <DropdownMenuItem key={group.id} onSelect={() => onSwitch(group.id)}>
+            <Check className={cn("size-3.5", !current && "invisible")} />
+            {group.emoji ? <span aria-hidden>{group.emoji}</span> : null}
+            <span className="min-w-0 truncate">{group.name}</span>
+            <span className="ml-auto shrink-0 pl-2 text-[0.6875rem] text-muted-foreground">
+              {summary}
+            </span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onCreate}>
+          <Plus className="size-3.5" />
+          {t("create")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

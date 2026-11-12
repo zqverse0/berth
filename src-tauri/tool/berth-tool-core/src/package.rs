@@ -13,7 +13,8 @@ use crate::asset::AssetDiagnostic;
 /// 宿主按文件名读取的约定文件（封闭列表）。`launch.js` 是 Agent 启动脚本
 /// （[`crate::paths::LAUNCH_SCRIPT`]）；`private/` 是启动脚本的私有辅助；`README.md` / `LICENSE` /
 /// `.gitignore` 是分发包（git 安装）的常规文件；`install.sh|ps1` 是 `org.berth.install`
-/// 的安装脚本；`src/` 是页面插件构建前的源码（宿主不读，发布时去掉）。
+/// 的安装脚本；`src/` 是页面插件构建前的源码（宿主不读，发布时去掉）；`skills/` 是插件自带的
+/// Agent skill（`skills/<name>/SKILL.md`），`berth tools show` 列出，Agent 按需读。
 pub const CONVENTION_ENTRIES: &[&str] = &[
     "tool.json",
     "launch.js",
@@ -29,6 +30,7 @@ pub const CONVENTION_ENTRIES: &[&str] = &[
     "LICENSE",
     ".gitignore",
     "src",
+    "skills",
 ];
 
 /// `extensions["org.berth.agent"]` 里宿主会读的键（封闭列表，与
@@ -163,6 +165,32 @@ fn first_component(path: &str) -> Option<&str> {
             Component::Normal(name) => name.to_str(),
             _ => None,
         })
+}
+
+/// 插件自带的 skill：`skills/<name>/SKILL.md`，按目录名排序；`description` 取 frontmatter。
+pub struct PackageSkill {
+    pub name: String,
+    pub description: Option<String>,
+    pub path: std::path::PathBuf,
+}
+
+pub fn skills(dir: &Path) -> Vec<PackageSkill> {
+    let mut skills: Vec<PackageSkill> = std::fs::read_dir(dir.join("skills"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path().join("SKILL.md");
+            let text = std::fs::read_to_string(&path).ok()?;
+            Some(PackageSkill {
+                name: entry.file_name().to_str()?.to_string(),
+                description: crate::experts::description(&text),
+                path,
+            })
+        })
+        .collect();
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills
 }
 
 /// 声明但缺失的 `base: package` 资源（安装的拒收条件）。
@@ -307,6 +335,7 @@ mod tests {
             std::fs::write(dir.join(file), "").unwrap();
         }
         std::fs::create_dir_all(dir.join("private")).unwrap();
+        std::fs::create_dir_all(dir.join("skills/draw")).unwrap();
         std::fs::create_dir_all(dir.join("data")).unwrap();
         std::fs::write(dir.join("data/spec.json"), "").unwrap();
         let raw = json!({ "resources": {
@@ -383,6 +412,27 @@ mod tests {
     }
 
     #[test]
+    fn skills_list_folders_with_skill_md() {
+        let dir = temp_dir("skills");
+        for name in ["b-draw", "a-plan", "empty"] {
+            std::fs::create_dir_all(dir.join("skills").join(name)).unwrap();
+        }
+        std::fs::write(
+            dir.join("skills/b-draw/SKILL.md"),
+            "---\nname: b-draw\ndescription: Draw it\n---\nbody",
+        )
+        .unwrap();
+        std::fs::write(dir.join("skills/a-plan/SKILL.md"), "no frontmatter").unwrap();
+        let skills = skills(&dir);
+        let names: Vec<_> = skills.iter().map(|skill| skill.name.as_str()).collect();
+        assert_eq!(names, ["a-plan", "b-draw"]);
+        assert_eq!(skills[0].description, None);
+        assert_eq!(skills[1].description.as_deref(), Some("Draw it"));
+        assert!(skills[1].path.ends_with("skills/b-draw/SKILL.md"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn root_reports_stray_files_and_directories_without_tool_json() {
         let dir = temp_dir("root");
         std::fs::create_dir_all(dir.join("ok")).unwrap();
@@ -409,7 +459,7 @@ mod tests {
             let findings: Vec<_> = check_package(&dir, &raw)
                 .into_iter()
                 .filter(|finding| {
-                    !(finding.location.starts_with("page/") && !dir.join("page").exists())
+                    !finding.location.starts_with("page/") || dir.join("page").exists()
                 })
                 .collect();
             assert!(findings.is_empty(), "{}: {findings:?}", dir.display());

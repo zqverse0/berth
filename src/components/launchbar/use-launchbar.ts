@@ -16,11 +16,13 @@ import { listModelProviders, resolveProjectAgentSession } from "@/lib/api"
 import {
   fetchLoginModels,
   isProviderVisibleForLaunchbar,
+  launchModelOptions,
   listLoginCards,
   type LoginEntry,
   modelUsableBy,
   providerDefaultApis,
   providerCatalogModels,
+  splitLaunchModelValue,
   type ProviderModel,
 } from "@/lib/model-provider"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
@@ -400,6 +402,15 @@ export function useLaunchbar({
     providerAgentType,
     providerApis,
   ])
+  // 同一模型在多个分组里时按分组拆成几项，值带分组 id（启动时拆回）。
+  const modelOptions = useMemo(
+    () =>
+      launchModelOptions(
+        loginSelected ? null : selectedProvider,
+        providerModels
+      ),
+    [loginSelected, selectedProvider, providerModels]
+  )
   const modelItemId = useMemo(
     () =>
       launchbarItems?.find(
@@ -413,19 +424,19 @@ export function useLaunchbar({
     const storedPref = launchAgentId
       ? loadStoredModelPreference(storeKey)
       : null
-    const officialDefault = providerModels[0]?.id ?? ""
+    const officialDefault = modelOptions[0]?.value ?? ""
 
     let targetModel = officialDefault
     if (
       storedPref &&
       vendorFromPreference(storedPref) === paneVendor &&
       storedPref.modelId &&
-      providerModels.some((m) => m.id === storedPref.modelId)
+      modelOptions.some((option) => option.value === storedPref.modelId)
     ) {
       targetModel = storedPref.modelId
     } else if (
       paneModelId &&
-      providerModels.some((m) => m.id === paneModelId)
+      modelOptions.some((option) => option.value === paneModelId)
     ) {
       targetModel = paneModelId
     }
@@ -460,7 +471,7 @@ export function useLaunchbar({
     }
   }, [
     modelItemId,
-    providerModels,
+    modelOptions,
     paneModelId,
     paneVendor,
     paneProviderId,
@@ -710,8 +721,13 @@ export function useLaunchbar({
     if (!launchAgentId || !selectedName) return
     setLaunchingCli(true)
     try {
+      const { model, group } = splitLaunchModelValue(
+        paneModelId || launchbarValues[modelItemId ?? ""] || ""
+      )
       const agentLaunchInputs = {
         ...collectLaunchbarInputs(launchbarItems ?? [], launchbarValues),
+        // launch.js 只认模型 id；分组单独交给后端选 Key
+        ...(modelItemId && model ? { [modelItemId]: model } : {}),
         ...(await prepareLaunch?.()),
       }
       const result = await createAndOpenPrimaryTerminalDetailed({
@@ -722,7 +738,8 @@ export function useLaunchbar({
         agentContractId: launchAgentId,
         agentLaunchInputs,
         providerId: paneProviderId,
-        modelId: paneModelId || launchbarValues[modelItemId ?? ""] || null,
+        modelId: model || null,
+        providerGroup: group,
       })
       if (!result.terminalId) {
         throw new Error(tTerminal("createFailed"))
@@ -758,10 +775,7 @@ export function useLaunchbar({
       if (item.optionsFrom === "providerModels" || item.id === "model") {
         return {
           ...item,
-          options: providerModels.map((model) => ({
-            value: model.id,
-            label: model.id,
-          })),
+          options: modelOptions,
         }
       }
       if (item.optionsFrom === "projectSessions") {
@@ -793,7 +807,7 @@ export function useLaunchbar({
     launchbarItems,
     logins,
     providers,
-    providerModels,
+    modelOptions,
     projectSessions.items,
     tProjectSessions,
   ])

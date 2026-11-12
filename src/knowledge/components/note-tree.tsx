@@ -7,6 +7,7 @@ import {
   FileTreeFolder,
 } from "@/components/ai-elements/file-tree"
 import { getFileIconConfig } from "@/components/ai-elements/file-tree-icons"
+import { isSourceFile } from "@/knowledge/lib/vault"
 import type { KnowledgeDocument } from "@/knowledge/model/types"
 
 /** 树的一个分组：笔记在前（保持阅读顺序，首页置顶）、子分组在后。 */
@@ -20,10 +21,14 @@ export interface NoteTreeGroup {
   open?: boolean
 }
 
-const markdownIcon = (() => {
-  const { icon: Icon, colorClass } = getFileIconConfig("note.md")
+function fileIcon(name: string) {
+  const { icon: Icon, colorClass } = getFileIconConfig(name)
   return <Icon className={`size-4 shrink-0 ${colorClass}`} />
-})()
+}
+const markdownIcon = fileIcon("note.md")
+const pdfIcon = fileIcon("source.pdf")
+const noteIcon = (note: KnowledgeDocument) =>
+  isSourceFile(note) ? pdfIcon : markdownIcon
 
 /**
  * 笔记树：复用文件树的行组件，外观与项目文件树一致。
@@ -70,7 +75,7 @@ export function NoteTree({
         key={`${path}:${note.path}`}
         path={`${path}:${note.path}`}
         name={note.title}
-        icon={markdownIcon}
+        icon={noteIcon(note)}
         depth={depth}
         title={note.path}
         suffix={noteSuffix?.(note)}

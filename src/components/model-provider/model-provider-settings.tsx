@@ -65,6 +65,7 @@ import {
   mergeFetchedModels,
   providerDefaultApis,
   modelRecord,
+  parseModelEntry,
   providerCatalogModels,
   importCcSwitchProviders,
   transferProviders,
@@ -464,15 +465,18 @@ function parseKeyGroups(
               id?: string
               name?: string
               key?: string
-              models?: ProviderModel[]
+              models?: unknown[]
             },
             idx: number
           ) => ({
             id: item.id || String(idx + 1),
             name: item.name || (idx === 0 ? "default" : `group-${idx + 1}`),
             key: item.key || "",
+            // 落库时省略了与 id 相同的 name，按档案模型格式规范化回表单形态
             models: Array.isArray(item.models)
               ? item.models
+                  .map(parseModelEntry)
+                  .filter((m): m is ProviderModel => m != null)
               : idx === 0 && fallbackModels && fallbackModels.length > 0
                 ? fallbackModels
                 : [],

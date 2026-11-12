@@ -18,7 +18,7 @@ import {
   cancelDeviceTransfer,
   startDeviceTransfer,
   transferInto,
-  useDeviceTransfers,
+  type DeviceTransfer,
   useDeviceOverview,
   type NodeOverview,
 } from "@/lib/devices"
@@ -151,13 +151,14 @@ export function useOsFileDropToDevices() {
 }
 
 /** 传到这台设备的文件：进度、取消；失败或取消后可重试（从断点续上）或移除。 */
-export function DeviceTransfers({ deviceId }: { deviceId: number }) {
+export function DeviceTransfers({
+  transfers,
+  dismiss,
+}: {
+  transfers: readonly DeviceTransfer[]
+  dismiss: (id: number) => void
+}) {
   const t = useTranslations("Folder.sidebar.devices")
-  const { transfers, dismiss } = useDeviceTransfers(deviceId, (dest) =>
-    toast.success(
-      t("remote.transferDone", { name: dest.split("/").pop() ?? dest })
-    )
-  )
   if (transfers.length === 0) return null
   const action = (label: string, Icon: typeof X, onClick: () => void) => (
     <button
@@ -216,7 +217,7 @@ export function DeviceTransfers({ deviceId }: { deviceId: number }) {
                   RefreshCw,
                   () =>
                     void startDeviceTransfer(
-                      deviceId,
+                      item.deviceId,
                       item.source,
                       item.dest
                     ).catch((error) =>

@@ -228,7 +228,8 @@ export async function pullDeviceFile(
 
 /** 传到这台设备的传输：进行中、失败、取消的留着（可重试 / 移除），完成的自动消失。 */
 export function useDeviceTransfers(
-  deviceId: number,
+  /** `null` 为所有设备 */
+  deviceId: number | null,
   onDone?: (dest: string) => void
 ) {
   const [transfers, setTransfers] = useState<DeviceTransfer[]>([])
@@ -241,7 +242,8 @@ export function useDeviceTransfers(
     let disposed = false
     let unsubscribe: (() => void) | null = null
     void subscribe<DeviceTransfer>("device://transfer", (event) => {
-      if (disposed || event.deviceId !== deviceId || event.pull) return
+      if (disposed || event.pull) return
+      if (deviceId != null && event.deviceId !== deviceId) return
       if (event.state === "done") onDoneRef.current?.(event.dest)
       setTransfers((prev) => {
         // 重试是新的 id：同一源与目标只留最新一条。

@@ -128,10 +128,17 @@ describe("vault relations", () => {
     expect(health.unreadSources).toEqual([])
     const read = doc("读过", { noteType: "来源", digested: true })
     const unread = doc("没读", { noteType: "来源" })
-    expect(
-      vaultHealth({ ...snapshot, documents: [read, unread], edges: [] }, [])
-        .unreadSources
-    ).toEqual([unread])
+    // 来源 PDF 是原文件：不算未读，也不算孤立
+    const pdf = doc("论文", {
+      noteType: "来源",
+      path: ".berth/knowledge/来源/论文.pdf",
+    })
+    const sources = vaultHealth(
+      { ...snapshot, documents: [read, unread, pdf], edges: [] },
+      []
+    )
+    expect(sources.unreadSources).toEqual([unread])
+    expect(sources.orphans).toEqual([read, unread])
   })
 })
 

@@ -845,6 +845,9 @@ fn unread_counts_messages_for_the_user_after_the_read_mark() {
     assert_eq!(group::unread(main, "g", Some(group::seq(&last))).unwrap(), 0);
     // 已读位置不倒退。
     assert_eq!(group::unread(main, "g", Some(1)).unwrap(), 0);
+    // 账本没变时走缓存；一追加就重算。
+    post(serde_json::json!({"kind": "message", "author": "a", "text": "又来"}));
+    assert_eq!(group::unread(main, "g", None).unwrap(), 1);
 }
 
 #[test]

@@ -24,7 +24,7 @@ Agent 身份来自 `tool.json`；启动栏选项来自 `launchbar.json`；启动
 `tools/<id>/` 就是 Berth 插件，入口只有 `tool.json`。包内只允许两类文件：
 
 - **约定文件**（宿主按名读取，封闭列表见 `berth-tool-core/src/package.rs`）：`tool.json`、
-  `launch.js`、`launchbar.json`、`install.sh|ps1`、`usage.json`、`usage.md`、`icon.svg|png`、`private/`，
+  `launch.js`、`launchbar.json`、`install.sh|ps1`、`usage.json`、`usage.md`、`icon.svg|png`、`private/`、`skills/`（插件自带的 Agent skill），
   以及分发包常规的 `README.md`、`LICENSE`、`.gitignore`。
 - **声明资源**：`resources.*.locator.base == "package"` 引用的路径（如 `sessions.json`）。
 

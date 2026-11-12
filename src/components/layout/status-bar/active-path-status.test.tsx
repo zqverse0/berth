@@ -239,21 +239,6 @@ describe("ActivePathStatus component", () => {
     expect(screen.getByText("Settings")).toBeTruthy()
   })
 
-  it("project part shows only the project name and copies the project path", async () => {
-    const user = userEvent.setup()
-    layoutMocks.activeWorkspaceTab = { kind: "file", id: "f-1" }
-    fileStoreMocks.fileTabs = [
-      { id: "f-1", path: "/home/user/repo/src/App.tsx", title: "App.tsx" },
-    ]
-
-    render(<ActivePathStatus part="project" />)
-
-    const entry = screen.getByRole("button", { name: "MyRepo" })
-    expect(screen.queryByText(/main/)).toBeNull()
-    await user.click(entry)
-    expect(await navigator.clipboard.readText()).toBe("/home/user/repo")
-  })
-
   it("directly copies item absolute path on click", async () => {
     const user = userEvent.setup()
     const writeTextSpy = vi.fn().mockResolvedValue(undefined)

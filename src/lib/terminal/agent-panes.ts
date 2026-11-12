@@ -6,6 +6,7 @@ import { useShallow } from "zustand/react/shallow"
 import { AGENT_CHANGED_EVENT } from "@/lib/api"
 import { subscribe } from "@/lib/platform"
 import { fetchTerminalInventory } from "@/lib/terminal/terminal-inventory-query"
+import { subscribeDevices } from "@/lib/transport/device"
 import type { AgentProfileSummary } from "@/lib/transport/launchbar"
 import type { TerminalDescriptor } from "@/lib/types"
 
@@ -20,8 +21,11 @@ export interface AgentPaneRow {
 }
 
 export const DEFAULT_INTERRUPT_KEY = "Escape"
-/** 兜底轮询：报 hook 的 Agent 由 `agent.changed` 即时唤醒，其余靠它。 */
-const POLL_MS = 2_000
+/**
+ * 兜底轮询：报 hook 的 Agent（本机与各设备）由 `agent.changed` 即时唤醒，只有不报 hook 的靠它。
+ * 每轮要问本机 termd 和每台已连设备，不宜太密。
+ */
+const POLL_MS = 10_000
 
 export function paneAgentState(descriptor: TerminalDescriptor): PaneAgentState {
   if (descriptor.status !== "running") return "exited"
@@ -69,7 +73,7 @@ export function buildAgentPaneRows(
   const before = new Map(
     previous.map((row) => [row.descriptor.terminalId, row])
   )
-  // 每 2 秒轮询一次；行没变就复用旧对象、整表没变就复用旧数组，
+  // 每次唤醒或轮询都重建；行没变就复用旧对象、整表没变就复用旧数组，
   // 否则项目列表每一行的角标都会跟着重渲染。
   const rows = descriptors.map((descriptor) => {
     const state = paneAgentState(descriptor)
@@ -182,7 +186,17 @@ function acquire(): () => void {
   if (refCount === 1) {
     tick()
     timer = window.setInterval(tick, POLL_MS)
-    stopListening = onAgentChanged(tick)
+    const stopLocal = onAgentChanged(tick)
+    // 清单含各设备的终端：设备上 hook 报告变化同样唤醒（事件不带路径，不按项目过滤）。
+    const stopDevices = subscribeDevices(
+      AGENT_CHANGED_EVENT,
+      () => tick(),
+      false
+    )
+    stopListening = () => {
+      stopLocal()
+      stopDevices()
+    }
     document.addEventListener("visibilitychange", onVisibility)
   }
   return () => {

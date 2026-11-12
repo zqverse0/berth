@@ -2,7 +2,7 @@
 // `window.berth` 就是它。与宿主只经 postMessage 说 JSON-RPC 2.0（§2.2）：
 //   页面 → 宿主：请求 `<命名空间>.<方法>`；通知 page.hello、editor.change {content}、ui.key {key, code, …修饰键}
 //   宿主 → 页面：通知 page.init {context, theme, vars, locale, platform, berthVersion}、ui.theme {theme, vars}、
-//                 editor.externalChange {content}、editor.drop {…}；请求 editor.render（页面回结果）
+//                 editor.externalChange {content}、editor.drop / view.drop {…}；请求 editor.render（页面回结果）
 ;(() => {
   if (window.berth) return
   const host = window.parent
@@ -137,6 +137,7 @@
     "ui.theme": "theme",
     "editor.externalChange": "externalChange",
     "editor.drop": "drop",
+    "view.drop": "drop",
   }
 
   window.addEventListener("message", (event) => {
@@ -184,6 +185,8 @@
 
   const context = () => {
     const raw = init?.context ?? {}
+    if (raw.kind === "view")
+      return { ...raw, onDrop: (listener) => on("drop", listener) }
     if (raw.kind !== "editor") return raw
     return {
       ...raw,
@@ -217,8 +220,25 @@
       dir: null,
     },
     scripts: {
-      run: (script, input) =>
-        call("scripts.run", { script, input: input ?? null }),
+      // signal abort：本地立即 reject `cancelled`，并请宿主中断那次运行（迟到的回复丢弃）。
+      run: (script, input, options) => {
+        const signal = options?.signal
+        if (!signal) return call("scripts.run", { script, input: input ?? null })
+        const cancelled = () =>
+          Object.assign(new Error("cancelled"), { reason: "cancelled" })
+        if (signal.aborted) return Promise.reject(cancelled())
+        const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        return new Promise((resolve, reject) => {
+          const abort = () => {
+            reject(cancelled())
+            call("scripts.cancel", { runId }).catch(() => {})
+          }
+          signal.addEventListener("abort", abort, { once: true })
+          call("scripts.run", { script, input: input ?? null, runId })
+            .then(resolve, reject)
+            .finally(() => signal.removeEventListener("abort", abort))
+        })
+      },
     },
     agent: {
       attach: (item) => call("agent.attach", item),
@@ -244,6 +264,8 @@
       },
       vars: {},
       project: () => call("env.project"),
+      // 页面由用户操作，不是 Agent 调用。
+      agent: () => Promise.resolve(null),
     },
   }
 

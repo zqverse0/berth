@@ -1,0 +1,759 @@
+[
+  {
+    "name": "xai-with-extra-sources",
+    "env": {
+      "XAI_API_KEY": "xk",
+      "XAI_API_URL": "https://x.test/v1",
+      "TAVILY_API_KEY": "tk",
+      "FIRECRAWL_API_KEY": "fk"
+    },
+    "input": {
+      "query": "Tauri 2.0 发布时间",
+      "extraSources": 3
+    },
+    "responses": {
+      "POST https://x.test/v1/responses": {
+        "status": 200,
+        "body": "{\"output\": [{\"type\": \"web_search_call\"}, {\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Tauri 2.0 stable was released on 2024-10-02.\", \"annotations\": [{\"type\": \"url_citation\", \"url\": \"https://v2.tauri.app/blog/tauri-20/\", \"title\": \"Tauri 2.0 Stable Release\"}, {\"type\": \"url_citation\", \"url\": \"https://github.com/tauri-apps/tauri/releases\"}, {\"type\": \"url_citation\", \"url\": \"https://v2.tauri.app/blog/tauri-20/\"}]}]}]}"
+      },
+      "POST https://api.tavily.com/search": {
+        "status": 200,
+        "body": "{\"results\": [{\"title\": \"T1\", \"url\": \"https://t.test/1\", \"content\": \"tc1\", \"score\": 0.9}, {\"title\": \"T2\", \"url\": \"https://v2.tauri.app/blog/tauri-20/\", \"content\": \"dup\"}]}"
+      },
+      "POST https://api.firecrawl.dev/v2/search": {
+        "status": 200,
+        "body": "{\"data\": {\"web\": [{\"title\": \"F1\", \"url\": \"https://f.test/1\", \"description\": \"fd1\"}]}}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "error_type": "",
+      "error": "",
+      "session_id": "1c19be077532",
+      "query": "Tauri 2.0 发布时间",
+      "platform": "",
+      "model": "grok-4-fast",
+      "primary_api_mode": "xai-responses",
+      "content": "Tauri 2.0 stable was released on 2024-10-02.",
+      "sources": [
+        {
+          "url": "https://v2.tauri.app/blog/tauri-20/",
+          "title": "Tauri 2.0 Stable Release"
+        },
+        {
+          "url": "https://github.com/tauri-apps/tauri/releases"
+        },
+        {
+          "url": "https://f.test/1",
+          "provider": "firecrawl",
+          "title": "F1",
+          "description": "fd1"
+        },
+        {
+          "url": "https://t.test/1",
+          "provider": "tavily",
+          "title": "T1",
+          "description": "tc1"
+        }
+      ],
+      "sources_count": 4,
+      "primary_sources": [
+        {
+          "url": "https://v2.tauri.app/blog/tauri-20/",
+          "title": "Tauri 2.0 Stable Release"
+        },
+        {
+          "url": "https://github.com/tauri-apps/tauri/releases"
+        }
+      ],
+      "primary_sources_count": 2,
+      "extra_sources": [
+        {
+          "url": "https://f.test/1",
+          "provider": "firecrawl",
+          "title": "F1",
+          "description": "fd1"
+        },
+        {
+          "url": "https://t.test/1",
+          "provider": "tavily",
+          "title": "T1",
+          "description": "tc1"
+        },
+        {
+          "url": "https://v2.tauri.app/blog/tauri-20/",
+          "provider": "tavily",
+          "title": "T2",
+          "description": "dup"
+        }
+      ],
+      "extra_sources_count": 3,
+      "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+      "routing_decision": {
+        "docs_intent": false,
+        "zh_current_intent": false,
+        "web_current_intent": false,
+        "fetch_intent": false,
+        "supplemental_paths": [],
+        "validation_level": "balanced",
+        "fallback_mode": "auto",
+        "providers": "auto",
+        "main_search_chain": [
+          "xai-responses"
+        ],
+        "openai_compatible_stream": false
+      },
+      "providers_used": [
+        "xAI Responses",
+        "tavily",
+        "firecrawl"
+      ],
+      "provider_attempts": [
+        {
+          "capability": "main_search",
+          "provider": "xAI Responses",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.4,
+          "result_count": 1
+        },
+        {
+          "capability": "web_search",
+          "provider": "tavily",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 1.1,
+          "result_count": 2
+        },
+        {
+          "capability": "web_search",
+          "provider": "firecrawl",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 1.1,
+          "result_count": 1
+        }
+      ],
+      "fallback_used": true,
+      "validation_level": "balanced",
+      "minimum_profile_ok": true,
+      "capability_status": {
+        "main_search": {
+          "configured": [
+            "xai-responses"
+          ],
+          "fallback_chain": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "ok": true
+        },
+        "web_search": {
+          "configured": [
+            "tavily",
+            "firecrawl"
+          ],
+          "fallback_chain": [
+            "zhipu",
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "docs_search": {
+          "configured": [
+            "context7"
+          ],
+          "fallback_chain": [
+            "context7",
+            "exa"
+          ],
+          "ok": true
+        },
+        "web_fetch": {
+          "configured": [
+            "tavily",
+            "firecrawl"
+          ],
+          "fallback_chain": [
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "vertical_search": {
+          "configured": [],
+          "fallback_chain": [
+            "anysearch"
+          ],
+          "experimental": true,
+          "ok": false
+        }
+      },
+      "elapsed_ms": 1.11
+    }
+  },
+  {
+    "name": "xai-fails-openai-fallback-zh-current",
+    "env": {
+      "XAI_API_KEY": "xk",
+      "XAI_API_URL": "https://x.test/v1",
+      "OPENAI_COMPATIBLE_API_URL": "https://o.test/v1",
+      "OPENAI_COMPATIBLE_API_KEY": "ok",
+      "ZHIPU_API_KEY": "zk",
+      "TAVILY_API_KEY": "tk"
+    },
+    "input": {
+      "query": "今天的国内新闻"
+    },
+    "responses": {
+      "POST https://x.test/v1/responses": {
+        "status": 500,
+        "body": "upstream down"
+      },
+      "POST https://o.test/v1/chat/completions": {
+        "status": 200,
+        "body": "{\"choices\": [{\"message\": {\"content\": \"答案正文。\\n\\n## 参考资料\\n- [官方公告](https://example.cn/a)\\n- https://example.cn/b\"}}], \"citations\": [\"https://example.cn/c\", {\"url\": \"https://example.cn/d\", \"title\": \"D\"}]}"
+      },
+      "POST https://open.bigmodel.cn/api/paas/v4/web_search": {
+        "status": 200,
+        "body": "{\"search_result\": [{\"title\": \"新闻一\", \"link\": \"https://news.cn/1\", \"content\": \"摘要一\", \"media\": \"新华网\", \"publish_date\": \"2026-11-10\"}, {\"title\": \"新闻二\", \"link\": \"https://news.cn/2\", \"content\": \"摘要二\"}], \"search_intent\": [{\"query\": \"今天 新闻\"}], \"request_id\": \"r1\"}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "error_type": "",
+      "error": "",
+      "session_id": "dbaf801b0daa",
+      "query": "今天的国内新闻",
+      "platform": "",
+      "model": "grok-4-fast",
+      "primary_api_mode": "chat-completions",
+      "content": "答案正文。\n\n## 参考资料\n- [官方公告](https://example.cn/a)\n- https://example.cn/b",
+      "sources": [
+        {
+          "url": "https://example.cn/c"
+        },
+        {
+          "url": "https://example.cn/d",
+          "title": "D"
+        },
+        {
+          "url": "https://news.cn/1",
+          "provider": "zhipu",
+          "title": "新闻一",
+          "description": "摘要一",
+          "published_date": "2026-11-10",
+          "source": "新华网"
+        },
+        {
+          "url": "https://news.cn/2",
+          "provider": "zhipu",
+          "title": "新闻二",
+          "description": "摘要二"
+        }
+      ],
+      "sources_count": 4,
+      "primary_sources": [
+        {
+          "url": "https://example.cn/c"
+        },
+        {
+          "url": "https://example.cn/d",
+          "title": "D"
+        }
+      ],
+      "primary_sources_count": 2,
+      "extra_sources": [
+        {
+          "url": "https://news.cn/1",
+          "provider": "zhipu",
+          "title": "新闻一",
+          "description": "摘要一",
+          "published_date": "2026-11-10",
+          "source": "新华网"
+        },
+        {
+          "url": "https://news.cn/2",
+          "provider": "zhipu",
+          "title": "新闻二",
+          "description": "摘要二"
+        }
+      ],
+      "extra_sources_count": 2,
+      "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+      "routing_decision": {
+        "docs_intent": false,
+        "zh_current_intent": true,
+        "web_current_intent": true,
+        "fetch_intent": false,
+        "supplemental_paths": [
+          "web_search"
+        ],
+        "validation_level": "balanced",
+        "fallback_mode": "auto",
+        "providers": "auto",
+        "main_search_chain": [
+          "xai-responses",
+          "openai-compatible"
+        ],
+        "openai_compatible_stream": false
+      },
+      "providers_used": [
+        "OpenAI-compatible",
+        "zhipu"
+      ],
+      "provider_attempts": [
+        {
+          "capability": "main_search",
+          "provider": "xAI Responses",
+          "status": "error",
+          "error_type": "network_error",
+          "error": "xAI Responses HTTP 500: upstream down",
+          "elapsed_ms": 672.05,
+          "result_count": 0
+        },
+        {
+          "capability": "main_search",
+          "provider": "OpenAI-compatible",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.65,
+          "result_count": 1
+        },
+        {
+          "capability": "web_search",
+          "provider": "zhipu",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.62,
+          "result_count": 2
+        }
+      ],
+      "fallback_used": true,
+      "validation_level": "balanced",
+      "minimum_profile_ok": true,
+      "capability_status": {
+        "main_search": {
+          "configured": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "fallback_chain": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "ok": true
+        },
+        "web_search": {
+          "configured": [
+            "zhipu",
+            "tavily"
+          ],
+          "fallback_chain": [
+            "zhipu",
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "docs_search": {
+          "configured": [
+            "context7"
+          ],
+          "fallback_chain": [
+            "context7",
+            "exa"
+          ],
+          "ok": true
+        },
+        "web_fetch": {
+          "configured": [
+            "tavily"
+          ],
+          "fallback_chain": [
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "vertical_search": {
+          "configured": [],
+          "fallback_chain": [
+            "anysearch"
+          ],
+          "experimental": true,
+          "ok": false
+        }
+      },
+      "elapsed_ms": 673.58
+    }
+  },
+  {
+    "name": "openai-sse-docs-intent",
+    "env": {
+      "OPENAI_COMPATIBLE_API_URL": "https://o.test/v1",
+      "OPENAI_COMPATIBLE_API_KEY": "ok",
+      "TAVILY_API_KEY": "tk",
+      "EXA_API_KEY": "ek"
+    },
+    "input": {
+      "query": "react hooks docs"
+    },
+    "responses": {
+      "POST https://o.test/v1/chat/completions": {
+        "status": 200,
+        "body": "data: {\"choices\":[{\"delta\":{\"content\":\"Use \"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"hooks.\"}}]}\n\ndata: [DONE]\n"
+      },
+      "GET https://context7.com/api/v2/search": {
+        "status": 200,
+        "body": "{\"results\": [{\"id\": \"/facebook/react\", \"title\": \"React\", \"description\": \"UI\", \"trustScore\": 9}]}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "error_type": "",
+      "error": "",
+      "session_id": "1605c7c87190",
+      "query": "react hooks docs",
+      "platform": "",
+      "model": "grok-4-fast",
+      "primary_api_mode": "chat-completions",
+      "content": "Use hooks.",
+      "sources": [
+        {
+          "url": "context7:/facebook/react",
+          "title": "React",
+          "description": "UI",
+          "provider": "context7"
+        }
+      ],
+      "sources_count": 1,
+      "primary_sources": [],
+      "primary_sources_count": 0,
+      "extra_sources": [
+        {
+          "url": "context7:/facebook/react",
+          "title": "React",
+          "description": "UI",
+          "provider": "context7"
+        }
+      ],
+      "extra_sources_count": 1,
+      "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+      "routing_decision": {
+        "docs_intent": true,
+        "zh_current_intent": false,
+        "web_current_intent": false,
+        "fetch_intent": false,
+        "supplemental_paths": [
+          "docs_search"
+        ],
+        "validation_level": "balanced",
+        "fallback_mode": "auto",
+        "providers": "auto",
+        "main_search_chain": [
+          "openai-compatible"
+        ],
+        "openai_compatible_stream": false
+      },
+      "providers_used": [
+        "OpenAI-compatible",
+        "context7"
+      ],
+      "provider_attempts": [
+        {
+          "capability": "main_search",
+          "provider": "OpenAI-compatible",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.43,
+          "result_count": 1
+        },
+        {
+          "capability": "docs_search",
+          "provider": "context7",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.37,
+          "result_count": 1
+        }
+      ],
+      "fallback_used": false,
+      "validation_level": "balanced",
+      "minimum_profile_ok": true,
+      "capability_status": {
+        "main_search": {
+          "configured": [
+            "openai-compatible"
+          ],
+          "fallback_chain": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "ok": true
+        },
+        "web_search": {
+          "configured": [
+            "tavily"
+          ],
+          "fallback_chain": [
+            "zhipu",
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "docs_search": {
+          "configured": [
+            "context7",
+            "exa"
+          ],
+          "fallback_chain": [
+            "context7",
+            "exa"
+          ],
+          "ok": true
+        },
+        "web_fetch": {
+          "configured": [
+            "tavily"
+          ],
+          "fallback_chain": [
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "vertical_search": {
+          "configured": [],
+          "fallback_chain": [
+            "anysearch"
+          ],
+          "experimental": true,
+          "ok": false
+        }
+      },
+      "elapsed_ms": 0.99
+    }
+  },
+  {
+    "name": "all-main-providers-fail",
+    "env": {
+      "XAI_API_KEY": "xk",
+      "XAI_API_URL": "https://x.test/v1",
+      "OPENAI_COMPATIBLE_API_URL": "https://o.test/v1",
+      "OPENAI_COMPATIBLE_API_KEY": "ok",
+      "TAVILY_API_KEY": "tk"
+    },
+    "input": {
+      "query": "anything"
+    },
+    "responses": {
+      "POST https://x.test/v1/responses": {
+        "status": 401,
+        "body": "bad key"
+      },
+      "POST https://o.test/v1/chat/completions": {
+        "status": 200,
+        "body": "{\"choices\": [{\"message\": {\"content\": \"\"}}]}"
+      }
+    },
+    "output": {
+      "ok": false,
+      "error_type": "network_error",
+      "error": "OpenAI-compatible 返回空结果",
+      "session_id": "ca57764542e2",
+      "query": "anything",
+      "primary_api_mode": "chat-completions",
+      "content": "",
+      "sources": [],
+      "sources_count": 0,
+      "primary_sources": [],
+      "primary_sources_count": 0,
+      "extra_sources": [],
+      "extra_sources_count": 0,
+      "source_warning": "",
+      "elapsed_ms": 0.86,
+      "provider_attempts": [
+        {
+          "capability": "main_search",
+          "provider": "xAI Responses",
+          "status": "error",
+          "error_type": "network_error",
+          "error": "xAI Responses HTTP 401: bad key",
+          "elapsed_ms": 0.39,
+          "result_count": 0
+        },
+        {
+          "capability": "main_search",
+          "provider": "OpenAI-compatible",
+          "status": "empty",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.36,
+          "result_count": 0
+        }
+      ],
+      "providers_used": [],
+      "fallback_used": true,
+      "routing_decision": {
+        "docs_intent": false,
+        "zh_current_intent": false,
+        "web_current_intent": false,
+        "fetch_intent": false,
+        "supplemental_paths": [],
+        "validation_level": "balanced",
+        "fallback_mode": "auto",
+        "providers": "auto",
+        "main_search_chain": [
+          "xai-responses",
+          "openai-compatible"
+        ],
+        "openai_compatible_stream": false
+      },
+      "validation_level": "balanced",
+      "minimum_profile_ok": true,
+      "capability_status": {
+        "main_search": {
+          "configured": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "fallback_chain": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "ok": true
+        },
+        "web_search": {
+          "configured": [
+            "tavily"
+          ],
+          "fallback_chain": [
+            "zhipu",
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "docs_search": {
+          "configured": [
+            "context7"
+          ],
+          "fallback_chain": [
+            "context7",
+            "exa"
+          ],
+          "ok": true
+        },
+        "web_fetch": {
+          "configured": [
+            "tavily"
+          ],
+          "fallback_chain": [
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": true
+        },
+        "vertical_search": {
+          "configured": [],
+          "fallback_chain": [
+            "anysearch"
+          ],
+          "experimental": true,
+          "ok": false
+        }
+      }
+    }
+  },
+  {
+    "name": "minimum-profile-missing",
+    "env": {
+      "XAI_API_KEY": "xk",
+      "XAI_API_URL": "https://x.test/v1"
+    },
+    "input": {
+      "query": "anything"
+    },
+    "responses": {},
+    "output": {
+      "ok": false,
+      "error_type": "config_error",
+      "error": "最低配置不满足：必须至少配置 main_search、docs_search、web_fetch 三类能力各一个 provider。 缺失能力: web_fetch",
+      "session_id": "2d7a51a55d37",
+      "query": "anything",
+      "primary_api_mode": "",
+      "content": "",
+      "sources": [],
+      "sources_count": 0,
+      "primary_sources": [],
+      "primary_sources_count": 0,
+      "extra_sources": [],
+      "extra_sources_count": 0,
+      "source_warning": "",
+      "routing_decision": {},
+      "providers_used": [],
+      "provider_attempts": [],
+      "fallback_used": false,
+      "validation_level": "balanced",
+      "elapsed_ms": 0.08,
+      "capability_status": {
+        "main_search": {
+          "configured": [
+            "xai-responses"
+          ],
+          "fallback_chain": [
+            "xai-responses",
+            "openai-compatible"
+          ],
+          "ok": true
+        },
+        "web_search": {
+          "configured": [],
+          "fallback_chain": [
+            "zhipu",
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": false
+        },
+        "docs_search": {
+          "configured": [
+            "context7"
+          ],
+          "fallback_chain": [
+            "context7",
+            "exa"
+          ],
+          "ok": true
+        },
+        "web_fetch": {
+          "configured": [],
+          "fallback_chain": [
+            "tavily",
+            "firecrawl"
+          ],
+          "ok": false
+        },
+        "vertical_search": {
+          "configured": [],
+          "fallback_chain": [
+            "anysearch"
+          ],
+          "experimental": true,
+          "ok": false
+        }
+      },
+      "minimum_profile_ok": false
+    }
+  }
+]

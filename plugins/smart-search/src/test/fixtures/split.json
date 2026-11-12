@@ -1,0 +1,145 @@
+[
+  {
+    "name": "plain",
+    "text": "Just an answer with no links.",
+    "answer": "Just an answer with no links.",
+    "sources": []
+  },
+  {
+    "name": "function-call-json",
+    "text": "Answer body.\n\nsources([{\"url\": \"https://a.test\", \"title\": \"A\"}, {\"url\": \"https://b.test\"}])",
+    "answer": "Answer body.",
+    "sources": [
+      {
+        "url": "https://a.test",
+        "title": "A"
+      },
+      {
+        "url": "https://b.test"
+      }
+    ]
+  },
+  {
+    "name": "function-call-python",
+    "text": "Answer.\nsources([('Title A', 'https://a.test'), {'url': 'https://b.test', 'snippet': 's', 'ok': True}])",
+    "answer": "Answer.",
+    "sources": [
+      {
+        "url": "https://a.test",
+        "title": "Title A"
+      },
+      {
+        "url": "https://b.test",
+        "description": "s"
+      }
+    ]
+  },
+  {
+    "name": "heading-zh",
+    "text": "正文第一段。\n\n### 参考资料\n1. [官网](https://a.test/x)\n2. https://b.test/y。",
+    "answer": "正文第一段。",
+    "sources": [
+      {
+        "title": "官网",
+        "url": "https://a.test/x"
+      },
+      {
+        "url": "https://b.test/y"
+      }
+    ]
+  },
+  {
+    "name": "heading-bold",
+    "text": "Body.\n\n**Sources:**\n- [A](https://a.test)\n- [B](https://b.test)",
+    "answer": "Body.\n\n**Sources:**",
+    "sources": [
+      {
+        "title": "A",
+        "url": "https://a.test"
+      },
+      {
+        "title": "B",
+        "url": "https://b.test"
+      }
+    ]
+  },
+  {
+    "name": "details",
+    "text": "Body.\n<details><summary>Sources</summary>\n[A](https://a.test)\n[B](https://b.test)\n</details>",
+    "answer": "Body.",
+    "sources": [
+      {
+        "title": "A",
+        "url": "https://a.test"
+      },
+      {
+        "title": "B",
+        "url": "https://b.test"
+      }
+    ]
+  },
+  {
+    "name": "tail-links",
+    "text": "Body text.\n\n- https://a.test\n- [B](https://b.test)",
+    "answer": "Body text.",
+    "sources": [
+      {
+        "title": "B",
+        "url": "https://b.test"
+      },
+      {
+        "url": "https://a.test"
+      }
+    ]
+  },
+  {
+    "name": "single-tail-link",
+    "text": "Body.\nhttps://only.test",
+    "answer": "Body.\nhttps://only.test",
+    "sources": []
+  },
+  {
+    "name": "inline-citations",
+    "text": "Fact one [[1]](https://a.test). Fact two [[2]](https://b.test).",
+    "answer": "Fact one [[1]](https://a.test). Fact two [[2]](https://b.test).",
+    "sources": [
+      {
+        "title": "1",
+        "url": "https://a.test"
+      },
+      {
+        "title": "2",
+        "url": "https://b.test"
+      }
+    ]
+  },
+  {
+    "name": "think-and-policy",
+    "text": "<think>hidden</think>I cannot comply with that policy request.\n\nReal answer here.\n\nsources([\"https://a.test\"])",
+    "answer": "Real answer here.",
+    "sources": [
+      {
+        "url": "https://a.test"
+      }
+    ]
+  },
+  {
+    "name": "policy-only",
+    "text": "抱歉，我无法提供该信息。",
+    "answer": "抱歉，我无法提供该信息。",
+    "sources": []
+  },
+  {
+    "name": "url-punctuation",
+    "text": "See https://a.test/path, and https://b.test/x）。\n\nReferences\nhttps://a.test/path\nhttps://c.test",
+    "answer": "See https://a.test/path, and https://b.test/x）。",
+    "sources": [
+      {
+        "url": "https://a.test/path"
+      },
+      {
+        "url": "https://c.test"
+      }
+    ]
+  }
+]

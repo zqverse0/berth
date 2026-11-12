@@ -5,7 +5,6 @@ import { useTranslations } from "next-intl"
 import {
   FileCode,
   Folder,
-  FolderGit2,
   Terminal as TerminalIcon,
   MessagesSquare,
   Settings,
@@ -31,7 +30,6 @@ import { FileStatusInfo } from "@/components/layout/status-bar/file-status-info"
 interface LocationPresentation {
   icon: LucideIcon
   projectName: string | null
-  projectPath: string | null
   subInfo: string
   rawPath: string | null
   relativePath: string | null
@@ -83,36 +81,27 @@ function mainAreaTab(projection: WorkspaceLayoutProjection) {
  * 底部状态栏的当前焦点页面位置与项目信息投影。
  * 舒展展示所属项目与相对路径，点击直接复制绝对路径，简洁快速无多余弹窗。
  */
-/** "project" = project pill only (sidebar segment), "path" = location only. */
-export type ActivePathPart = "all" | "project" | "path"
+/** "path" = location only. */
+export type ActivePathPart = "all" | "path"
 
 export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
   const t = useTranslations("Folder.statusBar")
-  const tTabs = useTranslations("Folder.auxPanel.tabs")
   const activeWorkspaceTab = useWorkspaceLayoutProjection(mainAreaTab)
   const fileTabs = useWorkspaceFileStore((state) => state.fileTabs)
   const primaryTabs = useTabStore((state) => state.tabs)
   const allFolders = useAppWorkspaceStore((state) => state.allFolders)
   const activeFolderId = useAppWorkspaceStore((state) => state.activeFolderId)
 
-  const [copiedTarget, setCopiedTarget] = useState<"project" | "path" | null>(
-    null
-  )
+  const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(
-    async (
-      text: string | null | undefined,
-      target: "project" | "path",
-      e?: React.MouseEvent
-    ) => {
+    async (text: string | null | undefined, e?: React.MouseEvent) => {
       e?.stopPropagation()
       if (!text) return
       const success = await copyTextToClipboard(text)
       if (success) {
-        setCopiedTarget(target)
-        setTimeout(() => {
-          setCopiedTarget((curr) => (curr === target ? null : curr))
-        }, 1200)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1200)
       }
     },
     []
@@ -144,7 +133,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: FileCode,
           projectName: null,
-          projectPath: null,
           subInfo: label.replace(/^https:\/\//, ""),
           rawPath: null,
           relativePath: null,
@@ -156,12 +144,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         filePath,
         allFolders
       )
-      const matchedFolder = allFolders.find(
-        (f) =>
-          filePath === f.path ||
-          filePath.startsWith(f.path.endsWith("/") ? f.path : `${f.path}/`)
-      )
-      const projectPath = matchedFolder?.path ?? null
       const displaySub =
         relativePath ||
         activeFile.title ||
@@ -169,7 +151,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
       return {
         icon: FileCode,
         projectName,
-        projectPath,
         subInfo: displaySub,
         rawPath: filePath,
         relativePath: relativePath || null,
@@ -196,11 +177,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         const projectName = folder
           ? folder.alias || folder.name
           : matchedProject
-        const matchedFolder =
-          folder ??
-          allFolders.find((f) => (f.alias || f.name) === projectName) ??
-          null
-        const projectPath = matchedFolder?.path ?? null
         const termTitle = activePrimary.title?.trim()
 
         let subInfo = ""
@@ -216,7 +192,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: TerminalIcon,
           projectName,
-          projectPath,
           subInfo,
           rawPath: rawCwd,
           relativePath: relativePath || null,
@@ -234,13 +209,11 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
           : activePrimary.isChat
             ? null
             : "Chat"
-        const projectPath = folder?.path ?? null
         const sessionTitle = activePrimary.title?.trim() || "Session"
 
         return {
           icon: MessagesSquare,
           projectName,
-          projectPath,
           subInfo: sessionTitle,
           rawPath: folder?.path ?? null,
           relativePath: null,
@@ -257,7 +230,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: Settings,
           projectName: null,
-          projectPath: null,
           subInfo: "Settings",
           rawPath: null,
           relativePath: null,
@@ -269,7 +241,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: GitCommit,
           projectName: null,
-          projectPath: null,
           subInfo: "Git Commit",
           rawPath: null,
           relativePath: null,
@@ -281,7 +252,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: GitMerge,
           projectName: null,
-          projectPath: null,
           subInfo: "Git Merge",
           rawPath: null,
           relativePath: null,
@@ -293,7 +263,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: Archive,
           projectName: null,
-          projectPath: null,
           subInfo: "Git Stash",
           rawPath: null,
           relativePath: null,
@@ -304,7 +273,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
       return {
         icon: Settings,
         projectName: null,
-        projectPath: null,
         subInfo: globalId,
         rawPath: null,
         relativePath: null,
@@ -320,7 +288,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         return {
           icon: Folder,
           projectName: activeFolder.alias || activeFolder.name,
-          projectPath: activeFolder.path,
           subInfo: "",
           rawPath: activeFolder.path,
           relativePath: null,
@@ -339,34 +306,6 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
     allFolders,
     runtimeCwd,
   ])
-
-  // 侧栏段的项目入口：显示项目名，点击复制项目绝对路径（切到项目列表走活动栏图标）
-  if (part === "project") {
-    const activeFolder = allFolders.find((f) => f.id === activeFolderId)
-    const name =
-      presentation?.projectName ??
-      (activeFolder ? activeFolder.alias || activeFolder.name : null) ??
-      tTabs("projects")
-    const path = presentation?.projectPath ?? activeFolder?.path ?? null
-    return (
-      <button
-        type="button"
-        data-testid="active-location-status"
-        className="group flex h-5 min-w-0 max-w-full items-center justify-center gap-1.5 rounded px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer select-none"
-        title={path ? t("copyAbsolutePathHint", { path }) : name}
-        onClick={(e) => handleCopy(path, "project", e)}
-      >
-        {copiedTarget === "project" ? (
-          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-        ) : (
-          <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-        )}
-        <span className="min-w-0 truncate font-medium text-foreground/90">
-          {name}
-        </span>
-      </button>
-    )
-  }
 
   if (!presentation) return null
 
@@ -397,7 +336,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
       {subInfo ? (
         <button
           type="button"
-          onClick={(e) => handleCopy(rawPath || tooltip, "path", e)}
+          onClick={(e) => handleCopy(rawPath || tooltip, e)}
           className="group flex min-w-0 shrink items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-foreground/80 hover:bg-muted/80 hover:text-foreground transition-colors cursor-pointer overflow-hidden font-mono text-[11px]"
           title={
             rawPath || tooltip
@@ -405,7 +344,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
               : tooltip
           }
         >
-          {copiedTarget === "path" ? (
+          {copied ? (
             <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
           ) : (
             <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />

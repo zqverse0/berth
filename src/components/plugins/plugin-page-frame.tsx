@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils"
 
 /**
  * 插件页面（第 2 层）的 iframe：无边框透明背景，主题变量、按键、调用由 `connectPluginPage` 接上。
- * 编辑器页面另有：外部改写时发 `editor.externalChange`；从文件树拖进来时盖一层接住 drop，转成 `editor.drop`
- * （iframe 里收不到宿主文档的拖放）。
+ * 编辑器页面另有：外部改写时发 `editor.externalChange`。从文件树拖进来时盖一层接住 drop，编辑器转成
+ * `editor.drop`、侧栏视图转成 `view.drop`（iframe 里收不到宿主文档的拖放）。
  */
 export function PluginPageFrame({
   page,
@@ -126,7 +126,9 @@ export function PluginPageFrame({
       root && isPathUnderRoot(payload.absPath, root)
         ? payload.absPath.slice(root.replace(/[\\/]+$/, "").length + 1)
         : payload.absPath
-    connection.current?.send("editor.drop", {
+    const method =
+      hostRef.current.context.kind === "editor" ? "editor.drop" : "view.drop"
+    connection.current?.send(method, {
       name: payload.name,
       kind: payload.kind,
       path,
@@ -199,6 +201,7 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
       key={activeFolder?.id ?? ""}
       page={view.page ?? ""}
       host={host}
+      acceptFileDrop
       deferReveal
       title={localizedTitle(view.title, locale)}
     />

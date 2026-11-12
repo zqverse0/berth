@@ -17,7 +17,9 @@ use super::terminal_manager::TerminalSessionManager;
 use super::validation::TerminalLaunchEnvironment;
 use crate::event_bridge::EventEmitter;
 use crate::terminal::error::TerminalError;
-use crate::terminal::protocol::{SubscriberControl, TerminalStatus, TerminalStreamEvent};
+use crate::terminal::protocol::{
+    AttachPace, SubscriberControl, TerminalStatus, TerminalStreamEvent,
+};
 use crate::terminal::types::TerminalEvent;
 
 #[derive(Debug, Clone)]
@@ -48,6 +50,7 @@ pub(super) struct ResolvedTerminal {
 pub(super) struct SubscriberHandle {
     pub(super) stop: Arc<CancellationToken>,
     pub(super) control_tx: tokio::sync::watch::Sender<SubscriberControl>,
+    pub(super) pace: AttachPace,
 }
 
 pub(super) struct TerminalRecord {

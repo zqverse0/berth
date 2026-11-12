@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { ModelProviderInfo } from "@/lib/types"
 import { modelUsableBy, providerDefaultApis } from "./models"
-import { providerCatalogModels, serializeModels } from "./overlays"
+import {
+  launchModelOptions,
+  providerCatalogModels,
+  serializeModels,
+  splitLaunchModelValue,
+} from "./overlays"
 
 const provider: ModelProviderInfo = {
   id: 1,
@@ -98,5 +103,39 @@ describe("provider default APIs", () => {
     ).toEqual(["anthropic"])
     expect(providerDefaultApis({ discovery_json: "{" })).toBeUndefined()
     expect(providerDefaultApis(null)).toBeUndefined()
+  })
+})
+
+describe("launchModelOptions", () => {
+  it("splits a model shared by several groups into one option per group", () => {
+    const grouped = {
+      ...provider,
+      discovery_json: JSON.stringify({
+        keyGroups: [
+          { id: "1", name: "default", models: [{ id: "m" }, { id: "solo" }] },
+          { id: 2, name: "vip", models: [{ id: "m" }] },
+        ],
+      }),
+    }
+    const options = launchModelOptions(grouped, [
+      { id: "m", name: "m" },
+      { id: "solo", name: "solo" },
+    ])
+    expect(options.map((option) => option.label)).toEqual([
+      "m · default",
+      "m · vip",
+      "solo",
+    ])
+    expect(splitLaunchModelValue(options[1].value)).toEqual({
+      model: "m",
+      group: "2",
+    })
+    expect(splitLaunchModelValue("solo")).toEqual({
+      model: "solo",
+      group: null,
+    })
+    expect(launchModelOptions(null, [{ id: "m", name: "m" }])).toEqual([
+      { value: "m", label: "m" },
+    ])
   })
 })

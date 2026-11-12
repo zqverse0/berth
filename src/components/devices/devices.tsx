@@ -2,9 +2,18 @@
 
 /**
  * 设备的共用部件：设备列表与在线状态、错误文案、添加设备 / 在设备上添加项目的对话框、开终端与配置密钥。
- * 侧栏设备条（`device-bar.tsx`）与设备页（`device-page.tsx`）共用。
+ * 状态栏设备段（`status-bar-devices.tsx`）、侧栏项目列表与设备页（`device-page.tsx`）共用。
  */
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { useTranslations } from "next-intl"
 import { CornerLeftUp, Folder, KeyRound, Loader2 } from "lucide-react"
 import { toast } from "@/lib/notify"
@@ -27,6 +36,7 @@ import {
   type NodeChannelStatus,
   type NodeReply,
 } from "@/lib/devices"
+import type { DeviceFeedState } from "@/components/conversations/sidebar/device-projects"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -224,6 +234,52 @@ export function useDeviceStatus(devices: Device[], onChanged: () => void) {
     [nodeStatus, status]
   )
   return { statusOf, recheck }
+}
+
+type DeviceProblem = DeviceFeedState["problem"]
+
+interface DevicesValue {
+  devices: Device[]
+  loaded: boolean
+  reload: () => void
+  statusOf: (device: Device) => DeviceState
+  /** 节点设备的连线问题（侧栏的设备数据源上报，状态栏悬停说明用） */
+  problems: Readonly<Record<number, DeviceProblem>>
+  reportProblem: (deviceId: number, problem: DeviceProblem) => void
+}
+
+const DevicesContext = createContext<DevicesValue>({
+  devices: [],
+  loaded: false,
+  reload: () => {},
+  statusOf: () => ({ state: "checking", message: null, keyMissing: false }),
+  problems: {},
+  reportProblem: () => {},
+})
+
+/** 设备列表与在线状态的唯一来源：挂在窗口外壳，切换侧栏视图不卸载、不重复探测。 */
+export function DevicesProvider({ children }: { children: ReactNode }) {
+  const { devices, loaded, reload } = useDeviceList(true)
+  const { statusOf } = useDeviceStatus(devices, reload)
+  const [problems, setProblems] = useState<Record<number, DeviceProblem>>({})
+  const reportProblem = useCallback(
+    (deviceId: number, problem: DeviceProblem) =>
+      setProblems((prev) =>
+        (prev[deviceId] ?? null) === problem
+          ? prev
+          : { ...prev, [deviceId]: problem }
+      ),
+    []
+  )
+  const value = useMemo(
+    () => ({ devices, loaded, reload, statusOf, problems, reportProblem }),
+    [devices, loaded, reload, statusOf, problems, reportProblem]
+  )
+  return <DevicesContext value={value}>{children}</DevicesContext>
+}
+
+export function useDevices() {
+  return useContext(DevicesContext)
 }
 
 /** 设备增删、装上 Berth 等变化：各处的设备列表据此重读。 */

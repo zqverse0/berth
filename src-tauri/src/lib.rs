@@ -784,6 +784,7 @@ mod tauri_app {
                 terminal_commands::terminal_detach,
                 terminal_commands::terminal_write_attached_raw,
                 terminal_commands::terminal_resize_attached,
+                terminal_commands::terminal_set_attached_visible,
                 terminal_commands::terminal_send_key,
                 terminal_commands::terminal_send_line,
                 terminal_commands::terminal_terminate,
@@ -818,6 +819,7 @@ mod tauri_app {
                 usage_commands::save_login_presets,
                 // CLI file.open 请求在主窗口的领取/回执交接面（control 长期缝合点）。
                 crate::control::workspace_open_file_handoff,
+                crate::control::render::editor_render_complete,
             ])
             .build(tauri::generate_context!())
             .expect("error while building tauri application");

@@ -83,6 +83,7 @@ async fn launch_profile(
             proxy: proxy
                 .as_ref()
                 .map(|(base_url, token)| ProxyRoute { base_url, token }),
+            group: None,
         },
         agent_apis,
         model_id,

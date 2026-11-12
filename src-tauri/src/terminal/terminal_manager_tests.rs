@@ -1307,6 +1307,7 @@ async fn respawned_pane_rejects_stale_gui_operations_without_touching_new_proces
             SubscriberHandle {
                 stop: Arc::new(CancellationToken::new()),
                 control_tx,
+                pace: Default::default(),
             },
         );
 

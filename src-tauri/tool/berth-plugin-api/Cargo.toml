@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# fs.readBase64；工作区已有的同一版本。
+base64 = "0.22"
 berth-tool-core = { path = "../berth-tool-core" }
 # 插件脚本引擎（ES2023）；loader 让包内模块互相 import。
 rquickjs = { version = "0.14", features = ["loader"] }

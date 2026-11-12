@@ -50,8 +50,11 @@ describe("ActivityBar settings mode", () => {
     expect(settingsOpen()).toBe(false)
 
     await user.click(gear)
-    await user.click(screen.getByRole("button", { name: "Git" }))
+    await user.click(screen.getByRole("button", { name: "Tasks" }))
     expect(settingsOpen()).toBe(false)
-    expect(useSidebarViewStore.getState().view).toBe("git")
+    expect(useSidebarViewStore.getState().view).toBe("tasks")
+    // 文件、Git 只在下方面板，活动栏没有入口
+    expect(screen.queryByRole("button", { name: "Git" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Files" })).toBeNull()
   })
 })

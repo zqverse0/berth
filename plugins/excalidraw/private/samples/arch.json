@@ -1,0 +1,17 @@
+{
+  "direction": "LR",
+  "nodes": [
+    { "id": "input", "label": "输入图像", "shape": "ellipse", "color": "#ffec99" },
+    { "id": "encoder", "label": "Encoder" },
+    { "id": "latent", "label": "Latent z", "shape": "diamond", "color": "#d0bfff" },
+    { "id": "decoder", "label": "Decoder" },
+    { "id": "loss", "label": "重建损失", "color": "#ffc9c9" }
+  ],
+  "edges": [
+    { "from": "input", "to": "encoder" },
+    { "from": "encoder", "to": "latent", "label": "μ, σ" },
+    { "from": "latent", "to": "decoder" },
+    { "from": "decoder", "to": "loss" },
+    { "from": "input", "to": "loss", "dashed": true }
+  ]
+}

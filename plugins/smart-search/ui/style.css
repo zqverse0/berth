@@ -1,0 +1,159 @@
+/* 颜色与字体取宿主的 --berth-* 变量，随主题变化。列表用细分隔线，不用卡片。 */
+:root {
+  color-scheme: light dark;
+  --radius: var(--berth-radius, 6px);
+  --hover: var(--berth-accent, rgba(127, 127, 127, 0.15));
+  --muted: var(--berth-muted-foreground, gray);
+  --border: var(--berth-border, rgba(127, 127, 127, 0.3));
+}
+body {
+  margin: 0;
+  font: 13px/1.55 var(--berth-font-sans, system-ui, sans-serif);
+  color: var(--berth-foreground);
+  background: transparent;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button.primary {
+  background: var(--berth-primary);
+  color: var(--berth-primary-foreground, white);
+}
+input,
+select,
+textarea {
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 4px 6px;
+}
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+a {
+  color: var(--berth-primary);
+  cursor: pointer;
+  text-decoration: none;
+  word-break: break-all;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 11px;
+}
+.error {
+  color: var(--berth-destructive, #d33);
+  white-space: pre-wrap;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.grow {
+  flex: 1;
+}
+
+#tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+}
+#tabs button[aria-selected="true"] {
+  background: var(--hover);
+  font-weight: 600;
+}
+main {
+  padding: 8px;
+}
+section + section {
+  margin-top: 10px;
+}
+.answer,
+.page {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 50vh;
+  overflow: auto;
+}
+.items > li {
+  list-style: none;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.items {
+  margin: 0;
+  padding: 0;
+}
+.title {
+  font-weight: 600;
+}
+.snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.actions button {
+  font-size: 11px;
+  color: var(--muted);
+}
+.actions button:hover:not(:disabled) {
+  color: inherit;
+}
+.saved {
+  color: var(--berth-primary);
+}
+.record {
+  cursor: pointer;
+}
+.record:hover {
+  background: var(--hover);
+}
+.status-ok {
+  color: var(--berth-primary);
+}
+.status-bad {
+  color: var(--berth-destructive, #d33);
+}
+label.field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  margin: 6px 0;
+}
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0 0 8px;
+  padding: 4px 8px 8px;
+}
+legend {
+  font-weight: 600;
+  padding: 0 4px;
+}

@@ -48,7 +48,7 @@ fn prepare(reference: &str) -> Result<Prepared, CliError> {
     let protocols = protocols(&loaded);
     let routes: Vec<_> = protocols
         .iter()
-        .filter_map(|protocol| route(&loaded, protocol, None).ok())
+        .filter_map(|protocol| route(&loaded, protocol, None, None).ok())
         .collect();
     if routes.is_empty() {
         return Err(CliError::user(format!("provider {id} has no endpoint")));

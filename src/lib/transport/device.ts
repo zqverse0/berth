@@ -196,7 +196,7 @@ interface Device {
 
 const devices = new Map<number, Device>()
 /** 广播订阅（本机订的事件，各设备上关于对方项目的同名事件也要）：设备后连上时补订。 */
-const broadcasts = new Map<string, Set<Handler>>()
+const broadcasts = new Map<string, Map<Handler, boolean>>()
 const stateWatchers = new Set<() => void>()
 
 function listen(
@@ -276,7 +276,8 @@ export function deviceSession(
   }
   devices.set(deviceId, device)
   for (const [event, handlers] of broadcasts)
-    for (const handler of handlers) listen(device, event, handler, true)
+    for (const [handler, scoped] of handlers)
+      listen(device, event, handler, scoped)
   return device
 }
 
@@ -301,20 +302,24 @@ export function subscribeDevice(
   return listen(device, event, handler, false)
 }
 
-/** 各设备命令线上的同名事件（关于对方项目的）也交给 `handler`，之后连上的设备同样。 */
+/**
+ * 各设备命令线上的同名事件（关于对方项目的）也交给 `handler`，之后连上的设备同样。
+ * `scoped` 为 false 时全收：只作唤醒、不带路径的事件（如 `agent://changed`）按项目过滤会全被丢掉。
+ */
 export function subscribeDevices(
   event: string,
-  handler: Handler
+  handler: Handler,
+  scoped = true
 ): UnsubscribeFn {
   if (HOST_EVENT.test(event)) return () => {}
   let handlers = broadcasts.get(event)
   if (!handlers) {
-    handlers = new Set()
+    handlers = new Map()
     broadcasts.set(event, handlers)
   }
-  handlers.add(handler)
+  handlers.set(handler, scoped)
   const offs = [...devices.values()].map((device) =>
-    listen(device, event, handler, true)
+    listen(device, event, handler, scoped)
   )
   return () => {
     handlers.delete(handler)

@@ -949,6 +949,7 @@
     "sidebar": {
       "devices": {
         "section": "Devices",
+        "statusSummary": "Devices {online}/{total}",
         "addTitle": "Add device",
         "addDescription": "Enter an SSH target Berth can reach. Berth only stores the name and target; ports, keys and jump hosts belong in ~/.ssh/config.",
         "targetLabel": "SSH target",
@@ -1018,6 +1019,7 @@
           "transfers": "Transfers to this device",
           "transferCancel": "Cancel",
           "transferRetry": "Retry",
+          "transferring": "Transfer {percent}%",
           "transferDismiss": "Remove",
           "transferFailed": "Failed",
           "transferCancelled": "Cancelled",
@@ -1102,8 +1104,8 @@
       "projectFiles": "Project files",
       "backToProjects": "Back to projects",
       "noProjects": "No projects open",
-      "searchProjectsPlaceholder": "Search projects...",
-      "noProjectsFound": "No matching projects.",
+      "searchProjectsPlaceholder": "Search projects and sessions...",
+      "noProjectsFound": "No matching projects or sessions.",
       "groupUnread": "{count} unread group messages",
       "agentWaiting": "An agent is waiting for you",
       "clearSearch": "Clear search",
@@ -3621,7 +3623,8 @@
       "launchFirst": "No Agent is running in this project: start one, then click again"
     },
     "outline": {
-      "others": "Other notes"
+      "others": "Other notes",
+      "sources": "Sources"
     },
     "maintenance": {
       "title": "To maintain",
@@ -4173,7 +4176,7 @@
     },
     "open_git": {
       "title": "Open Git",
-      "description": "Open the project Git page"
+      "description": "Show Git changes in the project panel"
     },
     "open_settings_appearance": {
       "title": "Settings: Appearance",
@@ -4295,7 +4298,6 @@
       "empty": "Name cannot be empty",
       "duplicate": "A workspace with this name already exists"
     },
-    "current": "Current",
     "attention": "Needs you",
     "working": "Working",
     "attentionCount": "{count} need you",
@@ -4315,7 +4317,9 @@
     "deleteTitle": "Delete workspace \"{name}\"?",
     "deleteDescription": "Its projects go back to \"{name}\". Projects, sessions and terminals are not affected.",
     "moveTo": "Move to workspace",
-    "dropHere": "Drag projects here",
+    "noProjects": "No projects yet.",
+    "workspaceMenu": "Switch workspace",
+    "switchTo": "Switch to this workspace",
     "unassigned": "Unassigned sessions",
     "offlineReason": "Offline · see why",
     "nextAttention": "Jump to the next session that needs you",

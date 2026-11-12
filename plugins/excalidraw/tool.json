@@ -3,7 +3,17 @@
   "protocol": "berth.tool/1",
   "id": "excalidraw",
   "version": "1.0.0",
-  "permissions": ["project.files"],
+  "permissions": ["project.files", "fs", "agent"],
+  "knowledge": {
+    "drawing": {
+      "kind": "guide",
+      "title": {
+        "en": "Drawing with Excalidraw",
+        "zh-CN": "用 Excalidraw 画图"
+      },
+      "path": "usage.md"
+    }
+  },
   "contributes": {
     "identity": {
       "name": "Excalidraw",
@@ -15,16 +25,34 @@
     "editor": [
       {
         "id": "drawing",
-        "title": { "en": "Excalidraw", "zh-CN": "Excalidraw 画板" },
+        "title": {
+          "en": "Excalidraw",
+          "zh-CN": "Excalidraw 画板"
+        },
         "suffixes": [".excalidraw", ".excalidraw.md"],
         "page": "page/index.html",
         "embed": true,
         "new": [
           {
-            "title": { "en": "Excalidraw drawing", "zh-CN": "Excalidraw 画板" },
+            "title": {
+              "en": "Excalidraw drawing",
+              "zh-CN": "Excalidraw 画板"
+            },
             "name": "drawing.excalidraw"
           }
         ]
+      }
+    ],
+    "view": [
+      {
+        "id": "gallery",
+        "title": {
+          "en": "Figure gallery",
+          "zh-CN": "图库"
+        },
+        "icon": "icon.svg",
+        "location": "sidebar",
+        "page": "gallery/index.html"
       }
     ]
   }

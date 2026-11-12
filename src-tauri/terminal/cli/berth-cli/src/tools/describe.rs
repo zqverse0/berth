@@ -11,6 +11,13 @@ use crate::CliError;
 /// knowledge.path 等包内文件的读取上限（展示用，超限截断说明）。
 const MAX_KNOWLEDGE_BYTES: u64 = 256 * 1024;
 
+/// 插件自带的 skill（`package::skills`，读不到包目录时为空）：Agent 按 `path` 按需读。
+fn skills_of(id: &str) -> Vec<berth_tool_core::package::PackageSkill> {
+    berth_tool_core::repository::tool_package_dir(id)
+        .map(|dir| berth_tool_core::package::skills(&dir))
+        .unwrap_or_default()
+}
+
 /// 插件接入了哪些位置（`package::contributions`，读不到包目录时为空）。
 fn contributions_of(id: &str, raw: &Value) -> Vec<String> {
     berth_tool_core::repository::tool_package_dir(id)
@@ -212,6 +219,7 @@ pub(crate) fn show(tool: &str, json: bool) -> Result<(), CliError> {
                 "operation": "tools.show",
                 "path": path,
                 "contributes": contributions_of(tool, asset.raw()),
+                "skills": skills_of(tool).iter().map(|skill| json!({ "name": skill.name, "description": skill.description, "path": skill.path.display().to_string() })).collect::<Vec<_>>(),
                 "diagnostics": asset.diagnostics().iter().map(|d| json!({ "location": d.location, "message": d.message })).collect::<Vec<_>>(),
             }),
         );
@@ -245,6 +253,14 @@ pub(crate) fn show(tool: &str, json: bool) -> Result<(), CliError> {
         println!(
             "diagnostic [{}]: {}",
             diagnostic.location, diagnostic.message
+        );
+    }
+    for skill in skills_of(tool) {
+        println!(
+            "skill {}: {}\n  {}",
+            skill.name,
+            skill.description.as_deref().unwrap_or("-"),
+            skill.path.display()
         );
     }
     for (id, entry) in related_knowledge(&asset) {
@@ -339,11 +355,20 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("usage.md"), "# Usage").unwrap();
+        std::fs::create_dir_all(dir.join("skills/draw")).unwrap();
+        std::fs::write(
+            dir.join("skills/draw/SKILL.md"),
+            "---\ndescription: Draw\n---\n",
+        )
+        .unwrap();
         std::env::set_var("BERTH_HOME", &root);
 
         let asset = super::super::load_asset("sample", "tools.show", true).expect("asset loads");
         assert_eq!(asset.identity_name(), Some("Sample"));
         assert_eq!(super::contributions_of("sample", asset.raw()), ["guide"]);
+        let skills = super::skills_of("sample");
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].description.as_deref(), Some("Draw"));
         assert!(super::brief("{tools}").contains("`sample`（Sample）"));
         std::fs::write(
             root.join("plugins.json"),

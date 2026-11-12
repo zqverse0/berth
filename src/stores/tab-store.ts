@@ -162,6 +162,8 @@ export interface TabStoreState {
   ) => void
   openTerminalTab: (tab: TerminalTab, activate?: boolean) => void
   activateFolderWorkspace: (folderId: number) => void
+  /** 切到没有项目的工作区：不再选中任何项目，主区回到空状态。 */
+  leaveFolderWorkspace: () => void
   rememberFolderWorkspace: (
     folderId: number,
     resume: FolderWorkspaceResume
@@ -873,6 +875,12 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       set({ activeTabId: null })
     }
     adoptWorkspaceFolder(folderId, decision.pane)
+  },
+
+  leaveFolderWorkspace: () => {
+    folderActivationGeneration += 1
+    set({ activeTabId: null })
+    useAppWorkspaceStore.getState().setActiveFolderId(null)
   },
 
   rememberFolderWorkspace: (folderId, resume) => {
@@ -2081,6 +2089,7 @@ export function useTabActions() {
       openTab: s.openTab,
       openTerminalTab: s.openTerminalTab,
       activateFolderWorkspace: s.activateFolderWorkspace,
+      leaveFolderWorkspace: s.leaveFolderWorkspace,
       rememberFolderWorkspace: s.rememberFolderWorkspace,
       ensureFolderConversationTabs: s.ensureFolderConversationTabs,
       updateTerminalLastKnownCwd: s.updateTerminalLastKnownCwd,

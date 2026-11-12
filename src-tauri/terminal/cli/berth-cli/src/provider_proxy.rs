@@ -10,7 +10,7 @@ use berth_provider_proxy::{
     provider_base_url, serve, upstream_client, Denied, Resolver, Route, RouteRequest,
 };
 use berth_tool_core::provider_injection::{
-    endpoint_protocols, resolve_endpoint_override, resolve_upstream,
+    endpoint_protocols, resolve_endpoint_override, resolve_upstream, split_proxy_provider,
 };
 
 use crate::provider_launch::LoadedProvider;
@@ -29,10 +29,8 @@ impl Resolver for CliResolver {
         {
             return Err(Denied::InvalidToken);
         }
-        let id = request
-            .provider
-            .parse::<i32>()
-            .map_err(|_| Denied::UnknownProvider)?;
+        let (id, group) = split_proxy_provider(&request.provider);
+        let id = id.parse::<i32>().map_err(|_| Denied::UnknownProvider)?;
         let loaded =
             match crate::provider_launch::load_with_secrets(&self.instance, id, &request.protocol)
                 .await
@@ -41,7 +39,7 @@ impl Resolver for CliResolver {
                 Ok(None) => return deny(id, "not found or official"),
                 Err(error) => return deny(id, &error),
             };
-        route(&loaded, &request.protocol, request.model.as_deref())
+        route(&loaded, &request.protocol, request.model.as_deref(), group)
             .or_else(|reason| deny(id, reason))
     }
 }
@@ -51,6 +49,7 @@ pub(crate) fn route(
     loaded: &LoadedProvider,
     protocol: &str,
     model: Option<&str>,
+    group: Option<&str>,
 ) -> Result<Route, &'static str> {
     let (url, key) = resolve_upstream(
         loaded.discovery.as_deref(),
@@ -58,6 +57,7 @@ pub(crate) fn route(
         &loaded.launch.provider.api_url,
         &loaded.api_key,
         model,
+        group,
     );
     // 无 Key 也放行（本地 Ollama 等）：代理不带凭据转发。
     if url.trim().is_empty() {
@@ -187,7 +187,7 @@ pub(crate) fn list(port: Option<u16>, json: bool) -> Result<(), CliError> {
         let provider = &loaded.launch.provider;
         for protocol in protocols(loaded) {
             let lookup = protocol.as_str();
-            let route = route(loaded, lookup, None);
+            let route = route(loaded, lookup, None, None);
             let upstream = resolve_endpoint_override(
                 loaded.discovery.as_deref(),
                 lookup,

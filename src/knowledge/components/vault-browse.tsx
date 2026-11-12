@@ -16,6 +16,8 @@ import {
 import type { KnowledgeDocument } from "@/knowledge/model/types"
 
 export const HOME_NOTE_PATH = ".berth/knowledge/地图/首页.md"
+/** `来源/` 目录下资料的类型。 */
+const SOURCE_TYPE = "来源"
 
 function toTreeGroup(group: OutlineGroup): NoteTreeGroup {
   return {
@@ -38,6 +40,7 @@ const PENDING: PendingKey[] = [
  * 侧栏整棵树，分组默认折叠：
  * - 首页 + 按 `地图/首页.md` 结构生成的阅读目录；首页没链接到的笔记按类型归入「其他笔记」
  *   （首页缺失时整库按类型分组）；
+ * - 「来源」：`来源/` 下的全部资料（来源笔记与 PDF），首页链接过的也列在这里；
  * - 「待维护」：需要人或 agent 处理的笔记，按问题分组；
  * - 「引用当前文件」：主区打开代码文件时，`code` 覆盖它的笔记（展开）。
  */
@@ -72,7 +75,11 @@ export function VaultTree({
         ? mapOutline(homeContent, buildLinkTable(documents))
         : null
     const listed = outline ? outlineNoteIds(outline) : new Set<string>()
-    const rest = documents.filter(
+    const sources = documents
+      .filter((d) => d.noteType === SOURCE_TYPE)
+      .sort((a, b) => a.title.localeCompare(b.title))
+    const notes = documents.filter((d) => d.noteType !== SOURCE_TYPE)
+    const rest = notes.filter(
       (d) => !listed.has(d.id) && d.path !== HOME_NOTE_PATH
     )
     const pending = PENDING.filter((key) => health[key].length > 0).map(
@@ -89,7 +96,7 @@ export function VaultTree({
     const groups: NoteTreeGroup[] = [
       ...(outline ? outline.groups.map(toTreeGroup) : []),
       ...(!outline
-        ? byType(documents)
+        ? byType(notes)
         : rest.length
           ? [
               {
@@ -100,6 +107,16 @@ export function VaultTree({
               },
             ]
           : []),
+      ...(sources.length
+        ? [
+            {
+              label: t("outline.sources"),
+              notes: sources,
+              groups: [],
+              suffix: sources.length,
+            },
+          ]
+        : []),
       ...(pending.length
         ? [
             {

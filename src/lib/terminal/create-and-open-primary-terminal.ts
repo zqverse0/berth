@@ -36,6 +36,8 @@ export type CreateAndOpenPrimaryTerminalInput = {
   agentLaunchInputs?: Record<string, JsonValue>
   providerId?: number | null
   modelId?: string | null
+  /** 启动栏选中的分组 id（同一模型在多个分组里时），后端据此选 Key。 */
+  providerGroup?: string | null
   launchSource?:
     | { kind: "shell" }
     | { kind: "managed-command"; commandId: number }
@@ -208,6 +210,7 @@ export async function createAndOpenPrimaryTerminalDetailed(
           agentLaunchInputs: input.agentLaunchInputs ?? null,
           providerId: input.providerId ?? null,
           modelId: input.modelId ?? null,
+          providerGroup: input.providerGroup ?? null,
         }
       : {}),
     folderId: input.folderId ?? null,

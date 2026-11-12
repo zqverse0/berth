@@ -7,10 +7,12 @@ import { StatusBarUsage } from "@/components/layout/status-bar/status-bar-usage"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import { StatusBarAlerts } from "@/components/layout/status-bar/status-bar-alerts"
 import { StatusBarContext } from "@/components/layout/status-bar/status-bar-context"
+import { StatusBarDevices } from "@/components/layout/status-bar/status-bar-devices"
+import { StatusBarProject } from "@/components/layout/status-bar/status-bar-project"
 import { cn } from "@/lib/utils"
 
 /**
- * 窗口通栏状态栏，各段对齐上方各栏：视图栏下方为告警，侧栏段显示项目与分支，
+ * 窗口通栏状态栏，各段对齐上方各栏：视图栏下方为告警，侧栏段显示项目与分支（兼作下方面板的开关）、设备，
  * 工作区段显示当前文件位置、更新与后台任务，辅助段只读显示 Agent 用量；
  * Agent 启动入口在视图栏，启动表单显示在侧栏。
  */
@@ -42,7 +44,8 @@ export const StatusBar = memo(function StatusBar({
           className="flex min-w-0 shrink-0 items-center justify-center overflow-hidden border-r border-border/50 ws-chrome-border px-2 max-md:max-w-[45%] max-md:shrink"
           style={{ width: "var(--status-left, auto)" }}
         >
-          <StatusBarContext part="project" />
+          <StatusBarProject />
+          <StatusBarDevices />
         </div>
         <div
           data-status-segment="workspace"

@@ -15,6 +15,7 @@
 | 侧栏里一个自己画的网页 | `view`，`page` | 包内 html（第 2 层） |
 | 用自己的界面打开某类文件（画板、表格、图） | `editor` | 包内 html |
 | 接入一个新的 Agent CLI | `agent` + `launchbar` | `launchbar.json`、`launch.js`（照 `tools/claude/`、`tools/pi/` 改） |
+| 教 Agent 用插件完成一类工作（多步流程、规范） | `guide` + 包内 skill | `usage.md` 写什么场景读哪个 skill，`skills/<name>/SKILL.md` 写步骤 |
 
 一个插件可以同时接多个位置。
 
@@ -50,15 +51,19 @@
 
 `storage`、`env`、`data` 不需要权限。
 - 包里只能有约定文件（`tool.json`、`launch.js`、`launchbar.json`、`install.sh` / `install.ps1`、`usage.md`、
-  `usage.json`、`icon.svg` / `icon.png`、`private/`、`README.md`、`LICENSE`）、视图 / 编辑器引用的脚本与页面（所在的
+  `usage.json`、`icon.svg` / `icon.png`、`private/`、`skills/`、`README.md`、`LICENSE`）、视图 / 编辑器引用的脚本与页面（所在的
   顶层目录整个放行）。其他文件 `check` 会报出。
 - 包目录只读（更新会整个覆盖）：插件自己的数据用 `berth.storage`（`get` / `set`），文件放 `berth.storage.dir`。
+- 包内 skill：`skills/<name>/SKILL.md`（frontmatter 写 `name`、`description`）。Agent 简报只列带 `usage.md` 的插件，
+  Agent 要用时跑 `berth tools show <id>`，看到 usage.md 和每个 skill 的说明与绝对路径，再按需读对应 SKILL.md。
+  所以 usage.md 只指路（什么场景读哪个 skill、命令怎么调、产物放哪），细节写进 skill。停用插件后简报里就没有它。
 
 ## 脚本（视图、动作、`berth tools run`）
 
 JavaScript（ES2023 模块），由 Berth 内嵌的 QuickJS 运行，用户不用装 Node。能用的只有 JS 内置对象和全局
 `berth.*`：`process`（`run` / `exec` / `open` / `which`）、`fs`、`http`、`storage`、`env`（`vars`、`platform`、
-`project()`）、`data`（TOML）。**没有** Node API、npm 包、`fetch`；只能 `import` 本包内的相对路径。
+`project()`）、`data`（TOML）、`editor`（`render`：Berth 窗口用本插件 `embed` 编辑器页面把文件渲染成图片写到 `out`，
+要 `fs` 权限、窗口须开着；给 Agent 看图自检用）。**没有** Node API、npm 包、`fetch`；只能 `import` 本包内的相对路径。
 `berth.*` 全部返回 Promise，**每个调用都要 `await`**。
 
 要用 Berth 自己的数据（任务、知识库、群组）就在脚本里调命令：
@@ -120,7 +125,8 @@ export default {
   `context.onExternalChange(text => …)` 接外部修改；`context.readOnly` 为真时不要交改动。
 - `new`：新建文件菜单里多一项，在项目根建空文件 `name`（重名加序号）。页面要能打开空文件。
 - `embed: true`：Markdown 里 `![[文件]]` 由页面出图；页面在 `context.mode === "embed"` 时用
-  `context.onRender(({ path, content, theme }) => 图片 data URL)` 渲染，不画编辑界面。
+  `context.onRender(({ path, content, theme, format }) => 图片 data URL)` 渲染，不画编辑界面。`format`（如 `"png"`）
+  来自脚本 `berth.editor.render`，这时返回 base64 data URL；照 `plugins/excalidraw/private/render.js` 写一个出图命令。
 - `context.onDrop(({ name, kind, path, x, y }) => …)`：从文件树拖进来的文件。
 
 ## 分享

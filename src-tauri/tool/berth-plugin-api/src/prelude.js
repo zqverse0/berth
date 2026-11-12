@@ -4,15 +4,15 @@
 // 每个方法都只是一条 `<命名空间>.<方法>` 消息的包装，参数一律按名字传，返回 Promise。
 ;(() => {
   const statics = JSON.parse(__berth_static)
-  const failure = (reason, message) =>
-    Object.assign(new Error(message), { reason })
+  const failure = (reason, message, data) =>
+    Object.assign(new Error(message), { reason, data: data ?? undefined })
   const call = (method, params) => {
     try {
       const reply = JSON.parse(
         __berth_call(method, JSON.stringify(params ?? {}))
       )
       return reply.error
-        ? Promise.reject(failure(reply.error.reason, reply.error.message))
+        ? Promise.reject(failure(reply.error.reason, reply.error.message, reply.error.data))
         : Promise.resolve(reply.result)
     } catch (error) {
       return Promise.reject(error)
@@ -77,6 +77,7 @@
     }),
     fs: Object.freeze({
       readText: (path, options) => call("fs.readText", { path, ...options }),
+      readBase64: (path) => call("fs.readBase64", { path }),
       writeText: (path, text, options) =>
         call("fs.writeText", { path, text, ...options }),
       stat: (path) => call("fs.stat", { path }),
@@ -100,6 +101,7 @@
       berthVersion: statics.berthVersion,
       vars: Object.freeze(statics.vars),
       project: () => call("env.project"),
+      agent: () => call("env.agent"),
     }),
     data: Object.freeze({
       parseToml: (text) => call("data.parseToml", { text }),
@@ -107,10 +109,17 @@
     }),
     http: Object.freeze({
       fetch: (url, options) => call("http.fetch", { url, ...options }),
+      fetchAll: (requests) => call("http.fetchAll", { requests }),
+    }),
+    editor: Object.freeze({
+      render: (path, options) => call("editor.render", { path, ...options }),
     }),
     files: unavailable("files"),
     tasks: unavailable("tasks"),
-    knowledge: unavailable("knowledge"),
+    knowledge: Object.freeze({
+      findSource: (url) => call("knowledge.findSource", { url }),
+      addSource: (source) => call("knowledge.addSource", source),
+    }),
     agent: unavailable("agent"),
     scripts: unavailable("scripts"),
     ui: unavailable("ui"),

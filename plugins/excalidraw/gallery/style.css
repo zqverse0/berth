@@ -1,0 +1,193 @@
+/* 颜色与字体取宿主的 --berth-* 变量，随主题变化。 */
+:root {
+  color-scheme: light dark;
+  --radius: var(--berth-radius, 8px);
+  --hover: var(--berth-accent, rgba(127, 127, 127, 0.15));
+  --muted: var(--berth-muted-foreground, gray);
+  --border: var(--berth-border, rgba(127, 127, 127, 0.3));
+}
+body {
+  margin: 0;
+  padding: 6px;
+  font: 13px/1.5 var(--berth-font-sans, system-ui, sans-serif);
+  color: var(--berth-foreground);
+  background: transparent;
+}
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.muted {
+  color: var(--muted);
+}
+.center {
+  padding: 16px 4px;
+  text-align: center;
+}
+.error {
+  margin: 4px;
+  color: var(--berth-destructive, #d33);
+  white-space: pre-wrap;
+}
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.groups,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.group {
+  padding: 2px 8px;
+  border-radius: var(--radius);
+}
+.group.active,
+.chip.active {
+  color: var(--berth-primary-foreground, white);
+  background: var(--berth-primary, #4c6ef5);
+}
+.group:hover:not(.active),
+.chip:hover:not(.active) {
+  background: var(--hover);
+}
+.chip {
+  padding: 0 6px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+#list {
+  margin-top: 8px;
+}
+.card {
+  margin-bottom: 8px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.card:hover,
+.card.open {
+  background: var(--hover);
+}
+.thumb {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 96px;
+  object-fit: contain;
+  /* 素材图多为白底，暗色主题下也给白底，免得透明图看不清 */
+  background: white;
+  border-radius: calc(var(--radius) - 2px);
+}
+.thumb.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--hover);
+}
+.title {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.action {
+  padding: 2px 8px;
+  color: var(--berth-primary-foreground, white);
+  background: var(--berth-primary, #4c6ef5);
+  border-radius: var(--radius);
+}
+.hint {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.excerpt {
+  max-height: 96px;
+  overflow: hidden;
+  padding: 6px;
+  font: 11px/1.45 var(--berth-font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  background: var(--hover);
+  border-radius: calc(var(--radius) - 2px);
+}
+.action.quiet {
+  color: inherit;
+  background: var(--hover);
+}
+.new,
+.toggle {
+  width: 100%;
+  margin-top: 8px;
+  padding: 4px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+.removed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  font-size: 12px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

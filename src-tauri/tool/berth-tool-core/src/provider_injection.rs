@@ -105,6 +105,8 @@ pub struct ProviderProfile<'a> {
     pub directory_models: Option<&'a str>,
     /// 经 Berth 凭据代理时的地址与令牌；`None` = 直接给真 Key。
     pub proxy: Option<ProxyRoute<'a>>,
+    /// 启动栏选中的分组 id（同一模型在多个分组里时）；`None` = 按模型匹配分组。
+    pub group: Option<&'a str>,
 }
 
 /// 经 Berth 凭据代理启动：Agent 只拿到代理地址与占位令牌，真 Key 由代理按请求换上。
@@ -131,10 +133,30 @@ pub fn resolve_upstream(
     api_url: &str,
     api_key: &str,
     selected_model: Option<&str>,
+    group: Option<&str>,
 ) -> (String, String) {
     let (url, key) = resolve_endpoint_override(discovery_json, protocol, api_url, api_key);
-    let key = resolve_group_key(discovery_json, selected_model).unwrap_or(key);
+    let key = resolve_group_key(discovery_json, selected_model, group).unwrap_or(key);
     (url, key)
+}
+
+/// 代理路径的服务商段：`<档案 id>` 或带分组的 `<档案 id>~<分组 id>`。
+const PROXY_GROUP_SEPARATOR: char = '~';
+
+/// 拆代理路径的服务商段 → (档案 id, 分组 id)。
+pub fn split_proxy_provider(segment: &str) -> (&str, Option<&str>) {
+    match segment.split_once(PROXY_GROUP_SEPARATOR) {
+        Some((provider, group)) if !group.is_empty() => (provider, Some(group)),
+        _ => (segment, None),
+    }
+}
+
+/// 分组 id 能否原样放进 URL 路径段；不能的只按模型匹配分组。
+fn path_safe(group: &str) -> bool {
+    !group.is_empty()
+        && group
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 /// 档案声明了端点的协议；旧档案只有 `api_url`，任何协议名都解析到它，记作 `any`。
@@ -231,16 +253,23 @@ pub fn launch_profile(
         .into_iter()
         .map(|protocol| {
             let (base_url, api_key) = match profile.proxy {
-                Some(proxy) => (
-                    format!("{}/{protocol}", proxy.base_url),
-                    proxy.token.to_owned(),
-                ),
+                Some(proxy) => {
+                    let group = match profile.group.filter(|group| path_safe(group)) {
+                        Some(group) => format!("{PROXY_GROUP_SEPARATOR}{group}"),
+                        None => String::new(),
+                    };
+                    (
+                        format!("{}{group}/{protocol}", proxy.base_url),
+                        proxy.token.to_owned(),
+                    )
+                }
                 None => resolve_upstream(
                     profile.discovery,
                     &protocol,
                     profile.api_url,
                     profile.api_key,
                     model.as_deref(),
+                    profile.group,
                 ),
             };
             let base_url = base_url.trim().trim_end_matches('/').to_owned();
@@ -504,11 +533,12 @@ pub fn resolve_endpoint_override(
     (default_url.to_string(), default_key.to_string())
 }
 
-/// 如果 discovery_json 中配置了 keyGroups，根据 selected_model 匹配对应分组的 Key；
-/// 找不到特定模型时回退到第一个有效分组的 Key。
+/// 如果 discovery_json 中配置了 keyGroups：指定了分组且它有 Key 就用它，否则根据
+/// selected_model 匹配对应分组的 Key；找不到特定模型时回退到第一个有效分组的 Key。
 pub fn resolve_group_key(
     discovery_json: Option<&str>,
     selected_model: Option<&str>,
+    group: Option<&str>,
 ) -> Option<String> {
     let raw = discovery_json?;
     let val: serde_json::Value = serde_json::from_str(raw).ok()?;
@@ -518,6 +548,23 @@ pub fn resolve_group_key(
         .as_array()?;
     if groups.is_empty() {
         return None;
+    }
+
+    // 0. 启动栏指定了分组（旧档案的 id 可能是数字）
+    if let Some(target) = group.map(str::trim).filter(|s| !s.is_empty()) {
+        let key = groups
+            .iter()
+            .find(|g| match g.get("id") {
+                Some(Value::String(id)) => id == target,
+                Some(Value::Number(id)) => id.to_string() == target,
+                _ => false,
+            })
+            .and_then(|g| g.get("key")?.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let Some(key) = key {
+            return Some(key.to_string());
+        }
     }
 
     // 1. 如果有 selected_model，优先寻找包含该 model id 的分组
@@ -683,24 +730,93 @@ mod tests {
 
         // Model in VIP group picks VIP key
         assert_eq!(
-            resolve_group_key(Some(discovery), Some("o1-preview")),
+            resolve_group_key(Some(discovery), Some("o1-preview"), None),
             Some("sk-vip-key".to_string())
         );
 
         // Model in default group picks default key
         assert_eq!(
-            resolve_group_key(Some(discovery), Some("gpt-4o")),
+            resolve_group_key(Some(discovery), Some("gpt-4o"), None),
             Some("sk-default-key".to_string())
         );
 
         // Unknown model or None falls back to first valid key
         assert_eq!(
-            resolve_group_key(Some(discovery), Some("unknown-model")),
+            resolve_group_key(Some(discovery), Some("unknown-model"), None),
             Some("sk-default-key".to_string())
         );
         assert_eq!(
-            resolve_group_key(Some(discovery), None),
+            resolve_group_key(Some(discovery), None, None),
             Some("sk-default-key".to_string())
+        );
+    }
+
+    #[test]
+    fn chosen_group_wins_for_a_model_in_several_groups() {
+        let discovery = r#"{"keyGroups":[
+            {"id":"1","key":"sk-a","models":[{"id":"m"}]},
+            {"id":2,"key":"sk-b","models":[{"id":"m"}]},
+            {"id":"3","key":"","models":[{"id":"m"}]}]}"#;
+        assert_eq!(
+            resolve_group_key(Some(discovery), Some("m"), None).as_deref(),
+            Some("sk-a")
+        );
+        // 旧档案的数字 id 也认
+        assert_eq!(
+            resolve_group_key(Some(discovery), Some("m"), Some("2")).as_deref(),
+            Some("sk-b")
+        );
+        // 指定的分组没填 Key：退回按模型匹配
+        assert_eq!(
+            resolve_group_key(Some(discovery), Some("m"), Some("3")).as_deref(),
+            Some("sk-a")
+        );
+
+        let launch = launch_profile(
+            &ProviderProfile {
+                group: Some("2"),
+                ..relay(Some(discovery))
+            },
+            None,
+            Some("m"),
+        )
+        .unwrap();
+        assert_eq!(launch.endpoints["any"].api_key, "sk-b");
+
+        let proxy = ProxyRoute {
+            base_url: "http://127.0.0.1:1/p/7",
+            token: "t",
+        };
+        let proxied = launch_profile(
+            &ProviderProfile {
+                proxy: Some(proxy),
+                group: Some("2"),
+                ..relay(Some(discovery))
+            },
+            None,
+            Some("m"),
+        )
+        .unwrap();
+        assert_eq!(
+            proxied.endpoints["any"].base_url,
+            "http://127.0.0.1:1/p/7~2/any"
+        );
+        assert_eq!(split_proxy_provider("7~2"), ("7", Some("2")));
+        assert_eq!(split_proxy_provider("7"), ("7", None));
+        // 不能放进路径的分组 id 不编码
+        let unsafe_group = launch_profile(
+            &ProviderProfile {
+                proxy: Some(proxy),
+                group: Some("a/b"),
+                ..relay(Some(discovery))
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            unsafe_group.endpoints["any"].base_url,
+            "http://127.0.0.1:1/p/7/any"
         );
     }
 
@@ -713,6 +829,7 @@ mod tests {
             overlay_models: Some(r#"[{"id":"m-opus","slot":"opus"}]"#),
             directory_models: Some(r#"["m-opus","m-mini"]"#),
             proxy: None,
+            group: None,
         }
     }
 

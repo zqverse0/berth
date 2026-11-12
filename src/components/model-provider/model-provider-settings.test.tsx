@@ -479,6 +479,41 @@ describe("ModelProviderSettings key groups", () => {
     })
   })
 
+  it("saves again a provider read back in the stored model format", async () => {
+    // 落库时与 id 相同的 name 被省略：再次打开后保存不能因缺 name 而静默失败
+    mocks.listModelProviders.mockResolvedValue([
+      {
+        ...groupedProvider,
+        discovery_json: JSON.stringify({
+          endpoints: { chat: { apiUrl: "https://api.openai.com/v1" } },
+          keyGroups: [
+            {
+              id: "1",
+              name: "default",
+              key: "",
+              models: [{ id: "gpt-4o", contextWindow: 200000 }],
+            },
+          ],
+        }),
+      },
+    ])
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(
+      await screen.findByRole("button", { name: /Multi Group Provider/ })
+    )
+    await user.click(screen.getByRole("button", { name: "Add Key Group" }))
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    const saved = mocks.updateModelProvider.mock.lastCall?.[0]
+    const discovery = JSON.parse(saved.discoveryJson)
+    expect(discovery.keyGroups).toHaveLength(2)
+    expect(discovery.keyGroups[0].models).toEqual([
+      { id: "gpt-4o", contextWindow: 200000 },
+    ])
+  })
+
   it("keeps manual model settings when models are fetched again", async () => {
     mocks.fetchProviderModels.mockResolvedValue([
       { id: "gpt-4o", apis: [] },

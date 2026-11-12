@@ -32,7 +32,9 @@ sources: [claude:<sessionId>]   # 可选：依据的会话
 ```
 
 `code` 下的文件在 `verified_at` 之后有提交即「可能过期」。未知字段原样保留。
-`来源/` 由 Berth「发现」页维护（`kind`、`url` 必填，同一 `url` 只能一篇），读过后在正文写 `## 摘要` 并改 `digested: true`。
+`来源/` 放外部资料，面板「来源」分组列出：
+- PDF 原文件直接放进来，文件名即标题，可被 `[[标题]]` 链接；不做格式检查，没人链接也不算孤立。
+- Markdown（如网页存档）是来源笔记：`type: 来源`，`kind`（repo | article | paper | video | other）、`url` 必填，同一 `url` 只能一篇；由插件经 `knowledge.addSource` 写入（`kind: other`、`digested: false`，用户自己改）或手写；没人链接不算孤立；读过后在正文写 `## 摘要` 并改 `digested: true`。
 
 ## 写作纪律
 

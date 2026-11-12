@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client"
 import {
   convertToExcalidrawElements,
   Excalidraw,
+  exportToBlob,
   exportToSvg,
   getSceneVersion,
   restore,
@@ -212,9 +213,23 @@ function Editor({ context, initialContent, initialTheme }) {
 // ponytail: 按 (主题, 路径, 文本) 缓存渲染结果、不限量；嵌入极多的文档再加 LRU
 const svgCache = new Map()
 
-/** 嵌入：把画板文件渲染成 SVG data URL（字体内联），宿主当图片显示。 */
-function renderEmbed({ path, content, theme }) {
-  const key = `${theme}\n${path}\n${content}`
+/** blob → base64 data URL（宿主写成图片文件时要 base64）。 */
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * 嵌入：把画板文件渲染成图片 data URL，宿主当图片显示。默认 SVG（字体内联、透明底、跟随主题）；
+ * `format: "png"` 给 Agent 看图自检（`berth.editor.render`），白底、浅色、2 倍清晰度。
+ */
+function renderEmbed({ path, content, theme, format }) {
+  const png = format === "png"
+  const key = `${png ? "png" : theme}\n${path}\n${content}`
   let result = svgCache.get(key)
   if (!result) {
     result = (async () => {
@@ -224,6 +239,26 @@ function renderEmbed({ path, content, theme }) {
       const files = { ...data.files }
       for (const file of await loadEmbeddedFiles(path, embeddedFiles))
         files[file.id] = file
+      if (png) {
+        const blob = await exportToBlob({
+          elements: data.elements,
+          appState: {
+            ...data.appState,
+            exportBackground: true,
+            viewBackgroundColor: "#ffffff",
+            exportWithDarkMode: false,
+          },
+          files,
+          mimeType: "image/png",
+          exportPadding: 24,
+          getDimensions: (width, height) => ({
+            width: width * 2,
+            height: height * 2,
+            scale: 2,
+          }),
+        })
+        return blobToDataUrl(blob)
+      }
       const svg = await exportToSvg({
         elements: data.elements,
         appState: {

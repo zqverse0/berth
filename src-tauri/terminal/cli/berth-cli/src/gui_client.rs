@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use berth_control_proto::{
-    decode_frame, encode_frame, ErrorKind, GuiStatus, HelloClient, HelloParams, HelloResult,
+    decode_frame, encode_frame, EditorRenderParams, EditorRenderResult, ErrorKind, GuiStatus, HelloClient, HelloParams, HelloResult,
     KnowledgeDigestParams, KnowledgeDigestResult, ProjectEntry, RpcError, RpcRequest, RpcResponse,
     WorkspaceDocumentParams, WorkspaceDocumentResult, WorkspaceTerminalResult,
-    CAPABILITY_AGENT_CHANGED, CAPABILITY_FILE_OPEN, CAPABILITY_FILE_OPEN_WAIT, CAPABILITY_GUI_STATUS,
+    CAPABILITY_AGENT_CHANGED, CAPABILITY_EDITOR_RENDER, CAPABILITY_FILE_OPEN, CAPABILITY_FILE_OPEN_WAIT, CAPABILITY_GUI_STATUS,
     CAPABILITY_KNOWLEDGE_DIGEST, CAPABILITY_PROJECT, CAPABILITY_WORKSPACE_CURRENT_TERMINAL,
     CAPABILITY_WORKSPACE_DOCUMENT_RANGE, CONTROL_WIRE_VERSION, MAX_FRAME_BYTES,
     RPC_DAEMON_UNAVAILABLE, RPC_INCOMPATIBLE_VERSION, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS,
@@ -406,6 +406,18 @@ pub(crate) fn knowledge_digest(
         &RpcRequest::knowledge_digest(2, params),
     )?;
     let response: RpcResponse = read_frame(&mut session.stream, KNOWLEDGE_DIGEST_BUDGET)?;
+    ensure_response_id(&response, 2)?;
+    decode_response(response)
+}
+
+/// 渲染的总等待：窗口侧最多等 30 秒，再留出写文件与回帧的时间。
+const EDITOR_RENDER_BUDGET: Duration = Duration::from_secs(40);
+
+/// 插件脚本的 `berth.editor.render`：请已开着的窗口用插件嵌入页面渲染文件；GUI 不在时不拉起。
+pub(crate) fn editor_render(params: &EditorRenderParams) -> Result<EditorRenderResult, GuiClientError> {
+    let mut session = open_session(CAPABILITY_EDITOR_RENDER, None, LaunchPolicy::ProbeOnly, None)?;
+    write_frame(&mut session.stream, &RpcRequest::editor_render(2, params))?;
+    let response: RpcResponse = read_frame(&mut session.stream, EDITOR_RENDER_BUDGET)?;
     ensure_response_id(&response, 2)?;
     decode_response(response)
 }

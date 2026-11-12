@@ -280,6 +280,7 @@ async fn answer(
         AGENT_TYPE,
         Some(&apis),
         Some(&choice.model),
+        None,
     )
     .await
     .map_err(|error| error.to_string())?

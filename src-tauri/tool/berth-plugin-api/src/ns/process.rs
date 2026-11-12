@@ -329,6 +329,7 @@ mod tests {
             state_dir: std::env::temp_dir(),
             project: Box::new(|| Value::Null),
             sessions: Default::default(),
+            cancel: Default::default(),
         };
         super::call(&host, name, params)
     }
@@ -342,6 +343,7 @@ mod tests {
             state_dir: std::env::temp_dir(),
             project: Box::new(|| Value::Null),
             sessions: Default::default(),
+            cancel: Default::default(),
         };
         // 读一行回一行、stdin 不关就一直活着（同 codex app-server）。
         let handle = super::call(

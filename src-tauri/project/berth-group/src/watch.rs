@@ -23,8 +23,12 @@ use crate::term::{self, Fail, Terminals};
 use crate::{deliver, identity, text, Ctx};
 use crate::term::PaneProbe;
 
-/// 兜底周期：hook 叫醒是主路径，周期只用来发现新终端、离群和重试。
+/// 兜底周期：hook / GUI 叫醒是主路径，周期只用来发现离群、记提交；投递重试按到期时刻另行醒来。
+const IDLE_TICK: Duration = Duration::from_secs(30);
+/// 没有叫醒通道（非 Unix 或 socket 绑不上）时只能靠周期，退回短周期。
 const TICK: Duration = Duration::from_secs(2);
+/// 按重试时刻醒来时的下限，免得到期边界上空转。
+const MIN_WAIT: Duration = Duration::from_millis(200);
 const IDLE_EXIT: Duration = Duration::from_secs(600);
 /// 被 hook 叫醒后稍等：一轮结束的 hook 还没返回，Agent 回到输入框还要一瞬。
 #[cfg(unix)]
@@ -337,6 +341,19 @@ pub(crate) struct WatchState {
     heads: HashMap<String, (String, String)>,
 }
 
+impl WatchState {
+    /// 下一轮最迟何时：最早一个还没到期的投递重试，最长 `fallback`。
+    /// 已过期的（终端忙或已离群）不算：忙完由 hook 叫醒，离群的不再投。
+    pub(crate) fn next_wait(&self, fallback: Duration) -> Duration {
+        let now = Instant::now();
+        self.retry
+            .values()
+            .filter_map(|at| at.checked_duration_since(now))
+            .min()
+            .map_or(fallback, |wait| wait.clamp(MIN_WAIT, fallback))
+    }
+}
+
 /// 后台循环；拿不到单实例锁就直接返回。
 pub(crate) fn run(ctx: &Ctx, term: &dyn Terminals) {
     // 别处（GUI、另一个 CLI）检查「在不在跑」会瞬间持锁：拿不到时稍等再试，免得两边都以为对方在跑。
@@ -367,7 +384,7 @@ pub(crate) fn run(ctx: &Ctx, term: &dyn Terminals) {
         } else if last_busy.elapsed() > IDLE_EXIT {
             break;
         }
-        wake.wait(TICK);
+        wake.wait(state.next_wait(wake.fallback()));
     }
 }
 
@@ -394,6 +411,15 @@ impl Wake {
             let _ = ctx;
             Self {}
         }
+    }
+
+    /// 没有待重试时等多久：能被叫醒就用长周期，否则只能短周期轮询。
+    fn fallback(&self) -> Duration {
+        #[cfg(unix)]
+        if self.socket.is_some() {
+            return IDLE_TICK;
+        }
+        TICK
     }
 
     fn wait(&self, timeout: Duration) {
@@ -446,14 +472,19 @@ pub(crate) fn tick(ctx: &Ctx, term: &dyn Terminals, watch: &mut WatchState) -> b
             return false;
         }
     };
-    derive_members(main, term, &worktrees, &panes);
-
     // 一个项目一个群：各 checkout 的成员、提交都在 `main` 群；worktree 只是成员终端的工作目录。
     let name = group::MAIN_GROUP.to_owned();
     let mut busy = false;
-    let Ok(events) = group::events(main, &name) else {
+    // 账本可能有几 MB：账本没变就复用上一轮的解析结果，有新成员入群才重读。
+    let Ok(mut events) = group::events_shared(main, &name) else {
         return false;
     };
+    if derive_members(main, term, &worktrees, &panes, &events) {
+        let Ok(fresh) = group::events_shared(main, &name) else {
+            return false;
+        };
+        events = fresh;
+    }
     let members = group::members(&events);
     // 只在有成员在群时记：没人在时的提交等有人入群再一并记。
     if members.iter().any(|member| !member.bodies.is_empty()) {
@@ -602,12 +633,14 @@ fn leave(main: &Path, name: &str, member: &str, target_ref: &str, reason: &str) 
 /// 本项目（主目录或任何 worktree）里选了专家、且 hook 报告过会话的 Agent 终端自动进项目群。
 /// 没有 hook 的 Agent 不入群：Berth 不知道它何时一轮结束，既没法送达也没法收结果。
 /// 旧版每个 worktree 一个群：那些群里还在的终端各离群一次（账本留着只读），随后进项目群。
+/// `events` 是本轮已读的项目群账本；返回是否有终端入群（账本变了）。
 fn derive_members(
     main: &Path,
     term: &dyn Terminals,
     worktrees: &[(String, PathBuf)],
     panes: &BTreeMap<String, PaneProbe>,
-) {
+    events: &[Value],
+) -> bool {
     for (name, _) in worktrees.iter().filter(|(name, _)| name != group::MAIN_GROUP) {
         for member in group::events(main, name).map(|events| group::members(&events)).unwrap_or_default() {
             for body in member.bodies.iter().filter(|body| !term.foreign(&body.target_ref)) {
@@ -615,9 +648,8 @@ fn derive_members(
             }
         }
     }
-    let mut claimed: HashSet<String> = group::events(main, group::MAIN_GROUP)
-        .map(|events| group::members(&events))
-        .unwrap_or_default()
+    let mut joined = false;
+    let mut claimed: HashSet<String> = group::members(events)
         .into_iter()
         .flat_map(|member| member.bodies)
         .map(|body| body.target_ref)
@@ -660,8 +692,10 @@ fn derive_members(
         .is_ok()
         {
             claimed.insert(target_ref.clone());
+            joined = true;
         }
     }
+    joined
 }
 
 /// 启动提示按群环境定位，不再把群组描述为单个任务或分支。
@@ -695,4 +729,38 @@ pub fn brief_lines(cwd: &Path, socket: Option<PathBuf>, cli: PathBuf) -> Option<
         format!("- 你在 worktree `{display_name}`：负责实现与测试。{assigned}；任务内容在主目录 {}\n", ctx.main.display())
     };
     Some(format!("{role}- 当前群是项目群 `{project}`（标识 `{}`，主目录和各 worktree 共用一个群），你的目录 {}；群成员是本项目打开的 Agent：回答群里发来的消息时 Berth 自动把回复贴回群，无需手动 post\n", group::MAIN_GROUP, env.worktree))
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    fn key(member: &str) -> Key {
+        (group::MAIN_GROUP.to_owned(), member.to_owned(), format!("pane:{member}"))
+    }
+
+    #[test]
+    fn idle_waits_the_full_fallback() {
+        assert_eq!(WatchState::default().next_wait(IDLE_TICK), IDLE_TICK);
+    }
+
+    #[test]
+    fn a_pending_retry_wakes_at_its_due_time() {
+        let mut state = WatchState::default();
+        state.retry.insert(key("a"), Instant::now() + Duration::from_secs(5));
+        state.retry.insert(key("b"), Instant::now() + Duration::from_secs(8));
+        let wait = state.next_wait(IDLE_TICK);
+        assert!(wait <= Duration::from_secs(5) && wait > Duration::from_secs(4), "{wait:?}");
+        // 没有叫醒通道时短周期仍是上限。
+        assert_eq!(state.next_wait(TICK), TICK);
+    }
+
+    #[test]
+    fn overdue_retries_do_not_spin() {
+        let mut state = WatchState::default();
+        state.retry.insert(key("busy"), Instant::now() - Duration::from_secs(1));
+        assert_eq!(state.next_wait(IDLE_TICK), IDLE_TICK);
+        state.retry.insert(key("soon"), Instant::now() + Duration::from_millis(10));
+        assert_eq!(state.next_wait(IDLE_TICK), MIN_WAIT);
+    }
 }

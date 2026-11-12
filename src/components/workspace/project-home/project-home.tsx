@@ -24,6 +24,7 @@ import {
 } from "@/components/project-management/berth-tasks/task-state"
 import { LineCounts } from "@/components/layout/git/line-counts"
 import {
+  useProjectPanelStore,
   useSidebarViewStore,
   type SidebarView,
 } from "@/components/layout/sidebar/views"
@@ -64,6 +65,12 @@ function showSidebarView(view: SidebarView) {
   useSidebarViewStore.getState().setView(view)
   if (!useAppUiStore.getState().sidebarOpen)
     useAppUiStore.getState().toggleSidebar()
+}
+
+/** Git 在项目视图的下方面板里：展开并切到变更。 */
+function showGitPanel() {
+  showSidebarView("projects")
+  useProjectPanelStore.getState().showPanel("changes")
 }
 
 function Section({
@@ -378,7 +385,7 @@ function ProjectHomeBody({
                     )}
                   </>
                 ),
-                onClick: () => showSidebarView("git"),
+                onClick: showGitPanel,
               },
             ]}
           />
@@ -415,7 +422,7 @@ function ProjectHomeBody({
             action={
               <button
                 type="button"
-                onClick={() => showSidebarView("git")}
+                onClick={showGitPanel}
                 className="hover:text-primary"
               >
                 Git →

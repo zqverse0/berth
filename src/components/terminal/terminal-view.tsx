@@ -28,6 +28,10 @@ import {
   invokeTerminalWriteCallback,
 } from "@/lib/terminal/terminal-write-adapter"
 import {
+  createTerminalWebglController,
+  type TerminalWebglController,
+} from "@/lib/terminal/terminal-webgl"
+import {
   createTerminalSnapshotPainter,
   type TerminalSnapshotPainter,
 } from "@/lib/terminal/terminal-snapshot-painter"
@@ -247,6 +251,7 @@ export function TerminalView({
     null
   )
   const resizeCoordinatorRef = useRef<TerminalResizeCoordinator | null>(null)
+  const webglRef = useRef<TerminalWebglController | null>(null)
   useMarkAttentionSeen(terminalId, isVisible)
   const isActiveRef = useRef(isActive)
   const isVisibleRef = useRef(isVisible)
@@ -340,7 +345,12 @@ export function TerminalView({
   useEffect(() => {
     isActiveRef.current = isActive
     isVisibleRef.current = isVisible
+    webglRef.current?.setVisible(isVisible)
   }, [isActive, isVisible])
+
+  useEffect(() => {
+    useTerminalRuntimeStore.getState().setVisible(terminalId, isVisible)
+  }, [isVisible, terminalId])
 
   useEffect(() => {
     onProcessExitedRef.current = onProcessExited
@@ -431,6 +441,9 @@ export function TerminalView({
       term.unicode.activeVersion = "11"
       term.open(containerRef.current)
       skipUnchangedXtermStyleWrites(containerRef.current)
+      const webgl = createTerminalWebglController(term)
+      webglRef.current = webgl
+      webgl.setVisible(isVisibleRef.current)
       const disposePointer = bindTerminalPointer({
         host: containerRef.current,
         term,
@@ -1142,6 +1155,7 @@ export function TerminalView({
         disposeDeferredInserts.dispose()
         disposeImeTextarea.dispose()
         disposePointer()
+        webgl.dispose()
         term.dispose()
         return
       }
@@ -1174,6 +1188,8 @@ export function TerminalView({
         disposeDeferredInserts.dispose()
         disposeImeTextarea.dispose()
         disposePointer()
+        webgl.dispose()
+        webglRef.current = null
         term.dispose()
         termRef.current = null
         ligaturesAddonRef.current = null
@@ -1223,6 +1239,7 @@ export function TerminalView({
     if (!term) return
     term.options.fontFamily = terminalFontStack
     term.options.fontSize = computeTerminalFontSize(terminalFontSize, zoomLevel)
+    webglRef.current?.refreshAtlas()
     requestAnimationFrame(requestResize)
   }, [requestResize, terminalFontStack, terminalFontSize, zoomLevel])
 
@@ -1268,6 +1285,10 @@ export function TerminalView({
         // isVisible covers active + tiled peers so non-selected tiles still
         // paint; warmed-but-background tabs pass isVisible=false and stay hidden.
         visibility: isVisible ? "visible" : "hidden",
+        // 隐藏的终端照常收输出、写进缓冲区，但不渲染：xterm 靠 IntersectionObserver 暂停绘制，
+        // 只设 visibility 时它仍算「在屏幕上」，DOM 渲染器每秒改几百次行（实测 Agent 输出时
+        // 页面进程 57% → 9%）。显示时 xterm 自动整屏重绘。
+        contentVisibility: isVisible ? "visible" : "hidden",
         // Interaction only on the focused tile; others remain viewable.
         pointerEvents: isActive ? "auto" : "none",
       }}

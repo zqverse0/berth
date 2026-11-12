@@ -54,6 +54,10 @@ pub const CAPABILITY_KNOWLEDGE_DIGEST: &str = "knowledge.digest.v1";
 pub const METHOD_AGENT_CHANGED: &str = "agent.changed";
 /// GUI 接受 Agent 变化通知。
 pub const CAPABILITY_AGENT_CHANGED: &str = "agent.changed.v1";
+/// 插件编辑器把文件渲染成图片并写到指定路径（插件脚本 `berth.editor.render`）。
+pub const METHOD_EDITOR_RENDER: &str = "editor.render";
+/// GUI 能用插件的嵌入页面渲染编辑器文件。
+pub const CAPABILITY_EDITOR_RENDER: &str = "editor.render.v1";
 /// 工作区摘录的默认行数。
 pub const DEFAULT_EXCERPT_LINES: u32 = 80;
 /// 工作区摘录允许请求的最大行数。
@@ -212,6 +216,16 @@ impl RpcRequest {
         Self::new(
             id,
             METHOD_KNOWLEDGE_DIGEST,
+            serde_json::to_value(params).unwrap_or_default(),
+        )
+    }
+
+    /// 创建插件编辑器渲染请求。
+    #[must_use]
+    pub fn editor_render(id: u64, params: &EditorRenderParams) -> Self {
+        Self::new(
+            id,
+            METHOD_EDITOR_RENDER,
             serde_json::to_value(params).unwrap_or_default(),
         )
     }
@@ -476,6 +490,31 @@ pub struct FileOpenWaitResult {
     /// Failure diagnostic for [`FileOpenState::Failed`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+/// Parameters for [`METHOD_EDITOR_RENDER`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditorRenderParams {
+    /// 插件 id：只用它自己声明了 `embed` 的编辑器，按文件后缀选。
+    pub plugin: String,
+    /// 要渲染的文件（绝对路径）。
+    pub path: String,
+    /// 交给插件页面的图片格式，如 `png`；插件决定支持哪些。
+    pub format: String,
+    /// 图片写到哪里（绝对路径）；图片不经控制通道回传，避开单帧上限。
+    pub out: String,
+}
+
+/// Result of [`METHOD_EDITOR_RENDER`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorRenderResult {
+    /// 写入的图片路径。
+    pub out: String,
+    /// 图片 MIME 类型（来自插件返回的 data URL）。
+    pub mime: String,
+    /// 写入的字节数。
+    pub bytes: u64,
 }
 
 /// Parameters for [`METHOD_KNOWLEDGE_DIGEST`].

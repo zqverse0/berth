@@ -43,6 +43,7 @@ pub async fn evaluate(
         &provider.api_url,
         &api_key,
         Some(model),
+        None,
     );
     if key.trim().is_empty() {
         return Err(AppCommandError::configuration_missing(

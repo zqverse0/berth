@@ -57,6 +57,32 @@ describe("VaultTree", () => {
     expect(onOpen).toHaveBeenCalledWith(moduleNote)
   })
 
+  it("lists sources (notes and PDFs) in their own group, not under others", () => {
+    const home = note(HOME_NOTE_PATH, "地图")
+    const paper = note(".berth/knowledge/来源/Attention.pdf", "来源")
+    const article = note(".berth/knowledge/来源/某文章.md", "来源")
+    const concept = note(".berth/knowledge/概念/termd.md", "概念")
+    const onOpen = vi.fn()
+    render(
+      <VaultTree
+        documents={[home, paper, article, concept]}
+        homeContent={"# 首页\n## 主线\n[[首页]]"}
+        health={healthy}
+        mentions={[]}
+        activePath={null}
+        onOpen={onOpen}
+      />
+    )
+    fireEvent.click(screen.getByText("outline.others"))
+    // 「其他笔记」下只有概念，没有来源类型分组
+    expect(screen.getByText("概念")).toBeTruthy()
+    expect(screen.queryByText("来源")).toBeNull()
+    fireEvent.click(screen.getByText("outline.sources"))
+    fireEvent.click(screen.getByText("Attention.pdf"))
+    expect(onOpen).toHaveBeenCalledWith(paper)
+    expect(screen.getByText("某文章")).toBeTruthy()
+  })
+
   it("falls back to type groups and opens notes mentioning the code file", () => {
     const concept = note(".berth/knowledge/概念/termd.md", "概念")
     render(

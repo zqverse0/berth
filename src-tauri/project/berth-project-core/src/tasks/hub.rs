@@ -3,7 +3,10 @@
 //! 不用 DB `parent_id`：GUI 把 `git worktree list` 第一项（git 主 worktree）当家族根，
 //! 而用户工作、跑 dev、存 `local/` 的 checkout 不一定是它（本仓库的根是 main 分支的旧目录）。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use super::git;
 use super::{TaskError, TaskResult};
@@ -59,10 +62,7 @@ pub(crate) fn not_initialized(dir: &Path) -> TaskError {
 /// 它也启用了 Berth 才算；否则是 `dir` 所在 checkout 自己（单 checkout）。
 pub fn main_project(dir: &Path) -> TaskResult<PathBuf> {
     let checkout = checkout_root(dir);
-    let worktrees: Vec<PathBuf> = git::worktrees(&checkout)
-        .into_iter()
-        .map(|worktree| worktree.path)
-        .collect();
+    let worktrees = worktree_paths(&checkout);
     let marked: Vec<&PathBuf> = worktrees
         .iter()
         .filter(|path| path.join(HUB_MARKER).is_file())
@@ -86,6 +86,28 @@ pub fn main_project(dir: &Path) -> TaskResult<PathBuf> {
             ),
         )),
     }
+}
+
+/// 同一仓库的各 checkout 路径（`git worktree list` 顺序，第一项是主 worktree）。每次要跑两次 git，
+/// 而 GUI 每几秒为侧栏每个项目判定一次主项目：按 checkout 缓存一小段时间。只缓存 git 这一半，
+/// 标记文件与 `.berth/` 由调用方每次现查，启用 / `berth init` 立即生效；
+/// 新增的 worktree 是新 checkout，不受缓存影响。
+fn worktree_paths(checkout: &Path) -> Vec<PathBuf> {
+    const TTL: Duration = Duration::from_secs(30);
+    type Cache = HashMap<PathBuf, (Instant, Vec<PathBuf>)>;
+    static CACHE: LazyLock<Mutex<Cache>> =
+        LazyLock::new(Default::default);
+    let lock = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((_, paths)) = lock().get(checkout).filter(|(at, _)| at.elapsed() < TTL) {
+        return paths.clone();
+    }
+    // 跑 git 时不持锁：各项目的判定并行。
+    let paths: Vec<PathBuf> = git::worktrees(checkout)
+        .into_iter()
+        .map(|worktree| worktree.path)
+        .collect();
+    lock().insert(checkout.to_path_buf(), (Instant::now(), paths.clone()));
+    paths
 }
 
 /// 同仓库里**另一份** checkout 已是主项目时返回它（`berth init` 据此拒绝在 worktree 里再建一个）。

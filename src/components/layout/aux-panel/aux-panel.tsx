@@ -157,7 +157,10 @@ export const AuxPanel = memo(function AuxPanel({
         )}
       >
         <div className={cn("h-full", emptyMember && "hidden")}>
-          <WorkspacePaneContent pane="conversation" />
+          <WorkspacePaneContent
+            pane="conversation"
+            hidden={!isOpen || view !== "terminals" || !!emptyMember}
+          />
         </div>
         {emptyMember ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">

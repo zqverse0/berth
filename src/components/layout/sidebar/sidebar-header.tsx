@@ -66,6 +66,7 @@ export function SidebarHeader({
         <>
           <div
             ref={setTabsEl}
+            data-tauri-drag-region
             className={cn("flex min-w-0 flex-1", !hasTabs && "hidden")}
           />
           {hasTabs ? null : (
@@ -87,6 +88,16 @@ export function SidebarHeader({
   )
 }
 
+/** 正文提供的标题内容（如工作区切换），替换默认标题。 */
+export function SidebarHeaderTitle({ children }: { children: ReactNode }) {
+  const el = useHeaderSlots((s) => s.tabsEl)
+  useLayoutEffect(() => {
+    useHeaderSlots.setState({ hasTabs: true })
+    return () => useHeaderSlots.setState({ hasTabs: false })
+  }, [])
+  return el ? createPortal(children, el) : null
+}
+
 export function SidebarHeaderTabs<T extends string>({
   tabs,
   value,
@@ -96,36 +107,31 @@ export function SidebarHeaderTabs<T extends string>({
   value: T
   onChange: (id: T) => void
 }) {
-  const el = useHeaderSlots((s) => s.tabsEl)
-  useLayoutEffect(() => {
-    useHeaderSlots.setState({ hasTabs: true })
-    return () => useHeaderSlots.setState({ hasTabs: false })
-  }, [])
-  if (!el) return null
-  return createPortal(
-    <div
-      role="tablist"
-      className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
-    >
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={value === tab.id}
-          onClick={() => onChange(tab.id)}
-          className={cn(
-            "shrink-0 rounded-md px-2 py-1 text-xs transition-colors",
-            value === tab.id
-              ? "bg-muted font-medium text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>,
-    el
+  return (
+    <SidebarHeaderTitle>
+      <div
+        role="tablist"
+        className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={value === tab.id}
+            onClick={() => onChange(tab.id)}
+            className={cn(
+              "shrink-0 rounded-md px-2 py-1 text-xs transition-colors",
+              value === tab.id
+                ? "bg-muted font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    </SidebarHeaderTitle>
   )
 }
 

@@ -5,6 +5,8 @@ import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SidebarProjectList } from "./sidebar-project-list"
+import { DevicesProvider } from "@/components/devices/devices"
+import { OPEN_PROJECT_SWITCHER_EVENT } from "@/components/layout/commands/commands"
 import type {
   DbConversationSummary,
   FolderDetail,
@@ -21,7 +23,7 @@ import {
   refreshTerminalInventory,
 } from "@/lib/terminal/terminal-inventory-query"
 import { tabsForFolderScope } from "@/lib/workspace/tab-scope"
-import { useSidebarViewStore } from "@/components/layout/sidebar/views"
+import { useProjectPanelStore } from "@/components/layout/sidebar/views"
 import {
   useWorkspaceGroupsStore,
   type WorkspaceGroupsState,
@@ -63,6 +65,7 @@ const stableTabFns = vi.hoisted(() => ({
   closeConversationTab: () => {},
   closeTabsByFolder: () => {},
   activateFolderWorkspace: vi.fn(),
+  leaveFolderWorkspace: vi.fn(),
   openNewConversationTab: () => {},
 }))
 
@@ -322,7 +325,7 @@ describe("SidebarProjectList — project explorer mode", () => {
 
   it("covers the list with the workspace summary while the panel is maximized", () => {
     store.activeFolder = folder(1, "Repo")
-    useSidebarViewStore.setState({ view: "files" })
+    useProjectPanelStore.setState({ maximized: true })
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness summaryOnly />
@@ -334,7 +337,7 @@ describe("SidebarProjectList — project explorer mode", () => {
     const summary = screen.getByTitle(enMessages.WorkspaceGroups.restoreList)
     expect(summary.textContent).toContain("Default")
     fireEvent.click(summary)
-    expect(useSidebarViewStore.getState().view).toBe("projects")
+    expect(useProjectPanelStore.getState().maximized).toBe(false)
   })
 
   it("activates a registered project without reopening the folder", async () => {
@@ -675,7 +678,9 @@ describe("SidebarProjectList — workspaces", () => {
   function renderList() {
     return render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <SidebarProjectList />
+        <DevicesProvider>
+          <SidebarProjectList />
+        </DevicesProvider>
       </NextIntlClientProvider>
     )
   }
@@ -727,10 +732,51 @@ describe("SidebarProjectList — workspaces", () => {
       true
     )
 
-    // 手动点开 Lab：完整显示，空闲的会话也在
-    fireEvent.click(screen.getByRole("button", { name: /^Lab/ }))
+    // 手动点开 Lab：完整显示，空闲的会话也在；当前工作区不变
+    fireEvent.click(screen.getByRole("button", { name: /^Lab: / }))
     expect(document.querySelector('[data-folder-id="3"]')).not.toBeNull()
     expect(screen.getByLabelText("idle-paper")).toBeTruthy()
+    expect(stableTabFns.activateFolderWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("switches workspace from its title to the first project and marks the current one", () => {
+    stableTabFns.activateFolderWorkspace.mockClear()
+    renderList()
+    expect(
+      screen.getByRole("button", { name: /^Default/, current: true })
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: /^Lab\b(?!:)/ }))
+    expect(stableTabFns.activateFolderWorkspace).toHaveBeenCalledWith(3)
+  })
+
+  it("switching to a workspace without projects leaves the current project", () => {
+    stableTabFns.leaveFolderWorkspace.mockClear()
+    useWorkspaceGroupsStore.setState({ state: groups([]) })
+    renderList()
+
+    fireEvent.click(screen.getByRole("button", { name: /^Lab\b(?!:)/ }))
+    expect(stableTabFns.leaveFolderWorkspace).toHaveBeenCalled()
+  })
+
+  it("keeps search folded until opened, finds sessions across workspaces and closes on Escape", async () => {
+    terminalApi.listTerminalSessions.mockResolvedValue([
+      terminal("busy-paper", 3),
+    ])
+    await refreshTerminalInventory()
+    renderList()
+    const placeholder = enMessages.Folder.sidebar.searchProjectsPlaceholder
+    expect(screen.queryByPlaceholderText(placeholder)).toBeNull()
+
+    act(() => {
+      window.dispatchEvent(new Event(OPEN_PROJECT_SWITCHER_EVENT))
+    })
+    const input = screen.getByPlaceholderText(placeholder)
+    fireEvent.change(input, { target: { value: "busy" } })
+    expect(screen.getByLabelText("busy-paper")).toBeTruthy()
+
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(screen.queryByPlaceholderText(placeholder)).toBeNull()
   })
 
   it("puts a newly opened project into the current workspace", async () => {

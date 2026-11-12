@@ -126,7 +126,9 @@ type Request =
       script: string
       input: unknown
       project: Project
+      runId?: string
     }
+  | { type: "cancel"; runId: string }
   | {
       type: "call"
       plugin: string
@@ -170,9 +172,16 @@ export async function runPluginAction(options: {
   script: string
   input: unknown
   project: Project
+  /** 给了才可被 {@link cancelPluginAction} 中断。 */
+  runId?: string
 }): Promise<unknown> {
   const response = await pluginViews({ type: "action", ...options })
   return response.type === "done" ? response.result : null
+}
+
+/** 中断带 `runId` 的那次运行（页面 `scripts.run` 的 signal abort）。 */
+export async function cancelPluginAction(runId: string): Promise<void> {
+  await pluginViews({ type: "cancel", runId })
 }
 
 /** 页面调用经宿主后端执行的命名空间（`storage`、`data`）。 */

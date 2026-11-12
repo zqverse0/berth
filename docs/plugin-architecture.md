@@ -112,14 +112,15 @@
 | `fs` | 脚本 | `fs` | 本机任意路径读写（Agent 插件写会话配置用） |
 | `files` | 两者 | `project.files` | 项目内文件：读、写、列、监听变化、在工作区打开 |
 | `tasks` | 两者 | `tasks` | 项目任务：列、查、建、在任务页打开 |
-| `knowledge` | 两者 | `knowledge` | 知识库搜索、记想法 |
+| `knowledge` | 两者 | `knowledge` | 知识库搜索、记想法；脚本里 `findSource` / `addSource` 存「来源」 |
 | `agent` | 两者 | `agent` | 把内容作为引用交给当前 Agent（用户确认后发送） |
 | `storage` | 两者 | 无 | 插件自己的键值数据（`$BERTH_HOME/state/<id>/`） |
 | `scripts` | 页面 | 无 | 运行本包脚本，拿返回值 |
 | `ui` | 页面 | 无 | 主题、通知、标签标题、打开本插件的其他页面 |
-| `env` | 两者 | 无 | 平台、Berth 版本、当前项目 |
+| `env` | 两者 | 无 | 平台、Berth 版本、当前项目、调用方 Agent（`agent()`） |
 | `data` | 脚本 | 无 | TOML 解析 / 生成（JSON 用内置 `JSON`） |
-| `http` | 脚本 | `network` | 发 HTTP 请求（`fetch`），拿状态、响应头与文本 |
+| `http` | 脚本 | `network` | 发 HTTP 请求（`fetch`、并发 `fetchAll`，可选宿主退避重试 `retry`），拿状态、响应头与文本 |
+| `editor` | 脚本 | 无（`render` 要 `fs`） | `render`：请 Berth 窗口用本插件 `embed` 编辑器页面把文件渲染成图片写盘（只在 `tools run/call`，要求窗口开着） |
 
 ## 4. 接入点（`contributes`）
 
@@ -266,6 +267,8 @@
 | 2026-10-26 | process@1 加 `open`（常驻程序逐行对话）；fs@1 加 `mkdir`、`readText` 的 `tailBytes`；`ProviderModel` 加 `endpoint` |
 | 2026-10-31 | 页面环境落地（§2.4：`berth-plugin` 协议、桥脚本、JSON-RPC 通知与钩子）；`editor` 接入点（§4.2：`suffixes` / `page` / `new` / `embed`，钩子 `editor.externalChange` / `editor.drop` / `editor.render`）；`view.page`（第 2 层，目前只在侧栏）；`ui` 加 `openUrl`、`locale`，`EditorContext` 加 `mode` / `content` / `onFlush` / `onDrop` / `onRender`，页面加 `berth.ready` |
 | 2026-11-06 | 页面环境实现 `agent.attach`（随内置「想法」提取成 `ideas` 插件） |
+| 2026-11-11 | 新增脚本命名空间 `editor@1`（`render`，经 control `editor.render` 交给窗口）；`onRender` 入参加 `format`；插件包约定目录加 `skills/`，`tools show` 列出包内 skill；侧栏页面收文件树拖放（通知 `view.drop`，`ViewContext.onDrop`）；脚本 `fs.readBase64` |
+| 2026-11-11 | http@1 加 `fetchAll` 与请求可选 `retry`；页面 `scripts.run` 第三参 `{ signal }`（宿主中断脚本与进行中的 http，经 `scripts.cancel`）；env@1 加 `agent()`；knowledge@1 脚本实现 `findSource` / `addSource`（berth-cli 与 GUI 都注入）；错误可带 `data`（`BerthError.data`） |
 | 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
 
 ## 8. 与现状的迁移

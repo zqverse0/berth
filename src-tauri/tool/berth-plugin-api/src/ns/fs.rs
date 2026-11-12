@@ -9,6 +9,7 @@ use crate::rpc::{str_param, ApiError, ApiResult};
 pub fn call(name: &str, params: &Value) -> Option<ApiResult> {
     Some(match name {
         "readText" => path(params, "path").and_then(|path| read_text(&path, &params["tailBytes"])),
+        "readBase64" => path(params, "path").and_then(|path| read_base64(&path)),
         "writeText" => write_text(params),
         "stat" => path(params, "path").map(|path| stat(&path)),
         "list" => path(params, "dir").and_then(|dir| list(&dir)),
@@ -74,6 +75,20 @@ fn read_text(path: &Path, tail: &Value) -> ApiResult {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(io)?;
     Ok(json!(String::from_utf8_lossy(&bytes)))
+}
+
+/// 二进制文件（如图片）读成 base64；上限 16 MiB，免得一次塞爆脚本与页面之间的消息。
+const MAX_BASE64_BYTES: u64 = 16 << 20;
+
+fn read_base64(path: &Path) -> ApiResult {
+    use base64::Engine as _;
+    let label = path.to_string_lossy();
+    let size = std::fs::metadata(path).map_err(|error| ApiError::io(&label, error))?.len();
+    if size > MAX_BASE64_BYTES {
+        return Err(ApiError::invalid(format!("{label} is larger than 16 MiB")));
+    }
+    let bytes = std::fs::read(path).map_err(|error| ApiError::io(&label, error))?;
+    Ok(json!(base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
 /// 原子写：同目录临时文件写完再改名；父目录不存在时创建。
@@ -210,6 +225,17 @@ fn copy(from: &Path, to: &Path) -> ApiResult {
 mod tests {
     use super::*;
     use crate::rpc::Reason;
+
+    #[test]
+    fn read_base64_returns_bytes_as_base64() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.bin");
+        std::fs::write(&file, [0x89, b'P', b'N', b'G']).unwrap();
+        assert_eq!(
+            call("readBase64", &json!({ "path": file.to_string_lossy() })).unwrap().unwrap(),
+            json!("iVBORw==")
+        );
+    }
 
     #[test]
     fn write_read_stat_list_remove_round_trip() {

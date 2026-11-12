@@ -5,7 +5,7 @@ import enMessages from "@/i18n/messages/en.json"
 import type { FolderDetail } from "@/lib/types"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { ProjectPanel } from "./project-panel"
-import { useProjectPanelStore, useSidebarViewStore } from "./views"
+import { useProjectPanelStore } from "./views"
 
 const active = vi.hoisted(() => ({ folder: null as FolderDetail | null }))
 
@@ -61,15 +61,15 @@ describe("ProjectPanel", () => {
       gitHeads: new Map(),
       branches: new Map(),
     })
-    useProjectPanelStore.setState({ tab: "files", collapsed: false })
-    useSidebarViewStore.setState({ view: "projects" })
+    useProjectPanelStore.setState({
+      tab: "files",
+      collapsed: false,
+      maximized: false,
+    })
   })
 
-  it("titles the worktree as root ⎇ branch and switches tabs", () => {
+  it("switches tabs", () => {
     renderPanel()
-    const header = screen.getByRole("region", { name: panel.label })
-    expect(header.textContent).toContain("berth")
-    expect(header.textContent).toContain("dev")
     expect(screen.getByTestId("files")).toBeTruthy()
 
     fireEvent.click(screen.getByRole("tab", { name: tabs.changes }))
@@ -77,15 +77,17 @@ describe("ProjectPanel", () => {
     expect(useProjectPanelStore.getState().tab).toBe("changes")
   })
 
-  it("collapses to the header and maximizes into the matching view", () => {
+  it("renders nothing while collapsed", () => {
+    useProjectPanelStore.setState({ collapsed: true })
     renderPanel()
-    fireEvent.click(screen.getByRole("button", { name: panel.collapse }))
-    expect(screen.queryByRole("tablist")).toBeNull()
-    fireEvent.click(screen.getByRole("button", { name: panel.expand }))
-    fireEvent.click(screen.getByRole("tab", { name: tabs.commits }))
+    expect(screen.queryByRole("region")).toBeNull()
+    expect(screen.queryByTestId("files")).toBeNull()
+  })
 
+  it("maximizes from the tab row", () => {
+    renderPanel()
     fireEvent.click(screen.getByRole("button", { name: panel.maximize }))
-    expect(useSidebarViewStore.getState().view).toBe("git")
+    expect(useProjectPanelStore.getState().maximized).toBe(true)
   })
 
   it("restores from maximized, and a non-repo has only files and branches", () => {
@@ -102,7 +104,7 @@ describe("ProjectPanel", () => {
         ],
       ]),
     })
-    useSidebarViewStore.setState({ view: "files" })
+    useProjectPanelStore.setState({ maximized: true })
     renderPanel(true)
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       tabs.files,
@@ -110,6 +112,6 @@ describe("ProjectPanel", () => {
     ])
 
     fireEvent.click(screen.getByRole("button", { name: panel.restore }))
-    expect(useSidebarViewStore.getState().view).toBe("projects")
+    expect(useProjectPanelStore.getState().maximized).toBe(false)
   })
 })

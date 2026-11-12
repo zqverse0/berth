@@ -912,6 +912,30 @@ export const FOLDER_OPEN_IN_WORKSPACE_EVENT = "folder://open-in-workspace"
 // never double-open the file.
 export const WORKSPACE_OPEN_FILE_EVENT = "workspace://open-file"
 
+// Plugin script `berth.editor.render` asked the control socket to render a
+// file with the plugin's embed page. Main window only; it settles each request
+// with editorRenderComplete, and the backend writes the image to disk.
+export const EDITOR_RENDER_EVENT = "plugin://editor-render"
+
+export interface EditorRenderRequest {
+  request_id: number
+  plugin: string
+  path: string
+  format: string
+}
+
+/** 交回渲染结果：图片 data URL，或失败原因。 */
+export async function editorRenderComplete(
+  requestId: number,
+  outcome: { image: string } | { message: string }
+): Promise<void> {
+  await getTransport().call("editor_render_complete", {
+    requestId,
+    image: "image" in outcome ? outcome.image : null,
+    message: "message" in outcome ? outcome.message : null,
+  })
+}
+
 // Agent hook (`berth group hook`) reported a state or group change through the
 // control socket (`agent.changed`). Wake-up only: listeners re-read pane state
 // and the group ledger instead of waiting for the next poll.
@@ -1418,6 +1442,7 @@ export async function createTerminalSession(
     agentLaunchInputs: request.agentLaunchInputs ?? null,
     providerId: request.providerId ?? null,
     modelId: request.modelId ?? null,
+    providerGroup: request.providerGroup ?? null,
     folderId: request.folderId ?? null,
     rows: request.rows,
     cols: request.cols,

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "openai-json-citations",
+    "provider": "openai",
+    "body": "{\"choices\": [{\"message\": {\"content\": \"答案正文。\\n\\n## 参考资料\\n- [官方公告](https://example.cn/a)\\n- https://example.cn/b\"}}], \"citations\": [\"https://example.cn/c\", {\"url\": \"https://example.cn/d\", \"title\": \"D\"}]}",
+    "output": "答案正文。\n\n## 参考资料\n- [官方公告](https://example.cn/a)\n- https://example.cn/b\n\nsources([{\"url\": \"https://example.cn/c\"}, {\"url\": \"https://example.cn/d\", \"title\": \"D\"}])"
+  },
+  {
+    "name": "openai-sse-fallback",
+    "provider": "openai",
+    "body": "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\ndata: {\"choices\":[{\"delta\":{\"content\":\"b\"}}]}\ndata: [DONE]",
+    "output": "ab"
+  },
+  {
+    "name": "openai-message-citations",
+    "provider": "openai",
+    "body": "{\"choices\": [{\"message\": {\"content\": \"x\", \"citations\": [{\"href\": \"https://h.test\", \"name\": \"H\"}, \"not-a-url\"]}}]}",
+    "output": "x\n\nsources([{\"url\": \"https://h.test\", \"title\": \"H\"}])"
+  },
+  {
+    "name": "xai-annotations",
+    "provider": "xai",
+    "body": "{\"output\": [{\"type\": \"web_search_call\"}, {\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Tauri 2.0 stable was released on 2024-10-02.\", \"annotations\": [{\"type\": \"url_citation\", \"url\": \"https://v2.tauri.app/blog/tauri-20/\", \"title\": \"Tauri 2.0 Stable Release\"}, {\"type\": \"url_citation\", \"url\": \"https://github.com/tauri-apps/tauri/releases\"}, {\"type\": \"url_citation\", \"url\": \"https://v2.tauri.app/blog/tauri-20/\"}]}]}]}",
+    "output": "Tauri 2.0 stable was released on 2024-10-02.\n\nsources([{\"url\": \"https://v2.tauri.app/blog/tauri-20/\", \"title\": \"Tauri 2.0 Stable Release\"}, {\"url\": \"https://github.com/tauri-apps/tauri/releases\"}])"
+  }
+]

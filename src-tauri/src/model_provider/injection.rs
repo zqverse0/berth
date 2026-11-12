@@ -15,13 +15,14 @@ use crate::tool::profile::load_agent_profile;
 use berth_project_core::service::model_provider_launch;
 use berth_tool_core::provider_injection::{self, ProviderProfile, ProxyRoute};
 
-/// 启动注入：只信当次 `provider_id` / `model_id`。缺任一则不注入（返回空参数，
+/// 启动注入：只信当次 `provider_id` / `model_id` / `group`（启动栏选中的分组）。缺任一则不注入（返回空参数，
 /// launch.js 用 Agent 自己的登录）；否则写档案文件，返回追加给 launch.js 的参数。
 pub async fn resolve_for_launch(
     conn: &DatabaseConnection,
     agent_id: &str,
     provider_id: Option<i32>,
     model_id: Option<&str>,
+    group: Option<&str>,
 ) -> Result<Vec<String>, AppCommandError> {
     let Some(provider_id) = provider_id else {
         return Ok(Vec::new());
@@ -41,6 +42,7 @@ pub async fn resolve_for_launch(
         project_type,
         spec.apis.as_deref(),
         model_id,
+        group,
     )
     .await?
     else {
@@ -58,6 +60,7 @@ pub async fn launch_profile(
     agent_type: &str,
     apis: Option<&[String]>,
     model_id: Option<&str>,
+    group: Option<&str>,
 ) -> Result<Option<provider_injection::LaunchProfile>, AppCommandError> {
     let Some(launch) = model_provider_launch::load(conn, provider_id, agent_type)
         .await
@@ -101,6 +104,7 @@ pub async fn launch_profile(
             proxy: proxy
                 .as_ref()
                 .map(|(base_url, token)| ProxyRoute { base_url, token }),
+            group,
         },
         apis,
         model_id,

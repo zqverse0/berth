@@ -1448,40 +1448,31 @@ html[data-berth-tab-dragging="true"] iframe {
 
 /* 项目首页的港湾（components/workspace/project-home/harbor.tsx）与知识星图（knowledge/components/knowledge-orbit.tsx）。 */
 /* 都挂在 HTML 层上只动 transform / opacity，交给合成器；SVG 内部的动画在 WebKitGTK 上每帧重画 */
+/* 港湾平时静止，只在船的状态变化时播一轮（harbor.tsx 按状态给船换 key 重新挂载）：
+   CSS 无限动画让 WebKit 持续每秒出 60 帧，Linux 上宿主主线程逐帧软件拷贝窗口，首页常开时一直占 10–20% CPU。 */
 .berth-harbor-bob,
 .berth-harbor-sway {
   /* 原点 = logo 船底中央 */
   transform-origin: 50% 82%;
-  will-change: transform;
-  animation: berth-harbor-bob 3.2s ease-in-out infinite;
+  animation: berth-harbor-bob 3.2s ease-in-out 1 both;
 }
 .berth-harbor-sway {
-  animation: berth-harbor-sway 6s ease-in-out infinite;
-}
-/* 平移一个浪周期（200px）后无缝回到起点 */
-.berth-harbor-wave {
-  will-change: transform;
-  animation: berth-harbor-flow 9s linear infinite;
-}
-.berth-harbor-wave-slow {
-  will-change: transform;
-  animation: berth-harbor-flow 15s linear infinite;
+  animation: berth-harbor-sway 6s ease-in-out 1 both;
 }
 .berth-harbor-pulse {
-  animation: berth-harbor-pulse 1.6s ease-in-out infinite;
+  animation: berth-harbor-pulse 1.6s ease-in-out 2;
 }
-/* 选中笔记：两条反向的小轨道；所在的圈缓慢转动。转动的元素外面套一层不动的定位层：同一元素既 translate 又跑 transform 动画，WebKitGTK 合成层会画偏 */
+/* 「工作中」慢闪：由 status-dot.tsx 的 1 秒计时器切换根属性，不用 CSS 无限动画（见该文件说明）。 */
+:root[data-slow-blink="dim"] .berth-slow-blink {
+  opacity: 0.4;
+}
+/* 选中笔记：两条反向的小轨道，每次选中转一圈后停住（无限动画让 WebKit 每秒出 60 帧，GTK3 下宿主逐帧拷贝整窗，
+   实测占 GUI 主线程约 18%）。转动的元素外面套一层不动的定位层：同一元素既 translate 又跑 transform 动画，WebKitGTK 合成层会画偏 */
 .berth-orbit-spin {
-  will-change: transform;
-  animation: berth-orbit-spin 3.2s linear infinite;
+  animation: berth-orbit-spin 3.2s ease-out 1;
 }
 .berth-orbit-spin-slow {
-  will-change: transform;
-  animation: berth-orbit-spin 5.4s linear infinite reverse;
-}
-.berth-orbit-ring {
-  will-change: transform;
-  animation: berth-orbit-spin 90s linear infinite;
+  animation: berth-orbit-spin 5.4s ease-out 1 reverse;
 }
 /* 一次性的画线（path 设了 pathLength=1），播一遍不循环 */
 .berth-orbit-draw {
@@ -1507,11 +1498,6 @@ html[data-berth-tab-dragging="true"] iframe {
     transform: rotate(0.5deg);
   }
 }
-@keyframes berth-harbor-flow {
-  to {
-    transform: translateX(-200px);
-  }
-}
 @keyframes berth-harbor-pulse {
   50% {
     opacity: 0.35;
@@ -1530,12 +1516,9 @@ html[data-berth-tab-dragging="true"] iframe {
 @media (prefers-reduced-motion: reduce) {
   .berth-harbor-bob,
   .berth-harbor-sway,
-  .berth-harbor-wave,
-  .berth-harbor-wave-slow,
   .berth-harbor-pulse,
   .berth-orbit-spin,
-  .berth-orbit-spin-slow,
-  .berth-orbit-ring {
+  .berth-orbit-spin-slow {
     animation: none;
   }
   .berth-orbit-draw {

@@ -249,16 +249,15 @@ export function KnowledgeOrbit({
           {selectedNode && (
             <>
               {layout.radii[selectedNode.ring] != null && (
-                // 外层定位、里层转：同一元素既 translate 居中又跑 transform 动画，
-                // WebKitGTK 合成层上会画偏
+                // 所在的圈只标出来、不转：常驻动画会让 WebKit 一直出帧
                 <div
-                  className="pointer-events-none absolute aspect-square -translate-x-1/2 -translate-y-1/2"
+                  className="pointer-events-none absolute aspect-square -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-primary/55"
                   style={at(0, 0, layout.radii[selectedNode.ring]! * 2)}
-                >
-                  <div className="berth-orbit-ring absolute inset-0 rounded-full border border-dashed border-primary/55" />
-                </div>
+                />
               )}
+              {/* key：换选中笔记时重新挂载，小轨道再转一圈 */}
               <div
+                key={selectedNode.id}
                 className="pointer-events-none absolute aspect-square -translate-x-1/2 -translate-y-1/2"
                 style={at(
                   selectedNode.x,

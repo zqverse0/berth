@@ -12,6 +12,7 @@ import {
 } from "@/lib/workspace-groups"
 import {
   workspaceSections,
+  workspaceSwitchTarget,
   type SectionFolder,
   type SectionSession,
 } from "./workspace-sections"
@@ -195,6 +196,59 @@ describe("workspaceSections", () => {
       [false, true],
       [true, true],
     ])
+  })
+
+  it("an empty workspace selected by switching is current until a project is active", () => {
+    const { sections } = workspaceSections({
+      state: twoGroups(),
+      devices: [{ device: 0, folders: [f(1)] }],
+      sessions: [],
+      current: null,
+      selectedGroup: twoGroups().groups[1].id,
+      manual: {},
+    })
+    expect(sections.map((x) => x.current)).toEqual([false, true])
+  })
+
+  it("switch target falls back from last session to last project to first project", () => {
+    const session = {
+      id: "a",
+      device: 0,
+      folderId: 2,
+      dot: null,
+      tabId: "t1",
+    }
+    const row = (folderId: number, sessions: (typeof session)[]) => ({
+      device: 0,
+      slot: { folderId, worktree: false, nested: false },
+      sessions,
+    })
+    const section = { rows: [row(1, []), row(2, [session])] }
+    expect(
+      workspaceSwitchTarget(section, { folderId: 2, tabId: "t1" })
+    ).toEqual({
+      kind: "session",
+      session,
+    })
+    expect(
+      workspaceSwitchTarget(section, { folderId: 2, tabId: "gone" })
+    ).toEqual({
+      kind: "folder",
+      folderId: 2,
+    })
+    expect(
+      workspaceSwitchTarget(section, { folderId: 9, tabId: null })
+    ).toEqual({
+      kind: "folder",
+      folderId: 1,
+    })
+    expect(workspaceSwitchTarget(section, undefined)).toEqual({
+      kind: "folder",
+      folderId: 1,
+    })
+    expect(workspaceSwitchTarget({ rows: [] }, undefined)).toEqual({
+      kind: "empty",
+    })
   })
 
   it("without a selected project the first workspace is current", () => {

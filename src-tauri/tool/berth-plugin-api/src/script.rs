@@ -12,6 +12,8 @@ use crate::rpc::Host;
 
 const PRELUDE: &str = include_str!("prelude.js");
 const BOOTSTRAP: &str = "berth:bootstrap";
+/// 运行被取消时的错误文本（调用方据此回 `cancelled`）。
+pub const CANCELLED: &str = "cancelled";
 
 /// Agent 启动记录的环境变量（JSON）：`berth group hook` 读它。
 pub const LAUNCH_RECORD_ENV: &str = "BERTH_LAUNCH_RECORD";
@@ -23,6 +25,12 @@ pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Va
     let root = std::fs::canonicalize(&host.package)
         .map_err(|error| format!("{}: {error}", host.package.display()))?;
     runtime.set_loader(PackageResolver { root: root.clone() }, PackageLoader);
+    // 取消：QuickJS 执行中定期问一次，置位即中断脚本。
+    let cancel = std::sync::Arc::clone(&host.cancel);
+    let interrupt = std::sync::Arc::clone(&cancel);
+    runtime.set_interrupt_handler(Some(Box::new(move || {
+        interrupt.load(std::sync::atomic::Ordering::Relaxed)
+    })));
     let context = Context::full(&runtime).map_err(|error| error.to_string())?;
     let statics = json!({
         "pid": std::process::id(),
@@ -43,7 +51,7 @@ pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Va
                     let params = serde_json::from_str(&params).unwrap_or(Value::Null);
                     match api.call(&method, params) {
                         Ok(result) => json!({ "result": result }).to_string(),
-                        Err(error) => json!({ "error": { "reason": error.reason.as_str(), "message": error.message } }).to_string(),
+                        Err(error) => json!({ "error": { "reason": error.reason.as_str(), "message": error.message, "data": error.data } }).to_string(),
                     }
                 })?,
             )?;
@@ -78,6 +86,9 @@ pub fn run(host: Host, bootstrap: &str, globals: &[(&str, String)]) -> Result<Va
             Module::evaluate(ctx.clone(), BOOTSTRAP, bootstrap)?.finish::<()>()?;
             global.get::<_, Option<String>>("__berth_result")
         })();
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(CANCELLED.to_owned());
+        }
         match result {
             Ok(Some(text)) => serde_json::from_str(&text).map_err(|error| error.to_string()),
             Ok(None) => Ok(Value::Null),
@@ -197,6 +208,7 @@ mod tests {
             state_dir: dir.join("state"),
             project: Box::new(|| Value::Null),
             sessions: Default::default(),
+            cancel: Default::default(),
         }
     }
 
@@ -267,6 +279,21 @@ mod tests {
         assert!(run(host(dir.path(), &[]), &bootstrap, &[])
             .unwrap_err()
             .contains("no npm packages"));
+    }
+
+    #[test]
+    fn cancel_interrupts_a_busy_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let bootstrap = import_default(dir.path(), "main.js", "export default () => { while (true) {} }");
+        let host = host(dir.path(), &[]);
+        let flag = std::sync::Arc::clone(&host.cancel);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(run(host, &bootstrap, &[]).unwrap_err(), CANCELLED);
+        assert!(started.elapsed() < std::time::Duration::from_millis(300));
     }
 
     #[test]

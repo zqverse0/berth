@@ -21,6 +21,7 @@ import { useAppUiStore } from "@/stores/app-ui-store"
 import { foldPlacementsForMobile } from "@/stores/workspace-layout-store"
 import { TabProvider } from "@/contexts/tab-context"
 import { PointerProvider } from "@/pointer"
+import { DevicesProvider } from "@/components/devices/devices"
 import { GitCredentialProvider } from "@/contexts/git-credential-context"
 import { WorkspaceRuntimeHost } from "@/components/runtime/workspace-runtime-host"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
@@ -792,7 +793,9 @@ function WorkspaceLayoutInner() {
           <WorkspaceOpenFileListener />
           <WorkspaceCurrentSelection />
           <PointerProvider>
-            <FolderLayoutShell />
+            <DevicesProvider>
+              <FolderLayoutShell />
+            </DevicesProvider>
           </PointerProvider>
         </TabProvider>
       </GitCredentialProvider>

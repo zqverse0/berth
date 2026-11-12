@@ -18,6 +18,8 @@ const STATUSES: [&str; 3] = ["草稿", "已确认", "已取代"];
 const TYPES: [&str; 6] = ["地图", "概念", "模块", "决策", "经验", "来源"];
 const SOURCE_KINDS: [&str; 5] = ["repo", "article", "paper", "video", "other"];
 const HOME_NOTE: &str = "地图/首页.md";
+/// 外部资料目录：`.md` 是来源笔记，PDF 原文件也收录（只读元数据，不解析）。
+const SOURCE_DIR: &str = "来源";
 /// 正文超过这么多行算「太长」，只提醒。
 const LONG_NOTE_LINES: usize = 60;
 /// 只提醒、不算错误的诊断。
@@ -378,7 +380,7 @@ fn scan(project_root: &Path) -> io::Result<Vault> {
         .into_iter()
         .filter_map(Result::ok)
         .map(|entry| entry.into_path())
-        .filter(|path| is_note(path, &vault_root))
+        .filter(|path| is_note(path, &vault_root) || is_source_file(path, &vault_root))
         // 软链指向 vault 外的文件不收录。
         .filter(|path| {
             path.canonicalize()
@@ -392,6 +394,13 @@ fn scan(project_root: &Path) -> io::Result<Vault> {
             continue;
         };
         let metadata = fs::metadata(&path)?;
+        if !is_markdown(&path) {
+            vault.bodies.push(String::new());
+            vault
+                .documents
+                .push(source_file(&path, relative, &metadata));
+            continue;
+        }
         if metadata.len() > MAX_DOCUMENT_BYTES {
             vault.diagnostics.push(KnowledgeDiagnostic {
                 kind: "size_limit".into(),
@@ -463,6 +472,31 @@ fn scan(project_root: &Path) -> io::Result<Vault> {
     }
     vault.edges = resolve_edges(&vault.documents, pending);
     Ok(vault)
+}
+
+/// `来源/` 下的原文件（PDF）：文件名即标题，可被 `[[标题]]` 链接；没有正文与 frontmatter。
+fn source_file(path: &Path, relative: String, metadata: &fs::Metadata) -> KnowledgeDocument {
+    KnowledgeDocument {
+        id: format!("document:{relative}"),
+        path: relative,
+        title: path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Untitled")
+            .to_string(),
+        excerpt: String::new(),
+        note_type: SOURCE_DIR.into(),
+        status: "已确认".into(),
+        tags: Vec::new(),
+        aliases: Vec::new(),
+        code: Vec::new(),
+        sources: Vec::new(),
+        verified_at: None,
+        url: None,
+        digested: None,
+        headings: Vec::new(),
+        modified_at: modified_secs(metadata),
+    }
 }
 
 /// 体检报告：`errors` 必须修，`warnings` 逐条判断；路径相对 vault。
@@ -539,15 +573,20 @@ pub fn lint(project_root: &Path) -> io::Result<LintReport> {
         }
     }
     for document in &vault.documents {
-        if !linked.contains(document.id.as_str()) {
+        // 来源（笔记与原文件）是被引用的资料，没人链接也正常：插件存进来后由用户自己整理。
+        if !linked.contains(document.id.as_str())
+            && document.path.to_ascii_lowercase().ends_with(".md")
+            && document.note_type != "来源"
+        {
             report.errors.push(format!(
                 "{}: 孤立笔记（无出链也无入链）",
                 note(&document.path)
             ));
         }
     }
-    // 空库（刚 `berth project init`）不算缺首页：首页随首批笔记一起写。
-    if report.notes > 0 && !project_root.join(VAULT_DIR).join(HOME_NOTE).is_file() {
+    // 空库（刚 `berth project init`）不算缺首页：首页随首批笔记一起写；只有插件存进来的来源也不算。
+    let own_notes = vault.documents.iter().any(|document| document.note_type != "来源");
+    if own_notes && !project_root.join(VAULT_DIR).join(HOME_NOTE).is_file() {
         report.errors.push(format!("缺少 {HOME_NOTE}（面板首页）"));
     }
     for path in stale(project_root)?.paths {
@@ -557,6 +596,95 @@ pub fn lint(project_root: &Path) -> io::Result<LintReport> {
         ));
     }
     Ok(report)
+}
+
+/// 来源笔记按 url 查（忽略末尾 `/`，与体检的重复判定一致），返回相对项目根的路径。
+pub fn find_source(project_root: &Path, url: &str) -> io::Result<Option<String>> {
+    let url = url.trim().trim_end_matches('/');
+    Ok(scan(project_root)?
+        .documents
+        .into_iter()
+        .find(|document| {
+            document
+                .url
+                .as_deref()
+                .is_some_and(|own| own.trim_end_matches('/') == url)
+        })
+        .map(|document| document.path))
+}
+
+/// 写一篇来源笔记 `来源/<标题>.md`：frontmatter 带 `type: 来源`、`kind: other`（不判断类型，用户自己改）、
+/// url、title、added_at、`digested: false`，`meta` 并入（不覆盖这些键）；正文是 `markdown`。
+/// 标题清洗成合法文件名，与已有笔记重名时加序号；先写临时文件再改名。
+/// 返回 `Ok(新路径)`；同 url 已有时不写，返回 `Err(已有路径)`（都相对项目根）。
+pub fn add_source(
+    project_root: &Path,
+    url: &str,
+    title: &str,
+    markdown: &str,
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> io::Result<Result<String, String>> {
+    let url = url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "url must be http(s)"));
+    }
+    if let Some(path) = find_source(project_root, url)? {
+        return Ok(Err(path));
+    }
+    let taken: HashSet<String> = scan(project_root)?
+        .documents
+        .iter()
+        .map(|document| document.title.to_lowercase())
+        .collect();
+    let dir = project_root.join(VAULT_DIR).join(SOURCE_DIR);
+    fs::create_dir_all(&dir)?;
+    let base = file_stem(title);
+    let stem = (1..)
+        .map(|n| if n == 1 { base.clone() } else { format!("{base} {n}") })
+        .find(|stem| !taken.contains(&stem.to_lowercase()) && !dir.join(format!("{stem}.md")).exists())
+        .unwrap_or(base);
+    let mut front = serde_yaml::Mapping::new();
+    for (key, value) in [
+        ("type", "来源".into()),
+        ("kind", "other".into()),
+        ("url", url.into()),
+        ("title", title.trim().into()),
+        ("added_at", chrono::Local::now().format("%Y-%m-%d").to_string().into()),
+        ("digested", serde_yaml::Value::Bool(false)),
+    ] {
+        front.insert(key.into(), value);
+    }
+    for (key, value) in meta.into_iter().flatten() {
+        let key = serde_yaml::Value::from(key.as_str());
+        if !front.contains_key(&key) {
+            let value = serde_yaml::to_value(value)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+            front.insert(key, value);
+        }
+    }
+    let front = serde_yaml::to_string(&front).map_err(io::Error::other)?;
+    let file = dir.join(format!("{stem}.md"));
+    let temporary = dir.join(format!(".{stem}.md.tmp"));
+    fs::write(&temporary, format!("---\n{front}---\n\n{}\n", markdown.trim()))?;
+    fs::rename(&temporary, &file)?;
+    Ok(Ok(format!("{VAULT_DIR}/{SOURCE_DIR}/{stem}.md")))
+}
+
+/// 标题 → 文件名：去掉路径与双链里不合法的字符，压缩空白，最长 80 字。
+fn file_stem(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| if c.is_control() || "/\\:*?\"<>|#^[]".contains(c) { ' ' } else { c })
+        .collect();
+    let stem: String = cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(80)
+        .collect();
+    let stem = stem.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_owned();
+    if stem.is_empty() { "untitled".to_owned() } else { stem }
 }
 
 /// `checkout` 是主项目以外的 worktree 时，它从主项目 HEAD 分叉以来改过的 vault 文件
@@ -667,8 +795,20 @@ fn is_note(path: &Path, vault_root: &Path) -> bool {
             .is_some_and(|name| name.eq_ignore_ascii_case("README.md"));
     is_markdown(path)
         && !root_readme
-        && !LEGACY_DIRS.iter().any(|dir| path.starts_with(vault_root.join(dir)))
+        && !LEGACY_DIRS
+            .iter()
+            .any(|dir| path.starts_with(vault_root.join(dir)))
         && !path.starts_with(vault_root.join(super::inbox::DIR))
+}
+
+/// `来源/` 下的 PDF。
+fn is_source_file(path: &Path, vault_root: &Path) -> bool {
+    path.is_file()
+        && path.starts_with(vault_root.join(SOURCE_DIR))
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
 }
 
 fn resolve_edges(
@@ -1056,6 +1196,44 @@ mod tests {
         assert!(lint(empty.path()).unwrap().errors.is_empty());
     }
     #[test]
+    fn knowledge_add_source_writes_a_lint_clean_note_once() {
+        let root = tempfile::tempdir().unwrap();
+        note(root.path(), "地图/首页.md", "---\ntype: 地图\nverified_at: 2026-11-11\n---\n# 首页\n[[概念]]");
+        note(root.path(), "概念/概念.md", "---\ntype: 概念\nverified_at: 2026-11-11\n---\n# 概念\n[[首页]]");
+        note(root.path(), "来源/A b.md", "---\ntype: 来源\nkind: repo\nurl: https://old.dev\n---\n# 旧");
+        let meta = serde_json::json!({ "via": "smart-search", "query": "q: x", "kind": "paper" });
+        let added = add_source(
+            root.path(),
+            "https://a.dev/x/",
+            "  A/b: c?  ",
+            "# 正文",
+            meta.as_object(),
+        )
+        .unwrap();
+        let path = ".berth/knowledge/来源/A b c.md";
+        assert_eq!(added, Ok(path.into()));
+        let text = fs::read_to_string(root.path().join(path)).unwrap();
+        assert!(text.contains("kind: other") && text.contains("digested: false"), "{text}");
+        assert!(text.contains("via: smart-search") && text.contains("title: 'A/b: c?'"), "{text}");
+        // 重名（忽略大小写）加序号；同 url（末尾 / 不计）不再写。
+        let second = add_source(root.path(), "https://b.dev", "a B", "x", None).unwrap();
+        assert_eq!(second, Ok(".berth/knowledge/来源/a B 2.md".into()));
+        assert_eq!(
+            add_source(root.path(), "https://a.dev/x", "other", "x", None).unwrap(),
+            Err(path.into())
+        );
+        assert_eq!(find_source(root.path(), "https://a.dev/x").unwrap().as_deref(), Some(path));
+        assert_eq!(find_source(root.path(), "https://none.dev").unwrap(), None);
+        assert_eq!(file_stem(" ..[[]].. "), "untitled");
+        let report = lint(root.path()).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        // 只有来源的库不要求首页
+        let only = tempfile::tempdir().unwrap();
+        add_source(only.path(), "https://c.dev", "C", "x", None).unwrap().unwrap();
+        assert!(lint(only.path()).unwrap().errors.is_empty());
+    }
+
+    #[test]
     fn lint_checks_source_notes_by_url_and_kind() {
         let root = tempfile::tempdir().unwrap();
         let source = |url: &str, kind: &str| {
@@ -1077,6 +1255,46 @@ mod tests {
         assert!(has("来源/U.md: 来源 url 与 来源/T.md 重复"));
         // 来源不要求 status / sources / verified_at。
         assert!(!has("来源/T.md: 缺少"));
+    }
+
+    #[test]
+    fn source_pdfs_are_listed_linkable_and_not_linted() {
+        let root = tempfile::tempdir().unwrap();
+        let vault = root.path().join(VAULT_DIR);
+        fs::create_dir_all(vault.join("来源")).unwrap();
+        fs::create_dir_all(vault.join("概念")).unwrap();
+        fs::write(vault.join("来源/Attention.PDF"), b"%PDF-1.7").unwrap();
+        // 别的目录里的 PDF 和来源里的其他文件不收录。
+        fs::write(vault.join("概念/附件.pdf"), b"%PDF-1.7").unwrap();
+        fs::write(vault.join("来源/图.png"), b"").unwrap();
+        note(
+            root.path(),
+            "地图/首页.md",
+            "---\ntype: 地图\nverified_at: a\n---\n# 首页\n[[Attention]]",
+        );
+        let result = snapshot(root.path()).unwrap();
+        let pdf = result
+            .documents
+            .iter()
+            .find(|d| d.path.ends_with(".PDF"))
+            .expect("来源 PDF");
+        assert_eq!(
+            (pdf.title.as_str(), pdf.note_type.as_str()),
+            ("Attention", "来源")
+        );
+        assert_eq!(result.documents.len(), 2);
+        assert!(result
+            .edges
+            .iter()
+            .any(|e| e.target == pdf.id && !e.unresolved));
+        let unlinked = tempfile::tempdir().unwrap();
+        fs::create_dir_all(unlinked.path().join(VAULT_DIR).join("来源")).unwrap();
+        fs::write(unlinked.path().join(VAULT_DIR).join("来源/x.pdf"), b"").unwrap();
+        let report = lint(unlinked.path()).unwrap();
+        assert!(
+            report.errors.iter().all(|line| !line.contains("x.pdf")),
+            "{report:?}"
+        );
     }
 
     #[test]

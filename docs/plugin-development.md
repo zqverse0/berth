@@ -36,6 +36,7 @@ plugins/<id>/
 ├── usage.json         # 用量窗口（可选）
 ├── sessions.json      # 会话来源声明（tool.json resources 引用）
 ├── private/           # 包内辅助脚本与数据，只给本插件用
+├── skills/            # 插件自带的 Agent skill：<name>/SKILL.md，tools show 列出，Agent 按需读
 ├── src/               # 页面插件的源码（宿主不读，不发布）：vite.config.mjs 构建到 page/
 └── page/              # 页面（view.page / editor.page 引用），构建产物，不进 git
 ```
@@ -223,10 +224,11 @@ export default async function (argv) {
 | 命名空间 | 常用 |
 |---|---|
 | `process` | `run`（交互、继承终端）、`exec`（取输出，可带 `stdin` / `timeoutMs`）、`open`（常驻程序逐行对话，如 stdio JSON-RPC）、`which`、`alive`、`pid`、`stdin` |
-| `fs` | `readText`（`tailBytes`）、`writeText`（原子写，`mode`）、`stat`、`list`、`mkdir`、`remove`、`symlink`、`copy`、`rename`、`resolve` |
+| `fs` | `readText`（`tailBytes`）、`readBase64`、`writeText`（原子写，`mode`）、`stat`、`list`、`mkdir`、`remove`、`symlink`、`copy`、`rename`、`resolve` |
 | `data` | `parseToml` / `stringifyToml`（JSON 用内置 `JSON`） |
 | `env` | `vars`（环境变量快照）、`platform`、`project()` |
 | `storage` | `get` / `set` / `remove`，`dir` = 插件数据目录 |
+| `editor` | `render(path, { out, format })`：Berth 窗口用本插件 `embed` 编辑器页面出图写到 `out`（要 `fs`，窗口须开着） |
 
 路径必须是绝对路径或 `~` 开头。
 

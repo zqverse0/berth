@@ -3,14 +3,7 @@
 import { ArrowUpCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useAppUpdate } from "@/components/providers/update-provider"
-
-function Spinner({ className }: { className?: string }) {
-  return (
-    <div
-      className={`animate-spin rounded-full border-[1.5px] border-current border-t-transparent ${className}`}
-    />
-  )
-}
+import { BusyRing } from "@/components/ui/status-dot"
 
 /**
  * App-wide upgrade indicator in the status bar. The download/install lifecycle
@@ -33,7 +26,7 @@ export function StatusBarUpdate() {
     const label = t("restarting")
     return (
       <div className="flex items-center gap-1.5">
-        <Spinner className="h-3 w-3" />
+        <BusyRing className="h-3 w-3" />
         <span>{label}</span>
       </div>
     )
@@ -68,7 +61,7 @@ export function StatusBarUpdate() {
     }
     return (
       <div className="flex items-center gap-1.5">
-        <Spinner className="h-3 w-3" />
+        <BusyRing className="h-3 w-3" />
         <span>{label}</span>
       </div>
     )

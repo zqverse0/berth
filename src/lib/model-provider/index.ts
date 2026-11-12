@@ -27,7 +27,14 @@ export {
   type ProtocolKind,
   type ProviderProtocolUrls,
 } from "./visibility"
-export { modelRecord, providerCatalogModels, serializeModels } from "./overlays"
+export {
+  launchModelOptions,
+  modelRecord,
+  providerCatalogModels,
+  serializeModels,
+  splitLaunchModelValue,
+  type LaunchModelOption,
+} from "./overlays"
 export {
   getAgentProviderBinding,
   setAgentProviderBinding,

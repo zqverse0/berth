@@ -148,6 +148,39 @@ describe("terminal-runtime-store personal console", () => {
     )
   })
 
+  it("forwards view visibility to the attachment and replays hidden after re-attach", async () => {
+    // 宿主按每次 attach 记可见性、默认可见：隐藏要转给当前 attachment，重新 attach 后补报。
+    const fake = fakeStream()
+    const reports: Array<{ attach: number; visible: boolean }> = []
+    let attachCalls = 0
+    const stream: TerminalStream = {
+      async attach(input) {
+        attachCalls += 1
+        const attach = attachCalls
+        const attachment = await fake.stream.attach(input)
+        attachment.setVisible = (visible) => reports.push({ attach, visible })
+        return attachment
+      },
+    }
+    __setTerminalStreamForTests(stream)
+    const actions = useTerminalRuntimeStore.getState()
+
+    actions.setVisible("t1", false)
+    await actions.attachTerminal("t1")
+    expect(reports).toEqual([{ attach: 1, visible: false }])
+
+    actions.setVisible("t1", false)
+    actions.setVisible("t1", true)
+    actions.setVisible("t1", false)
+    expect(reports.slice(1)).toEqual([
+      { attach: 1, visible: true },
+      { attach: 1, visible: false },
+    ])
+
+    await actions.attachTerminal("t1", { freshSnapshot: true })
+    expect(reports.at(-1)).toEqual({ attach: 2, visible: false })
+  })
+
   it("re-attaches when a lost input sequence makes later writes out of order", async () => {
     // 某个序号没被宿主接收后，之后每次写入都乱序：不能一直失败到刷新页面。
     const fake = fakeStream()

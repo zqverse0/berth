@@ -83,6 +83,8 @@ export interface TerminalAttachment {
     cols: number
   ): Promise<TerminalSnapshot>
   outputApplied?(sequence: number): void
+  /** 告诉宿主这个终端是否在显示：隐藏时宿主放慢发包，转为可见立即补发。 */
+  setVisible?(visible: boolean): void
   detach(): Promise<void>
 }
 

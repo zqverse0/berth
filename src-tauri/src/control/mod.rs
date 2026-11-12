@@ -19,7 +19,7 @@ use berth_control_proto::{
     GuiStatus, HelloParams, HelloResult, HelloServer, RpcRequest, RpcResponse,
     CAPABILITY_FILE_OPEN, CAPABILITY_FILE_OPEN_WAIT, CAPABILITY_GUI_STATUS, CAPABILITY_PROJECT,
     CAPABILITY_WORKSPACE_CURRENT_DOCUMENT, CAPABILITY_WORKSPACE_CURRENT_TERMINAL,
-    CAPABILITY_WORKSPACE_DOCUMENT_RANGE, CAPABILITY_KNOWLEDGE_DIGEST, CAPABILITY_AGENT_CHANGED,
+    CAPABILITY_WORKSPACE_DOCUMENT_RANGE, CAPABILITY_KNOWLEDGE_DIGEST, CAPABILITY_AGENT_CHANGED, CAPABILITY_EDITOR_RENDER,
     CONTROL_WIRE_VERSION,
     MAX_FRAME_BYTES, METHOD_HELLO,
 };
@@ -30,6 +30,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod handlers;
 mod pending;
+pub(crate) mod render;
 
 pub(crate) use handlers::ControlDeps;
 
@@ -188,6 +189,7 @@ impl ControlContext {
                 CAPABILITY_WORKSPACE_CURRENT_TERMINAL.to_owned(),
                 CAPABILITY_KNOWLEDGE_DIGEST.to_owned(),
                 CAPABILITY_AGENT_CHANGED.to_owned(),
+                CAPABILITY_EDITOR_RENDER.to_owned(),
             ],
             deps: None,
         }
@@ -347,6 +349,7 @@ async fn dispatch_request(request: &RpcRequest, context: &ControlContext) -> Rpc
             handlers::knowledge_digest(request, context).await
         }
         berth_control_proto::METHOD_AGENT_CHANGED => handlers::agent_changed(context),
+        berth_control_proto::METHOD_EDITOR_RENDER => render::editor_render(request, context).await,
         _ => {
             return RpcResponse::failure(
                 request.id,
@@ -1064,6 +1067,7 @@ mod tests {
                 CAPABILITY_WORKSPACE_CURRENT_TERMINAL.to_owned(),
                 CAPABILITY_KNOWLEDGE_DIGEST.to_owned(),
                 CAPABILITY_AGENT_CHANGED.to_owned(),
+                CAPABILITY_EDITOR_RENDER.to_owned(),
             ]
         );
         assert!(status.pid > 0);

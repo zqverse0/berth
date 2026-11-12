@@ -9,9 +9,9 @@
  * mount → attach + sink, unmount → unbind sink while the personal console
  * remains attached, never create/terminate APIs.
  *
- * Renderer contract: all platforms use xterm's built-in DOM renderer.
- * The optional WebGL addon must not be imported or loaded by production
- * terminal code, eliminating the entire glyph-atlas corruption class.
+ * Renderer contract: visible terminals render with WebGL through
+ * `terminal-webgl.ts`, which falls back to xterm's DOM renderer; the view
+ * never loads the WebGL addon directly.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
@@ -180,15 +180,14 @@ describe("TerminalView renderer contract", () => {
     "utf-8"
   )
 
-  it("does not import or load @xterm/addon-webgl", () => {
+  it("loads WebGL only through the visibility-driven controller", () => {
     expect(terminalViewSource).not.toMatch(/@xterm\/addon-webgl/)
     expect(terminalSurfaceSource).not.toMatch(/@xterm\/addon-webgl/)
-  })
-
-  it("does not reference attachWebglAddon or webglController", () => {
-    expect(terminalViewSource).not.toMatch(/attachWebglAddon/)
-    expect(terminalViewSource).not.toMatch(/webglController/)
-    expect(terminalSurfaceSource).not.toMatch(/attachWebglAddon/)
+    expect(terminalViewSource).toMatch(/createTerminalWebglController\(term\)/)
+    expect(terminalViewSource).toMatch(
+      /webglRef\.current\?\.setVisible\(isVisible\)/
+    )
+    expect(terminalViewSource).toMatch(/webgl\.dispose\(\)/)
   })
 
   it("still imports waitForTerminalFont for font readiness", () => {

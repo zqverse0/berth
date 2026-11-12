@@ -1,7 +1,11 @@
 import { readWorkspaceFileBase64 } from "@/lib/api"
 import { openUrl } from "@/lib/platform"
 import { isRemoteBrowser } from "@/lib/transport/detect"
-import { callPluginBackend, runPluginAction } from "@/lib/plugins/plugin-views"
+import {
+  callPluginBackend,
+  cancelPluginAction,
+  runPluginAction,
+} from "@/lib/plugins/plugin-views"
 
 /**
  * 插件页面（docs/plugin-architecture.md §2.4 页面环境）：包内 html 在沙箱 iframe 里运行，页面里的
@@ -250,7 +254,11 @@ export async function handlePageCall(
         script: String(params.script ?? ""),
         input: params.input ?? null,
         project: host.project,
+        runId: typeof params.runId === "string" ? params.runId : undefined,
       })
+    case "scripts.cancel":
+      await cancelPluginAction(String(params.runId ?? ""))
+      return null
   }
   const namespace = method.split(".")[0]
   if (namespace === "storage" || namespace === "data") {

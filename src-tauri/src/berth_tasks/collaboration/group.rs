@@ -146,7 +146,8 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
     let main = tasks::resolve(root).map_err(|error| error.message)?.main;
     // 一个项目一个群：主目录和各 worktree 打开的都是项目群；旧 tab 的群名不能把它切到别的群。
     let name = group::MAIN_GROUP.to_owned();
-    let events = group::events(&main, &name).map_err(|error| error.message)?;
+    // 群组页常开、每 2 秒读一次：账本没变就复用上次的解析结果。
+    let events = group::events_shared(&main, &name).map_err(|error| error.message)?;
     // 成员名是专家 id：附上专家的显示名（`experts/<id>.json` 的 `name`）。
     let experts: std::collections::HashMap<String, String> =
         berth_tool_core::paths::experts(&crate::platform::paths::berth_home_dir())

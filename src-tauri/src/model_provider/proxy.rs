@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use berth_project_core::service::model_provider_launch;
 use berth_provider_proxy::{serve, upstream_client, Denied, Resolver, Route, RouteRequest};
-use berth_tool_core::provider_injection::resolve_upstream;
+use berth_tool_core::provider_injection::{resolve_upstream, split_proxy_provider};
 use sea_orm::DatabaseConnection;
 
 use crate::platform::keyring_store;
@@ -54,10 +54,8 @@ impl Resolver for GuiResolver {
         if token.as_deref() != Some(request.token.as_str()) {
             return Err(Denied::InvalidToken);
         }
-        let id = request
-            .provider
-            .parse::<i32>()
-            .map_err(|_| Denied::UnknownProvider)?;
+        let (id, group) = split_proxy_provider(&request.provider);
+        let id = id.parse::<i32>().map_err(|_| Denied::UnknownProvider)?;
         let launch = model_provider_launch::load(&self.conn, id, &request.protocol)
             .await
             .ok()
@@ -76,6 +74,7 @@ impl Resolver for GuiResolver {
             &provider.api_url,
             &api_key,
             request.model.as_deref(),
+            group,
         );
         // 无 Key 也放行（本地 Ollama 等）：代理不带凭据转发。
         if url.trim().is_empty() {

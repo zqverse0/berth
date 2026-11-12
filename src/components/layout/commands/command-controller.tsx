@@ -1,7 +1,9 @@
 "use client"
 
 import {
+  useProjectPanelStore,
   useSidebarViewStore,
+  type ProjectPanelTab,
   type SidebarView,
 } from "@/components/layout/sidebar/views"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -106,13 +108,21 @@ export function WorkspaceCommandController() {
     [isOpen, toggle]
   )
 
+  // 文件 / Git 在项目视图的下方面板里：展开并切标签，不最大化
+  const openPanel = useCallback(
+    (tab: ProjectPanelTab) => {
+      openView("projects")
+      useProjectPanelStore.getState().showPanel(tab)
+    },
+    [openView]
+  )
+
   const actions = useMemo<WorkspaceCommandAction[]>(() => {
     // 会话数据在侧栏项目列表里：其他视图下列表没挂载，切过去后下一帧再发事件
     const withProjectList = (fire: () => void) => {
       if (!isOpen) toggle()
       const { view, setView } = useSidebarViewStore.getState()
-      if (view !== "projects" && view !== "files" && view !== "git")
-        setView("projects")
+      if (view !== "projects") setView("projects")
       requestAnimationFrame(fire)
     }
     const switchTab = (offset: number) => {
@@ -222,8 +232,14 @@ export function WorkspaceCommandController() {
         },
       },
       { id: "open_settings", run: openSettings },
-      { id: "open_files", run: () => openView("files") },
-      { id: "open_git", run: () => openView("git") },
+      { id: "open_files", run: () => openPanel("files") },
+      {
+        id: "open_git",
+        run: () => {
+          const { tab } = useProjectPanelStore.getState()
+          openPanel(tab === "files" ? "changes" : tab)
+        },
+      },
       { id: "open_berth_tasks", run: () => openView("tasks") },
       { id: "open_group", run: () => openView("group") },
       { id: "open_memory", run: () => openView("memory") },
@@ -258,6 +274,7 @@ export function WorkspaceCommandController() {
     openFolderPicker,
     tTerminal,
     openView,
+    openPanel,
     openSettings,
     hasActiveTab,
     hasConversationTab,

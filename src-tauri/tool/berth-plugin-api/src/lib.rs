@@ -13,7 +13,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
-pub use rpc::{ApiError, Host, ProjectLookup, Reason};
+pub use ns::editor::{set_desktop, DesktopRender};
+pub use ns::knowledge::{set_knowledge, KnowledgeHost};
+pub use rpc::{ApiError, ApiResult, Cancel, Host, ProjectLookup, Reason};
+pub use script::CANCELLED;
 
 /// 由插件包 tool.json 建一次运行的 [`Host`]：权限取 `permissions`，`requires` 里有宿主不支持的
 /// 命名空间版本就拒绝运行（§2.3）。
@@ -60,6 +63,7 @@ pub fn host_for(package: &Path, project: rpc::ProjectLookup) -> Result<Host, Str
         state_dir,
         project,
         sessions: Default::default(),
+        cancel: Default::default(),
     })
 }
 
@@ -76,14 +80,17 @@ fn package_script(package: &Path, script: &str) -> Result<std::path::PathBuf, St
 
 /// 调用包内脚本的默认导出：`hook` 给出时调它的同名方法（如视图的 `render`），否则默认导出本身是函数。
 /// 参数是 `input`，返回值转成 JSON（`undefined` 为 null）。视图渲染与视图动作都走这里。
+/// `cancel` 置位即中断（返回 [`CANCELLED`]）；不需要取消的调用方传 `Default::default()`。
 pub fn call_script(
     package: &Path,
     script: &str,
     hook: Option<&str>,
     input: &Value,
     project: rpc::ProjectLookup,
+    cancel: Cancel,
 ) -> Result<Value, String> {
-    let host = host_for(package, project)?;
+    let mut host = host_for(package, project)?;
+    host.cancel = cancel;
     let path = package_script(package, script)?;
     let hook = hook.map(script::js_string).unwrap_or_else(|| "null".into());
     let bootstrap = format!(
@@ -143,7 +150,7 @@ mod tests {
     }
 
     fn call(dir: &Path, script: &str, hook: Option<&str>, input: Value) -> Result<Value, String> {
-        call_script(dir, script, hook, &input, Box::new(|| Value::Null))
+        call_script(dir, script, hook, &input, Box::new(|| Value::Null), Default::default())
     }
 
     #[test]
@@ -176,6 +183,48 @@ mod tests {
             .unwrap_err()
             .contains("has no missing()"));
         assert!(call(dir.path(), "../x.js", None, json!({})).is_err());
+    }
+
+    #[test]
+    fn editor_render_needs_fs_and_the_window() {
+        let dir = package(&[(
+            "main.js",
+            r#"export default () => berth.editor.render("/tmp/a.excalidraw", { out: "/tmp/a.png" }).catch((error) => error.reason)"#,
+        )]);
+        assert_eq!(
+            call(dir.path(), "main.js", None, json!(null)).unwrap(),
+            json!("denied")
+        );
+    }
+
+    #[test]
+    fn knowledge_conflict_carries_the_existing_path() {
+        set_knowledge(KnowledgeHost {
+            vault: |root| root.join("main"),
+            find_source: |_, _| Ok(None),
+            add_source: |_, url, _, _, _| Ok(Err(format!("来源/{url}.md"))),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("tool.json"),
+            r#"{"id":"demo","permissions":["knowledge"]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("main.js"),
+            r#"export default async () => [
+                 await berth.knowledge.findSource("u"),
+                 await berth.knowledge.addSource({ url: "u", title: "t", markdown: "m" })
+                   .catch((error) => [error.reason, error.data.path]),
+                 await berth.knowledge.addSource({ url: "u" }).catch((error) => error.reason),
+               ]"#,
+        )
+        .unwrap();
+        let project = Box::new(|| json!({ "root": "/p" }));
+        assert_eq!(
+            call_script(dir.path(), "main.js", None, &json!(null), project, Default::default()).unwrap(),
+            json!([null, ["conflict", "/p/main/来源/u.md"], "invalid-params"])
+        );
     }
 
     #[test]

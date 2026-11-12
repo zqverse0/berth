@@ -71,3 +71,59 @@ export function modelRecord(item: ProviderModel): Record<string, unknown> {
     ...(item.maxOutput ? { maxOutput: item.maxOutput } : {}),
   }
 }
+
+/** 启动栏模型值里模型 id 与分组 id 的分隔符（模型 id 里不会出现的控制字符）。 */
+const GROUP_SEPARATOR = "\u001f"
+
+export interface LaunchModelOption {
+  value: string
+  label: string
+}
+
+/**
+ * 启动栏模型选项：同一模型在多个分组里时每个分组一项（「模型 · 分组名」），
+ * 值带分组 id，启动时用 `splitLaunchModelValue` 拆回；其余模型一项一值。
+ */
+export function launchModelOptions(
+  provider: ModelProviderInfo | null,
+  models: ProviderModel[]
+): LaunchModelOption[] {
+  const groups = new Map<string, { id: string; name: string }[]>()
+  try {
+    const parsed = provider?.discovery_json
+      ? JSON.parse(provider.discovery_json)
+      : null
+    const list = parsed?.keyGroups || parsed?.groupKeys
+    if (Array.isArray(list)) {
+      list.forEach((group, index) => {
+        const id = String(group?.id ?? index + 1)
+        const name = String(group?.name || id)
+        for (const entry of Array.isArray(group?.models) ? group.models : []) {
+          const model = parseModelEntry(entry)
+          if (model)
+            groups.set(model.id, [
+              ...(groups.get(model.id) ?? []),
+              { id, name },
+            ])
+        }
+      })
+    }
+  } catch {}
+  return models.flatMap((model) => {
+    const owners = groups.get(model.id) ?? []
+    if (owners.length < 2) return [{ value: model.id, label: model.id }]
+    return owners.map((group) => ({
+      value: `${model.id}${GROUP_SEPARATOR}${group.id}`,
+      label: `${model.id} · ${group.name}`,
+    }))
+  })
+}
+
+/** 启动栏模型值 → 模型 id 与选中的分组 id（没带分组为 null）。 */
+export function splitLaunchModelValue(value: string): {
+  model: string
+  group: string | null
+} {
+  const [model, group] = value.split(GROUP_SEPARATOR)
+  return { model, group: group || null }
+}

@@ -1,6 +1,6 @@
 /** 与 `src-tauri/src/knowledge/model.rs` 对应；字段语义见 `berth guide knowledge`。 */
 
-/** 笔记类型（面板分组顺序）；另有「来源」（发现页维护）与「未分类」（vault 根目录下没写 type）。 */
+/** 笔记类型（面板分组顺序）；另有「来源」（`来源/` 下的来源笔记与 PDF，面板单独分组）与「未分类」（vault 根目录下没写 type）。 */
 export const NOTE_TYPES = ["地图", "概念", "模块", "决策", "经验"] as const
 
 export type NoteStatus = "草稿" | "已确认" | "已取代"

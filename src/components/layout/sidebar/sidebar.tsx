@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState, lazy, Suspense, memo } from "react"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { SidebarProjectList } from "@/components/conversations/sidebar/sidebar-project-list"
@@ -16,15 +15,11 @@ import {
   SidebarViewNav,
 } from "@/components/layout/sidebar/activity-bar"
 import {
-  panelView,
   useProjectPanelStore,
   useSidebarViewLabel,
   useSidebarViewStore,
 } from "@/components/layout/sidebar/views"
-import {
-  PROJECT_PANEL_HEADER_PX,
-  ProjectPanel,
-} from "@/components/layout/sidebar/project-panel"
+import { ProjectPanel } from "@/components/layout/sidebar/project-panel"
 import {
   SplitHandle,
   SplitPane,
@@ -88,8 +83,8 @@ function loadTopRatio(): number {
 }
 
 /**
- * 项目视图：上为项目列表，下为当前项目面板。`maximized`（视图为文件 / Git）时上方收成一行摘要，
- * 面板收起时下方只剩标题行；拖动分隔条调整并记住，双击在默认分割与下方最大化间切换。
+ * 项目视图：上为项目列表，下为当前项目面板。`maximized` 时上方收成一行摘要，
+ * 面板收起时整块隐藏（由状态栏项目段展开）；拖动分隔条调整并记住，双击在默认分割与下方最大化间切换。
  */
 function ProjectSplit({
   visible,
@@ -99,30 +94,20 @@ function ProjectSplit({
   maximized: boolean
 }) {
   const collapsed = useProjectPanelStore((s) => s.collapsed)
-  const setView = useSidebarViewStore((s) => s.setView)
+  const setMaximized = useProjectPanelStore((s) => s.setMaximized)
   const splitRef = useRef<SplitViewHandle>(null)
-  const boxRef = useRef<HTMLDivElement>(null)
   const topRatio = useRef<number | null>(null)
   topRatio.current ??= loadTopRatio()
   const mode = maximized ? "max" : collapsed ? "collapsed" : "split"
   useEffect(() => {
     const top = topRatio.current ?? DEFAULT_TOP
-    // 收起：下方只留标题行，按容器实际高度换成百分比
-    const header =
-      (PROJECT_PANEL_HEADER_PX /
-        Math.max(1, boxRef.current?.clientHeight ?? 1)) *
-      100
     splitRef.current?.setLayout(
-      mode === "split"
-        ? [top, 100 - top]
-        : mode === "max"
-          ? [0, 100]
-          : [100 - header, header]
+      mode === "split" ? [top, 100 - top] : mode === "max" ? [0, 100] : [100, 0]
     )
   }, [mode])
 
   return (
-    <div ref={boxRef} className="h-full min-h-0">
+    <div className="h-full min-h-0">
       <SplitView
         ref={splitRef}
         direction="vertical"
@@ -152,20 +137,14 @@ function ProjectSplit({
           </div>
         </SplitPane>
         <SplitHandle
-          onDoubleClick={() =>
-            setView(
-              maximized
-                ? "projects"
-                : panelView(useProjectPanelStore.getState().tab)
-            )
-          }
+          className={mode === "collapsed" ? "hidden" : undefined}
+          onDoubleClick={() => setMaximized(!maximized)}
         />
         <SplitPane
           order={2}
           defaultSize={100 - topRatio.current}
           minSizePx={mode === "split" ? MIN_PANE_PX : 0}
           collapsed={mode === "collapsed"}
-          collapsedSizePx={PROJECT_PANEL_HEADER_PX}
         >
           <ProjectPanel visible={visible} maximized={maximized} />
         </SplitPane>
@@ -186,12 +165,8 @@ export const Sidebar = memo(function Sidebar() {
   const isMobile = useIsMobile()
   const currentView = useSidebarViewStore((state) => state.view)
   const setView = useSidebarViewStore((state) => state.setView)
-  // 文件 / Git 不再是单独的视图：下方面板切到对应标签并最大化
-  const explorer =
-    currentView === "projects" ||
-    currentView === "files" ||
-    currentView === "git"
-  const projectCount = useAppWorkspaceStore((s) => s.folders.length)
+  const panelMaximized = useProjectPanelStore((s) => s.maximized)
+  const showPanel = useProjectPanelStore((s) => s.showPanel)
   const fileSearchRequest = useAppUiStore((s) => s.projectFileSearchRequest)
   const getViewLabel = useSidebarViewLabel()
   // On desktop the header's top-left is owned by the fixed window-chrome overlay
@@ -205,17 +180,12 @@ export const Sidebar = memo(function Sidebar() {
   const currentViewLabel =
     currentView === "settings" ? settingsTitle : getViewLabel(currentView)
 
-  // Command-palette / shortcut file search targets the file pane.
+  // 命令面板 / 快捷键的文件搜索：回到项目视图，下方面板切到文件
   useEffect(() => {
-    if (fileSearchRequest > 0) setView("files")
-  }, [fileSearchRequest, setView])
-
-  // 进文件 / Git 视图：面板切到对应标签
-  useEffect(() => {
-    const panel = useProjectPanelStore.getState()
-    if (currentView === "files" && panel.tab !== "files") panel.setTab("files")
-    if (currentView === "git" && panel.tab === "files") panel.setTab("changes")
-  }, [currentView])
+    if (fileSearchRequest === 0) return
+    setView("projects")
+    showPanel("files")
+  }, [fileSearchRequest, setView, showPanel])
 
   // 插件视图：插件被停用或删掉后回到项目视图。
   const pluginViews = usePluginViewsStore((s) => s.views)
@@ -231,11 +201,13 @@ export const Sidebar = memo(function Sidebar() {
     setVisitedPages([...visitedPages, currentView])
   }
 
-  // A pending file-tree reveal also targets the file pane.
+  // 文件树定位同样只切到文件标签，项目列表留着
   const pendingRevealPath = useAppUiStore((s) => s.pendingRevealPath)
   useEffect(() => {
-    if (pendingRevealPath) setView("files")
-  }, [pendingRevealPath, setView])
+    if (!pendingRevealPath) return
+    setView("projects")
+    showPanel("files")
+  }, [pendingRevealPath, setView, showPanel])
 
   // Keep the lightweight project-list shell mounted on desktop so disclosure
   // state survives the slide, but let SidebarProjectList unmount its
@@ -256,16 +228,7 @@ export const Sidebar = memo(function Sidebar() {
       <SidebarHeader
         mobile={isMobile}
         reserve={leftReserve}
-        title={
-          <>
-            {currentViewLabel}
-            {explorer && projectCount > 0 ? (
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                {projectCount}
-              </span>
-            ) : null}
-          </>
-        }
+        title={currentViewLabel}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -279,11 +242,8 @@ export const Sidebar = memo(function Sidebar() {
         ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {explorer && (
-            <ProjectSplit
-              visible={isOpen}
-              maximized={currentView !== "projects"}
-            />
+          {currentView === "projects" && (
+            <ProjectSplit visible={isOpen} maximized={panelMaximized} />
           )}
 
           {currentView === "group" && (

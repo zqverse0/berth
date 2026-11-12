@@ -73,7 +73,7 @@ describe("ConversationDetailPanel cross-pane primary tabs", () => {
   it("keeps one primary tree while painting a visible tab in each pane", () => {
     expect(source).toContain("data-workspace-primary-pane={pane}")
     expect(source).toContain("paneVisibleTabIds")
-    expect(source).toContain("isVisible={paneVisible}")
+    expect(source).toContain("isVisible={paneVisible && !hidden}")
     expect(source).toContain("workspaceTabRefEqual(activeWorkspaceTab, tabRef)")
     expect(source).toContain("selectWorkspaceTab(tabRef)")
     expect(source).not.toContain("activePrimaryPane === pane")

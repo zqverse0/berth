@@ -11,7 +11,8 @@ pub(crate) use parser::split_frontmatter;
 pub(crate) use service::replace_status;
 
 pub use service::{
-    covering, find, lint, search, set_status, show, snapshot, stale, worktree_changes, LintReport,
+    add_source, covering, find, find_source, lint, search, set_status, show, snapshot, stale,
+    worktree_changes, LintReport,
 };
 
 use std::path::{Path, PathBuf};

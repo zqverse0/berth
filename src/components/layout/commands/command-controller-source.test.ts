@@ -50,7 +50,9 @@ describe("workspace commands live behind the unified command palette", () => {
 
   it("opens project surfaces as sidebar views, not aux-panel tabs", () => {
     expect(controllerSource).toContain('openView("tasks")')
-    expect(controllerSource).toContain('openView("git")')
+    expect(controllerSource).toContain(
+      'openPanel(tab === "files" ? "changes" : tab)'
+    )
     expect(controllerSource).toContain(
       "useSidebarViewStore.getState().setView(view)"
     )

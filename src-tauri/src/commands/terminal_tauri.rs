@@ -7,15 +7,16 @@ use tauri::Manager;
 use tauri::State;
 
 use super::terminal_packet::{
-    encode_local_terminal_packet, LOCAL_OUTPUT_BATCH_MAX_BYTES, LOCAL_OUTPUT_BATCH_MAX_EVENTS,
+    encode_local_terminal_packet, LOCAL_HIDDEN_OUTPUT_MIN_INTERVAL, LOCAL_INPUT_ECHO_WINDOW,
+    LOCAL_OUTPUT_BATCH_MAX_BYTES, LOCAL_OUTPUT_BATCH_MAX_EVENTS, LOCAL_OUTPUT_MIN_INTERVAL,
     LOCAL_OUTPUT_PACKET, LOCAL_RESYNC_PACKET,
 };
 use super::{
     attach_terminal_core, create_terminal_core, detach_terminal_core, get_terminal_core,
     list_terminals_core, prepare_credential_env, remove_terminal_record_core, resize_terminal_core,
-    send_terminal_key_core, send_terminal_line_core, terminate_terminal_core, CreatePersonalTerminalRequest,
-    ResizeAttachedTerminalRequest, TerminalClientRequest, TerminalIdRequest,
-    MAX_TERMINAL_INPUT_BYTES,
+    send_terminal_key_core, send_terminal_line_core, terminate_terminal_core,
+    CreatePersonalTerminalRequest, ResizeAttachedTerminalRequest, TerminalClientRequest,
+    TerminalIdRequest, MAX_TERMINAL_INPUT_BYTES,
 };
 use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
@@ -40,6 +41,7 @@ pub async fn terminal_create(
     agent_launch_inputs: Option<BTreeMap<String, Value>>,
     provider_id: Option<i32>,
     model_id: Option<String>,
+    provider_group: Option<String>,
     terminal_id: Option<String>,
     folder_id: Option<i32>,
     rows: u16,
@@ -84,6 +86,7 @@ pub async fn terminal_create(
             agent_id,
             provider_id,
             model_id.as_deref(),
+            provider_group.as_deref(),
         )
         .await?;
     }
@@ -115,10 +118,8 @@ pub async fn terminal_get_session(
     manager: State<'_, TerminalManager>,
 ) -> Result<TerminalDescriptor, AppCommandError> {
     let manager = manager.inner().clone();
-    run_blocking(move || {
-        get_terminal_core(&manager, TerminalIdRequest { terminal_id }, tail_lines)
-    })
-    .await
+    run_blocking(move || get_terminal_core(&manager, TerminalIdRequest { terminal_id }, tail_lines))
+        .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -188,6 +189,9 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
     let snapshot = attachment.snapshot.clone();
     tauri::async_runtime::spawn(async move {
         let mut pending_event: Option<crate::terminal::protocol::TerminalStreamEvent> = None;
+        let mut last_output_sent: Option<std::time::Instant> = None;
+        // 上一包被大小上限截断：队列有积压，不等节拍，免得大量输出被拖慢到溢出重同步。
+        let mut backlogged = false;
         loop {
             let event = if let Some(event) = pending_event.take() {
                 event
@@ -228,6 +232,30 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
                 crate::terminal::protocol::TerminalStreamEvent::Output {
                     sequence, data, ..
                 } => {
+                    // 距上一包不足一个节拍：等到节拍再合包；页面没在显示时节拍放慢。
+                    // 用户刚输入、等待中输入到达或终端转为可见则立即发。
+                    if !backlogged && !attachment.pace.input_within(LOCAL_INPUT_ECHO_WINDOW) {
+                        let interval = if attachment.pace.is_hidden() {
+                            LOCAL_HIDDEN_OUTPUT_MIN_INTERVAL
+                        } else {
+                            LOCAL_OUTPUT_MIN_INTERVAL
+                        };
+                        let wait = last_output_sent.and_then(|sent| {
+                            (sent + interval).checked_duration_since(std::time::Instant::now())
+                        });
+                        if let Some(wait) = wait {
+                            tokio::select! {
+                                _ = tokio::time::sleep(wait) => {}
+                                _ = attachment.pace.changed() => {}
+                            }
+                        }
+                    }
+                    // 隐藏终端一个节拍攒下的事件多，只按字节封顶，免得被事件数拆成多包。
+                    let max_events = if attachment.pace.is_hidden() {
+                        usize::MAX
+                    } else {
+                        LOCAL_OUTPUT_BATCH_MAX_EVENTS
+                    };
                     let sequence_start = sequence;
                     let mut sequence_end = sequence;
                     let mut output = data;
@@ -235,9 +263,7 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
                     let mut data_closed = false;
                     let mut sequence_gap = false;
 
-                    while output.len() < LOCAL_OUTPUT_BATCH_MAX_BYTES
-                        && event_count < LOCAL_OUTPUT_BATCH_MAX_EVENTS
-                    {
+                    while output.len() < LOCAL_OUTPUT_BATCH_MAX_BYTES && event_count < max_events {
                         match attachment.data_rx.try_recv() {
                             Ok(next) => match next {
                                 crate::terminal::protocol::TerminalStreamEvent::Output {
@@ -281,6 +307,12 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
                         }
                     }
 
+                    backlogged = output.len() >= LOCAL_OUTPUT_BATCH_MAX_BYTES
+                        || event_count >= max_events
+                        || matches!(
+                            pending_event,
+                            Some(crate::terminal::protocol::TerminalStreamEvent::Output { .. })
+                        );
                     let packet = encode_local_terminal_packet(
                         LOCAL_OUTPUT_PACKET,
                         sequence_start,
@@ -290,6 +322,7 @@ pub async fn attach_terminal_to_sink<S: TerminalPacketSink>(
                     if !sink.send_packet(packet).await {
                         break;
                     }
+                    last_output_sent = Some(std::time::Instant::now());
                     if sequence_gap {
                         let packet = encode_local_terminal_packet(
                             LOCAL_RESYNC_PACKET,
@@ -408,6 +441,21 @@ pub async fn terminal_resize_attached(
         )
     })
     .await
+}
+
+/// 页面报告这一次 attach 的终端是否在显示（tab 切走、面板收起即隐藏），宿主据此调节发包节奏。
+/// 远程浏览器经同一命令上报，按它自己的 client id 只影响它那一路。
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn terminal_set_attached_visible(
+    terminal_id: String,
+    client_id: String,
+    visible: bool,
+    manager: State<'_, TerminalManager>,
+) -> Result<(), AppCommandError> {
+    manager
+        .set_attached_visible(&terminal_id, &client_id, visible)
+        .map_err(AppCommandError::from)
 }
 
 /// 终端 command 会同步等待 executor 回执和终端输入锁：放到阻塞线程池，

@@ -1,4 +1,11 @@
+import {
+  EDITOR_RENDER_EVENT,
+  editorRenderComplete,
+  readFileForEdit,
+  type EditorRenderRequest,
+} from "@/lib/api"
 import { isPathUnderRoot, splitAbsPath } from "@/lib/files/file-open-target"
+import { getCurrentWindow, subscribe } from "@/lib/platform"
 import {
   connectPluginPage,
   pluginAssetUrl,
@@ -72,24 +79,85 @@ export async function renderPluginEmbed(
   content: string,
   projectRoot: string | null
 ): Promise<string | null> {
+  try {
+    return await renderEmbedImage(editor, absPath, content, projectRoot)
+  } catch {
+    return null
+  }
+}
+
+/** 同上，但出错时抛出原因；`format` 原样交给插件页面（如 `png`），省略时由插件决定。 */
+async function renderEmbedImage(
+  editor: PluginEditor,
+  absPath: string,
+  content: string,
+  projectRoot: string | null,
+  format?: string
+): Promise<string> {
   const root =
     projectRoot && isPathUnderRoot(absPath, projectRoot)
       ? projectRoot.replace(/[\\/]+$/, "")
       : (splitAbsPath(absPath)?.rootPath ?? null)
-  if (!root) return null
+  if (!root) throw new Error(`${absPath} is not an absolute path`)
   const page = await openPage(editor, root)
-  try {
-    const result = await page.request("editor.render", {
-      path: absPath.slice(root.length + 1),
-      content,
-      theme: document.documentElement.classList.contains("dark")
-        ? "dark"
-        : "light",
+  const result = await page.request("editor.render", {
+    path: absPath.slice(root.length + 1),
+    content,
+    theme: document.documentElement.classList.contains("dark")
+      ? "dark"
+      : "light",
+    ...(format ? { format } : {}),
+  })
+  if (typeof result === "string" && result.startsWith("data:image/"))
+    return result
+  throw new Error(`plugin ${editor.plugin} returned no image`)
+}
+
+let listening = false
+
+/**
+ * 插件脚本 `berth.editor.render`（经 control 的 `editor.render`）：只用该插件自己的嵌入编辑器，
+ * 按后缀选；渲染结果交回后端写盘。只在主窗口订阅，重复调用无副作用。
+ */
+export function listenForEditorRenders(): void {
+  if (listening) return
+  listening = true
+  void (async () => {
+    const win = await getCurrentWindow()
+    if (win && win.label !== "main") return
+    await subscribe<EditorRenderRequest>(EDITOR_RENDER_EVENT, (request) => {
+      void (async () => {
+        try {
+          const editor = editorForPath(
+            embedEditors().filter((item) => item.plugin === request.plugin),
+            request.path
+          )
+          if (!editor)
+            throw new Error(
+              `plugin ${request.plugin} has no enabled embed editor for ${request.path}`
+            )
+          const split = splitAbsPath(request.path)
+          if (!split) throw new Error(`${request.path} is not an absolute path`)
+          const { content } = await readFileForEdit(
+            split.rootPath,
+            split.ioPath
+          )
+          const image = await renderEmbedImage(
+            editor,
+            request.path,
+            content,
+            null,
+            request.format
+          )
+          await editorRenderComplete(request.request_id, { image })
+        } catch (error) {
+          await editorRenderComplete(request.request_id, {
+            message: error instanceof Error ? error.message : String(error),
+          }).catch(() => undefined)
+        }
+      })()
     })
-    return typeof result === "string" && result.startsWith("data:image/")
-      ? result
-      : null
-  } catch {
-    return null
-  }
+  })().catch(() => {
+    // 非桌面环境：没有渲染请求
+  })
 }

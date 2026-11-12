@@ -338,6 +338,17 @@ export class TauriTerminalStream implements TerminalStream {
             }
           })
         })(),
+      setVisible: (visible: boolean): void => {
+        if (detached) return
+        // 尽力而为：上报失败只是少省一点资源，宿主默认按可见发包。
+        void transport
+          .call("terminal_set_attached_visible", {
+            terminalId: input.terminalId,
+            clientId: input.clientId,
+            visible,
+          })
+          .catch(() => {})
+      },
       detach: async (): Promise<void> => {
         if (detached) return
         detached = true

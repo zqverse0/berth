@@ -4,19 +4,12 @@ import { Clock } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BusyRing } from "@/components/ui/status-dot"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-
-function Spinner({ className }: { className?: string }) {
-  return (
-    <div
-      className={`animate-spin rounded-full border-[1.5px] border-current border-t-transparent ${className}`}
-    />
-  )
-}
 
 export function StatusBarTasks() {
   const t = useTranslations("Folder.statusBar.tasks")
@@ -36,7 +29,7 @@ export function StatusBarTasks() {
             {runningTask.label || runningTask.description}
           </span>
           <Skeleton className="h-1 w-28 rounded bg-primary/80" />
-          <Spinner className="h-3 w-3 shrink-0" />
+          <BusyRing className="h-3 w-3 shrink-0" />
         </div>
       )}
       <Popover>
@@ -53,7 +46,7 @@ export function StatusBarTasks() {
               <div key={task.id} className="space-y-1">
                 <div className="flex items-center gap-2 text-xs">
                   {task.status === "running" ? (
-                    <Spinner className="h-3 w-3 text-primary" />
+                    <BusyRing className="h-3 w-3 text-primary" />
                   ) : (
                     <Clock className="h-3 w-3 text-muted-foreground" />
                   )}

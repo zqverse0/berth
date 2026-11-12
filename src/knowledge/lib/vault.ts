@@ -26,6 +26,11 @@ export function isVaultNotePath(relativePath: string | null) {
   return inner.endsWith(".md") && inner !== "readme.md"
 }
 
+/** `来源/` 下的原文件（PDF），不是笔记：没有正文，不算未读、不算孤立。 */
+export function isSourceFile(document: KnowledgeDocument) {
+  return !document.path.toLowerCase().endsWith(".md")
+}
+
 /** 去掉开头的 frontmatter，口径与 Rust `split_frontmatter` 一致。 */
 export function stripFrontmatter(content: string) {
   if (!content.startsWith("---\n")) return content
@@ -128,13 +133,15 @@ export function vaultHealth(
     drafts: snapshot.documents.filter((d) => d.status === "草稿"),
     stale: snapshot.documents.filter((d) => stale.has(d.path)),
     unreadSources: snapshot.documents.filter(
-      (d) => d.noteType === "来源" && d.digested !== true
+      (d) => d.noteType === "来源" && d.digested !== true && !isSourceFile(d)
     ),
     broken: uniqueDocuments(
       snapshot.edges.filter((e) => e.unresolved).map((e) => e.source),
       byId
     ),
-    orphans: snapshot.documents.filter((d) => !linked.has(d.id)),
+    orphans: snapshot.documents.filter(
+      (d) => !linked.has(d.id) && !isSourceFile(d)
+    ),
   }
 }
 

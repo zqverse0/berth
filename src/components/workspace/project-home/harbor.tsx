@@ -6,7 +6,7 @@
  * 甲板货箱 = 未提交的改动；船头 `!` = 有 Agent 等你处理。下方卡片用文字写明同样的事：
  * 任务与步骤进度、实时 +/- 行数、Agent 此刻在做什么。
  * 容器够宽时船停在卡片正上方的水面；窄（手机、窄栏）时竖排卡片，船缩进卡片左侧。
- * 动画都在 HTML 层只动 transform（globals.css `.berth-harbor-*`）。
+ * 平时静止，船的状态变化时播一轮动画（只动 transform，globals.css `.berth-harbor-*`）。
  */
 
 import type { CSSProperties } from "react"
@@ -108,7 +108,7 @@ function Boat({ state, crates }: { state: BoatState; crates: number }) {
   )
 }
 
-/** 一段 200 宽的浪，横向平铺；层宽 200% 左移一半即无缝循环。 */
+/** 一段 200 宽的浪，横向平铺（静止）。 */
 function Waves({ className }: { className: string }) {
   return (
     <div className={cn("absolute left-0 h-3 w-[200%]", className)}>
@@ -145,15 +145,18 @@ function BoatFigure({
   className?: string
 }) {
   const state = boatState(berth)
+  const attention = berth.agents.some((a) => a.state === "attention")
   return (
     <div
+      // 状态一变就换 key 重新挂载，起伏 / 摇摆动画播一轮后停住（不用无限动画，见 globals.css）。
+      key={`${state}:${attention}`}
       className={cn(
         state === "sailing" ? "berth-harbor-bob" : "berth-harbor-sway",
         className
       )}
     >
       <Boat state={state} crates={state === "sailing" ? 0 : crates} />
-      {berth.agents.some((a) => a.state === "attention") && (
+      {attention && (
         <span className="absolute -top-1 right-0 flex size-[18px] items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
           !
         </span>
@@ -339,8 +342,8 @@ export function Harbor({
           className="pointer-events-none absolute inset-x-0 top-0 hidden h-[150px] overflow-hidden @2xl:block"
           aria-hidden
         >
-          <Waves className="berth-harbor-wave bottom-3" />
-          <Waves className="berth-harbor-wave-slow bottom-0 opacity-70" />
+          <Waves className="bottom-3" />
+          <Waves className="bottom-0 opacity-70" />
           <div className="absolute inset-x-0 bottom-[34px] h-1.5 rounded-sm bg-border" />
         </div>
         {berths.map((berth) => (

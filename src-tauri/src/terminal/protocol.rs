@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -104,6 +106,56 @@ pub enum TerminalResume {
     },
 }
 
+/// 这一次 attach 的发包节奏依据：最近一次用户输入的时刻，以及页面是否正在显示这个终端。
+/// 宿主据此让输入后的回显立即发给页面，可见终端按节拍合包，隐藏终端放慢；
+/// 输入到达或终端变为可见时唤醒正在等节拍的发送循环。
+#[derive(Debug, Clone, Default)]
+pub struct AttachPace(Arc<AttachPaceInner>);
+
+#[derive(Debug, Default)]
+struct AttachPaceInner {
+    /// 进程内单调毫秒 + 1；0 表示还没有输入。
+    at_ms: AtomicU64,
+    /// 页面报告这个终端没有显示；默认可见，没上报过的页面行为不变。
+    hidden: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+fn monotonic_ms() -> u64 {
+    static BASE: OnceLock<Instant> = OnceLock::new();
+    BASE.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+impl AttachPace {
+    pub fn mark_input(&self) {
+        self.0.at_ms.store(monotonic_ms(), Ordering::Relaxed);
+        self.0.notify.notify_waiters();
+    }
+
+    /// `window` 内收到过输入。
+    pub fn input_within(&self, window: Duration) -> bool {
+        let at = self.0.at_ms.load(Ordering::Relaxed);
+        at != 0 && monotonic_ms().saturating_sub(at) <= window.as_millis() as u64
+    }
+
+    pub fn set_visible(&self, visible: bool) {
+        let was_hidden = self.0.hidden.swap(!visible, Ordering::Relaxed);
+        // 转为可见：攒着的输出立即发，切回来就是最新画面。
+        if was_hidden && visible {
+            self.0.notify.notify_waiters();
+        }
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        self.0.hidden.load(Ordering::Relaxed)
+    }
+
+    /// 等到下一次输入或转为可见。
+    pub async fn changed(&self) {
+        self.0.notify.notified().await
+    }
+}
+
 pub struct TerminalAttachment {
     pub snapshot: TerminalSnapshot,
     pub resume: TerminalResume,
@@ -111,6 +163,7 @@ pub struct TerminalAttachment {
     pub control_rx: tokio::sync::watch::Receiver<SubscriberControl>,
     /// 这一次 attach 的身份（也是它的 worker 停止信号），见 `detach_attachment`。
     pub stop: Arc<CancellationToken>,
+    pub pace: AttachPace,
 }
 
 #[cfg(test)]

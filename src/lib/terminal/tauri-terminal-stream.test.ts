@@ -104,6 +104,41 @@ describe("TauriTerminalStream resize barrier", () => {
     await attachment.detach()
   })
 
+  it("reports visibility for this attachment and stops after detach", async () => {
+    channelState.channels.length = 0
+    const calls: Array<{ command: string; args: unknown }> = []
+    const transport = {
+      async call(command: string, args: unknown) {
+        calls.push({ command, args })
+        if (command === "terminal_attach_channel") return snapshotWire(1)
+        return undefined
+      },
+      async callRaw() {},
+      async subscribe() {
+        return () => {}
+      },
+      isDesktop: () => true,
+    } as unknown as Transport
+
+    const attachment = await new TauriTerminalStream(transport).attach({
+      terminalId: "t1",
+      clientId: "c1",
+      clientLabel: "Desktop",
+    })
+    attachment.setVisible?.(false)
+    await attachment.detach()
+    attachment.setVisible?.(true)
+
+    expect(
+      calls.filter((call) => call.command === "terminal_set_attached_visible")
+    ).toEqual([
+      {
+        command: "terminal_set_attached_visible",
+        args: { terminalId: "t1", clientId: "c1", visible: false },
+      },
+    ])
+  })
+
   it("forwards a future packet and leaves gap handling to the runtime", async () => {
     channelState.channels.length = 0
     const transport = {

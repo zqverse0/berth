@@ -129,6 +129,8 @@ export interface TerminalRuntimeState {
     cols: number
   ) => Promise<TerminalSnapshot | null>
   retrySnapshot: (terminalId: string, reason?: string) => Promise<void>
+  /** 终端视图是否在显示；转给宿主调节发包节奏，重新 attach 后自动补报。 */
+  setVisible: (terminalId: string, visible: boolean) => void
   acknowledgeOutput: (
     terminalId: string,
     sequence: number,
@@ -204,6 +206,8 @@ interface SessionHandles {
 }
 
 const handles = new Map<string, SessionHandles>()
+/** 视图报告为隐藏的终端；独立于 handles，重新 attach 时补报给宿主（宿主默认按可见）。 */
+const hiddenTerminals = new Set<string>()
 let nextAttachmentGeneration = 0
 /**
  * Host 按 client id 拆订阅，而重连沿用同一 client id：旧 attachment 的 detach
@@ -1073,6 +1077,7 @@ export const useTerminalRuntimeStore = create<TerminalRuntimeState>(
           }
 
           h.attachment = attachment
+          if (hiddenTerminals.has(terminalId)) attachment.setVisible?.(false)
           // Drop any write queue from the previous attachment; rebuild on demand.
           disposeWriteQueue(h)
           applySnapshot(terminalId, attachment.snapshot, set, get)
@@ -1122,6 +1127,7 @@ export const useTerminalRuntimeStore = create<TerminalRuntimeState>(
 
       detachTerminal: async (terminalId: string) => {
         const h = handles.get(terminalId)
+        hiddenTerminals.delete(terminalId)
         stopSessionLoop(terminalId, set)
         if (h) {
           h.outputSink = null
@@ -1244,6 +1250,12 @@ export const useTerminalRuntimeStore = create<TerminalRuntimeState>(
         })
       },
 
+      setVisible: (terminalId: string, visible: boolean) => {
+        if (visible !== hiddenTerminals.has(terminalId)) return
+        if (visible) hiddenTerminals.delete(terminalId)
+        else hiddenTerminals.add(terminalId)
+        handles.get(terminalId)?.attachment?.setVisible?.(visible)
+      },
       retrySnapshot: (terminalId: string, reason?: string) =>
         actions.retrySnapshot(terminalId, reason),
 
@@ -1387,6 +1399,7 @@ export const useTerminalRuntimeStore = create<TerminalRuntimeState>(
           handles.delete(id)
         }
         clearAllPendingResizes()
+        hiddenTerminals.clear()
         streamCache = null
         set({
           sessions: {},

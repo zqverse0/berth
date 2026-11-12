@@ -9,12 +9,12 @@
 
 ## 布局
 
-**左侧**（`src/components/layout/sidebar/`）：`ActivityBar` 放视图图标（项目 / 文件 /
-Git / 任务 / 记忆 / 协作 / 会话详情），左下角是设置；
+**左侧**（`src/components/layout/sidebar/`）：`ActivityBar` 放视图图标（项目 /
+任务 / 记忆 / 协作 / 会话详情），左下角是设置；
 `Sidebar` 外壳 = 顶栏 + 视图正文。顶栏是各视图选项的唯一位置：正文用
 `SidebarHeaderTabs`（tab，替换标题）与 `SidebarHeaderActions` + `SidebarHeaderButton`
-（纯图标动作）声明，自己保有状态，不在正文里再放 tab 条或文字按钮。项目切换只在底部
-状态栏项目段（`src/components/layout/project-switcher.tsx`）；列表类内容用文件列表行，不用卡片。样式用主题
+（纯图标动作）声明，自己保有状态，不在正文里再放 tab 条或文字按钮。底部
+状态栏项目段（`status-bar/status-bar-project.tsx`）是侧栏当前项目面板的标题与收起开关；列表类内容用文件列表行，不用卡片。样式用主题
 token（`text-muted-foreground`、`hover:bg-accent`、`ws-surface-*`），状态栏项保持扁平。
 
 **Workbench**：`src/lib/workbench/catalog.ts` 是 page/panel 事实表，只剩设置页；

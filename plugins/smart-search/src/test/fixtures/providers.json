@@ -1,0 +1,353 @@
+[
+  {
+    "name": "zhipu-ok",
+    "env": {
+      "ZHIPU_API_KEY": "zk"
+    },
+    "input": {
+      "fn": "zhipu",
+      "query": "今天 新闻",
+      "count": 5
+    },
+    "responses": {
+      "POST https://open.bigmodel.cn/api/paas/v4/web_search": {
+        "status": 200,
+        "body": "{\"search_result\": [{\"title\": \"新闻一\", \"link\": \"https://news.cn/1\", \"content\": \"摘要一\", \"media\": \"新华网\", \"publish_date\": \"2026-11-10\"}, {\"title\": \"新闻二\", \"link\": \"https://news.cn/2\", \"content\": \"摘要二\"}], \"search_intent\": [{\"query\": \"今天 新闻\"}], \"request_id\": \"r1\"}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "query": "今天 新闻",
+      "provider": "zhipu",
+      "search_engine": "search_std",
+      "results": [
+        {
+          "title": "新闻一",
+          "url": "https://news.cn/1",
+          "description": "摘要一",
+          "provider": "zhipu",
+          "source": "新华网",
+          "published_date": "2026-11-10",
+          "icon": "",
+          "refer": ""
+        },
+        {
+          "title": "新闻二",
+          "url": "https://news.cn/2",
+          "description": "摘要二",
+          "provider": "zhipu",
+          "source": "",
+          "published_date": "",
+          "icon": "",
+          "refer": ""
+        }
+      ],
+      "total": 2,
+      "search_intent": [
+        {
+          "query": "今天 新闻"
+        }
+      ],
+      "request_id": "r1",
+      "elapsed_ms": 0.78
+    }
+  },
+  {
+    "name": "zhipu-rate-limited",
+    "env": {
+      "ZHIPU_API_KEY": "zk"
+    },
+    "input": {
+      "fn": "zhipu",
+      "query": "x"
+    },
+    "responses": {
+      "POST https://open.bigmodel.cn/api/paas/v4/web_search": {
+        "status": 429,
+        "body": "slow down"
+      }
+    },
+    "output": {
+      "ok": false,
+      "query": "x",
+      "provider": "zhipu",
+      "error_type": "rate_limited",
+      "error": "HTTP 429: Too Many Requests",
+      "elapsed_ms": 0.4
+    }
+  },
+  {
+    "name": "zhipu-not-configured",
+    "env": {},
+    "input": {
+      "fn": "zhipu",
+      "query": "x"
+    },
+    "responses": {},
+    "output": {
+      "ok": false,
+      "error_type": "config_error",
+      "error": "ZHIPU_API_KEY 未配置。请运行 `smart-search setup`，或使用 `smart-search config set ZHIPU_API_KEY <key>`。"
+    }
+  },
+  {
+    "name": "exa-ok",
+    "env": {
+      "EXA_API_KEY": "ek"
+    },
+    "input": {
+      "fn": "exa",
+      "query": "paper",
+      "numResults": 3,
+      "highlights": true,
+      "includeDomains": "a.com, b.com"
+    },
+    "responses": {
+      "POST https://api.exa.ai/search": {
+        "status": 200,
+        "body": "{\"results\": [{\"id\": \"https://p.test/1\", \"title\": \"Paper\", \"url\": \"https://p.test/1\", \"publishedDate\": \"2025-01-01\", \"author\": \"A\", \"score\": 0.5, \"highlights\": [\"h\"], \"favicon\": \"f.ico\"}]}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "query": "paper",
+      "search_type": "neural",
+      "results": [
+        {
+          "id": "https://p.test/1",
+          "title": "Paper",
+          "url": "https://p.test/1",
+          "publishedDate": "2025-01-01",
+          "author": "A",
+          "score": 0.5,
+          "highlights": [
+            "h"
+          ],
+          "favicon": "f.ico"
+        }
+      ],
+      "total": 1,
+      "elapsed_ms": 0.33
+    }
+  },
+  {
+    "name": "exa-parameter-error",
+    "env": {
+      "EXA_API_KEY": "ek"
+    },
+    "input": {
+      "fn": "exa",
+      "query": "paper"
+    },
+    "responses": {
+      "POST https://api.exa.ai/search": {
+        "status": 422,
+        "body": "bad category"
+      }
+    },
+    "output": {
+      "ok": false,
+      "query": "paper",
+      "error_type": "parameter_error",
+      "error": "HTTP 422: Unprocessable Entity - bad category",
+      "elapsed_ms": 0.32
+    }
+  },
+  {
+    "name": "context7-library",
+    "env": {},
+    "input": {
+      "fn": "c7-library",
+      "name": "next.js",
+      "query": "routing"
+    },
+    "responses": {
+      "GET https://context7.com/api/v2/search": {
+        "status": 200,
+        "body": "[{\"id\": \"/vercel/next.js\", \"title\": \"Next.js\", \"stars\": 1}]"
+      }
+    },
+    "output": {
+      "ok": true,
+      "query": "next.js routing",
+      "provider": "context7",
+      "results": [
+        {
+          "id": "/vercel/next.js",
+          "title": "Next.js",
+          "description": "",
+          "trust_score": null,
+          "benchmark_score": null,
+          "total_snippets": null,
+          "stars": 1,
+          "provider": "context7"
+        }
+      ],
+      "total": 1,
+      "elapsed_ms": 0.4
+    }
+  },
+  {
+    "name": "context7-docs-text",
+    "env": {},
+    "input": {
+      "fn": "c7-docs",
+      "libraryId": "/vercel/next.js",
+      "query": "routing"
+    },
+    "responses": {
+      "GET https://context7.com/api/v2/context": {
+        "status": 200,
+        "body": "plain docs",
+        "headers": {
+          "content-type": "text/plain"
+        }
+      }
+    },
+    "output": {
+      "ok": true,
+      "library_id": "/vercel/next.js",
+      "query": "routing",
+      "provider": "context7",
+      "code_snippets": [],
+      "info_snippets": [],
+      "results": [],
+      "total": 0,
+      "content": "{\"content\": \"plain docs\", \"results\": []}",
+      "elapsed_ms": 0.29
+    }
+  },
+  {
+    "name": "context7-docs-json",
+    "env": {},
+    "input": {
+      "fn": "c7-docs",
+      "libraryId": "/vercel/next.js",
+      "query": "routing"
+    },
+    "responses": {
+      "GET https://context7.com/api/v2/context": {
+        "status": 200,
+        "body": "{\"codeSnippets\": [{\"c\": 1}], \"infoSnippets\": [{\"i\": 1}]}",
+        "headers": {
+          "content-type": "application/json"
+        }
+      }
+    },
+    "output": {
+      "ok": true,
+      "library_id": "/vercel/next.js",
+      "query": "routing",
+      "provider": "context7",
+      "code_snippets": [
+        {
+          "c": 1
+        }
+      ],
+      "info_snippets": [
+        {
+          "i": 1
+        }
+      ],
+      "results": [
+        {
+          "c": 1
+        },
+        {
+          "i": 1
+        }
+      ],
+      "total": 2,
+      "content": "{\"codeSnippets\": [{\"c\": 1}], \"infoSnippets\": [{\"i\": 1}]}",
+      "elapsed_ms": 0.27
+    }
+  },
+  {
+    "name": "fetch-tavily-empty-firecrawl-ok",
+    "env": {
+      "TAVILY_API_KEY": "tk",
+      "FIRECRAWL_API_KEY": "fk"
+    },
+    "input": {
+      "fn": "fetch",
+      "url": "https://page.test/a"
+    },
+    "responses": {
+      "POST https://api.tavily.com/extract": {
+        "status": 200,
+        "body": "{\"results\": [{\"raw_content\": \"  \"}]}"
+      },
+      "POST https://api.firecrawl.dev/v2/scrape": {
+        "status": 200,
+        "body": "{\"data\": {\"markdown\": \"# Page\\n\\nbody\"}}"
+      }
+    },
+    "output": {
+      "ok": true,
+      "url": "https://page.test/a",
+      "provider": "firecrawl",
+      "content": "# Page\n\nbody",
+      "provider_attempts": [
+        {
+          "capability": "web_fetch",
+          "provider": "tavily",
+          "status": "empty",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.28,
+          "result_count": 0
+        },
+        {
+          "capability": "web_fetch",
+          "provider": "firecrawl",
+          "status": "ok",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.25,
+          "result_count": 1
+        }
+      ],
+      "fallback_used": true,
+      "elapsed_ms": 0.54
+    }
+  },
+  {
+    "name": "fetch-not-configured",
+    "env": {},
+    "input": {
+      "fn": "fetch",
+      "url": "https://page.test/a"
+    },
+    "responses": {},
+    "output": {
+      "ok": false,
+      "url": "https://page.test/a",
+      "provider": "",
+      "content": "",
+      "error_type": "config_error",
+      "error": "TAVILY_API_KEY 和 FIRECRAWL_API_KEY 均未配置",
+      "provider_attempts": [
+        {
+          "capability": "web_fetch",
+          "provider": "tavily",
+          "status": "empty",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.01,
+          "result_count": 0
+        },
+        {
+          "capability": "web_fetch",
+          "provider": "firecrawl",
+          "status": "empty",
+          "error_type": "",
+          "error": "",
+          "elapsed_ms": 0.01,
+          "result_count": 0
+        }
+      ],
+      "fallback_used": true,
+      "elapsed_ms": 0.04
+    }
+  }
+]

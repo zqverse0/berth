@@ -1,15 +1,7 @@
 "use client"
 
 import { useCallback, type ComponentType } from "react"
-import {
-  Activity,
-  Brain,
-  Files,
-  FolderGit2,
-  FolderKanban,
-  ListTodo,
-  Users,
-} from "lucide-react"
+import { Activity, Brain, FolderKanban, ListTodo, Users } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { create } from "zustand"
 import {
@@ -20,8 +12,6 @@ import {
 
 export type SidebarView =
   | "projects"
-  | "files"
-  | "git"
   | "group"
   | "tasks"
   | "memory"
@@ -35,20 +25,11 @@ export type SidebarView =
 export interface SidebarViewItem {
   id: SidebarView
   icon: ComponentType<{ className?: string }>
-  labelKey:
-    | "projects"
-    | "files"
-    | "git"
-    | "group"
-    | "tasks"
-    | "memory"
-    | "trajectory"
+  labelKey: "projects" | "group" | "tasks" | "memory" | "trajectory"
 }
 
 export const SIDEBAR_VIEWS: SidebarViewItem[] = [
   { id: "projects", icon: FolderKanban, labelKey: "projects" },
-  { id: "files", icon: Files, labelKey: "files" },
-  { id: "git", icon: FolderGit2, labelKey: "git" },
   { id: "group", icon: Users, labelKey: "group" },
   { id: "tasks", icon: ListTodo, labelKey: "tasks" },
   { id: "memory", icon: Brain, labelKey: "memory" },
@@ -75,18 +56,24 @@ function loadPanel(): { tab: ProjectPanelTab; collapsed: boolean } {
 }
 
 /**
- * 当前项目面板的标签与收起（界面状态，存本地）。最大化不在这里：侧栏视图为 `files` / `git`
- * 即下方最大化，`projects` 即默认分割——活动栏、命令、文件搜索沿用原来的视图入口。
+ * 当前项目面板的标签、收起与最大化（界面状态；标签与收起存本地）。最大化时上方项目列表收成一行。
  */
 export const useProjectPanelStore = create<{
   tab: ProjectPanelTab
   collapsed: boolean
+  maximized: boolean
   setTab: (tab: ProjectPanelTab) => void
   setCollapsed: (collapsed: boolean) => void
+  setMaximized: (maximized: boolean) => void
+  /** 展开面板并切到这个标签（命令、文件搜索、文件定位），不改变最大化。 */
+  showPanel: (tab: ProjectPanelTab) => void
 }>((set) => ({
   ...loadPanel(),
+  maximized: false,
   setTab: (tab) => set({ tab }),
   setCollapsed: (collapsed) => set({ collapsed }),
+  setMaximized: (maximized) => set({ maximized }),
+  showPanel: (tab) => set({ tab, collapsed: false }),
 }))
 
 useProjectPanelStore.subscribe(({ tab, collapsed }) => {
@@ -96,11 +83,6 @@ useProjectPanelStore.subscribe(({ tab, collapsed }) => {
     // 存不下只影响重启后的标签
   }
 })
-
-/** 下方最大化时的视图：文件标签对应 `files`，Git 各标签对应 `git`。 */
-export function panelView(tab: ProjectPanelTab): SidebarView {
-  return tab === "files" ? "files" : "git"
-}
 
 /** Current sidebar view; shared by the activity bar and the sidebar body. */
 export const useSidebarViewStore = create<{

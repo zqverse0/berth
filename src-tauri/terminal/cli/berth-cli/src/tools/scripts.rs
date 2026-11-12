@@ -16,8 +16,45 @@ pub(crate) fn launch(script: &Path, args: &[String]) -> ! {
     std::process::exit(berth_plugin_api::agent::launch(script, args, extras))
 }
 
+/// `berth.editor.render` 的窗口通道：经 control 交给已开着的 Berth 窗口（只读连接，不拉起 GUI）。
+fn inject_desktop() {
+    use berth_plugin_api::{ApiError, Reason};
+    berth_plugin_api::set_desktop(Box::new(|params| {
+        let params: berth_control_proto::EditorRenderParams = serde_json::from_value(params)
+            .map_err(|error| ApiError::invalid(error.to_string()))?;
+        let result = crate::gui_client::editor_render(&params).map_err(|error| {
+            let reason = match error.kind {
+                "gui_unavailable" | "incompatible_version" => Reason::Unsupported,
+                "not_found" => Reason::NotFound,
+                "invalid_params" => Reason::InvalidParams,
+                "rejected" => Reason::Conflict,
+                _ => Reason::Internal,
+            };
+            let message = if error.kind == "gui_unavailable" {
+                format!("Berth is not running; open Berth and retry ({})", error.message)
+            } else {
+                error.message
+            };
+            ApiError::new(reason, message)
+        })?;
+        serde_json::to_value(result).map_err(|error| ApiError::new(Reason::Internal, error.to_string()))
+    }));
+}
+
+/// `berth.knowledge` 的来源方法：交给 berth-project-core（GUI 的插件视图注入同一组）。
+fn inject_knowledge() {
+    use berth_project_core::knowledge;
+    berth_plugin_api::set_knowledge(berth_plugin_api::KnowledgeHost {
+        vault: knowledge::vault_project,
+        find_source: knowledge::find_source,
+        add_source: knowledge::add_source,
+    });
+}
+
 /// 包内其他脚本（如 Agent 状态栏命令）。
 pub(crate) fn run(tool: &str, script: &str, args: &[String]) -> ! {
+    inject_desktop();
+    inject_knowledge();
     if let Err(error) = berth_tool_core::plugins::ensure_enabled(tool) {
         eprintln!("berth tools run: {error}");
         std::process::exit(2);
@@ -33,6 +70,8 @@ pub(crate) fn run(tool: &str, script: &str, args: &[String]) -> ! {
 
 /// 调用包内脚本，返回值 JSON 打在 stdout 最后一行（脚本自己的 console.log 在它前面）。
 pub(crate) fn call(tool: &str, script: &str, hook: Option<&str>, input: &str) -> ! {
+    inject_desktop();
+    inject_knowledge();
     let result = berth_tool_core::plugins::ensure_enabled(tool)
         .map_err(|error| error.to_string())
         .and_then(|_| {
@@ -40,7 +79,14 @@ pub(crate) fn call(tool: &str, script: &str, hook: Option<&str>, input: &str) ->
         })
         .and_then(|input| {
             let package = berth_tool_core::paths::tools_root().join(tool);
-            berth_plugin_api::call_script(&package, script, hook, &input, Box::new(current_project))
+            berth_plugin_api::call_script(
+                &package,
+                script,
+                hook,
+                &input,
+                Box::new(current_project),
+                Default::default(),
+            )
         });
     match result {
         Ok(value) => {

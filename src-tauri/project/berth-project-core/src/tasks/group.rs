@@ -4,10 +4,12 @@
 //! 成员不另存名单：由 `joined` / `left` 事件派生（[`members`]），每人以最近一条为准；
 //! 显示名由群主的 `renamed` 事件给出（[`rename`]），成员名本身不变（投递、收集都按成员名）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Instant, SystemTime};
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -532,6 +534,45 @@ pub fn events(main: &Path, name: &str) -> TaskResult<Vec<Value>> {
     read_events(&events_path(main, name))
 }
 
+/// 同 [`events`]，只读共享：按账本文件长度与修改时间缓存，账本没变就不再解析。
+/// 给反复读同一份账本的长驻进程用（GUI 群组页每 2 秒、`berth group watch` 每轮）；只留最近用过的几份。
+pub fn events_shared(main: &Path, name: &str) -> TaskResult<Arc<Vec<Value>>> {
+    const KEEP: usize = 4;
+    type Entry = (u64, Option<SystemTime>, Instant, Arc<Vec<Value>>);
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Entry>>> = LazyLock::new(Default::default);
+    let path = events_path(main, name);
+    let Some((len, modified)) = fs::metadata(&path)
+        .ok()
+        .map(|meta| (meta.len(), meta.modified().ok()))
+    else {
+        return read_events(&path).map(Arc::new);
+    };
+    {
+        let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = cache
+            .get_mut(&path)
+            .filter(|(cached_len, cached_at, ..)| *cached_len == len && *cached_at == modified)
+        {
+            entry.2 = Instant::now();
+            return Ok(entry.3.clone());
+        }
+    }
+    let events = Arc::new(read_events(&path)?);
+    let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.insert(path, (len, modified, Instant::now(), events.clone()));
+    while cache.len() > KEEP {
+        let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.2)
+            .map(|(path, _)| path.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+    Ok(events)
+}
+
 fn read_events(path: &Path) -> TaskResult<Vec<Value>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -652,29 +693,53 @@ pub fn last_seq(events: &[Value]) -> u64 {
 /// 群主未读：已读位置之后、别人发给群主或全体的消息条数（项目行角标）。`seen` 把已读位置推进到该 seq；
 /// 没有已读记录的群从当前末尾算起，历史不算未读。已读位置存在本机运行态，不进 git。
 pub fn unread(main: &Path, name: &str, seen: Option<u64>) -> TaskResult<usize> {
-    let events = events(main, name)?;
+    let (last, messages) = unread_index(main, name)?;
     let path = runtime_dir(main).join("read.json");
     let _guard = fsutil::lock(&runtime_dir(main).join("read.json.lock"))?;
     let mut marks = fsutil::read_json(&path)?
         .filter(Value::is_object)
         .unwrap_or_else(|| json!({}));
     let stored = marks.get(name).and_then(Value::as_u64);
-    let read = stored
-        .unwrap_or_else(|| last_seq(&events))
-        .max(seen.unwrap_or(0));
+    let read = stored.unwrap_or(last).max(seen.unwrap_or(0));
     if stored != Some(read) {
         marks[name] = json!(read);
         fsutil::write_json(&path, &marks)?;
     }
-    Ok(events
+    Ok(messages.iter().filter(|&&seq| seq > read).count())
+}
+
+/// 账本末尾 seq 与「别人发给群主或全体的消息」的 seq。GUI 每几秒为侧栏每个项目问一次未读，
+/// 账本可达几 MB：按文件长度与修改时间缓存，账本没变就不再整份解析。
+fn unread_index(main: &Path, name: &str) -> TaskResult<(u64, Vec<u64>)> {
+    type Index = HashMap<PathBuf, (u64, Option<SystemTime>, u64, Vec<u64>)>;
+    static CACHE: LazyLock<Mutex<Index>> = LazyLock::new(Default::default);
+    let path = events_path(main, name);
+    let stamp = fs::metadata(&path).ok().map(|meta| (meta.len(), meta.modified().ok()));
+    if let Some((len, modified)) = stamp {
+        let cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, _, last, messages)) = cache
+            .get(&path)
+            .filter(|(cached_len, cached_at, ..)| *cached_len == len && *cached_at == modified)
+        {
+            return Ok((*last, messages.clone()));
+        }
+    }
+    let events = read_events(&path)?;
+    let messages: Vec<u64> = events
         .iter()
         .filter(|event| {
-            seq(event) > read
-                && text(event, "kind") == Some("message")
+            text(event, "kind") == Some("message")
                 && text(event, "author") != Some(USER)
                 && text(event, "to").is_none_or(|to| to == USER)
         })
-        .count())
+        .map(seq)
+        .collect();
+    let last = last_seq(&events);
+    if let Some((len, modified)) = stamp {
+        let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        cache.insert(path, (len, modified, last, messages.clone()));
+    }
+    Ok((last, messages))
 }
 
 fn text<'a>(event: &'a Value, key: &str) -> Option<&'a str> {

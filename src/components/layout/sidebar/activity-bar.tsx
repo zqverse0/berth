@@ -18,6 +18,7 @@ import {
   pluginSidebarViewId,
   usePluginViewsStore,
 } from "@/lib/plugins/plugin-views"
+import { listenForEditorRenders } from "@/lib/plugins/plugin-embed"
 import {
   SIDEBAR_VIEWS,
   useSidebarViewLabel,
@@ -48,6 +49,8 @@ export function SidebarViewNav({ className }: { className?: string }) {
   useEffect(() => {
     if (!settingsActive) void loadPluginViews()
   }, [settingsActive, loadPluginViews])
+  // 插件编辑器的渲染请求（`berth.editor.render`）跟插件视图一起在主窗口就绪
+  useEffect(listenForEditorRenders, [])
 
   const items: {
     id: SidebarView

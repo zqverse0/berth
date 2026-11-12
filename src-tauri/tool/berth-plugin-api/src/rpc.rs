@@ -3,6 +3,8 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -38,6 +40,8 @@ impl Reason {
 pub struct ApiError {
     pub reason: Reason,
     pub message: String,
+    /// 附加数据（JSON-RPC `error.data`），如 `conflict` 时已存在的路径。
+    pub data: Option<Value>,
 }
 
 impl ApiError {
@@ -45,7 +49,13 @@ impl ApiError {
         Self {
             reason,
             message: message.into(),
+            data: None,
         }
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
+        self
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {
@@ -75,6 +85,8 @@ const NAMESPACES: &[(&str, u64, Option<&str>)] = &[
     ("env", 1, None),
     ("data", 1, None),
     ("http", 1, Some("network")),
+    ("editor", 1, None),
+    ("knowledge", 1, Some("knowledge")),
 ];
 
 /// 一次脚本运行的宿主侧上下文。
@@ -90,7 +102,12 @@ pub struct Host {
     pub project: ProjectLookup,
     /// `process.open` 打开的会话；脚本结束随 Host 一起结束进程。
     pub(crate) sessions: ns::process::Sessions,
+    /// 取消标志：置位后进行中的 http 请求返回 `cancelled`，脚本在下一次执行检查时中断。
+    pub cancel: Cancel,
 }
+
+/// 一次运行的取消标志（页面 `scripts.run` 的 `signal`）。
+pub type Cancel = Arc<AtomicBool>;
 
 impl Host {
     pub fn call(&self, method: &str, params: Value) -> ApiResult {
@@ -119,7 +136,9 @@ impl Host {
             "storage" => ns::storage::call(self, name, &params).unwrap_or_else(|| Err(unknown())),
             "env" => ns::env::call(self, name).unwrap_or_else(|| Err(unknown())),
             "data" => ns::data::call(name, &params).unwrap_or_else(|| Err(unknown())),
-            "http" => ns::http::call(name, &params).unwrap_or_else(|| Err(unknown())),
+            "http" => ns::http::call(self, name, &params).unwrap_or_else(|| Err(unknown())),
+            "editor" => ns::editor::call(self, name, &params).unwrap_or_else(|| Err(unknown())),
+            "knowledge" => ns::knowledge::call(self, name, &params).unwrap_or_else(|| Err(unknown())),
             _ => Err(unknown()),
         }
     }

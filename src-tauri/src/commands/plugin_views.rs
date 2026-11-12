@@ -34,13 +34,17 @@ pub enum PluginViewsRequest {
         project: Option<Value>,
     },
     /// 视图动作 `script` / 页面的 `scripts.run`：运行包内脚本的默认导出函数。
+    /// `runId`（页面给 `signal` 时带上）供 [`PluginViewsRequest::Cancel`] 中断这次运行。
     Action {
         plugin: String,
         script: String,
         #[serde(default)]
         input: Value,
         project: Option<Value>,
+        run_id: Option<String>,
     },
+    /// 页面的 `scripts.run` 被 abort：中断那次运行（已结束或不存在则无事发生）。
+    Cancel { run_id: String },
     /// 页面调用经宿主后端执行的命名空间（`storage`、`data`）。
     Call {
         plugin: String,
@@ -124,6 +128,12 @@ pub async fn plugin_views(
 }
 
 fn handle(request: PluginViewsRequest) -> Result<PluginViewsResponse, AppCommandError> {
+    // 脚本里的 `berth.knowledge`：与 berth-cli 注入同一组服务函数（只生效第一次）。
+    berth_plugin_api::set_knowledge(berth_plugin_api::KnowledgeHost {
+        vault: berth_project_core::knowledge::vault_project,
+        find_source: berth_project_core::knowledge::find_source,
+        add_source: berth_project_core::knowledge::add_source,
+    });
     match request {
         PluginViewsRequest::List => {
             let (views, editors) = list();
@@ -163,7 +173,7 @@ fn handle(request: PluginViewsRequest) -> Result<PluginViewsResponse, AppCommand
                 "locale": locale,
                 "refresh": refresh,
             });
-            let view = call(&plugin, &script, Some("render"), &req, project)?;
+            let view = call(&plugin, &script, Some("render"), &req, project, Default::default())?;
             Ok(PluginViewsResponse::Rendered { view })
         }
         PluginViewsRequest::Action {
@@ -171,10 +181,24 @@ fn handle(request: PluginViewsRequest) -> Result<PluginViewsResponse, AppCommand
             script,
             input,
             project,
+            run_id,
         } => {
             manifest(&plugin)?;
-            let result = call(&plugin, &script, None, &input, project)?;
-            Ok(PluginViewsResponse::Done { result })
+            let cancel = berth_plugin_api::Cancel::default();
+            if let Some(id) = &run_id {
+                runs().insert(id.clone(), cancel.clone());
+            }
+            let result = call(&plugin, &script, None, &input, project, cancel);
+            if let Some(id) = &run_id {
+                runs().remove(id);
+            }
+            Ok(PluginViewsResponse::Done { result: result? })
+        }
+        PluginViewsRequest::Cancel { run_id } => {
+            if let Some(cancel) = runs().get(&run_id) {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(PluginViewsResponse::Done { result: Value::Null })
         }
         PluginViewsRequest::Call {
             plugin,
@@ -253,6 +277,14 @@ pub fn page_protocol(request: tauri::http::Request<Vec<u8>>, responder: tauri::U
     });
 }
 
+/// 进行中、可取消的脚本运行：页面给的 runId → 取消标志。
+fn runs() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, berth_plugin_api::Cancel>> {
+    static RUNS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, berth_plugin_api::Cancel>>,
+    > = std::sync::LazyLock::new(Default::default);
+    RUNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// 启用插件的 tool.json（已归一）；停用或不存在报错。
 fn manifest(plugin: &str) -> Result<Value, AppCommandError> {
     berth_tool_core::plugins::ensure_enabled(plugin)
@@ -268,6 +300,7 @@ fn call(
     hook: Option<&str>,
     input: &Value,
     project: Option<Value>,
+    cancel: berth_plugin_api::Cancel,
 ) -> Result<Value, AppCommandError> {
     let package = crate::tool::asset_repository::tool_package_dir(plugin)?;
     let project = project.unwrap_or(Value::Null);
@@ -277,6 +310,7 @@ fn call(
         hook,
         input,
         Box::new(move || project.clone()),
+        cancel,
     )
     .map_err(AppCommandError::task_execution_failed)
 }
