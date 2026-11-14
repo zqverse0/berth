@@ -670,12 +670,12 @@ pub async fn open_worktree_folder(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_folder_in_workspace(
-    app: crate::AppHandle,
+pub async fn open_folder_in_workspace<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     path: String,
 ) -> Result<FolderDetail, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
+    let emitter = EventEmitter::tauri(app);
     open_folder_in_workspace_core(&emitter, &db, path).await
 }
 
@@ -690,8 +690,8 @@ pub async fn open_folder_by_id(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn remove_folder_from_workspace(
-    app: crate::AppHandle,
+pub async fn remove_folder_from_workspace<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
     folder_id: i32,
@@ -700,7 +700,7 @@ pub async fn remove_folder_from_workspace(
     if delete_worktree.unwrap_or(false) {
         remove_worktree_directory_core(&db, &manager, folder_id).await?;
     }
-    remove_folder_from_workspace_core(&EventEmitter::Tauri(app), &db, folder_id, Some(&manager))
+    remove_folder_from_workspace_core(&EventEmitter::tauri(app), &db, folder_id, Some(&manager))
         .await
 }
 
@@ -717,15 +717,15 @@ pub async fn rename_worktree(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn reconcile_worktree_family(
-    app: crate::AppHandle,
+pub async fn reconcile_worktree_family<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
     folder_id: i32,
 ) -> Result<Vec<FolderDetail>, AppCommandError> {
     reconcile_worktree_family_core(
         &db,
-        Some(&EventEmitter::Tauri(app)),
+        Some(&EventEmitter::tauri(app)),
         Some(&manager),
         folder_id,
     )

@@ -16,12 +16,8 @@
 
 import { useMemo, useState, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
-import {
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  MessageCircleQuestionMark,
-} from "lucide-react"
+import { ChevronDown, ChevronUp, MessageCircleQuestionMark } from "lucide-react"
+import { BusyRing } from "@/components/ui/status-dot"
 
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
 import { Badge } from "@/components/ui/badge"
@@ -122,7 +118,7 @@ export function AskQuestionResultCard({
             )}
           </div>
           {isInFlight && (
-            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <BusyRing className="size-4 shrink-0 text-muted-foreground" />
           )}
         </div>
         {body}

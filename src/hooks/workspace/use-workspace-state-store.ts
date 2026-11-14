@@ -11,6 +11,8 @@ import { subscribe } from "@/lib/platform"
 import type {
   FileTreeNode,
   WorkspaceDelta,
+  WorkspaceGitUpsert,
+  WorkspaceTreeUpsert,
   WorkspaceDeltaEnvelope,
   WorkspaceGitEntry,
   WorkspaceSnapshotResponse,
@@ -60,7 +62,8 @@ export interface WorkspaceStateResult extends WorkspaceStateView {
   subscribeEnvelopes: (listener: WorkspaceEnvelopeListener) => () => void
 }
 
-const WORKSPACE_PROTOCOL_VERSION = 1
+// 2：事件可带 tree_patch / git_patch；宿主据此决定重拉快照时能否回放补丁。
+const WORKSPACE_PROTOCOL_VERSION = 2
 const STORE_EVICT_DELAY_MS = 120_000
 const STORE_SHUTDOWN_GRACE_MS = 600
 
@@ -105,17 +108,124 @@ function describeError(error: unknown): string {
   return parts.join(" | ")
 }
 
-function applyDeltaToState(
+function withoutPath<T>(
+  list: T[],
+  path: string,
+  key: (item: T) => string
+): T[] | null {
+  const index = list.findIndex((item) => key(item) === path)
+  if (index < 0) return null
+  return [...list.slice(0, index), ...list.slice(index + 1)]
+}
+
+// 按新列表的下标插入；下标超出说明快照与补丁的基线不符。
+function insertAt<T>(list: T[], index: number, item: T): T[] | null {
+  if (index > list.length) return null
+  return [...list.slice(0, index), item, ...list.slice(index)]
+}
+
+const nodePath = (node: FileTreeNode) => node.path
+
+// 不改原数组：沿 parent 路径逐层复制，返回新树；找不到该目录返回 null。
+function updateChildren(
+  nodes: FileTreeNode[],
+  parent: string,
+  update: (children: FileTreeNode[]) => FileTreeNode[] | null
+): FileTreeNode[] | null {
+  if (parent === "") return update(nodes)
+  const index = nodes.findIndex(
+    (node) =>
+      node.kind === "dir" &&
+      (node.path === parent || parent.startsWith(`${node.path}/`))
+  )
+  const dir = nodes[index]
+  if (!dir || dir.kind !== "dir") return null
+  const children =
+    dir.path === parent
+      ? update(dir.children)
+      : updateChildren(dir.children, parent, update)
+  if (!children) return null
+  const next = nodes.slice()
+  next[index] = { ...dir, children }
+  return next
+}
+
+function parentOf(path: string): string {
+  const slash = path.lastIndexOf("/")
+  return slash < 0 ? "" : path.slice(0, slash)
+}
+
+// 与宿主 `apply_tree_patch` 同序：先删 removals 与所有 upsert 的旧条目，剩下的是保留条目，
+// 再按下标从小到大插入；边删边插时后面才处理的同路径旧条目会把下标顶偏。
+function applyTreePatch(
+  tree: FileTreeNode[],
+  upserts: WorkspaceTreeUpsert[],
+  removals: string[]
+): FileTreeNode[] | null {
+  let next: FileTreeNode[] | null = tree
+  for (const path of removals) {
+    next = updateChildren(next, parentOf(path), (children) =>
+      withoutPath(children, path, nodePath)
+    )
+    if (!next) return null
+  }
+  for (const { parent, node } of upserts) {
+    next = updateChildren(next, parent, (children) =>
+      children.filter((child) => child.path !== node.path)
+    )
+    if (!next) return null
+  }
+  for (const { parent, index, node } of upserts) {
+    next = updateChildren(next, parent, (children) =>
+      insertAt(children, index, node)
+    )
+    if (!next) return null
+  }
+  return next
+}
+
+function applyGitPatch(
+  git: WorkspaceGitEntry[],
+  upserts: WorkspaceGitUpsert[],
+  removals: string[]
+): WorkspaceGitEntry[] | null {
+  const entryPath = (entry: WorkspaceGitEntry) => entry.path
+  let next: WorkspaceGitEntry[] | null = git
+  for (const path of removals) {
+    next = withoutPath(next, path, entryPath)
+    if (!next) return null
+  }
+  const upserted = new Set(upserts.map(({ entry }) => entry.path))
+  next = next.filter((entry) => !upserted.has(entry.path))
+  for (const { index, entry } of upserts) {
+    next = insertAt(next, index, entry)
+    if (!next) return null
+  }
+  return next
+}
+
+/** 应用一条 delta；补丁对不上当前快照或 kind 不认识时返回 null，调用方重拉快照。 */
+export function applyDeltaToState(
   state: WorkspaceStateView,
   delta: WorkspaceDelta
-): WorkspaceStateView {
+): WorkspaceStateView | null {
   switch (delta.kind) {
     case "tree_replace":
       return { ...state, tree: delta.nodes }
+    case "tree_patch": {
+      const tree = applyTreePatch(state.tree, delta.upserts, delta.removals)
+      return tree && { ...state, tree }
+    }
     case "git_replace":
       return { ...state, git: delta.entries }
+    case "git_patch": {
+      const git = applyGitPatch(state.git, delta.upserts, delta.removals)
+      return git && { ...state, git }
+    }
     case "meta":
       return state
+    default:
+      return null
   }
 }
 
@@ -125,7 +235,9 @@ function applyDeltaEnvelope(
 ): WorkspaceStateView {
   let next = state
   for (const delta of envelope.payload) {
-    next = applyDeltaToState(next, delta)
+    const applied = applyDeltaToState(next, delta)
+    if (!applied) throw new Error("workspace state delta does not apply")
+    next = applied
   }
   return {
     ...next,
@@ -368,8 +480,13 @@ class WorkspaceStateStore {
 
       try {
         const sinceSeq = this.hasBaselineSnapshot ? this.state.seq : undefined
-        const snapshot = await getWorkspaceSnapshot(this.rootPath, sinceSeq)
-        this.patchState((prev) => applySnapshot(prev, snapshot))
+        const snapshot = await this.applyFetchedSnapshot(
+          await getWorkspaceSnapshot(
+            this.rootPath,
+            sinceSeq,
+            WORKSPACE_PROTOCOL_VERSION
+          )
+        )
         if (snapshot.full) {
           this.hasBaselineSnapshot = true
         } else {
@@ -508,12 +625,13 @@ class WorkspaceStateStore {
 
         this.unlisten = unlisten
         this.started = true
-        const catchUpSnapshot = await getWorkspaceSnapshot(
+        const fetched = await getWorkspaceSnapshot(
           this.rootPath,
-          this.state.seq
+          this.state.seq,
+          WORKSPACE_PROTOCOL_VERSION
         )
         if (!this.isLifecycleActive(lifecycleId)) return
-        this.patchState((prev) => applySnapshot(prev, catchUpSnapshot))
+        const catchUpSnapshot = await this.applyFetchedSnapshot(fetched)
         if (!catchUpSnapshot.full) {
           for (const envelope of catchUpSnapshot.deltas) {
             this.notifyEnvelope({
@@ -549,6 +667,24 @@ class WorkspaceStateStore {
     })
 
     await this.starting
+  }
+
+  // 增量回放接不上（缺 seq、补丁对不上快照）时改拉一次整份快照。
+  private applyFetchedSnapshot = async (
+    snapshot: WorkspaceSnapshotResponse
+  ): Promise<WorkspaceSnapshotResponse> => {
+    try {
+      this.patchState((prev) => applySnapshot(prev, snapshot))
+      return snapshot
+    } catch {
+      const full = await getWorkspaceSnapshot(
+        this.rootPath,
+        undefined,
+        WORKSPACE_PROTOCOL_VERSION
+      )
+      this.patchState((prev) => applySnapshot(prev, full))
+      return full
+    }
   }
 
   private shutdown = async (lifecycleId: number) => {
@@ -635,7 +771,12 @@ class WorkspaceStateStore {
 
     let next = this.state
     for (const delta of event.payload) {
-      next = applyDeltaToState(next, delta)
+      const applied = applyDeltaToState(next, delta)
+      if (!applied) {
+        void this.requestResync("delta_not_applicable")
+        return
+      }
+      next = applied
     }
 
     this.patchState(() => ({

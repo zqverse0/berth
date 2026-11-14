@@ -41,7 +41,7 @@ function makeResourceTab(kind: "image" | "office" | "pdf"): FileWorkspaceTab {
     saveError: null,
     preview:
       kind === "image"
-        ? { kind, revision: 0, dataUrl: "data:image/png;base64,AA==" }
+        ? { kind, revision: 0, blob: null }
         : { kind, revision: 0 },
     readonly: true,
   }

@@ -53,8 +53,8 @@ impl CurrentTerminalSelection {
 
 /// 低频同步当前可见终端标签，隐藏时不接受旧的选中状态。
 #[tauri::command]
-pub(crate) fn set_current_workspace_terminal(
-    window: crate::WebviewWindow,
+pub(crate) fn set_current_workspace_terminal<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     selection: tauri::State<'_, CurrentTerminalSelection>,
     terminal_id: Option<String>,
 ) -> Result<(), crate::app_error::AppCommandError> {
@@ -89,16 +89,16 @@ const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 /// 启动尽力可用的 GUI control listener。
 ///
 /// 绑定失败只记录诊断，不阻止桌面应用继续启动。
-pub(crate) fn spawn(
+pub(crate) fn spawn<R: tauri::Runtime>(
     db: crate::db::AppDatabase,
     emitter: crate::event_bridge::EventEmitter,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) {
     let mut context = ControlContext::current();
     context.deps = Some(ControlDeps {
         db: Arc::new(db),
         emitter,
-        app,
+        host: handlers::HostView::new(app),
     });
     tauri::async_runtime::spawn(async move {
         let endpoint = match resolve_gui_endpoint() {
@@ -957,8 +957,8 @@ pub(crate) enum OpenFileHandoffResult {
 /// 只服务 workspace 文件打开的领取与回执，不是任意动作执行器
 /// （A PRD「长期入口论证」）。仅 `main` 窗口可调用。
 #[tauri::command]
-pub(crate) async fn workspace_open_file_handoff(
-    window: crate::WebviewWindow,
+pub(crate) async fn workspace_open_file_handoff<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     request: OpenFileHandoffRequest,
 ) -> Result<OpenFileHandoffResult, crate::app_error::AppCommandError> {
     // 拒绝辅助窗口领取/回执（父契约 §4.3）。

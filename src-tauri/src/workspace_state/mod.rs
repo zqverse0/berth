@@ -1,4 +1,5 @@
 pub mod current_document;
+mod patch;
 pub mod resource;
 pub mod transfer;
 
@@ -23,7 +24,9 @@ use crate::commands::workspace_files::{self, FileTreeNode, WORKSPACE_IGNORED_DIR
 use crate::event_bridge::{emit_event, EventEmitter};
 use crate::git::repo::is_git_repo;
 
-pub const WORKSPACE_STATE_PROTOCOL_VERSION: u16 = 1;
+/// 2：事件可带 `tree_patch` / `git_patch`。旧版前端见版本不符会重拉快照，
+/// 重拉时没声明 2 的客户端只拿整份（见 `get_workspace_snapshot_core`）。
+pub const WORKSPACE_STATE_PROTOCOL_VERSION: u16 = 2;
 
 const WATCH_DEBOUNCE_MS: u64 = 300;
 const WATCH_MAX_BATCH_WINDOW_MS: u64 = 1_500;
@@ -43,9 +46,71 @@ pub struct WorkspaceGitEntry {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkspaceDelta {
-    TreeReplace { nodes: Vec<FileTreeNode> },
-    GitReplace { entries: Vec<WorkspaceGitEntry> },
-    Meta { reason: String },
+    TreeReplace {
+        nodes: Vec<FileTreeNode>,
+    },
+    TreePatch {
+        upserts: Vec<patch::TreeUpsert>,
+        removals: Vec<String>,
+    },
+    GitReplace {
+        entries: Vec<WorkspaceGitEntry>,
+    },
+    GitPatch {
+        upserts: Vec<patch::GitUpsert>,
+        removals: Vec<String>,
+    },
+    Meta {
+        reason: String,
+    },
+}
+
+impl WorkspaceDelta {
+    /// 能发补丁就发补丁；`full` 为真（首次快照、溢出、resync）或变化太大时发整树。
+    fn tree(old: &[FileTreeNode], new: Vec<FileTreeNode>, full: bool) -> Self {
+        match (!full).then(|| patch::diff_tree(old, &new)).flatten() {
+            Some((upserts, removals)) => Self::TreePatch { upserts, removals },
+            None => Self::TreeReplace { nodes: new },
+        }
+    }
+
+    fn git(old: &[WorkspaceGitEntry], new: Vec<WorkspaceGitEntry>, full: bool) -> Self {
+        match (!full).then(|| patch::diff_git(old, &new)).flatten() {
+            Some((upserts, removals)) => Self::GitPatch { upserts, removals },
+            None => Self::GitReplace { entries: new },
+        }
+    }
+
+    fn is_tree(&self) -> bool {
+        matches!(self, Self::TreeReplace { .. } | Self::TreePatch { .. })
+    }
+
+    fn is_git(&self) -> bool {
+        matches!(self, Self::GitReplace { .. } | Self::GitPatch { .. })
+    }
+
+    fn is_patch(&self) -> bool {
+        matches!(self, Self::TreePatch { .. } | Self::GitPatch { .. })
+    }
+}
+
+fn envelope_kind(payload: &[WorkspaceDelta]) -> String {
+    if payload.iter().any(WorkspaceDelta::is_tree) {
+        "fs_delta"
+    } else if payload.iter().any(WorkspaceDelta::is_git) {
+        "git_delta"
+    } else {
+        "meta"
+    }
+    .to_string()
+}
+
+fn replays_patch(snapshot: &WorkspaceSnapshotResponse) -> bool {
+    snapshot
+        .deltas
+        .iter()
+        .flat_map(|event| &event.payload)
+        .any(WorkspaceDelta::is_patch)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +257,22 @@ impl WorkspaceStateCore {
                 WorkspaceDelta::GitReplace { entries } => {
                     self.git_snapshot = entries.clone();
                 }
+                WorkspaceDelta::TreePatch { upserts, removals } => {
+                    if !patch::apply_tree_patch(&mut self.tree_snapshot, upserts, removals) {
+                        tracing::warn!(
+                            "[workspace-state] tree patch did not fit the snapshot of {}",
+                            self.root_path
+                        );
+                    }
+                }
+                WorkspaceDelta::GitPatch { upserts, removals } => {
+                    if !patch::apply_git_patch(&mut self.git_snapshot, upserts, removals) {
+                        tracing::warn!(
+                            "[workspace-state] git patch did not fit the snapshot of {}",
+                            self.root_path
+                        );
+                    }
+                }
                 WorkspaceDelta::Meta { .. } => {}
             }
         }
@@ -199,10 +280,10 @@ impl WorkspaceStateCore {
 
     fn push_recent_event(&mut self, event: Arc<WorkspaceDeltaEnvelope>) {
         // Tree/Git replace deltas are idempotent full snapshots — keeping older
-        // copies wastes memory and doesn't change replay outcomes. Strip the
-        // same-kind deltas from earlier envelopes but preserve their seq slot
-        // and `changed_paths` so strict seq continuity and lazy-load
-        // invalidation still work.
+        // copies (and the patches before them) wastes memory and doesn't change
+        // replay outcomes. Strip the same-kind deltas from earlier envelopes but
+        // preserve their seq slot and `changed_paths` so strict seq continuity
+        // and lazy-load invalidation still work. 补丁要按序重放，只在其后来了整份时才丢。
         let has_tree_replace = event
             .payload
             .iter()
@@ -214,22 +295,17 @@ impl WorkspaceStateCore {
 
         if has_tree_replace || has_git_replace {
             for slot in self.recent_events.iter_mut() {
-                let needs_rewrite = slot.payload.iter().any(|delta| match delta {
-                    WorkspaceDelta::TreeReplace { .. } => has_tree_replace,
-                    WorkspaceDelta::GitReplace { .. } => has_git_replace,
-                    WorkspaceDelta::Meta { .. } => false,
-                });
+                let superseded = |delta: &WorkspaceDelta| {
+                    (delta.is_tree() && has_tree_replace) || (delta.is_git() && has_git_replace)
+                };
+                let needs_rewrite = slot.payload.iter().any(superseded);
                 if !needs_rewrite {
                     continue;
                 }
                 let remaining: Vec<WorkspaceDelta> = slot
                     .payload
                     .iter()
-                    .filter(|delta| match delta {
-                        WorkspaceDelta::TreeReplace { .. } => !has_tree_replace,
-                        WorkspaceDelta::GitReplace { .. } => !has_git_replace,
-                        WorkspaceDelta::Meta { .. } => true,
-                    })
+                    .filter(|delta| !superseded(delta))
                     .cloned()
                     .collect();
                 *slot = Arc::new(WorkspaceDeltaEnvelope {
@@ -1537,16 +1613,16 @@ async fn flush_watch_batch(
             guard.is_git_repo = is_git;
         }
 
+        // 溢出批次无法枚举变化、resync 事件不进快照：两种都发整份。
+        let full = batch.overflowed || git_presence_changed;
         if let Some(tree) = refreshed_tree {
             if tree != guard.tree_snapshot {
-                payload.push(WorkspaceDelta::TreeReplace { nodes: tree });
+                payload.push(WorkspaceDelta::tree(&guard.tree_snapshot, tree, full));
             }
         }
         if let Some(git_snapshot) = refreshed_git {
             if git_snapshot != guard.git_snapshot {
-                payload.push(WorkspaceDelta::GitReplace {
-                    entries: git_snapshot,
-                });
+                payload.push(WorkspaceDelta::git(&guard.git_snapshot, git_snapshot, full));
             }
         } else if wants_tree_git && !is_git && !guard.git_snapshot.is_empty() {
             // .git vanished (or was never there) and we still hold stale git
@@ -1583,20 +1659,7 @@ async fn flush_watch_batch(
             return;
         }
 
-        let kind = if payload
-            .iter()
-            .any(|delta| matches!(delta, WorkspaceDelta::TreeReplace { .. }))
-        {
-            "fs_delta".to_string()
-        } else if payload
-            .iter()
-            .any(|delta| matches!(delta, WorkspaceDelta::GitReplace { .. }))
-        {
-            "git_delta".to_string()
-        } else {
-            "meta".to_string()
-        };
-
+        let kind = envelope_kind(&payload);
         guard.append_event(kind, payload, git_presence_changed, changed_paths)
     };
 
@@ -1824,14 +1887,7 @@ async fn refresh_tree_git_snapshots(
         if payload.is_empty() {
             return;
         }
-        let kind = if payload
-            .iter()
-            .any(|delta| matches!(delta, WorkspaceDelta::TreeReplace { .. }))
-        {
-            "fs_delta".to_string()
-        } else {
-            "git_delta".to_string()
-        };
+        let kind = envelope_kind(&payload);
         guard.append_event(kind, payload, false, Vec::new())
     };
 
@@ -2167,9 +2223,12 @@ pub async fn stop_workspace_state_stream_core(
     Ok(())
 }
 
+/// `accepts_patches`：客户端声明了协议 2。没声明的（旧版、另一台旧 Berth）回放里有补丁时
+/// 改给整份，旧版前端不认识补丁。
 pub async fn get_workspace_snapshot_core(
     root_path: String,
     since_seq: Option<u64>,
+    accepts_patches: bool,
 ) -> Result<WorkspaceSnapshotResponse, AppCommandError> {
     let root = PathBuf::from(&root_path);
     let key = canonicalize_watch_root(&root)
@@ -2221,7 +2280,10 @@ pub async fn get_workspace_snapshot_core(
                 AppCommandError::task_execution_failed("Failed to lock workspace state snapshot")
             })?
             .snapshot(since_seq);
-        if !cached.full && cached.deltas.iter().all(|event| !event.requires_resync) {
+        if !cached.full
+            && cached.deltas.iter().all(|event| !event.requires_resync)
+            && (accepts_patches || !replays_patch(&cached))
+        {
             return Ok(cached);
         }
     }
@@ -2256,12 +2318,12 @@ pub async fn get_workspace_snapshot_core(
         let mut payload: Vec<WorkspaceDelta> = Vec::new();
         if let Some(tree) = refreshed_tree {
             if tree != guard.tree_snapshot {
-                payload.push(WorkspaceDelta::TreeReplace { nodes: tree });
+                payload.push(WorkspaceDelta::tree(&guard.tree_snapshot, tree, false));
             }
         }
         if let Some(git) = refreshed_git {
             if git != guard.git_snapshot {
-                payload.push(WorkspaceDelta::GitReplace { entries: git });
+                payload.push(WorkspaceDelta::git(&guard.git_snapshot, git, false));
             }
         } else if wants_tree_git && !is_git && !guard.git_snapshot.is_empty() {
             // .git vanished while we weren't watching — clear the stale entries
@@ -2283,23 +2345,16 @@ pub async fn get_workspace_snapshot_core(
         }
 
         if !payload.is_empty() {
-            let kind = if payload
-                .iter()
-                .any(|delta| matches!(delta, WorkspaceDelta::TreeReplace { .. }))
-            {
-                "fs_delta".to_string()
-            } else if payload
-                .iter()
-                .any(|delta| matches!(delta, WorkspaceDelta::GitReplace { .. }))
-            {
-                "git_delta".to_string()
-            } else {
-                "meta".to_string()
-            };
+            let kind = envelope_kind(&payload);
             guard.append_event(kind, payload, false, Vec::new());
         }
 
-        guard.snapshot(since_seq)
+        let snapshot = guard.snapshot(since_seq);
+        if accepts_patches || !replays_patch(&snapshot) {
+            snapshot
+        } else {
+            guard.snapshot(None)
+        }
     };
 
     Ok(guard_snapshot)
@@ -2400,10 +2455,57 @@ mod tests {
         );
         let event = guard.recent_events.back().expect("recent event");
         assert_eq!(event.changed_paths, vec!["a.txt".to_string()]);
+        // 旧快照为空、新树只一个文件：发补丁，应用后快照即新树。
         assert!(event
             .payload
             .iter()
-            .any(|delta| matches!(delta, WorkspaceDelta::TreeReplace { .. })));
+            .any(|delta| matches!(delta, WorkspaceDelta::TreePatch { .. })));
+    }
+
+    #[test]
+    fn workspace_state_core_patches_replay_until_a_replace_supersedes_them() {
+        let mut core = WorkspaceStateCore::new("/repo".to_string(), Vec::new(), Vec::new(), true);
+        let entry = WorkspaceGitEntry {
+            path: "a.rs".to_string(),
+            status: "M".to_string(),
+            additions: 1,
+            deletions: 0,
+        };
+        let patch = WorkspaceDelta::git(&[], vec![entry.clone()], false);
+        assert!(patch.is_patch());
+        core.append_event("git_delta".to_string(), vec![patch], false, Vec::new());
+        assert_eq!(core.git_snapshot, vec![entry]);
+        assert!(replays_patch(&core.snapshot(Some(0))));
+
+        core.append_event(
+            "git_delta".to_string(),
+            vec![WorkspaceDelta::GitReplace {
+                entries: Vec::new(),
+            }],
+            false,
+            Vec::new(),
+        );
+        let replay = core.snapshot(Some(0));
+        assert_eq!(replay.deltas.len(), 2, "seq slots are kept");
+        assert!(
+            !replays_patch(&replay),
+            "a later replace drops earlier patches"
+        );
+    }
+
+    #[test]
+    fn workspace_delta_full_or_unpatchable_changes_send_the_whole_tree() {
+        let node = FileTreeNode::File {
+            name: "a".to_string(),
+            path: "a".to_string(),
+            link_target: None,
+            ignored: false,
+        };
+        assert!(WorkspaceDelta::tree(&[], vec![node.clone()], false).is_patch());
+        assert!(matches!(
+            WorkspaceDelta::tree(&[], vec![node], true),
+            WorkspaceDelta::TreeReplace { .. }
+        ));
     }
 
     #[tokio::test]

@@ -1213,11 +1213,13 @@ export async function stopWorkspaceStateStream(
 
 export async function getWorkspaceSnapshot(
   rootPath: string,
-  sinceSeq?: number
+  sinceSeq: number | undefined,
+  protocolVersion: number
 ): Promise<WorkspaceSnapshotResponse> {
   return getTransport().call("get_workspace_snapshot", {
     rootPath,
     sinceSeq: sinceSeq ?? null,
+    protocolVersion,
   })
 }
 

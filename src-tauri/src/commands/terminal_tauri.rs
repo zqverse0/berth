@@ -27,7 +27,7 @@ use crate::terminal::protocol::TerminalSnapshot;
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn terminal_create(
+pub async fn terminal_create<R: tauri::Runtime>(
     cwd: String,
     shell: Option<String>,
     initial_command: Option<String>,
@@ -48,8 +48,8 @@ pub async fn terminal_create(
     cols: u16,
     client_id: Option<String>,
     manager: State<'_, TerminalManager>,
-    app_handle: crate::AppHandle,
-    window: crate::WebviewWindow,
+    app_handle: tauri::AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<TerminalDescriptor, AppCommandError> {
     let mut request = CreatePersonalTerminalRequest {
         terminal_id,
@@ -92,7 +92,7 @@ pub async fn terminal_create(
     }
     create_terminal_core(
         &manager,
-        EventEmitter::Tauri(app_handle),
+        EventEmitter::tauri(app_handle),
         request,
         extra_env,
     )
@@ -481,15 +481,15 @@ pub async fn terminal_terminate(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn terminal_remove_record(
+pub async fn terminal_remove_record<R: tauri::Runtime>(
     terminal_id: String,
     manager: State<'_, TerminalManager>,
     db: State<'_, AppDatabase>,
-    app_handle: crate::AppHandle,
+    app_handle: tauri::AppHandle<R>,
 ) -> Result<(), AppCommandError> {
     remove_terminal_record_core(
         &db.conn,
-        &EventEmitter::Tauri(app_handle),
+        &EventEmitter::tauri(app_handle),
         &manager,
         TerminalIdRequest { terminal_id },
     )

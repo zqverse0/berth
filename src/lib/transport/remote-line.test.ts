@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createRemoteSession } from "./remote-line"
 
@@ -57,7 +58,9 @@ const OK_JSON_WHOLE = 1 | 2 | 4 | 8
 const NOT_MODIFIED = OK_JSON_WHOLE | 32
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-function session() {
+function session(
+  overrides: Partial<Parameters<typeof createRemoteSession>[0]> = {}
+) {
   return createRemoteSession({
     url: (path) => `ws://host${path}`,
     deliver: () => {},
@@ -65,7 +68,17 @@ function session() {
     onEvent: () => {},
     onReset: () => {},
     notice: () => {},
+    ...overrides,
   })
+}
+
+/** `[5][gzip 后的 {"e","p"}]` */
+function gzipEvent(e: string, p: unknown) {
+  const gz = gzipSync(JSON.stringify({ e, p }))
+  const out = new Uint8Array(1 + gz.length)
+  out[0] = 5
+  out.set(gz, 1)
+  return out.buffer
 }
 
 describe("remote line", () => {
@@ -142,5 +155,45 @@ describe("remote line", () => {
         "x-berth-client-id": "c",
       })
     ).rejects.toMatch(/not attached/)
+  })
+
+  it("compressed event frames decode to the plain payload, in arrival order", async () => {
+    const seen: [string, unknown][] = []
+    session({ onEvent: (name, payload) => seen.push([name, payload]) })
+    await flush()
+    const [commands] = FakeSocket.all
+    expect(commands.url).toContain("ze=1")
+    commands.open()
+    const big = { tree: "x".repeat(5000) }
+    commands.receive('{"e":"a","p":1}')
+    commands.receive(gzipEvent("folder://workspace-state-event", big))
+    commands.receive('{"e":"b","p":2}')
+    await vi.waitFor(() => expect(seen).toHaveLength(3))
+    expect(seen).toEqual([
+      ["a", 1],
+      ["folder://workspace-state-event", big],
+      ["b", 2],
+    ])
+  })
+
+  it("a reconnect the host cannot resume (resumed=false) makes the page re-pull", async () => {
+    vi.useFakeTimers()
+    const onReset = vi.fn()
+    session({ onReset })
+    await vi.advanceTimersByTimeAsync(0)
+    const lines = () =>
+      FakeSocket.all.filter((s) => s.url.includes("/__berth/ws"))
+    lines()[0].open()
+    expect(onReset).not.toHaveBeenCalled()
+    lines()[0].drop()
+    await vi.advanceTimersByTimeAsync(600)
+    lines()[1].onopen?.()
+    lines()[1].receive('{"resumed":true}')
+    expect(onReset).not.toHaveBeenCalled()
+    lines()[1].drop()
+    await vi.advanceTimersByTimeAsync(1100)
+    lines()[2].open()
+    expect(onReset).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
   })
 })

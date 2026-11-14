@@ -50,14 +50,14 @@ struct Bound {
 }
 
 /// 由 `remote::host` 放进 Tauri state；命令经它读状态、改设置。
-pub struct Listeners {
-    remote: Arc<Remote>,
+pub struct Listeners<R: tauri::Runtime> {
+    remote: Arc<Remote<R>>,
     conn: DatabaseConnection,
     bound: tokio::sync::Mutex<Bound>,
 }
 
-impl Listeners {
-    pub(super) fn new(remote: Arc<Remote>, conn: DatabaseConnection) -> Self {
+impl<R: tauri::Runtime> Listeners<R> {
+    pub(super) fn new(remote: Arc<Remote<R>>, conn: DatabaseConnection) -> Self {
         Self {
             remote,
             conn,

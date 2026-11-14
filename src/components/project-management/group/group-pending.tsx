@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNow, useTranslations } from "next-intl"
 import { Loader2 } from "lucide-react"
+import { BusyRing } from "@/components/ui/status-dot"
 import { agentTypeForTool } from "@/hooks/use-agent-profiles"
 import { resolveProjectAgentSession } from "@/lib/api"
 import type { GroupEvent, GroupLogLine } from "@/lib/agent/berth-group"
@@ -282,10 +283,11 @@ export function PendingAnswer({
           />
         )}
         <span className="font-medium text-foreground">{label}</span>
-        <Loader2
-          aria-hidden="true"
-          className={cn("size-3", state === "working" && "animate-spin")}
-        />
+        {state === "working" ? (
+          <BusyRing className="size-3" />
+        ) : (
+          <Loader2 aria-hidden="true" className="size-3" />
+        )}
         {t(state)}
         <span className="tabular-nums">{elapsed(now - ask.timestamp_ms)}</span>
       </div>

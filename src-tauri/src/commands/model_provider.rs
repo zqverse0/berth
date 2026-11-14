@@ -483,7 +483,7 @@ pub async fn create_model_provider(
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn update_model_provider(
+pub async fn update_model_provider<R: tauri::Runtime>(
     db: tauri::State<'_, AppDatabase>,
     id: i32,
     name: Option<String>,
@@ -496,9 +496,9 @@ pub async fn update_model_provider(
     overlays: Option<Vec<crate::models::model_provider::ProviderOverlayInfo>>,
     kind: Option<String>,
     discovery_json: Option<String>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<UpdateModelProviderResult, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
+    let emitter = EventEmitter::tauri(app);
     update_model_provider_and_refresh(
         &db,
         id,

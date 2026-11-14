@@ -35,13 +35,17 @@ function makeImageTab(): ImageResourceFileWorkspaceTab {
     preview: {
       kind: "image",
       revision: 0,
-      dataUrl: "data:image/png;base64,AA==",
+      blob: new Blob([new Uint8Array([0])], { type: "image/png" }),
     },
     readonly: true,
   }
 }
 
-beforeEach(() => useWorkspaceFileStore.getState().reset())
+beforeEach(() => {
+  useWorkspaceFileStore.getState().reset()
+  URL.createObjectURL = vi.fn(() => "blob:image")
+  URL.revokeObjectURL = vi.fn()
+})
 afterEach(() => {
   cleanup()
   useWorkspaceFileStore.getState().reset()
@@ -75,5 +79,19 @@ describe("ImagePreview shared toolbar controller", () => {
     expect(screen.getByText("imageFileSize: 1 B")).toBeTruthy()
     fireEvent.click(screen.getByLabelText("imageZoomIn"))
     await waitFor(() => expect(screen.getByText("125%")).toBeTruthy())
+  })
+
+  it("renders no image while hidden and revokes the URL on hide", () => {
+    const tab = makeImageTab()
+    const { rerender } = render(<ImagePreview tab={tab} visible={false} />)
+    expect(screen.queryByRole("img")).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+
+    rerender(<ImagePreview tab={tab} visible />)
+    expect(screen.getByRole("img").getAttribute("src")).toBe("blob:image")
+
+    rerender(<ImagePreview tab={tab} visible={false} />)
+    expect(screen.queryByRole("img")).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:image")
   })
 })

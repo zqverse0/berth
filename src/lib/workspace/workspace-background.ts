@@ -7,6 +7,7 @@
 // mask, blur, fill, panel opacity) lives in localStorage via the appearance
 // provider; only the image itself round-trips through here.
 
+import { base64ToBlob } from "@/lib/files/local-image"
 import { getTransport } from "@/lib/transport"
 
 // ─── Types ───
@@ -102,12 +103,7 @@ export function arrayBufferToBase64(bytes: Uint8Array): string {
 }
 
 export function createBackgroundObjectUrl(asset: BackgroundAsset): string {
-  const binary = atob(asset.dataBase64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return URL.createObjectURL(new Blob([bytes], { type: asset.mime }))
+  return URL.createObjectURL(base64ToBlob(asset.dataBase64, asset.mime))
 }
 
 export function revokeBackgroundObjectUrl(

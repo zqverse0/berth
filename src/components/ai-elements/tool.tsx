@@ -45,7 +45,7 @@ export type ToolHeaderProps = {
 )
 
 const statusIcons: Record<ToolCallState, ReactNode> = {
-  "input-available": <ClockIcon className="size-4 animate-pulse" />,
+  "input-available": <ClockIcon className="size-4" />,
   "input-streaming": <CircleIcon className="size-4" />,
   "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
   "output-error": <XCircleIcon className="size-4 text-red-600" />,

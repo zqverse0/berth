@@ -19,6 +19,8 @@ const VIEW_POLL_MS = 5000
 interface BerthTasksPanelProps {
   folderId: number
   data: BerthTaskList
+  /** 侧栏打开且停在任务视图；否则不轮询（视图要跑 git log，不在看就不算）。 */
+  active?: boolean
 }
 
 /**
@@ -26,7 +28,11 @@ interface BerthTasksPanelProps {
  * 群组在侧栏「群组」视图里看。列哪些任务由后端按主项目记录决定（worktree 只列分到它的群的任务），
  * 派生视图只补进度，不决定成员。每行只有标题、状态和进度，步骤在任务页看和编辑。
  */
-export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
+export function BerthTasksPanel({
+  folderId,
+  data,
+  active = true,
+}: BerthTasksPanelProps) {
   const t = useTranslations("BerthTasks.tasks")
   const workspace = useWorkspaceRuntimeActions()
   const [views, setViews] = useState<Map<string, BerthTaskView>>(new Map())
@@ -50,9 +56,20 @@ export function BerthTasksPanel({ folderId, data }: BerthTasksPanelProps) {
 
   useEffect(() => {
     void load()
-    const timer = setInterval(() => void load(), VIEW_POLL_MS)
-    return () => clearInterval(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!active) return
+    const tick = () => {
+      if (document.visibilityState === "visible") void load()
+    }
+    const timer = setInterval(tick, VIEW_POLL_MS)
+    document.addEventListener("visibilitychange", tick)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener("visibilitychange", tick)
+    }
+  }, [load, active])
 
   /** 中间工作区当前打开的本项目任务：高亮它那一行。 */
   const activeTask = useWorkspaceFileStore((state) => {

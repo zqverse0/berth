@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { getWorkspaceStateStore } from "@/hooks/workspace/use-workspace-state-store"
+import {
+  applyDeltaToState,
+  getWorkspaceStateStore,
+  type WorkspaceStateView,
+} from "@/hooks/workspace/use-workspace-state-store"
 import * as api from "@/lib/api"
+import * as platform from "@/lib/platform"
+import type {
+  FileTreeNode,
+  WorkspaceDelta,
+  WorkspaceStateEvent,
+} from "@/lib/types"
 
 // Token-set state machine for the per-root workspace stream store:
 // full/paths subscription modes, upgrade/downgrade transitions against the
@@ -246,4 +256,200 @@ it("does not resync a directory whose stream failed to start", async () => {
   } finally {
     errorLog.mockRestore()
   }
+})
+
+const file = (path: string): FileTreeNode => ({
+  kind: "file",
+  name: path.split("/").pop()!,
+  path,
+})
+const dir = (path: string, children: FileTreeNode[]): FileTreeNode => ({
+  kind: "dir",
+  name: path.split("/").pop()!,
+  path,
+  children,
+  isRepo: false,
+})
+const view = (
+  tree: FileTreeNode[],
+  git: WorkspaceStateView["git"] = []
+): WorkspaceStateView => ({
+  rootPath: "/p",
+  seq: 0,
+  version: 2,
+  health: "healthy",
+  tree,
+  git,
+  error: null,
+  degraded: false,
+  isGitRepo: true,
+})
+
+describe("workspace state patches", () => {
+  it("applies a tree patch by path without mutating the previous tree", () => {
+    const tree = [
+      dir("docs", [file("docs/a.md"), file("docs/c.md")]),
+      dir("src", [dir("src/lib", []), file("src/main.rs")]),
+      file("README.md"),
+      file("z.txt"),
+    ]
+    const before = JSON.stringify(tree)
+    const next = applyDeltaToState(view(tree), {
+      kind: "tree_patch",
+      removals: ["docs/c.md", "z.txt"],
+      upserts: [
+        { parent: "docs", index: 1, node: file("docs/b.md") },
+        { parent: "src/lib", index: 0, node: file("src/lib/mod.rs") },
+        { parent: "", index: 3, node: file("y.txt") },
+      ],
+    })
+    expect(next?.tree).toEqual([
+      dir("docs", [file("docs/a.md"), file("docs/b.md")]),
+      dir("src", [
+        dir("src/lib", [file("src/lib/mod.rs")]),
+        file("src/main.rs"),
+      ]),
+      file("README.md"),
+      file("y.txt"),
+    ])
+    expect(JSON.stringify(tree)).toBe(before)
+  })
+
+  it("keeps order when a replaced entry moves behind an insert", () => {
+    // 验收反例：`rmdir a && touch a && mkdir l`，宿主发 l@1、a@2。
+    const next = applyDeltaToState(view([dir("a", []), dir("k", [])]), {
+      kind: "tree_patch",
+      removals: [],
+      upserts: [
+        { parent: "", index: 1, node: dir("l", []) },
+        { parent: "", index: 2, node: file("a") },
+      ],
+    })
+    expect(next?.tree).toEqual([dir("k", []), dir("l", []), file("a")])
+  })
+
+  it("applies a git patch in place", () => {
+    const entry = (path: string, status: string) => ({
+      path,
+      status,
+      additions: 1,
+      deletions: 0,
+    })
+    const next = applyDeltaToState(
+      view([], [entry("a.rs", "M"), entry("b.rs", "M"), entry("c.rs", "A")]),
+      {
+        kind: "git_patch",
+        removals: ["c.rs"],
+        upserts: [
+          { index: 1, entry: entry("b.rs", "D") },
+          { index: 2, entry: entry("bb.rs", "??") },
+        ],
+      }
+    )
+    expect(next?.git).toEqual([
+      entry("a.rs", "M"),
+      entry("b.rs", "D"),
+      entry("bb.rs", "??"),
+    ])
+  })
+
+  it("returns null for a patch that does not fit or an unknown kind", () => {
+    expect(
+      applyDeltaToState(view([file("a")]), {
+        kind: "tree_patch",
+        removals: ["missing"],
+        upserts: [],
+      })
+    ).toBeNull()
+    expect(
+      applyDeltaToState(view([]), {
+        kind: "future_kind",
+      } as unknown as WorkspaceDelta)
+    ).toBeNull()
+  })
+})
+
+describe("workspace state events that cannot be applied", () => {
+  async function startWithHandler(rootPath: string) {
+    let handler: ((event: WorkspaceStateEvent) => void) | undefined
+    vi.mocked(platform.subscribe).mockImplementation(async (_name, cb) => {
+      handler = cb as (event: WorkspaceStateEvent) => void
+      return () => {}
+    })
+    const store = getWorkspaceStateStore(rootPath)
+    const token = store.acquire("full")
+    await drain()
+    mockedApi.getWorkspaceSnapshot.mockClear()
+    const event = (
+      patch: Partial<WorkspaceStateEvent>
+    ): WorkspaceStateEvent => ({
+      root_path: rootPath,
+      seq: 1,
+      version: 2,
+      kind: "fs_delta",
+      payload: [],
+      requires_resync: false,
+      changed_paths: [],
+      ...patch,
+    })
+    return {
+      store,
+      token,
+      emit: (e: WorkspaceStateEvent) => handler!(e),
+      event,
+    }
+  }
+
+  it("resyncs on an unknown delta kind and on a version mismatch", async () => {
+    const { store, token, emit, event } =
+      await startWithHandler("/machine/patch")
+    emit(
+      event({ payload: [{ kind: "future_kind" } as unknown as WorkspaceDelta] })
+    )
+    await drain()
+    expect(mockedApi.getWorkspaceSnapshot).toHaveBeenCalledWith(
+      "/machine/patch",
+      0,
+      2
+    )
+    mockedApi.getWorkspaceSnapshot.mockClear()
+    emit(event({ version: 1 }))
+    await drain()
+    expect(mockedApi.getWorkspaceSnapshot).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().health).toBe("healthy")
+    store.release(token)
+    await vi.advanceTimersByTimeAsync(700)
+  })
+
+  it("falls back to a full snapshot when a replayed patch does not fit", async () => {
+    const { store, token } = await startWithHandler("/machine/replay")
+    const root = "/machine/replay"
+    mockedApi.getWorkspaceSnapshot
+      .mockResolvedValueOnce({
+        ...fullSnapshot(root, 1),
+        full: false,
+        deltas: [
+          {
+            seq: 1,
+            kind: "fs_delta",
+            payload: [{ kind: "tree_patch", removals: ["gone"], upserts: [] }],
+            requires_resync: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...fullSnapshot(root, 1),
+        tree_snapshot: [file("fresh")],
+      })
+    await store.requestResync("test")
+    expect(mockedApi.getWorkspaceSnapshot).toHaveBeenLastCalledWith(
+      root,
+      undefined,
+      2
+    )
+    expect(store.getSnapshot().tree).toEqual([file("fresh")])
+    expect(store.getSnapshot().health).toBe("healthy")
+    store.release(token)
+    await vi.advanceTimersByTimeAsync(700)
+  })
 })

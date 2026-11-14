@@ -1,7 +1,6 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { motion } from "motion/react"
 import { X } from "lucide-react"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
 import { StatusDot, type StatusDotKind } from "@/components/ui/status-dot"
@@ -163,12 +162,10 @@ export function WorkspaceTabShell({
   )
 
   return (
-    // `layout="position"` slides tabs aside as a drag gap opens or closes;
-    // the drag itself is `workspace-tab-drag-controller` (a ghost follows the
-    // pointer, this element is swapped for a gap).
-    <motion.div
-      layout="position"
-      transition={{ duration: 0.15, ease: "easeOut" }}
+    // The strip slides tabs aside as a drag gap opens or closes (FLIP in
+    // `workspace-tab-strip`); the drag itself is `workspace-tab-drag-controller`
+    // (a ghost follows the pointer, this element is swapped for a gap).
+    <div
       {...dataAttributes}
       data-workspace-tab-key={dragRef ? workspaceTabKey(dragRef) : undefined}
       onPointerDown={
@@ -205,6 +202,6 @@ export function WorkspaceTabShell({
       ) : (
         tab
       )}
-    </motion.div>
+    </div>
   )
 }

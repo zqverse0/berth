@@ -3,12 +3,12 @@ import {
   gitDiffWithBranch,
   gitShowDiff,
   gitShowFile,
-  readFileBase64,
   readFilePreview,
   saveFileCopy,
   type WorkspaceOpenFileOutcome,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
+import { readLocalImageBlob } from "@/lib/files/local-image"
 import { toast } from "@/lib/notify"
 import {
   expandHomePath,
@@ -269,17 +269,6 @@ type LoadingFileTabBase = Pick<
 >
 
 type ResourceLoad = { tabId: string; generation: number }
-
-const IMAGE_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  svg: "image/svg+xml",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  ico: "image/x-icon",
-}
 
 function fileName(path: string): string {
   return path.split("/").pop() || path
@@ -586,9 +575,8 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
         return
       }
       if (seed.preview.kind === "image") {
-        const ext = seed.path.split(".").pop()?.toLowerCase() ?? ""
-        const b64 = await withTimeout(
-          readFileBase64(seed.path),
+        const blob = await withTimeout(
+          readLocalImageBlob(seed.path),
           15_000,
           deps.translate("previewRequestTimedOut")
         )
@@ -601,7 +589,7 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
                   preview: {
                     kind: "image",
                     revision: tab.preview.revision + 1,
-                    dataUrl: `data:${IMAGE_MIME[ext] ?? "image/png"};base64,${b64}`,
+                    blob,
                   },
                   loading: false,
                   stale: false,
@@ -744,7 +732,7 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     const seed = loadingResourceTab(
       { ...base, ...(options?.lifetime ? { lifetime: options.lifetime } : {}) },
       strategy.previewKind === "image"
-        ? { kind: "image", revision: 0, dataUrl: null }
+        ? { kind: "image", revision: 0, blob: null }
         : { kind: strategy.previewKind, revision: 0 }
     )
     const existing = currentTab(seed.id)

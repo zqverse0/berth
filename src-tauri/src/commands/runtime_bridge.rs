@@ -6,6 +6,7 @@
 //! - `device.*` — 可 SSH 连接的其他设备（`src/devices.rs`）
 //! - `expert.*` — 设置 →「专家」：`catalog` / `save` / `create` / `delete` / `asset`（`berth_tool_core::experts`）；`options`（id 与名字）
 //! - `workspaceGroups.*` — 侧栏工作区分组（`src/workspace_groups.rs`）
+//! - `system.*` — 本机与 Berth 自身的资源占用（`src/system_resources.rs`）
 //! - `berth.init` / `berth.status` — enable Berth in a project / whether it is enabled
 
 use serde::Deserialize;
@@ -29,8 +30,8 @@ pub struct RuntimeBridgeOperationArgs {
 
 /// Tagged Runtime bridge operation.
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn runtime_bridge_operation(
-    #[cfg(feature = "tauri-runtime")] app: crate::AppHandle,
+pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri::Runtime>(
+    #[cfg(feature = "tauri-runtime")] app: tauri::AppHandle<R>,
     #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, crate::db::AppDatabase>,
     args: RuntimeBridgeOperationArgs,
 ) -> Result<Value, AppCommandError> {
@@ -112,13 +113,19 @@ pub async fn runtime_bridge_operation(
             };
         }
 
-        // `device.*`、`expert.*`、`workspaceGroups.*` 是全局的（不属于某个项目），不走下面按项目的分发。
-        if ["device.", "expert.", "workspaceGroups."]
+        // `device.*`、`expert.*`、`workspaceGroups.*`、`system.*` 是全局的（不属于某个项目），不走下面按项目的分发。
+        if ["device.", "expert.", "workspaceGroups.", "system."]
             .iter()
             .any(|prefix| method.starts_with(prefix))
         {
             let started = Instant::now();
-            let outcome = if method.starts_with("expert.") {
+            let outcome = if method.starts_with("system.") {
+                // 扫进程表、磁盘是同步 IO
+                let method = method.clone();
+                tokio::task::spawn_blocking(move || crate::system_resources::dispatch(&method, &params))
+                    .await
+                    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?
+            } else if method.starts_with("expert.") {
                 // 读写专家目录是同步 IO：不占 async 运行时的工作线程
                 let method = method.clone();
                 tokio::task::spawn_blocking(move || expert_operation(&method, &params))
@@ -146,7 +153,7 @@ pub async fn runtime_bridge_operation(
                         crate::platform::paths::resolve_effective_data_dir(&dir).join("remote")
                     })
                     .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
-                let emitter = crate::event_bridge::EventEmitter::Tauri(app.clone());
+                let emitter = crate::event_bridge::EventEmitter::tauri(app.clone());
                 crate::devices::dispatch(&db, &emitter, &mount_root, &method, &params).await
             };
             return Ok(match outcome {

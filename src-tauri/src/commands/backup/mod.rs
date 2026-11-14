@@ -76,7 +76,6 @@ mod tauri_commands {
     use tauri::{Manager, State};
 
     use crate::app_error::AppCommandError;
-    use crate::AppHandle;
     use crate::db::AppDatabase;
     use crate::event_bridge::EventEmitter;
     use crate::workspace_state::transfer::WorkspaceTransferManager;
@@ -109,7 +108,7 @@ mod tauri_commands {
         }
     }
 
-    fn resolve_data_dir(app: &AppHandle) -> Result<PathBuf, AppCommandError> {
+    fn resolve_data_dir<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, AppCommandError> {
         let fallback = app.path().app_data_dir().map_err(|e| {
             AppCommandError::io_error("Resolve app data dir").with_detail(e.to_string())
         })?;
@@ -117,16 +116,16 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub async fn backup_create(
+    pub async fn backup_create<R: tauri::Runtime>(
         options: BackupOptionsDto,
         dest_path: String,
         db: State<'_, AppDatabase>,
         transfer: State<'_, Arc<WorkspaceTransferManager>>,
-        app: AppHandle,
+        app: tauri::AppHandle<R>,
     ) -> Result<BackupManifest, AppCommandError> {
         let data_dir = resolve_data_dir(&app)?;
         let (op_id, cancel) = transfer.register_transfer().await;
-        let emitter = EventEmitter::Tauri(app.clone());
+        let emitter = EventEmitter::tauri(app.clone());
         let inputs = BackupInputs {
             conn: &db.conn,
             data_dir: &data_dir,
@@ -164,20 +163,20 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub async fn backup_restore_stage(
+    pub async fn backup_restore_stage<R: tauri::Runtime>(
         src_path: String,
         passphrase: Option<String>,
         external_mode: Option<ExternalRestoreMode>,
         db: State<'_, AppDatabase>,
         transfer: State<'_, Arc<WorkspaceTransferManager>>,
-        app: AppHandle,
+        app: tauri::AppHandle<R>,
     ) -> Result<StagedRestore, AppCommandError> {
         // `db` is taken so a restore can't race in-flight DB work; the swap
         // itself happens on next startup before any connection opens.
         let _ = &db;
         let data_dir = resolve_data_dir(&app)?;
         let (op_id, cancel) = transfer.register_transfer().await;
-        let emitter = EventEmitter::Tauri(app.clone());
+        let emitter = EventEmitter::tauri(app.clone());
         let result = stage_restore_core(
             Path::new(&src_path),
             &data_dir,

@@ -1,5 +1,5 @@
 //! 远程访问：tailnet 上的浏览器打开的就是桌面 GUI 本身；另一台 Berth 也经设备 socket 用同一协议
-//! 使用本机的项目（只传数据，界面是它自己的）。无显示器的设备上由无界面宿主 `berth-host` 提供
+//! 使用本机的项目（只传数据，界面是它自己的）。无显示器的设备上由 `berth-gui --headless` 提供
 //! （同一份代码，Tauri 换 MockRuntime，主窗口是不渲染的 mock webview，派发不变）。
 //!
 //! 客户端只有一份：`src/lib/transport/remote-line.js`。浏览器页面里它与 `shim.js` 一起注入
@@ -30,7 +30,8 @@
 //!   u32 meta 长度的高位，恒为 0）：偏移是这路 attach 的累计输入字节数，宿主按偏移去重（重连补发恰好
 //!   执行一次），比已收位置大则视为页面丢弃了过期输入、直接跳过；序号由宿主按 termd 契约生成。
 //! - 宿主 → 页面，文本：`{"resumed":bool}`（每次连上的第一条）、`{"e":事件,"p":载荷}`、`{}`（心跳）、
-//!   `{"pong":true}`。
+//!   `{"pong":true}`。页面带 `ze=1` 时，不小于 `GZIP_MIN_BYTES` 的事件改发二进制
+//!   `[5][gzip 后的 {"e":事件,"p":载荷}]`。
 //! - 宿主 → 页面，二进制：`[1][u32 channel][u32 序号][终端包]`；页面带 `z=1` 时改发
 //!   `[3][u32 channel][deflate 块]`：每路终端一个 raw deflate 上下文（sync flush），解出
 //!   `[u32 长度][终端包]` 序列，序号由页面按到达顺序自数。TUI 重绘高度重复，共享上下文约省 90%；
@@ -68,7 +69,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::app_error::AppCommandError;
-use crate::AppHandle;
 use crate::commands::terminal::{attach_terminal_to_sink, TerminalPacketSink};
 use crate::terminal::error::{TerminalError, TerminalErrorCode};
 use crate::terminal::manager::{TerminalManager, TerminalOperationError};
@@ -81,14 +81,21 @@ const PORT: u16 = if cfg!(debug_assertions) { 7421 } else { 7420 };
 const MAX_BODY_BYTES: usize = 128 * 1024 * 1024;
 /// 小于此大小不压缩：gzip 头尾开销抵掉收益。
 const GZIP_MIN_BYTES: usize = 1024;
-/// 每个页面的待发事件上限：满了就标记溢出，重连后让页面整页重载。空闲时几乎没有事件，
-/// 4096 条够手机在后台挂半小时。
+/// 每个页面的待发事件上限：满了就标记溢出，重连后让页面整页重载。
 const EVENT_QUEUE: usize = 4096;
+/// 页面断线超过这么久就不再给它排队事件，只记下错过了（重连后整页重拉，不补发攒下的事件洪水）。
+/// 短暂断线（日志里成串的 `drop silent`，几秒内重连）照常排队补发，不必重载。
+const EVENT_GRACE: Duration = Duration::from_secs(30);
 /// 终端输出单独排队，满了推流等待（宿主侧按既有机制改发重同步），不挤占事件。
 const TERMINAL_QUEUE: usize = 256;
-/// 页面断线超过这么久就丢弃它的队列与终端 attach（重连时页面就得整页重载）。手机切后台常有
-/// 几十分钟；页面真正关掉时 shim 发 `CLOSE_BYE`，不等这么久。
-const CLIENT_TTL: Duration = Duration::from_secs(2 * 60 * 60);
+/// 命令响应块（每块至多 `CHUNK_BYTES`）的排队上限，约 64 MB：满了说明页面收不动，断开让它重拉。
+const RESPONSE_QUEUE: usize = 4096;
+/// 页面断线超过这么久就丢弃它的队列与终端 attach（重连时页面就得整页重载）。断线超过
+/// `EVENT_GRACE` 的页面回来本来就要重载，留久了只占内存；页面真正关掉时 shim 发 `CLOSE_BYE`，不等这么久。
+const CLIENT_TTL: Duration = Duration::from_secs(10 * 60);
+/// 设备 socket 上的连接（另一台 Berth）不受 `EVENT_GRACE` 限制：它重连见 `resumed: false` 不会重载，
+/// 断线期间的事件照旧排队补发，留得也久。
+const TRUSTED_CLIENT_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 /// 最近发出的数据消息留这么多字节：连接无声断掉时，已交给旧连接却没到页面的那几条按页面报的
 /// 已收条数补发（终端包按序号交付，丢一包后面全卡住）。
 const SENT_KEEP_BYTES: usize = 2 * 1024 * 1024;
@@ -96,7 +103,7 @@ const SENT_KEEP_BYTES: usize = 2 * 1024 * 1024;
 const CLOSE_BYE: u16 = 4000;
 /// 空闲时的心跳间隔：shim 久收不到数据就判定连接已死并重连（iOS 切后台后连接常无声断掉）。
 const HEARTBEAT: Duration = Duration::from_secs(15);
-/// 远程诊断：超过它的事件、超过它的单次发送记 warn。
+/// 远程诊断：超过它的事件（压缩前）、超过它的单次发送记 warn。
 const LARGE_EVENT_BYTES: usize = 64 * 1024;
 const SLOW_SEND: Duration = Duration::from_secs(1);
 /// 响应切块大小：3 Mbps 下约 40ms 一块，块与块之间让终端和事件插队。
@@ -128,6 +135,8 @@ const FRAME_RESPONSE: u8 = 2;
 const FRAME_TERMINAL_DEFLATE: u8 = 3;
 /// 终端专线：页面 → 宿主为按键字节流，宿主 → 页面为输入确认。
 const FRAME_INPUT: u8 = 4;
+/// gzip 压缩的事件（页面带 `ze=1` 才发）。
+const FRAME_EVENT_GZIP: u8 = 5;
 /// 输入遇到终端执行队列满时的重试：每次间隔与最多次数（约 5 秒）。
 const INPUT_RETRY_DELAY: Duration = Duration::from_millis(20);
 const INPUT_RETRIES: usize = 250;
@@ -144,8 +153,8 @@ const FLAG_SNAPSHOT: u8 = 64;
 type Body = UnsyncBoxBody<Bytes, Infallible>;
 type Pending = Pin<Box<dyn Future<Output = InvokeResponse> + Send>>;
 
-struct Remote {
-    app: AppHandle,
+struct Remote<R: tauri::Runtime> {
+    app: tauri::AppHandle<R>,
     clients: Mutex<HashMap<String, Arc<Client>>>,
     /// 已挂 `listen_any` 的事件名；不卸载，每个名字一个闭包。
     hooked: Mutex<HashSet<String>>,
@@ -161,7 +170,7 @@ struct Remote {
 struct Client {
     tx: mpsc::Sender<Message>,
     terminal_tx: mpsc::Sender<Message>,
-    response_tx: mpsc::UnboundedSender<Message>,
+    response_tx: mpsc::Sender<Message>,
     rx: Mutex<Receivers>,
     /// 第几条连接：新连接接管队列，旧连接（可能已无声断开）随即结束。
     generation: AtomicU64,
@@ -171,6 +180,10 @@ struct Client {
     events: Mutex<HashSet<String>>,
     /// 页面能解 deflate-raw：之后 attach 的终端输出压缩发送。
     deflate: AtomicBool,
+    /// 页面能解 gzip 事件帧（`ze=1`）：大事件压缩后以二进制帧发。
+    gzip_events: AtomicBool,
+    /// 经设备 socket 连上的（另一台 Berth）：断线期间事件照旧排队，见 `TRUSTED_CLIENT_TTL`。
+    trusted: AtomicBool,
     /// 是终端专线（`/__berth/term`）。
     terminal_line: bool,
     /// 终端专线：channel → 这路 attach 的输入状态。
@@ -182,7 +195,7 @@ struct Client {
 struct Receivers {
     events: mpsc::Receiver<Message>,
     terminal: mpsc::Receiver<Message>,
-    responses: mpsc::UnboundedReceiver<Message>,
+    responses: mpsc::Receiver<Message>,
     /// 轮流发的起点：终端刷屏时命令响应照样有份。
     turn: usize,
 }
@@ -238,7 +251,7 @@ struct Meta {
 }
 
 /// 启动远程访问：监听地址按设置页（`listen`）绑定，可在运行中改。
-pub async fn host(app: AppHandle) {
+pub async fn host<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     let remote = Arc::new(Remote {
         app: app.clone(),
         clients: Mutex::default(),
@@ -258,13 +271,13 @@ pub async fn host(app: AppHandle) {
     #[cfg(unix)]
     tokio::spawn(device_socket(remote.clone()));
     app.manage(listen::Listeners::new(remote, conn));
-    app.state::<listen::Listeners>().apply(&settings).await;
+    app.state::<listen::Listeners<R>>().apply(&settings).await;
 }
 
 /// 设备窗口的入口：数据目录下仅本用户可读写的 Unix socket，另一台设备经 `ssh -L` 转发进来。
 /// 能连上就已过了本用户的 SSH 认证，所以免登录；不设访问密码也监听。
 #[cfg(unix)]
-async fn device_socket(remote: Arc<Remote>) {
+async fn device_socket<R: tauri::Runtime>(remote: Arc<Remote<R>>) {
     use std::os::unix::fs::PermissionsExt;
     let Some(data) = std::env::var_os("BERTH_DATA_DIR") else {
         return;
@@ -292,7 +305,7 @@ async fn device_socket(remote: Arc<Remote>) {
 }
 
 /// 一个监听地址的接受循环；任务被 abort 时只停接受新连接。
-async fn accept_loop(listener: tokio::net::TcpListener, remote: Arc<Remote>) {
+async fn accept_loop<R: tauri::Runtime>(listener: tokio::net::TcpListener, remote: Arc<Remote<R>>) {
     loop {
         let Ok((socket, _)) = listener.accept().await else {
             continue;
@@ -323,7 +336,7 @@ fn small_send_buffer(socket: &tokio::net::UnixStream) {
 }
 
 /// 一条连接上的 HTTP / WebSocket；`trusted` 的连接（设备 socket）免登录。
-async fn serve_connection<S>(socket: S, remote: Arc<Remote>, trusted: bool)
+async fn serve_connection<R: tauri::Runtime, S>(socket: S, remote: Arc<Remote<R>>, trusted: bool)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -367,52 +380,97 @@ fn limit_unsent(socket: &tokio::net::TcpStream) {
 fn limit_unsent(_socket: &tokio::net::TcpStream) {}
 
 /// 丢掉断线太久的页面：接收端随之释放，挂在上面的终端推流发送失败后 detach。
-async fn reap(remote: Arc<Remote>) {
+async fn reap<R: tauri::Runtime>(remote: Arc<Remote<R>>) {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let mut clients = remote.clients.lock().expect("remote clients");
-        clients.retain(|_, client| {
-            !client
-                .disconnected_at
-                .lock()
-                .expect("client disconnected_at")
-                .is_some_and(|since| since.elapsed() > CLIENT_TTL)
-        });
+        clients.retain(|_, client| !client.expired());
     }
 }
 
-impl Remote {
+impl Client {
+    fn new(terminal_line: bool) -> Self {
+        let (tx, events) = mpsc::channel(EVENT_QUEUE);
+        let (terminal_tx, terminal) = mpsc::channel(TERMINAL_QUEUE);
+        let (response_tx, responses) = mpsc::channel(RESPONSE_QUEUE);
+        Client {
+            tx,
+            terminal_tx,
+            response_tx,
+            rx: Mutex::new(Receivers {
+                events,
+                terminal,
+                responses,
+                turn: 0,
+            }),
+            generation: AtomicU64::new(0),
+            takeover: Notify::new(),
+            calls: Mutex::default(),
+            sent: Mutex::default(),
+            events: Mutex::default(),
+            deflate: AtomicBool::new(false),
+            gzip_events: AtomicBool::new(false),
+            trusted: AtomicBool::new(false),
+            terminal_line,
+            channels: Mutex::default(),
+            lagged: AtomicBool::new(false),
+            disconnected_at: Mutex::new(Some(Instant::now())),
+        }
+    }
+
+    /// 断线多久了；连着时为 None。
+    fn away_for(&self) -> Option<Duration> {
+        self.disconnected_at
+            .lock()
+            .expect("client disconnected_at")
+            .map(|since| since.elapsed())
+    }
+
+    /// 断线太久，该丢弃了。
+    fn expired(&self) -> bool {
+        let ttl = if self.trusted.load(Ordering::Relaxed) {
+            TRUSTED_CLIENT_TTL
+        } else {
+            CLIENT_TTL
+        };
+        self.away_for().is_some_and(|away| away > ttl)
+    }
+
+    /// 这一页要不要收这条事件：断线超过 `EVENT_GRACE` 的浏览器页不再排队，记下错过了，重连时 `resumed: false`。
+    fn takes_event(&self, event: &str) -> bool {
+        if !self.events.lock().expect("client events").contains(event) {
+            return false;
+        }
+        let gone = !self.trusted.load(Ordering::Relaxed)
+            && self.away_for().is_some_and(|away| away > EVENT_GRACE);
+        if gone {
+            self.lagged.store(true, Ordering::Relaxed);
+        }
+        !gone
+    }
+
+    fn queue_event(&self, message: Message) {
+        if self.tx.try_send(message).is_err() {
+            self.lagged.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// 响应排队；满了说明页面收不动：断开当前连接，页面重连见 `resumed: false` 整页重拉。
+    fn queue_response(&self, message: Message) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.response_tx.try_send(message) {
+            self.lagged.store(true, Ordering::Relaxed);
+            self.takeover.notify_waiters();
+        }
+    }
+}
+
+impl<R: tauri::Runtime> Remote<R> {
     fn client(&self, id: &str) -> Arc<Client> {
         self.clients
             .lock()
             .expect("remote clients")
             .entry(id.to_owned())
-            .or_insert_with(|| {
-                let (tx, events) = mpsc::channel(EVENT_QUEUE);
-                let (terminal_tx, terminal) = mpsc::channel(TERMINAL_QUEUE);
-                let (response_tx, responses) = mpsc::unbounded_channel();
-                Arc::new(Client {
-                    tx,
-                    terminal_tx,
-                    response_tx,
-                    rx: Mutex::new(Receivers {
-                        events,
-                        terminal,
-                        responses,
-                        turn: 0,
-                    }),
-                    generation: AtomicU64::new(0),
-                    takeover: Notify::new(),
-                    calls: Mutex::default(),
-                    sent: Mutex::default(),
-                    events: Mutex::default(),
-                    deflate: AtomicBool::new(false),
-                    terminal_line: id.ends_with("/term"),
-                    channels: Mutex::default(),
-                    lagged: AtomicBool::new(false),
-                    disconnected_at: Mutex::new(Some(Instant::now())),
-                })
-            })
+            .or_insert_with(|| Arc::new(Client::new(id.ends_with("/term"))))
             .clone()
     }
 
@@ -444,22 +502,37 @@ impl Remote {
             if payload.is_empty() { "null" } else { payload }
         );
         if line.len() > LARGE_EVENT_BYTES {
-            // 事件整条发、不切块不压缩：慢链路上一条大事件就能让页面超过判活时限
+            // 事件整条发、不切块：慢链路上一条大事件就能让页面超过判活时限
             tracing::warn!("[remote] large event {event}: {} bytes", line.len());
         }
-        let message = Message::Text(line.into());
+        // 压缩版按需算一次，所有能解的页面共用。
+        let mut gzipped: Option<Option<Message>> = None;
+        let text = Message::Text(line.as_str().into());
         for client in self.clients.lock().expect("remote clients").values() {
-            if !client.events.lock().expect("client events").contains(event) {
+            if !client.takes_event(event) {
                 continue;
             }
-            if client.tx.try_send(message.clone()).is_err() {
-                client.lagged.store(true, Ordering::Relaxed);
-            }
+            let compressed = (line.len() >= GZIP_MIN_BYTES
+                && client.gzip_events.load(Ordering::Relaxed))
+            .then(|| {
+                gzipped
+                    .get_or_insert_with(|| {
+                        gzip(
+                            vec![FRAME_EVENT_GZIP],
+                            line.as_bytes(),
+                            flate2::Compression::fast(),
+                        )
+                        .map(|frame| Message::Binary(frame.into()))
+                    })
+                    .clone()
+            })
+            .flatten();
+            client.queue_event(compressed.unwrap_or_else(|| text.clone()));
         }
     }
 }
 
-async fn handle(remote: &Arc<Remote>, request: Request<Incoming>, trusted: bool) -> Response<Body> {
+async fn handle<R: tauri::Runtime>(remote: &Arc<Remote<R>>, request: Request<Incoming>, trusted: bool) -> Response<Body> {
     let path = request.uri().path().to_owned();
     if path == "/__berth/login" {
         return login(remote, request).await;
@@ -486,6 +559,7 @@ async fn handle(remote: &Arc<Remote>, request: Request<Incoming>, trusted: bool)
             .unwrap_or_default();
         let received = query.get("received").and_then(|value| value.parse().ok());
         let deflate = query.get("z").is_some_and(|value| value == "1");
+        let gzip_events = query.get("ze").is_some_and(|value| value == "1");
         // 专线与命令线各是一个独立的 Client（各自的队列、补发计数）。
         let line = |client: &String| {
             if path == "/__berth/term" {
@@ -500,7 +574,7 @@ async fn handle(remote: &Arc<Remote>, request: Request<Incoming>, trusted: bool)
                 request,
                 line(client),
                 received.unwrap_or(0),
-                deflate,
+                (deflate, gzip_events, trusted),
             ),
             None => plain(StatusCode::BAD_REQUEST, "client is required"),
         };
@@ -535,18 +609,24 @@ async fn handle(remote: &Arc<Remote>, request: Request<Incoming>, trusted: bool)
             }
             // 正式版的 chunk 名带内容哈希；dev 的不一定，永久缓存会拿到旧代码。
             let immutable = !tauri::is_dev() && path.starts_with("/_next/static/");
-            respond(&headers, StatusCode::OK, &mime, bytes, immutable)
+            respond(
+                &headers,
+                StatusCode::OK,
+                &mime,
+                bytes,
+                immutable.then_some(path.as_str()),
+            )
         }
         Err(error) => plain(StatusCode::NOT_FOUND, &error),
     }
 }
 
-fn upgrade(
-    remote: &Arc<Remote>,
+fn upgrade<R: tauri::Runtime>(
+    remote: &Arc<Remote<R>>,
     request: Request<Incoming>,
     client_id: String,
     received: u64,
-    deflate: bool,
+    (deflate, gzip_events, trusted): (bool, bool, bool),
 ) -> Response<Body> {
     let Some(key) = request.headers().get(header::SEC_WEBSOCKET_KEY) else {
         return plain(StatusCode::BAD_REQUEST, "websocket upgrade required");
@@ -565,6 +645,8 @@ fn upgrade(
                 .await;
         let client = remote.client(&client_id);
         client.deflate.store(deflate, Ordering::Relaxed);
+        client.gzip_events.store(gzip_events, Ordering::Relaxed);
+        client.trusted.store(trusted, Ordering::Relaxed);
         serve(&remote, &client_id, client, received, socket).await;
     });
     Response::builder()
@@ -579,8 +661,8 @@ fn upgrade(
 /// 一条连接：接管这一页的队列（旧连接随即结束）。第一条告诉页面宿主是否还保有它的状态：
 /// `resumed: false` 且页面之前连上过（宿主重启、页面掉线太久被回收、断线期间事件溢出、
 /// 旧连接上丢的消息已补不回），页面就整页重载；否则先补发页面没收到的，再接着发队列。
-async fn serve(
-    remote: &Arc<Remote>,
+async fn serve<R: tauri::Runtime>(
+    remote: &Arc<Remote<R>>,
     client_id: &str,
     client: Arc<Client>,
     received: u64,
@@ -714,7 +796,7 @@ fn next_outgoing(client: &Client) -> impl Future<Output = Message> + '_ {
 
 /// 解一帧请求并开始执行：派发在读循环里按到达顺序进行（与 webview 自己的 IPC 一样），
 /// 等结果在单独的任务里，慢命令不挡后面的命令。
-fn request(remote: &Arc<Remote>, client: &Arc<Client>, frame: Bytes) {
+fn request<R: tauri::Runtime>(remote: &Arc<Remote<R>>, client: &Arc<Client>, frame: Bytes) {
     let Some((meta, body)) = split_frame(&frame) else {
         tracing::warn!("[remote] malformed request frame");
         return;
@@ -738,7 +820,7 @@ fn request(remote: &Arc<Remote>, client: &Arc<Client>, frame: Bytes) {
         if let Some((_, frames)) = calls.done.iter().find(|(done, _)| *done == id) {
             // 断线时没收到的响应：原样补发（页面按 id 去重）。
             for frame in frames {
-                let _ = client.response_tx.send(frame.clone());
+                client.queue_response(frame.clone());
             }
             return;
         }
@@ -777,7 +859,7 @@ fn split_frame(frame: &Bytes) -> Option<(Meta, Bytes)> {
 }
 
 /// 以桌面主窗口的身份执行一条命令，结果与 Tauri IPC 协议一致。同步部分（含主线程派发）立即执行。
-fn invoke(remote: &Arc<Remote>, client: &Arc<Client>, meta: &Meta, body: Bytes) -> Pending {
+fn invoke<R: tauri::Runtime>(remote: &Arc<Remote<R>>, client: &Arc<Client>, meta: &Meta, body: Bytes) -> Pending {
     let ready = |response: InvokeResponse| -> Pending { Box::pin(async move { response }) };
     let body = if meta.json {
         match serde_json::from_slice(&body) {
@@ -912,8 +994,8 @@ fn deflate_sync(compress: &mut flate2::Compress, input: &[u8], out: &mut Vec<u8>
     }
 }
 
-async fn attach_terminal(
-    remote: &Remote,
+async fn attach_terminal<R: tauri::Runtime>(
+    remote: &Remote<R>,
     client: &Arc<Client>,
     body: InvokeBody,
 ) -> InvokeResponse {
@@ -1102,7 +1184,7 @@ fn forget_channels(client: &Client, body: &InvokeBody) {
 /// 一路 attach 的输入执行者：逐个写入 / resize，序号取 termd 已收下的下一个；写完回确认。
 async fn run_channel(
     manager: TerminalManager,
-    acks: mpsc::UnboundedSender<Message>,
+    acks: mpsc::Sender<Message>,
     channel: u32,
     ids: (String, String),
     mut ops: mpsc::UnboundedReceiver<TermOp>,
@@ -1127,7 +1209,8 @@ async fn run_channel(
                 frame.push(FRAME_INPUT);
                 frame.extend_from_slice(&channel.to_be_bytes());
                 frame.extend_from_slice(&end.to_be_bytes());
-                let _ = acks.send(Message::Binary(frame.into()));
+                // 队列满时丢掉这条确认：确认是累计的，下一条会覆盖它。
+                let _ = acks.try_send(Message::Binary(frame.into()));
             }
             TermOp::Resize { rows, cols, reply } => {
                 let result = ordered(
@@ -1215,7 +1298,7 @@ fn send_response(
     let snapshot = cmd == "terminal_attach_channel" || cmd == "terminal_resize_attached";
     let frames = response_frames(id, response, took, etag, snapshot);
     for frame in &frames {
-        let _ = client.response_tx.send(frame.clone());
+        client.queue_response(frame.clone());
     }
     let mut calls = client.calls.lock().expect("client calls");
     calls.running.remove(&id);
@@ -1259,12 +1342,9 @@ fn response_frames(
         flags |= FLAG_NOT_MODIFIED;
         bytes.clear();
     } else if flags & (FLAG_JSON | FLAG_SNAPSHOT) != 0 && bytes.len() >= GZIP_MIN_BYTES {
-        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-        if encoder.write_all(&bytes).is_ok() {
-            if let Ok(gzipped) = encoder.finish() {
-                flags |= FLAG_GZIP;
-                bytes = gzipped;
-            }
+        if let Some(gzipped) = gzip(Vec::new(), &bytes, flate2::Compression::fast()) {
+            flags |= FLAG_GZIP;
+            bytes = gzipped;
         }
     }
     let took = u32::try_from(took.as_millis()).unwrap_or(u32::MAX);
@@ -1333,7 +1413,7 @@ async fn plugin_page(path: &str, headers: &HeaderMap) -> Response<Body> {
     .unwrap_or_else(|error| Err(error.to_string()));
     match asset {
         Ok(asset) => {
-            let mut response = respond(headers, StatusCode::OK, asset.mime, asset.bytes, false);
+            let mut response = respond(headers, StatusCode::OK, asset.mime, asset.bytes, None);
             let target = response.headers_mut();
             target.insert(
                 header::ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -1349,8 +1429,8 @@ async fn plugin_page(path: &str, headers: &HeaderMap) -> Response<Body> {
 }
 
 /// dev 转发 devUrl（Next dev server）；正式版读内嵌资源（自动补 `.html` / `index.html`）。
-async fn asset(
-    app: &AppHandle,
+async fn asset<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     path: &str,
     query: &str,
     headers: &HeaderMap,
@@ -1392,18 +1472,19 @@ async fn asset(
     Ok((asset.mime_type, asset.bytes))
 }
 
-/// 统一出口：ETag / 304、缓存头、按需 gzip。
+/// 统一出口：ETag / 304、缓存头、按需 gzip。`immutable` 是内容永不变的静态资源的路径：
+/// 永久缓存，压缩结果按路径留着，同一资源不再重复压缩。
 fn respond(
     request: &HeaderMap,
     status: StatusCode,
     mime: &str,
     bytes: Vec<u8>,
-    immutable: bool,
+    immutable: Option<&str>,
 ) -> Response<Body> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     let etag = format!("\"{:x}\"", hasher.finish());
-    let cache = if immutable {
+    let cache = if immutable.is_some() {
         "public, max-age=31536000, immutable"
     } else {
         "no-cache"
@@ -1426,21 +1507,44 @@ fn respond(
         .header(header::CONTENT_TYPE, mime)
         .header(header::VARY, "accept-encoding");
     if bytes.len() >= GZIP_MIN_BYTES && compressible(mime) && accepts_gzip(request) {
-        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        if encoder.write_all(&bytes).is_ok() {
-            if let Ok(gzipped) = encoder.finish() {
-                return builder
-                    .header(header::CONTENT_ENCODING, "gzip")
-                    .body(full(gzipped))
-                    .unwrap_or_default();
-            }
+        let gzipped = match immutable {
+            Some(path) => static_gzip(path, &bytes),
+            None => gzip(Vec::new(), &bytes, flate2::Compression::default()).map(Bytes::from),
+        };
+        if let Some(gzipped) = gzipped {
+            return builder
+                .header(header::CONTENT_ENCODING, "gzip")
+                .body(full(gzipped))
+                .unwrap_or_default();
         }
     }
     builder.body(full(bytes)).unwrap_or_default()
 }
 
-fn full(bytes: Vec<u8>) -> Body {
-    BodyExt::boxed_unsync(Full::new(Bytes::from(bytes)))
+/// 压缩后追加到 `out` 之后（帧头可以先放进 `out`）。
+fn gzip(out: Vec<u8>, bytes: &[u8], level: flate2::Compression) -> Option<Vec<u8>> {
+    let mut encoder = flate2::write::GzEncoder::new(out, level);
+    encoder.write_all(bytes).ok()?;
+    encoder.finish().ok()
+}
+
+/// 永久缓存的静态资源按路径留压缩结果：正式版内嵌资源只有那几个 chunk，总量就是前端包大小。
+fn static_gzip(path: &str, bytes: &[u8]) -> Option<Bytes> {
+    static CACHE: std::sync::LazyLock<Mutex<HashMap<String, Bytes>>> =
+        std::sync::LazyLock::new(Mutex::default);
+    if let Some(hit) = CACHE.lock().expect("gzip cache").get(path) {
+        return Some(hit.clone());
+    }
+    let gzipped = Bytes::from(gzip(Vec::new(), bytes, flate2::Compression::default())?);
+    CACHE
+        .lock()
+        .expect("gzip cache")
+        .insert(path.to_owned(), gzipped.clone());
+    Some(gzipped)
+}
+
+fn full(bytes: impl Into<Bytes>) -> Body {
+    BodyExt::boxed_unsync(Full::new(bytes.into()))
 }
 
 fn empty() -> Body {
@@ -1469,7 +1573,7 @@ const SESSION_COOKIE: &str = if cfg!(debug_assertions) {
 };
 const LOGIN_PAGE: &str = include_str!("login.html");
 
-fn signed_in(remote: &Remote, headers: &HeaderMap) -> bool {
+fn signed_in<R: tauri::Runtime>(remote: &Remote<R>, headers: &HeaderMap) -> bool {
     let Some(session) = remote.session.read().expect("remote session").clone() else {
         return false;
     };
@@ -1483,7 +1587,7 @@ fn signed_in(remote: &Remote, headers: &HeaderMap) -> bool {
 }
 
 /// `POST /__berth/login`，请求体是密码原文：对了种 cookie，错了停一秒再回，拖慢猜密码。
-async fn login(remote: &Remote, request: Request<Incoming>) -> Response<Body> {
+async fn login<R: tauri::Runtime>(remote: &Remote<R>, request: Request<Incoming>) -> Response<Body> {
     if request.method() != Method::POST {
         return html(StatusCode::OK, LOGIN_PAGE);
     }
@@ -1534,4 +1638,84 @@ fn plain(status: StatusCode, message: &str) -> Response<Body> {
         )
         .body(full(message.as_bytes().to_vec()))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn subscribed(event: &str) -> Client {
+        let client = Client::new(false);
+        client.events.lock().unwrap().insert(event.to_owned());
+        *client.disconnected_at.lock().unwrap() = None;
+        client
+    }
+
+    fn away(client: &Client, for_: Duration) {
+        *client.disconnected_at.lock().unwrap() = Instant::now().checked_sub(for_);
+    }
+
+    #[test]
+    fn a_page_gone_past_the_grace_gets_no_events_and_is_told_to_reload() {
+        let client = subscribed("e");
+        assert!(client.takes_event("e"));
+        assert!(!client.takes_event("other"));
+        away(&client, Duration::from_secs(5));
+        assert!(client.takes_event("e"), "短暂断线照常排队");
+        assert!(!client.lagged.load(Ordering::Relaxed));
+        away(&client, EVENT_GRACE + Duration::from_secs(1));
+        assert!(!client.takes_event("e"));
+        assert!(client.lagged.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn pages_disconnected_past_the_ttl_expire() {
+        let client = subscribed("e");
+        assert!(!client.expired());
+        away(&client, CLIENT_TTL + Duration::from_secs(1));
+        assert!(client.expired());
+    }
+
+    #[test]
+    fn a_device_socket_page_keeps_queueing_while_away() {
+        let client = subscribed("e");
+        client.trusted.store(true, Ordering::Relaxed);
+        away(&client, EVENT_GRACE + Duration::from_secs(1));
+        assert!(
+            client.takes_event("e"),
+            "另一台 Berth 断线超过宽限也照旧排队"
+        );
+        assert!(!client.lagged.load(Ordering::Relaxed));
+        away(&client, CLIENT_TTL + Duration::from_secs(1));
+        assert!(!client.expired());
+        away(&client, TRUSTED_CLIENT_TTL + Duration::from_secs(1));
+        assert!(client.expired());
+    }
+
+    #[test]
+    fn a_full_response_queue_marks_the_page_lagged() {
+        let client = subscribed("e");
+        for _ in 0..RESPONSE_QUEUE {
+            client.queue_response(Message::Binary(Bytes::from_static(b"x")));
+        }
+        assert!(!client.lagged.load(Ordering::Relaxed));
+        client.queue_response(Message::Binary(Bytes::from_static(b"x")));
+        assert!(client.lagged.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn event_frames_gunzip_to_the_plain_line_and_static_assets_compress_once() {
+        let line = br#"{"e":"x","p":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+        let frame = gzip(vec![FRAME_EVENT_GZIP], line, flate2::Compression::fast()).unwrap();
+        assert_eq!(frame[0], FRAME_EVENT_GZIP);
+        let mut plain = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&frame[1..]), &mut plain)
+            .unwrap();
+        assert_eq!(plain, line);
+
+        let first = static_gzip("/_next/static/test.js", line).unwrap();
+        // 第二次不再压缩：内容不同也拿回缓存的同一份（同一块内存）。
+        let second = static_gzip("/_next/static/test.js", b"changed").unwrap();
+        assert_eq!(first.as_ptr(), second.as_ptr());
+    }
 }

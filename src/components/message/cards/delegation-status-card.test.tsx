@@ -53,7 +53,7 @@ describe("DelegationStatusCard", () => {
       screen.getByText("Waiting for task #abc12345 result")
     ).toBeInTheDocument()
     // In flight with no result yet → a spinner, and nothing to expand.
-    expect(container.querySelector(".animate-spin")).toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).toBeInTheDocument()
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
   })
 
@@ -211,7 +211,7 @@ describe("DelegationStatusCard", () => {
       "bg-destructive/5"
     )
     // Terminal, with no message → no spinner and nothing to expand.
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
   })
 
@@ -230,7 +230,7 @@ describe("DelegationStatusCard", () => {
     expect(screen.getByTestId("delegation-status-card")).toHaveClass(
       "bg-destructive/5"
     )
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
   })
 
   it("recovers a failed report inlined in content[0].text without structuredContent", () => {
@@ -274,7 +274,7 @@ describe("DelegationStatusCard", () => {
         state="output-available"
       />
     )
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
     expect(screen.getByText("checked")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button"))
     expect(screen.getByText("still working")).toBeInTheDocument()
@@ -292,7 +292,7 @@ describe("DelegationStatusCard", () => {
         state="output-available"
       />
     )
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
     expect(screen.getByText("checked")).toBeInTheDocument()
     expect(screen.queryByText("done")).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button"))

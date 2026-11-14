@@ -34,11 +34,11 @@ import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { EnableBerthNotice } from "../enable-berth-notice"
 import { MemberSessions } from "../group/member-sessions"
 
-function Members({ folderId }: { folderId: number }) {
+function Members({ folderId, live }: { folderId: number; live: boolean }) {
   const t = useTranslations("BerthTasks.group.members")
   const tGroup = useTranslations("BerthTasks.group")
   const [query, setQuery] = useState("")
-  const group = useTaskGroup(folderId, true)
+  const group = useTaskGroup(folderId, live)
   const selected = useGroupWorkspaceStore((state) =>
     state.folderId === folderId && state.group === group.name
       ? state.focusedMember
@@ -259,7 +259,7 @@ export function GroupMembersPanel({
       />
       {page === "members" ? (
         <div className="h-full min-h-0 overflow-auto py-1">
-          <Members key={folderId} folderId={folderId} />
+          <Members key={folderId} folderId={folderId} live={active} />
         </div>
       ) : (
         <Suspense fallback={null}>

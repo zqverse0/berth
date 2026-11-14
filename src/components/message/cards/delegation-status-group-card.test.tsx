@@ -143,7 +143,7 @@ describe("DelegationStatusGroupCard", () => {
       />
     )
     expect(screen.getByText("checked")).toBeInTheDocument()
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
   })
 
   it("keeps the live spinner for a poll still in flight", () => {
@@ -152,7 +152,7 @@ describe("DelegationStatusGroupCard", () => {
         polls={[poll("abc12345", { state: "input-available" })]}
       />
     )
-    expect(container.querySelector(".animate-spin")).toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).toBeInTheDocument()
   })
 
   it("suppresses an in-flight poll whose task_ids have not streamed in yet", () => {
@@ -383,7 +383,7 @@ describe("DelegationStatusGroupCard", () => {
     )
     expect(screen.getByText("checked")).toBeInTheDocument()
     expect(screen.queryByText("done")).not.toBeInTheDocument()
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(container.querySelector(".berth-slow-blink")).not.toBeInTheDocument()
   })
 
   it("keeps polls separate by their output task_id when the input lost the id", () => {

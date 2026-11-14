@@ -231,19 +231,19 @@ fn emit_preview_install_event(
 /// `install_preview_tool_core` so the web handler can share it with its own emitter.
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn install_preview_tool(
+pub async fn install_preview_tool<R: tauri::Runtime>(
     task_id: String,
     path: String,
     tool_id: Option<String>,
     update: Option<bool>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<PreviewToolInfo, PreviewToolsError> {
     install_preview_tool_core(
         task_id,
         path,
         tool_id,
         update.unwrap_or(false),
-        &EventEmitter::Tauri(app),
+        &EventEmitter::tauri(app),
     )
     .await
 }
@@ -577,13 +577,13 @@ async fn stream_install_or_kill_tree(
 /// disk flush, and returns the watch's latest marks for a remounting preview.
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn start_preview_watch(
+pub async fn start_preview_watch<R: tauri::Runtime>(
     root_path: String,
     path: String,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<crate::preview_watch::PreviewWatchStarted, AppCommandError> {
     let mut started = crate::preview_watch::start_preview_watch_core(root_path, path).await?;
-    crate::preview_watch::ensure_update_pump(started.port, EventEmitter::Tauri(app));
+    crate::preview_watch::ensure_update_pump(started.port, EventEmitter::tauri(app));
     started.marks = crate::preview_watch::last_marks(started.port);
     Ok(started)
 }

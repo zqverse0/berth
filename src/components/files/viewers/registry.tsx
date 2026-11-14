@@ -45,7 +45,7 @@ export interface FileViewerProps {
 function ImageFileViewer({ tab, visible }: FileViewerProps) {
   useFileReveal({ tab, visible, textBuffer: false, revealLine: null })
   if (!isImageResourceFileTab(tab)) return null
-  return <ImagePreview key={tab.id} tab={tab} />
+  return <ImagePreview key={tab.id} tab={tab} visible={visible} />
 }
 
 function OfficeFileViewer({ tab, visible }: FileViewerProps) {

@@ -57,7 +57,7 @@ describe("GoalToolCallPart", () => {
     expect(screen.queryByText(/Report final usage/)).not.toBeInTheDocument()
   })
 
-  it("wraps in-progress goal process content and shimmers the running title", () => {
+  it("wraps in-progress goal process content and blinks the running title", () => {
     renderWithIntl(
       <GoalRunPart
         part={{
@@ -81,7 +81,7 @@ describe("GoalToolCallPart", () => {
 
     const button = screen.getByRole("button")
     const runningTitle = screen.getByText("Goal: Analyze README file")
-    expect(runningTitle).toHaveClass("text-transparent")
+    expect(runningTitle).toHaveClass("berth-slow-blink")
     expect(screen.queryByText("Goal active")).not.toBeInTheDocument()
     expect(button.querySelectorAll("svg")).toHaveLength(1)
     expect(screen.queryByText("Reading README.md")).not.toBeInTheDocument()

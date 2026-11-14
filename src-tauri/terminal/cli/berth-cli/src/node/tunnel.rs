@@ -147,7 +147,7 @@ impl Drop for Tunnels {
     }
 }
 
-/// 连设备 socket；GUI 没在运行而这里能起无界面宿主（无显示器）时拉起 `berth-host`，等它监听。
+/// 连设备 socket；GUI 没在运行而这里能起无界面宿主（无显示器）时以 `berth-gui --headless` 拉起它，等它监听。
 async fn connect_host(socket: &std::path::Path) -> Option<tokio::net::UnixStream> {
     if let Ok(conn) = tokio::net::UnixStream::connect(socket).await {
         return Some(conn);
@@ -155,7 +155,7 @@ async fn connect_host(socket: &std::path::Path) -> Option<tokio::net::UnixStream
     if !crate::gui_launch::can_launch_host() {
         return None;
     }
-    // 两条线同时到时各拉一次，多出的那个 berth-host 拿不到锁会自行退出。
+    // 两条线同时到时各拉一次，多出的那个无界面宿主拿不到锁会自行退出。
     let _ = tokio::task::spawn_blocking(|| crate::gui_launch::try_launch_gui(None)).await;
     for _ in 0..50 {
         if let Ok(conn) = tokio::net::UnixStream::connect(socket).await {

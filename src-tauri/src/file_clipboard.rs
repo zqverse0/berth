@@ -26,16 +26,16 @@ fn describe(path: &Path) -> Option<ClipboardFile> {
 }
 
 #[tauri::command]
-pub async fn clipboard_read_files(
-    window: tauri::Window<crate::Rt>,
+pub async fn clipboard_read_files<R: tauri::Runtime>(
+    window: tauri::Window<R>,
 ) -> Result<Vec<ClipboardFile>, String> {
     let paths = read(&window).await?;
     Ok(paths.iter().filter_map(|path| describe(path)).collect())
 }
 
 #[tauri::command]
-pub async fn clipboard_write_files(
-    window: tauri::Window<crate::Rt>,
+pub async fn clipboard_write_files<R: tauri::Runtime>(
+    window: tauri::Window<R>,
     paths: Vec<PathBuf>,
 ) -> Result<(), String> {
     write(&window, paths).await
@@ -61,7 +61,7 @@ fn system_clipboard() -> gtk::Clipboard {
 }
 
 #[cfg(target_os = "linux")]
-async fn read(window: &tauri::Window<crate::Rt>) -> Result<Vec<PathBuf>, String> {
+async fn read<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Vec<PathBuf>, String> {
     let (done, result) = tokio::sync::oneshot::channel();
     let to_paths = |uris: Vec<String>| -> Vec<PathBuf> {
         uris.iter()
@@ -96,7 +96,10 @@ async fn read(window: &tauri::Window<crate::Rt>) -> Result<Vec<PathBuf>, String>
 }
 
 #[cfg(target_os = "linux")]
-async fn write(window: &tauri::Window<crate::Rt>, paths: Vec<PathBuf>) -> Result<(), String> {
+async fn write<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
     let uris = paths
         .iter()
         .map(|path| gtk::glib::filename_to_uri(path, None).map(|uri| uri.to_string()))
@@ -129,7 +132,7 @@ async fn write(window: &tauri::Window<crate::Rt>, paths: Vec<PathBuf>) -> Result
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn read(_window: &tauri::Window<crate::Rt>) -> Result<Vec<PathBuf>, String> {
+async fn read<R: tauri::Runtime>(_window: &tauri::Window<R>) -> Result<Vec<PathBuf>, String> {
     tokio::task::spawn_blocking(|| {
         match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get().file_list()) {
             Ok(paths) => Ok(paths),
@@ -142,7 +145,10 @@ async fn read(_window: &tauri::Window<crate::Rt>) -> Result<Vec<PathBuf>, String
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn write(_window: &tauri::Window<crate::Rt>, paths: Vec<PathBuf>) -> Result<(), String> {
+async fn write<R: tauri::Runtime>(
+    _window: &tauri::Window<R>,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         arboard::Clipboard::new()
             .and_then(|mut clipboard| clipboard.set().file_list(&paths))

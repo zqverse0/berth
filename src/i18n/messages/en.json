@@ -1446,6 +1446,24 @@
         "usageWithAbsoluteFormat": "{percent} ({absolute})",
         "resetCountdown": "Resets in {duration}",
         "resetDone": "Reset"
+      },
+      "resources": {
+        "title": "Resource usage",
+        "memoryShort": "Mem",
+        "machine": "This machine",
+        "cpu": "CPU",
+        "cores": "{count} cores",
+        "memory": "Memory",
+        "swap": "Swap",
+        "berth": "Berth usage",
+        "groups": {
+          "ui": "Interface",
+          "termd": "Terminal daemon",
+          "agents": "Processes in terminals",
+          "background": "Background"
+        },
+        "none": "None",
+        "more": "{count} more"
       }
     },
     "auxPanel": {

@@ -7,7 +7,6 @@ use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::app_error::AppCommandError;
-use crate::WebviewWindow;
 // Desktop Tauri manages `WorkspaceResourceLeaseStore` directly (see lib.rs
 // `.manage(workspace_resources)`). It does NOT manage `AppState` — that Arc is
 // only built for the embedded web server / codeg-server. These commands must
@@ -49,8 +48,8 @@ pub struct PdfSourceOpened {
 }
 
 #[tauri::command]
-pub async fn open_local_pdf_source(
-    window: WebviewWindow,
+pub async fn open_local_pdf_source<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     root_path: String,
     path: String,
     resources: State<'_, Arc<WorkspaceResourceLeaseStore>>,
@@ -78,8 +77,8 @@ pub async fn open_local_pdf_source(
 }
 
 #[tauri::command]
-pub async fn read_local_pdf_range(
-    window: WebviewWindow,
+pub async fn read_local_pdf_range<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     source_id: String,
     begin: u64,
     end: u64,
@@ -107,8 +106,8 @@ pub async fn read_local_pdf_range(
 }
 
 #[tauri::command]
-pub async fn close_local_pdf_source(
-    window: WebviewWindow,
+pub async fn close_local_pdf_source<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     source_id: String,
     resources: State<'_, Arc<WorkspaceResourceLeaseStore>>,
 ) -> Result<(), AppCommandError> {

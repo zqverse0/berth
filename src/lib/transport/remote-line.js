@@ -11,6 +11,8 @@ const FRAME_TERMINAL = 1
 const FRAME_RESPONSE = 2
 const FRAME_TERMINAL_DEFLATE = 3
 const FRAME_INPUT = 4
+// gzip 压缩的事件 `[5][gzip 后的 {"e","p"}]`：连接时带 `ze=1`，宿主对大事件才这样发。
+const FRAME_EVENT_GZIP = 5
 const FLAG_OK = 1
 const FLAG_JSON = 2
 const FLAG_FIRST = 4
@@ -93,6 +95,13 @@ function serialize(payload) {
   return { json: true, data }
 }
 
+async function gunzip(bytes) {
+  const stream = new Response(bytes).body.pipeThrough(
+    new DecompressionStream("gzip")
+  )
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
 function toBase64(bytes) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -116,7 +125,8 @@ function channelOfOutput(output) {
  * - `url(path)`：WebSocket 地址（不含查询串），可返回 Promise；失败按断线退避重试；
  * - `deliver(channel, packet)` / `alive(channel)`：终端输出交给 Tauri `Channel` 回调（`{index, message}`）；
  * - `onEvent(name, payload)`：命令线上的事件；
- * - `onReset()`：宿主丢了这一页的状态（重启、掉线太久、事件溢出）；终端已各自重新同步；
+ * - `onReset()`：宿主丢了这一页的状态（重启、掉线太久、断线超过半分钟期间有事件、事件溢出），
+ *   页面要重拉状态；终端已各自重新同步；
  * - `onState(open, error)`：命令线通断；
  * - `notice(text)`：给用户的一句提示。
  */
@@ -195,12 +205,7 @@ export function createRemoteSession(options) {
         bytes.set(part, offset)
         offset += part.length
       }
-      if (flags & FLAG_GZIP) {
-        const stream = new Blob([bytes])
-          .stream()
-          .pipeThrough(new DecompressionStream("gzip"))
-        bytes = new Uint8Array(await new Response(stream).arrayBuffer())
-      }
+      if (flags & FLAG_GZIP) bytes = await gunzip(bytes)
       let value
       if (flags & FLAG_SNAPSHOT) {
         // attach 快照：`[u32 长度][JSON][ANSI 原始字节]`，补回前端要的 base64。
@@ -282,9 +287,29 @@ export function createRemoteSession(options) {
     inflater.writer.abort().catch(() => {})
   }
 
+  // 事件按到达顺序交付：压缩的要异步解压，排在它后面的明文事件也等它。处理出错照样往下走，
+  // 错误异步抛出交给页面的错误上报。
+  let eventChain = Promise.resolve()
+  function queueEvent(read) {
+    eventChain = eventChain
+      .then(read)
+      .then((message) => options.onEvent(message.e, message.p))
+      .catch((error) =>
+        setTimeout(() => {
+          throw error
+        })
+      )
+  }
+
   function receiveBinary(buffer) {
     const view = new DataView(buffer)
     const kind = view.getUint8(0)
+    if (kind === FRAME_EVENT_GZIP) {
+      queueEvent(async () =>
+        JSON.parse(decoder.decode(await gunzip(new Uint8Array(buffer, 1))))
+      )
+      return
+    }
     if (kind === FRAME_TERMINAL) {
       deliver(view.getUint32(1), view.getUint32(5), buffer.slice(9))
       return
@@ -489,7 +514,7 @@ export function createRemoteSession(options) {
     }
     function open(base) {
       const ws = new WebSocket(
-        `${base}?client=${client}&received=${received}${DEFLATE ? "&z=1" : ""}`
+        `${base}?client=${client}&received=${received}&ze=1${DEFLATE ? "&z=1" : ""}`
       )
       ws.binaryType = "arraybuffer"
       socket = ws
@@ -536,7 +561,7 @@ export function createRemoteSession(options) {
         }
         if (message.e === undefined) return
         received += 1
-        options.onEvent(message.e, message.p)
+        queueEvent(() => message)
       }
       ws.onclose = (event) => drop(ws, `close ${event.code}`)
     }

@@ -17,8 +17,8 @@ import {
   ChevronDownIcon,
   CircleDashedIcon,
   ListTodoIcon,
-  Loader2Icon,
 } from "lucide-react"
+import { BusyRing } from "@/components/ui/status-dot"
 
 const EMPTY_PLAN_ENTRIES: PlanEntryInfo[] = []
 
@@ -42,7 +42,7 @@ function StatusIcon({
   }
 
   if (status === "in_progress" && isStreaming) {
-    return <Loader2Icon className="h-3.5 w-3.5 text-primary animate-spin" />
+    return <BusyRing className="h-3.5 w-3.5 text-primary" />
   }
 
   return <CircleDashedIcon className="h-3.5 w-3.5 text-muted-foreground" />

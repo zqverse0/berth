@@ -25,8 +25,9 @@ vi.mock("@streamdown/cjk", () => ({
   },
 }))
 // The three heavy engines are dynamically imported by `ensure()`; vitest mocks
-// intercept dynamic `import()` too, so these stand in for shiki/katex/mermaid.
-vi.mock("@streamdown/code", () => ({
+// intercept dynamic `import()` too, so these stand in for shiki/katex/mermaid
+// (the code plugin is `./code-highlighter`).
+vi.mock("./code-highlighter", () => ({
   code: {
     name: "shiki",
     type: "code-highlighter",

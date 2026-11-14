@@ -8,7 +8,6 @@ use sea_orm::DatabaseConnection;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::app_error::AppCommandError;
-use crate::AppHandle;
 use berth_project_core::service::app_metadata_service;
 use crate::db::AppDatabase;
 
@@ -256,15 +255,15 @@ where
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_windows_undecorated(window: &crate::WebviewWindow) {
+fn ensure_windows_undecorated<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     let _ = window.set_decorations(false);
 }
 
 #[cfg(not(target_os = "windows"))]
-fn ensure_windows_undecorated(_window: &crate::WebviewWindow) {}
+fn ensure_windows_undecorated<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) {}
 
 /// Apply platform-specific post-creation setup.
-pub(crate) fn post_window_setup(window: &crate::WebviewWindow) {
+pub(crate) fn post_window_setup<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     ensure_windows_undecorated(window);
 }
 
@@ -397,9 +396,9 @@ async fn resolve_window_titles(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_commit_window(
-    app: AppHandle,
-    window: crate::WebviewWindow,
+pub async fn open_commit_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, CommitWindowState>,
     folder_id: i32,
@@ -447,8 +446,8 @@ pub async fn open_commit_window(
     Ok(())
 }
 
-pub fn restore_window_after_commit(
-    app: &AppHandle,
+pub fn restore_window_after_commit<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     state: &CommitWindowState,
     commit_window_label: &str,
 ) {
@@ -492,9 +491,9 @@ impl Default for MergeWindowState {
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_merge_window(
-    app: AppHandle,
-    window: crate::WebviewWindow,
+pub async fn open_merge_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, MergeWindowState>,
     folder_id: i32,
@@ -548,8 +547,8 @@ pub async fn open_merge_window(
     Ok(())
 }
 
-pub fn restore_window_after_merge(
-    app: &AppHandle,
+pub fn restore_window_after_merge<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     state: &MergeWindowState,
     merge_window_label: &str,
 ) {
@@ -563,7 +562,7 @@ pub fn restore_window_after_merge(
 /// Clean up dangling merge state when a merge window is closed without
 /// completing or aborting. Checks if MERGE_HEAD exists, aborts the merge,
 /// and notifies the parent window.
-pub async fn cleanup_dangling_merge(app: &AppHandle, merge_window_label: &str) {
+pub async fn cleanup_dangling_merge<R: tauri::Runtime>(app: &tauri::AppHandle<R>, merge_window_label: &str) {
     let folder_id: i32 = match merge_window_label
         .strip_prefix("merge-")
         .and_then(|s| s.parse().ok())
@@ -598,7 +597,7 @@ pub async fn cleanup_dangling_merge(app: &AppHandle, merge_window_label: &str) {
             .output()
             .await;
 
-        let emitter = crate::event_bridge::EventEmitter::Tauri(app.clone());
+        let emitter = crate::event_bridge::EventEmitter::tauri(app.clone());
         crate::event_bridge::emit_event(
             &emitter,
             "folder://merge-aborted",
@@ -609,8 +608,8 @@ pub async fn cleanup_dangling_merge(app: &AppHandle, merge_window_label: &str) {
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_stash_window(
-    app: AppHandle,
+pub async fn open_stash_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
     locale: Option<crate::models::system::AppLocale>,
@@ -651,9 +650,9 @@ pub async fn open_stash_window(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_push_window(
-    app: AppHandle,
-    window: crate::WebviewWindow,
+pub async fn open_push_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
     locale: Option<crate::models::system::AppLocale>,
@@ -700,8 +699,8 @@ pub async fn open_push_window(
 /// Existing windows are NOT repositioned at runtime.
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn update_traffic_light_position(
-    app: AppHandle,
+pub async fn update_traffic_light_position<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     zoom: f64,
 ) -> Result<(), AppCommandError> {
@@ -792,7 +791,7 @@ pub fn can_hide_to_tray() -> bool {
 ///   * tray icon left-click and "Show Workspace" menu item
 ///   * macOS dock-icon reopen
 #[cfg(feature = "tauri-runtime")]
-pub fn show_main_window(app: &AppHandle) {
+pub fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.show();
@@ -809,7 +808,7 @@ static QUIT_REQUESTED_AT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::A
 /// 用户要求退出（托盘「退出」、无托盘平台的关闭按钮）：交给前端确认未保存的编辑。
 /// 前端无响应（未加载、卡死）时，3 秒内再次请求直接退出，保证总能退出。
 #[cfg(feature = "tauri-runtime")]
-pub fn request_quit(app: &AppHandle) {
+pub fn request_quit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Emitter;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -885,8 +884,8 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
 /// `on_menu_event` callback in `lib.rs` so the tray and pet menus share
 /// one dispatcher.
 #[cfg(feature = "tauri-runtime")]
-pub fn install_tray_icon(
-    app: &AppHandle,
+pub fn install_tray_icon<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     locale: crate::models::system::AppLocale,
 ) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem};
@@ -962,8 +961,8 @@ pub fn install_tray_icon(
 /// (e.g. the language change races setup, or the platform refused the
 /// initial install).
 #[cfg(feature = "tauri-runtime")]
-pub fn refresh_tray_menu(
-    app: &AppHandle,
+pub fn refresh_tray_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     locale: crate::models::system::AppLocale,
 ) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem};
@@ -995,8 +994,8 @@ pub fn refresh_tray_menu(
 /// both manual selection and OS-driven changes in system mode.
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn set_tray_locale(
-    app: AppHandle,
+pub async fn set_tray_locale<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     locale: crate::models::system::AppLocale,
 ) -> Result<(), AppCommandError> {
     refresh_tray_menu(&app, locale)

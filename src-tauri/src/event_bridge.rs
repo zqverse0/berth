@@ -1,4 +1,4 @@
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-utils", feature = "tauri-runtime"))]
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -82,8 +82,9 @@ impl TestEventBus {
 ///   独立 HTTP/WS server。
 #[derive(Clone)]
 pub enum EventEmitter {
+    /// 桌面宿主（Wry 或无界面 MockRuntime）：只留发事件的能力，发射器不随运行时泛型化。
     #[cfg(feature = "tauri-runtime")]
-    Tauri(crate::AppHandle),
+    Tauri(Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync>),
     /// 测试用：直接持有 broadcaster + bus。
     #[cfg(any(test, feature = "test-utils"))]
     Test { broadcaster: Arc<TestEventBus> },
@@ -93,6 +94,14 @@ pub enum EventEmitter {
 }
 
 impl EventEmitter {
+    #[cfg(feature = "tauri-runtime")]
+    pub fn tauri<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Self {
+        use tauri::Emitter;
+        EventEmitter::Tauri(Arc::new(move |event, value| {
+            let _ = app.emit(event, value);
+        }))
+    }
+
     /// Test helper: build a `Test` emitter. Production has no WS server.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn test_with_bus(broadcaster: Arc<TestEventBus>) -> Self {
@@ -248,12 +257,11 @@ pub struct PrimaryTabsChanged {
 pub fn emit_event(emitter: &EventEmitter, event: &str, payload: impl Serialize) {
     match emitter {
         #[cfg(feature = "tauri-runtime")]
-        EventEmitter::Tauri(app) => {
-            use tauri::Emitter;
+        EventEmitter::Tauri(emit) => {
             let Ok(value) = serde_json::to_value(&payload) else {
                 return;
             };
-            let _ = app.emit(event, &value);
+            emit(event, &value);
         }
         #[cfg(any(test, feature = "test-utils"))]
         EventEmitter::Test { broadcaster, .. } => {

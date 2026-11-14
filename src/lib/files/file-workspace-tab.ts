@@ -48,7 +48,8 @@ export type ResourcePreviewState =
   | {
       kind: Extract<FileViewerKind, "image">
       revision: number
-      dataUrl: string | null
+      /** 只在内存；显示方自建 object URL，不持久化 */
+      blob: Blob | null
     }
   | { kind: Extract<FileViewerKind, "office">; revision: number }
   | { kind: Extract<FileViewerKind, "pdf">; revision: number }

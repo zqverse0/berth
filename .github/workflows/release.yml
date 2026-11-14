@@ -319,7 +319,7 @@ jobs:
           case "${{ matrix.target }}" in
             *windows*) ext=".exe" ;;
           esac
-          for name in berth-termd berth-cli berth-host; do
+          for name in berth-termd berth-cli; do
             file="src-tauri/binaries/${name}-${{ matrix.target }}${ext}"
             if [ ! -s "$file" ]; then
               echo "FATAL: sidecar $file missing or empty after prepare-sidecars"

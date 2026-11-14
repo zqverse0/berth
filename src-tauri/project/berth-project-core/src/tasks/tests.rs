@@ -1750,3 +1750,25 @@ fn worktree_lists_only_tasks_assigned_to_its_group_from_main_records() {
     sh(&path, &["git", "checkout", "-q", "-b", "renamed"]);
     assert_eq!(ids(list(&path, true, 100).unwrap()).len(), 1);
 }
+
+#[test]
+fn cached_git_queries_follow_commits_and_worktrees() {
+    let repo = Repo::new();
+    let head = |root: &Path| git::stdout_cached(root, &["log", "-n", "1", "--format=%s"]).unwrap();
+    assert_eq!(head(&repo.main), "init");
+    // 命中缓存后再提交：指纹变了，必须读到新提交。
+    repo.commit(&repo.main, "a.txt", "second");
+    assert_eq!(head(&repo.main), "second");
+    assert_eq!(git::worktrees(&repo.main).len(), 1);
+    let tree = repo.worktree("feat");
+    assert_eq!(git::worktrees(&repo.main).len(), 2);
+    assert_eq!(git::current_branch(&tree).as_deref(), Some("feat"));
+    let ahead =
+        |root: &Path| git::stdout_cached(root, &["rev-list", "--count", "dev..feat"]).unwrap();
+    assert_eq!(ahead(&repo.main), "0");
+    // 在另一个 worktree 里提交，只动 refs/heads/feat。
+    repo.commit(&tree, "b.txt", "on feat");
+    assert_eq!(ahead(&repo.main), "1");
+    sh(&tree, &["git", "switch", "-q", "-c", "other"]);
+    assert_eq!(git::current_branch(&tree).as_deref(), Some("other"));
+}

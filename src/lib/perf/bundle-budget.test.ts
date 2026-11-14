@@ -49,6 +49,20 @@ describe("analyzeWorkspaceBundle", () => {
     expect(result.violations[0]).toContain("exceeds budget")
   })
 
+  it("fails when an initial chunk bundles streamdown or parse5", () => {
+    const outDir = createExport(
+      "/_next/main.js",
+      'x.setAttribute("data-streamdown","p");y="eof-in-tag"'
+    )
+    const result = analyzeWorkspaceBundle({ outDir })
+
+    expect(result.passed).toBe(false)
+    expect(result.violations).toEqual([
+      "Initial chunk /_next/main.js contains streamdown",
+      "Initial chunk /_next/main.js contains parse5",
+    ])
+  })
+
   it("fails when the export references a missing script", () => {
     const scriptSrc = "/_next/missing.js"
     const result = analyzeWorkspaceBundle({ outDir: createExport(scriptSrc) })

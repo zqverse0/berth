@@ -5,16 +5,11 @@ pub mod tool;
 pub(crate) static AUTOMATION_SCHEDULER_WAKE: std::sync::LazyLock<tokio::sync::Notify> =
     std::sync::LazyLock::new(tokio::sync::Notify::new);
 
-/// 宿主运行时：GUI 用 Wry；`headless`（`berth-host`，无显示器设备）用 Tauri 的 MockRuntime——
+/// 无界面宿主（`berth-gui --headless`，无显示器设备）：Tauri 运行时换成 MockRuntime——
 /// 不建 webview，命令仍经同一套 `on_message` 派发与 ACL（任务 11-02-device-first）。
-#[cfg(all(feature = "tauri-runtime", not(feature = "headless")))]
-pub type Rt = tauri::Wry;
-#[cfg(feature = "headless")]
-pub type Rt = tauri::test::MockRuntime;
 #[cfg(feature = "tauri-runtime")]
-pub type AppHandle = tauri::AppHandle<Rt>;
-#[cfg(feature = "tauri-runtime")]
-pub type WebviewWindow = tauri::WebviewWindow<Rt>;
+pub(crate) static HEADLESS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--headless"));
 
 mod app_error;
 pub mod backgrounds;
@@ -44,6 +39,7 @@ pub mod platform;
 mod remote;
 pub mod preview_watch;
 pub mod sessions;
+pub mod system_resources;
 pub mod terminal;
 pub mod berth_agents;
 pub mod berth_tasks;
@@ -128,6 +124,14 @@ mod tauri_app {
 
     #[cfg_attr(mobile, tauri::mobile_entry_point)]
     pub fn run() {
+        if *crate::HEADLESS {
+            run_with::<tauri::test::MockRuntime>()
+        } else {
+            run_with::<tauri::Wry>()
+        }
+    }
+
+    fn run_with<R: tauri::Runtime>() {
         // Install the logging subscriber first so it captures everything from
         // here on. The file appender's logs dir is resolved from env (no DB
         // needed); hold the guard for the whole process so buffered file lines
@@ -152,7 +156,7 @@ mod tauri_app {
                 workspace_resources.clone(),
             ),
         );
-        let builder = tauri::Builder::<crate::Rt>::new();
+        let builder = tauri::Builder::<R>::new();
 
         // Must be the first plugin: it short-circuits second launches by
         // signalling the running instance and exiting before any other
@@ -162,10 +166,14 @@ mod tauri_app {
         // can run alongside an installed release build of codeg during
         // development. Debug desktop builds use an isolated SQLite file, but
         // they still share other `app.berth` data-dir artifacts with release.
-        #[cfg(not(any(debug_assertions, feature = "headless")))]
-        let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            windows::show_main_window(app);
-        }));
+        #[cfg(not(debug_assertions))]
+        let builder = if *crate::HEADLESS {
+            builder
+        } else {
+            builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                windows::show_main_window(app);
+            }))
+        };
 
         let builder = builder
             // Persist every window flag EXCEPT decorations. Decorations are a
@@ -265,16 +273,16 @@ mod tauri_app {
                 }
 
                 // 同一数据目录只有一个宿主，GUI 优先（`host_lock`）。
-                #[cfg(all(unix, feature = "headless"))]
-                {
+                #[cfg(unix)]
+                if *crate::HEADLESS {
                     match crate::host_lock::hold(&effective_data_dir) {
                         // 锁随进程存活。
                         Some(lock) => std::mem::forget(lock),
                         None => std::process::exit(0),
                     }
+                } else {
+                    crate::host_lock::take_over(&effective_data_dir);
                 }
-                #[cfg(all(unix, not(feature = "headless")))]
-                crate::host_lock::take_over(&effective_data_dir);
 
                 // 内置专家「Berth 助手」（群组成员 Berth 用）：缺失补上，用户没改过的随版本更新，改过的不动。
                 match berth_tool_core::builtin::ensure() {
@@ -329,7 +337,7 @@ mod tauri_app {
                     db::AppDatabase {
                         conn: app.state::<db::AppDatabase>().conn.clone(),
                     },
-                    crate::event_bridge::EventEmitter::Tauri(app.handle().clone()),
+                    crate::event_bridge::EventEmitter::tauri(app.handle().clone()),
                     app.handle().clone(),
                 );
                 {
@@ -350,7 +358,7 @@ mod tauri_app {
                         conn: app.state::<db::AppDatabase>().conn.clone(),
                     };
                     let scheduler_terminal = app.state::<TerminalManager>().inner().clone_ref();
-                    let scheduler_emitter = crate::event_bridge::EventEmitter::Tauri(app.handle().clone());
+                    let scheduler_emitter = crate::event_bridge::EventEmitter::tauri(app.handle().clone());
                     if let Some(scheduler_lock) = scheduler_lock {
                         tauri::async_runtime::spawn(async move {
                             let _scheduler_lock = scheduler_lock;
@@ -394,7 +402,7 @@ mod tauri_app {
                     &db.conn,
                 ));
                 if let Some(hub) = crate::logging::hub::log_hub() {
-                    hub.set_emitter(crate::event_bridge::EventEmitter::Tauri(
+                    hub.set_emitter(crate::event_bridge::EventEmitter::tauri(
                         app.handle().clone(),
                     ));
                 }
@@ -408,8 +416,7 @@ mod tauri_app {
                 // workspace back). Locale comes from the persisted language
                 // settings; system mode falls back to English here, which
                 // the user can fix by switching to manual mode.
-                #[cfg(not(feature = "headless"))]
-                {
+                if !*crate::HEADLESS {
                     let tray_locale = tauri::async_runtime::block_on(
                         crate::commands::system_settings::load_system_language_settings(&db.conn),
                     )
@@ -826,14 +833,13 @@ mod tauri_app {
         // 无界面宿主不进事件循环（MockRuntime 的 `run` 是每秒处理一条消息的测试循环）：
         // 只跑一次 `run_iteration` 执行 setup（MockRuntime 的迭代本身是空操作），之后主线程任务
         // 就地执行，进程靠远程访问与后台任务存活。
-        #[cfg(feature = "headless")]
-        {
+        if *crate::HEADLESS {
             let mut app = app;
             #[allow(deprecated)]
             app.run_iteration(|_, _| {});
             tauri::async_runtime::block_on(std::future::pending::<()>());
+            return;
         }
-        #[cfg(not(feature = "headless"))]
         app.run(|app, event| match event {
                 tauri::RunEvent::ExitRequested { .. } => {
                     APP_QUITTING.store(true, Ordering::Relaxed);

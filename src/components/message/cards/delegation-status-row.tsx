@@ -122,13 +122,7 @@ export function DelegationStatusRow({
         className="min-w-0 truncate text-xs font-medium text-foreground"
         title={taskId ?? undefined}
       >
-        {isRunning ? (
-          <Shimmer as="span" duration={1} shineColor="var(--primary)">
-            {label}
-          </Shimmer>
-        ) : (
-          label
-        )}
+        {isRunning ? <Shimmer as="span">{label}</Shimmer> : label}
       </span>
       {results.length > 1 && (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">

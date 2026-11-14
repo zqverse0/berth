@@ -262,12 +262,12 @@ pub async fn get_log_settings(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn set_log_settings(
+pub async fn set_log_settings<R: tauri::Runtime>(
     settings: LogSettings,
     db: State<'_, AppDatabase>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<LogSettings, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
+    let emitter = EventEmitter::tauri(app);
     set_log_settings_core(&db.conn, settings, &emitter).await
 }
 

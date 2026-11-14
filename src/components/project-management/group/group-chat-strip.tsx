@@ -5,7 +5,7 @@ import { Users } from "lucide-react"
 import { memberAgent, memberLabel } from "@/lib/agent/berth-group"
 import { cn } from "@/lib/utils"
 import { addressable, type MemberRow } from "./group-model"
-import { MEMBER_DOT } from "./group-members"
+import { MemberDot } from "./group-members"
 import { MemberAvatar } from "./group-timeline"
 
 /**
@@ -61,12 +61,9 @@ export function GroupChatStrip({
                   name={name}
                   className="size-5 rounded-full [&_svg]:size-3"
                 />
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background",
-                    MEMBER_DOT[row.status]
-                  )}
+                <MemberDot
+                  status={row.status}
+                  className="absolute -bottom-0.5 -right-0.5 size-2 ring-2 ring-background"
                 />
               </span>
               <span className="max-w-24 truncate">

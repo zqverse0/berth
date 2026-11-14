@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils"
 import { isTerminalTab } from "@/lib/workspace/primary-tabs"
 import { sortFolderTabs, tabsForFolderScope } from "@/lib/workspace/tab-scope"
 import { TerminalView } from "@/components/terminal/terminal-view"
+import { nextWarmTerminalIds } from "@/lib/terminal/warm-terminals"
+import { useTerminalRuntimeStore } from "@/stores/terminal-runtime-store"
 import { createAndOpenPrimaryTerminalDetailed } from "@/lib/terminal/create-and-open-primary-terminal"
 import { handleTerminalExit } from "@/lib/terminal/terminal-exit-cleanup"
 import { removeTerminalRecordIdempotent } from "@/lib/terminal/terminal-record-cleanup"
@@ -72,41 +74,34 @@ export function ConversationDetailPanel({
     return ids
   }, [activeTabByPane])
   const { closeTab } = useTabActions()
-  const [warmedTerminalIds, setWarmedTerminalIds] = useState(
-    () => new Set<string>()
+  const [warmedTerminalIds, setWarmedTerminalIds] = useState<readonly string[]>(
+    []
+  )
+  const exitedKey = useTerminalRuntimeStore((s) =>
+    Object.keys(s.sessions)
+      .filter((id) => s.sessions[id]?.status === "exited")
+      .join("\n")
   )
 
   useEffect(() => {
     const liveIds = new Set(tabs.filter(isTerminalTab).map((t) => t.terminalId))
-    const activeTabRow = tabs.find((t) => t.id === activeTabId)
+    const shownIds = tabs.flatMap((tab) =>
+      isTerminalTab(tab) &&
+      (tab.id === activeTabId || paneVisibleTabIds.has(tab.id))
+        ? [tab.terminalId]
+        : []
+    )
+    const exitedIds = new Set(exitedKey ? exitedKey.split("\n") : [])
     /* eslint-disable react-hooks/set-state-in-effect */
-    setWarmedTerminalIds((prev) => {
-      let changed = false
-      const next = new Set<string>()
-      for (const id of prev) {
-        if (liveIds.has(id)) next.add(id)
-        else changed = true
-      }
-      if (activeTabRow && isTerminalTab(activeTabRow)) {
-        if (!next.has(activeTabRow.terminalId)) {
-          next.add(activeTabRow.terminalId)
-          changed = true
-        }
-      }
-      for (const tab of tabs) {
-        if (
-          paneVisibleTabIds.has(tab.id) &&
-          isTerminalTab(tab) &&
-          !next.has(tab.terminalId)
-        ) {
-          next.add(tab.terminalId)
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
+    setWarmedTerminalIds((prev) =>
+      nextWarmTerminalIds(prev, liveIds, shownIds, exitedIds)
+    )
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tabs, activeTabId, paneVisibleTabIds])
+  }, [tabs, activeTabId, paneVisibleTabIds, exitedKey])
+  const warmedSet = useMemo(
+    () => new Set(warmedTerminalIds),
+    [warmedTerminalIds]
+  )
 
   // Tabs of other projects still render (hidden) so warmed terminals stay
   // mounted when the active project has no tab in this pane.
@@ -127,7 +122,7 @@ export function ConversationDetailPanel({
         ? allFolders.find((f) => f.id === tab.folderId)?.path
         : undefined
     const view = isTerminalTab(tab) ? (
-      active || paneVisible || warmedTerminalIds.has(tab.terminalId) ? (
+      active || paneVisible || warmedSet.has(tab.terminalId) ? (
         <TerminalView
           terminalId={tab.terminalId}
           isActive={active}

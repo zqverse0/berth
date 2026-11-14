@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use berth_control_proto::{EditorRenderParams, EditorRenderResult, ErrorKind, RpcRequest};
-use tauri::Manager;
 use tokio::sync::oneshot;
 
 use super::ControlContext;
@@ -82,7 +81,7 @@ pub(crate) async fn editor_render(request: &RpcRequest, context: &ControlContext
         .deps
         .as_ref()
         .ok_or((ErrorKind::Internal, "editor.render requires runtime dependencies".into()))?;
-    if deps.app.get_webview_window("main").is_none() {
+    if (deps.host.main_window)().is_none() {
         return Err((ErrorKind::NotFound, "the main Berth window is not open".into()));
     }
     let (id, receiver) = {
@@ -134,8 +133,8 @@ pub(crate) async fn editor_render(request: &RpcRequest, context: &ControlContext
 /// 主窗口交回 `editor.render` 的渲染结果（`image` 为 data URL，失败时给 `message`）。
 /// 只服务这一个交接，不是任意动作执行器；仅 `main` 窗口可调用。
 #[tauri::command]
-pub(crate) async fn editor_render_complete(
-    window: crate::WebviewWindow,
+pub(crate) async fn editor_render_complete<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     request_id: u64,
     image: Option<String>,
     message: Option<String>,

@@ -1,14 +1,8 @@
 "use client"
 
-import {
-  CheckCircleIcon,
-  CircleDashed,
-  Clock,
-  Loader2,
-  ShieldAlert,
-  XCircleIcon,
-} from "lucide-react"
+import { CheckCircleIcon, Clock, ShieldAlert, XCircleIcon } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { BusyRing } from "@/components/ui/status-dot"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -23,7 +17,7 @@ export function StatusBadge({
   if (status === "starting") {
     return (
       <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-        <CircleDashed className="animate-spin text-muted-foreground" />
+        <BusyRing className="size-3 text-muted-foreground" />
         {t("starting")}
       </Badge>
     )
@@ -39,7 +33,7 @@ export function StatusBadge({
   if (status === "running") {
     return (
       <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-        <Loader2 className="animate-spin" />
+        <BusyRing className="size-3" />
         {t("running")}
       </Badge>
     )

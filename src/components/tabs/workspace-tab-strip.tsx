@@ -238,6 +238,35 @@ export function WorkspaceTabStrip({
     [activeFolderId, toggleFileTabGlobal]
   )
 
+  // 拖动让位、开关 tab 时，位置变了的 tab 从旧位置滑到新位置（FLIP，Web Animations）。
+  // 只在顺序、数量或拖动缺口变化时读布局，标题等变化不触发强制同步布局。
+  const listRef = useRef<HTMLDivElement>(null)
+  const tabLefts = useRef(new Map<string, number>())
+  const layoutSignature = `${displayedEntries.map((e) => e.key).join("\n")}|${gapIndex}`
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const next = new Map<string, number>()
+    for (const el of list.querySelectorAll<HTMLElement>(
+      "[data-workspace-tab-key]"
+    )) {
+      const key = el.dataset.workspaceTabKey ?? ""
+      const left = el.offsetLeft
+      next.set(key, left)
+      const previous = tabLefts.current.get(key)
+      if (previous !== undefined && previous !== left) {
+        el.animate(
+          [
+            { transform: `translateX(${previous - left}px)` },
+            { transform: "none" },
+          ],
+          { duration: 150, easing: "ease-out" }
+        )
+      }
+    }
+    tabLefts.current = next
+  }, [layoutSignature])
+
   // A split needs a tab left behind, so a lone left tab can't split right.
   // 手机主区不渲染右栏，移过去的 tab 就看不见了。
   const groupMove = isMobile
@@ -289,6 +318,7 @@ export function WorkspaceTabStrip({
       >
         {leadingTabs?.(tabListMenu)}
         <div
+          ref={listRef}
           role="tablist"
           // 滚动条隐藏：竖向滚轮横向滚动 tab 条
           onWheel={(event) => {

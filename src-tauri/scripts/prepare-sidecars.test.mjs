@@ -33,7 +33,7 @@ const validEntry = {
 
 test("owned terminal binaries are staged and declared as Tauri sidecars", () => {
   const names = BINARIES.map((binary) => binary.sidecarName).sort()
-  assert.deepEqual(names, ["berth-cli", "berth-host", "berth-termd"])
+  assert.deepEqual(names, ["berth-cli", "berth-termd"])
 
   const tauriConfig = JSON.parse(
     readFileSync(new URL("../tauri.conf.json", import.meta.url), "utf8")

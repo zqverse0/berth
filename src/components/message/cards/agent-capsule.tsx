@@ -94,13 +94,7 @@ export function AgentCapsule({
           )}
         />
         <span className="min-w-0 truncate">
-          {isRunning ? (
-            <Shimmer as="span" duration={1} shineColor="var(--primary)">
-              {title}
-            </Shimmer>
-          ) : (
-            title
-          )}
+          {isRunning ? <Shimmer as="span">{title}</Shimmer> : title}
         </span>
         {idBadge != null && (
           <span className="shrink-0 font-mono text-[10px] font-normal text-muted-foreground/70">

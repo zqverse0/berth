@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use tauri::Manager;
 use berth_control_proto::{
     ErrorKind, FileOpenParams, FileOpenResult, FileOpenState, FileOpenWaitResult,
     KnowledgeDigestParams, ProjectAddParams,
@@ -29,7 +28,49 @@ pub(crate) const AGENT_CHANGED_EVENT: &str = "agent://changed";
 pub(crate) struct ControlDeps {
     pub(crate) db: Arc<crate::db::AppDatabase>,
     pub(crate) emitter: crate::event_bridge::EventEmitter,
-    pub(crate) app: crate::AppHandle,
+    pub(crate) host: HostView,
+}
+
+/// 控制面要看的宿主状态：构造时从 AppHandle 捕获查询闭包，ControlDeps 不随 Tauri 运行时泛型化。
+/// 托管状态在调用时才取（部分状态在控制面启动后才 manage）。
+#[derive(Clone)]
+pub(crate) struct HostView {
+    /// 主窗口：不存在为 `None`，否则为是否可见。
+    pub(crate) main_window: Arc<dyn Fn() -> Option<bool> + Send + Sync>,
+    pub(crate) current_document: Arc<
+        dyn Fn() -> Option<Arc<crate::workspace_state::current_document::CurrentDocumentContextStore>>
+            + Send
+            + Sync,
+    >,
+    /// 外层 `None`：选中状态未托管；内层 `None`：没有选中可见终端。
+    pub(crate) current_terminal: Arc<dyn Fn() -> Option<Option<String>> + Send + Sync>,
+    pub(crate) terminal_manager:
+        Arc<dyn Fn() -> Option<crate::terminal::manager::TerminalManager> + Send + Sync>,
+}
+
+impl HostView {
+    pub(crate) fn new<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Self {
+        use tauri::Manager;
+        let (a, b, c, d) = (app.clone(), app.clone(), app.clone(), app);
+        Self {
+            main_window: Arc::new(move || {
+                a.get_webview_window("main")
+                    .map(|window| window.is_visible().unwrap_or(false))
+            }),
+            current_document: Arc::new(move || {
+                b.try_state::<Arc<crate::workspace_state::current_document::CurrentDocumentContextStore>>()
+                    .map(|store| store.inner().clone())
+            }),
+            current_terminal: Arc::new(move || {
+                c.try_state::<super::CurrentTerminalSelection>()
+                    .map(|selection| selection.get())
+            }),
+            terminal_manager: Arc::new(move || {
+                d.try_state::<crate::terminal::manager::TerminalManager>()
+                    .map(|manager| manager.clone_ref())
+            }),
+        }
+    }
 }
 
 type HandlerResult = Result<Value, (ErrorKind, String)>;
@@ -246,10 +287,7 @@ fn visible_main(context: &ControlContext) -> Result<&ControlDeps, (ErrorKind, St
         .deps
         .as_ref()
         .ok_or_else(|| internal("workspace query requires runtime dependencies"))?;
-    let visible = deps
-        .app
-        .get_webview_window("main")
-        .is_some_and(|window| window.is_visible().unwrap_or(false));
+    let visible = (deps.host.main_window)().unwrap_or(false);
     if !visible {
         return Err(not_found("the main workspace window is not visible"));
     }
@@ -264,9 +302,7 @@ pub(crate) async fn workspace_current_document(
     let params: WorkspaceDocumentParams = decode_params(request)?;
     params.limits().map_err(invalid_params)?;
     let deps = visible_main(context)?;
-    let store = deps
-        .app
-        .try_state::<Arc<crate::workspace_state::current_document::CurrentDocumentContextStore>>()
+    let store = (deps.host.current_document)()
         .ok_or_else(|| internal("workspace document store is unavailable"))?;
     let result = store.get_workspace(params).await.map_err(|error| {
         use crate::workspace_state::current_document::WorkspaceDocumentReadError;
@@ -297,18 +333,11 @@ pub(crate) async fn workspace_current_terminal(
         ));
     }
     let deps = visible_main(context)?;
-    let selected = deps
-        .app
-        .try_state::<super::CurrentTerminalSelection>()
-        .ok_or_else(|| internal("workspace terminal selection is unavailable"))?;
-    let terminal_id = selected
-        .get()
+    let terminal_id = (deps.host.current_terminal)()
+        .ok_or_else(|| internal("workspace terminal selection is unavailable"))?
         .ok_or_else(|| not_found("no visible terminal is selected"))?;
-    let manager = deps
-        .app
-        .try_state::<crate::terminal::manager::TerminalManager>()
-        .ok_or_else(|| internal("terminal manager is unavailable"))?
-        .clone_ref();
+    let manager = (deps.host.terminal_manager)()
+        .ok_or_else(|| internal("terminal manager is unavailable"))?;
     // 留出 control 写帧时间，避免同步 SDK 排队或 IPC 挂起时让 CLI 只看见断连。
     let binding = tokio::time::timeout(
         std::time::Duration::from_secs(4),
@@ -340,7 +369,7 @@ pub(crate) async fn workspace_current_terminal(
         other => internal(other.to_string()),
     })?;
     visible_main(context)?;
-    if selected.get().as_deref() != Some(terminal_id.as_str()) {
+    if (deps.host.current_terminal)().flatten().as_deref() != Some(terminal_id.as_str()) {
         return Err(not_found("selected terminal changed during binding lookup"));
     }
     let target_ref = TargetBindingRef {

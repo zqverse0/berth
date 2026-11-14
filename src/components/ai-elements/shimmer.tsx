@@ -1,81 +1,31 @@
 "use client"
 
-import type { MotionProps } from "motion/react"
-import type { CSSProperties, ElementType, JSX } from "react"
+import type { ElementType } from "react"
 
+import { useSlowBlink } from "@/components/ui/status-dot"
 import { cn } from "@/lib/utils"
-import { motion } from "motion/react"
-import { memo, useMemo } from "react"
-
-type MotionHTMLProps = MotionProps & Record<string, unknown>
-
-// Cache motion components at module level to avoid creating during render
-const motionComponentCache = new Map<
-  keyof JSX.IntrinsicElements,
-  React.ComponentType<MotionHTMLProps>
->()
-
-const getMotionComponent = (element: keyof JSX.IntrinsicElements) => {
-  let component = motionComponentCache.get(element)
-  if (!component) {
-    component = motion.create(element)
-    motionComponentCache.set(element, component)
-  }
-  return component
-}
+import { memo } from "react"
 
 export interface TextShimmerProps {
   children: string
   as?: ElementType
   className?: string
-  duration?: number
-  spread?: number
-  shineColor?: string
 }
 
+// 「进行中」文字：跟随全局 1 秒慢闪。原来的扫光是 CSS 无限动画，挂着时 WebKit 每秒出 60 帧，
+// GTK3 下宿主主线程逐帧拷贝整窗（见 status-dot.tsx）。
 const ShimmerComponent = ({
   children,
   as: Component = "p",
   className,
-  duration = 2,
-  spread = 2,
-  shineColor,
 }: TextShimmerProps) => {
-  const MotionComponent = useMemo(
-    () => getMotionComponent(Component as keyof JSX.IntrinsicElements),
-    [Component]
-  )
-
-  const dynamicSpread = useMemo(
-    () => (children?.length ?? 0) * spread,
-    [children, spread]
-  )
-
-  const shine = shineColor ?? "var(--color-background)"
-
+  useSlowBlink(true)
   return (
-    // eslint-disable-next-line react-hooks/static-components -- component is cached at module level via motionComponentCache
-    <MotionComponent
-      animate={{ backgroundPosition: "0% center" }}
-      className={cn(
-        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text bg-no-repeat text-transparent",
-        className
-      )}
-      initial={{ backgroundPosition: "100% center" }}
-      style={
-        {
-          "--spread": `${dynamicSpread}px`,
-          backgroundImage: `linear-gradient(90deg, #0000 calc(50% - var(--spread)), ${shine}, #0000 calc(50% + var(--spread))), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))`,
-        } as CSSProperties
-      }
-      transition={{
-        duration,
-        ease: "linear",
-        repeat: Number.POSITIVE_INFINITY,
-      }}
+    <Component
+      className={cn("berth-slow-blink text-muted-foreground", className)}
     >
       {children}
-    </MotionComponent>
+    </Component>
   )
 }
 

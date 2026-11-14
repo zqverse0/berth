@@ -1425,6 +1425,24 @@
         "usageWithAbsoluteFormat": "{percent}（{absolute}）",
         "resetCountdown": "{duration} 后重置",
         "resetDone": "已重置"
+      },
+      "resources": {
+        "title": "资源占用",
+        "memoryShort": "内存",
+        "machine": "本机",
+        "cpu": "CPU",
+        "cores": "{count} 核",
+        "memory": "内存",
+        "swap": "交换区",
+        "berth": "Berth 占用",
+        "groups": {
+          "ui": "界面",
+          "termd": "终端守护进程",
+          "agents": "终端内进程",
+          "background": "后台常驻"
+        },
+        "none": "无",
+        "more": "还有 {count} 个"
       }
     },
     "auxPanel": {

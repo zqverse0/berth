@@ -138,7 +138,7 @@ function restoreTab(tab: PersistedFileReaderTab): FileWorkspaceTab {
   }
   const preview: ResourcePreviewState =
     strategy.previewKind === "image"
-      ? { kind: "image", revision: 0, dataUrl: null }
+      ? { kind: "image", revision: 0, blob: null }
       : { kind: strategy.previewKind, revision: 0 }
   return {
     ...base,

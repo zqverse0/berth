@@ -1460,9 +1460,24 @@ export interface WorkspaceGitEntry {
   deletions: number
 }
 
+/** 补丁条目：`index` 是在新列表里的下标，先删再按下标从小到大插入即得新列表。 */
+export interface WorkspaceTreeUpsert {
+  /** 所在目录的相对路径，根为空串。 */
+  parent: string
+  index: number
+  node: FileTreeNode
+}
+
+export interface WorkspaceGitUpsert {
+  index: number
+  entry: WorkspaceGitEntry
+}
+
 export type WorkspaceDelta =
   | { kind: "tree_replace"; nodes: FileTreeNode[] }
+  | { kind: "tree_patch"; upserts: WorkspaceTreeUpsert[]; removals: string[] }
   | { kind: "git_replace"; entries: WorkspaceGitEntry[] }
+  | { kind: "git_patch"; upserts: WorkspaceGitUpsert[]; removals: string[] }
   | { kind: "meta"; reason: string }
 
 export interface WorkspaceDeltaEnvelope {

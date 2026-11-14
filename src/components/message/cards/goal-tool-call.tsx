@@ -256,13 +256,7 @@ function GoalCard({
           )}
         />
         <span className="min-w-0 truncate">
-          {isRunning ? (
-            <Shimmer as="span" duration={1} shineColor="var(--primary)">
-              {headerText}
-            </Shimmer>
-          ) : (
-            headerText
-          )}
+          {isRunning ? <Shimmer as="span">{headerText}</Shimmer> : headerText}
         </span>
         {tokenSummary && (
           <span className="shrink-0 text-muted-foreground/60">

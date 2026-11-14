@@ -23,7 +23,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.38.1"
+version = "0.38.2"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -53,6 +53,8 @@ crate-type = ["rlib"]
 default = ["tauri-runtime"]
 tauri-runtime = [
     "dep:tauri",
+    # MockRuntime：`berth-gui --headless`（无显示器设备上的无界面宿主）用它跑同一份后端。
+    "tauri/test",
     "dep:tauri-plugin-opener",
     "dep:gtk",
     "dep:drag",
@@ -77,19 +79,11 @@ test-utils = []
 # and stream console output for Phase A8 performance measurement.
 # NEVER enable in release builds.
 debug-bridge = ["dep:tauri-plugin-debug-bridge"]
-# `berth-host`：无显示器设备上的宿主，Tauri 换 MockRuntime（见 lib.rs `Rt`）。只配合
-# `--bin berth-host` 构建；与 berth-gui 互斥（运行时类型全局替换）。
-headless = ["tauri-runtime", "tauri/test"]
 
 [[bin]]
 name = "berth-gui"
 path = "src/main.rs"
 required-features = ["tauri-runtime"]
-
-[[bin]]
-name = "berth-host"
-path = "src/bin/berth-host.rs"
-required-features = ["headless"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }
@@ -153,6 +147,8 @@ tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "registry", "std"] }
 tracing-appender = "0.2"
+# 状态栏「资源」段（`src/system_resources.rs`）：只要 CPU / 内存 / 进程与磁盘，不带 GPU、网络、多线程。
+sysinfo = { version = "0.40", default-features = false, features = ["system", "disk"] }
 # 关闭 available：GUI 只编译当前生产调用闭包，不编入未用 SDK 能力。
 berth-term-sdk = { path = "terminal/sdk/berth-term-sdk", default-features = false }
 berth-control-proto = { path = "control/berth-control-proto" }

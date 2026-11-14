@@ -372,11 +372,11 @@ describe("workspace runtime", () => {
     await runtime.openFilePreview("/repo/image.png", undefined, deps)
 
     const tab = useWorkspaceFileStore.getState().fileTabs[0]
-    expect(tab && isResourceFileTab(tab) ? tab.preview : null).toEqual({
-      kind: "image",
-      revision: 1,
-      dataUrl: "data:image/png;base64,aW1hZ2U=",
-    })
+    const preview = tab && isResourceFileTab(tab) ? tab.preview : null
+    expect(preview).toMatchObject({ kind: "image", revision: 1 })
+    const blob = preview?.kind === "image" ? preview.blob : null
+    expect(blob?.type).toBe("image/png")
+    expect(blob?.size).toBe(5)
     expect(useWorkspaceLayoutStore.getState().activeWorkspaceTab?.id).toBe(
       tab?.id
     )

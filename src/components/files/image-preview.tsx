@@ -40,21 +40,34 @@ function fittedSize(
   }
 }
 
-export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
+export function ImagePreview({
+  tab,
+  visible = true,
+}: {
+  tab: ImageResourceFileWorkspaceTab
+  /** 隐藏时不建 object URL、不挂 <img>，切走的 tab 不持有解码后的位图 */
+  visible?: boolean
+}) {
   const t = useTranslations("Folder.fileWorkspacePanel")
   const layoutTransaction = useSplitLayoutTransaction()
   const [zoom, setZoom] = useState(1)
   const [naturalWidth, setNaturalWidth] = useState(0)
   const [naturalHeight, setNaturalHeight] = useState(0)
 
-  const dataUrl = tab.preview.dataUrl
-  const fileSize = useMemo(() => {
-    if (!dataUrl) return 0
-    const base64Part = dataUrl.split(",")[1]
-    if (!base64Part) return 0
-    const padding = (base64Part.match(/=+$/) ?? [""])[0].length
-    return Math.floor((base64Part.length * 3) / 4) - padding
-  }, [dataUrl])
+  const blob = tab.preview.blob
+  const fileSize = blob?.size ?? 0
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  // create / revoke 成对放在同一 effect：StrictMode 重跑与隐藏、关 tab 都不会留下或用到失效的 URL
+  useEffect(() => {
+    if (!blob || !visible) return
+    const url = URL.createObjectURL(blob)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- object URL 是外部资源，只能在 effect 里同步
+    setObjectUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setObjectUrl(null)
+    }
+  }, [blob, visible])
 
   const [containerSize, setContainerSize] = useState<{
     w: number
@@ -86,6 +99,8 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
   // Uses a callback ref so setup happens when the DOM node appears
   // (it's conditionally rendered behind !tab.loading).
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 隐藏时滚动容器随 <img> 卸掉，切回时恢复上次的滚动位置
+  const scrollPos = useRef({ left: 0, top: 0 })
   const roRef = useRef<ResizeObserver | null>(null)
   const wheelHandler = useRef((e: WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -111,6 +126,8 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
 
       scrollRef.current = el
       if (!el) return
+      el.scrollLeft = scrollPos.current.left
+      el.scrollTop = scrollPos.current.top
 
       // ResizeObserver。分隔线预览期间只保留最新值，提交时再更新一次 React。
       let pendingSize: { w: number; h: number } | null = null
@@ -205,7 +222,7 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
   const displayHeight = ready ? base.height * zoom : undefined
   const zoomPercent = Math.round(zoom * 100)
   const toolbarController = useMemo<FileViewerToolbarState | null>(() => {
-    if (!dataUrl) return null
+    if (!blob) return null
     return {
       kind: "image",
       zoom: {
@@ -231,7 +248,7 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
       ],
     }
   }, [
-    dataUrl,
+    blob,
     fileSize,
     handleZoomIn,
     handleZoomOut,
@@ -250,12 +267,18 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
           {t("loading")}
         </div>
       )}
-      {dataUrl && (
+      {objectUrl && (
         <div
           ref={scrollCallbackRef}
           className="flex-1 min-h-0 overflow-auto bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]"
           onMouseDown={handleMouseDown}
           onContextMenu={handleContextMenu}
+          onScroll={(e) => {
+            scrollPos.current = {
+              left: e.currentTarget.scrollLeft,
+              top: e.currentTarget.scrollTop,
+            }
+          }}
         >
           <div
             className="box-border p-6"
@@ -275,7 +298,7 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={dataUrl}
+              src={objectUrl}
               alt={tab.title}
               onLoad={handleImageLoad}
               style={{
@@ -289,7 +312,7 @@ export function ImagePreview({ tab }: { tab: ImageResourceFileWorkspaceTab }) {
           </div>
         </div>
       )}
-      {!dataUrl && tab.loading && (
+      {!blob && tab.loading && (
         <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
           {t("loading")}
         </div>

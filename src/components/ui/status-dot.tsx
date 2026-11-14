@@ -54,7 +54,7 @@ function syncBlink() {
   }
 }
 
-function useSlowBlink(active: boolean) {
+export function useSlowBlink(active: boolean) {
   useEffect(() => {
     if (!active) return
     blinkUsers += 1

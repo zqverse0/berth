@@ -197,10 +197,10 @@ pub(crate) fn commits(root: &Path, spec: &[&str]) -> Vec<Commit> {
     let mut args = vec!["log"];
     args.extend_from_slice(spec);
     args.push("--format=%h%x1f%s%x1f%b%x1e");
-    let Some(output) = git::run(root, &args).filter(|output| output.status.success()) else {
+    let Some(output) = git::stdout_cached(root, &args) else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&output.stdout)
+    output
         .split('\x1e')
         .filter_map(|chunk| {
             let parts: Vec<&str> = chunk.trim_matches('\n').split('\x1f').collect();
@@ -280,7 +280,7 @@ pub(crate) fn build(
     let mut behind = 0;
     if let (Some(branch), Some(base)) = (branch.as_deref(), base_branch.as_deref()) {
         ahead = commits(root, &[&format!("{base}..{branch}")]);
-        behind = git::stdout(root, &["rev-list", "--count", &format!("{branch}..{base}")])
+        behind = git::stdout_cached(root, &["rev-list", "--count", &format!("{branch}..{base}")])
             .and_then(|out| out.trim().parse().ok())
             .unwrap_or(0);
         let grep = format!("--grep=^Task: {dir_name} ");
@@ -288,7 +288,7 @@ pub(crate) fn build(
             .into_iter()
             .filter(|commit| commit.step.is_some())
             .collect();
-        diffstat = git::stdout(
+        diffstat = git::stdout_cached(
             root,
             &["diff", "--shortstat", &format!("{base}...{branch}")],
         )
@@ -313,7 +313,7 @@ pub(crate) fn build(
             .map(|out| out.lines().filter(|line| !line.trim().is_empty()).count())
             .unwrap_or(0);
     }
-    let history = git::stdout(
+    let history = git::stdout_cached(
         root,
         &[
             "log",

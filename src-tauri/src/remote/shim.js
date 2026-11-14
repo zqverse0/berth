@@ -84,7 +84,8 @@
         runCallback(handler, { event: name, id, payload })
       }
     },
-    // 宿主丢了这一页的状态（重启、掉线太久、断线期间事件溢出）：界面已不可信，整页重载。
+    // 宿主丢了这一页的状态（重启、掉线太久、断线超过半分钟期间有事件、事件溢出）：界面已不可信，
+    // 整页重载拿最新状态。
     onReset: () => location.reload(),
     notice,
   })

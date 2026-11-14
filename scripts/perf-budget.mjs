@@ -3,9 +3,16 @@ import path from "node:path"
 
 const OUT_DIR = path.resolve(process.cwd(), "out")
 
+// 基线 2026-11-13 正式产物：首屏 30 个脚本 1.83 MB，最大 chunk 350.7 KB；上限留约 10% 余量，只许变好。
 const DEFAULT_BUDGETS = {
-  maxInitialJsBytes: 2.8 * 1024 * 1024, // 2.8 MB uncompressed ceiling
-  maxSingleChunkBytes: 800 * 1024, // 800 KB per chunk ceiling
+  maxInitialJsBytes: 2.0 * 1024 * 1024,
+  maxSingleChunkBytes: 400 * 1024,
+}
+
+// 首屏不得出现的库（按产物里的特征字符串认）：markdown 渲染只在打开会话、预览时按需加载。
+const FORBIDDEN_INITIAL = {
+  streamdown: "data-streamdown",
+  parse5: "eof-in-tag",
 }
 
 export function analyzeWorkspaceBundle(options = {}) {
@@ -79,6 +86,12 @@ export function analyzeWorkspaceBundle(options = {}) {
       violations.push(
         `Chunk ${chunk.src} (${(chunk.size / 1024).toFixed(1)} KB) exceeds single chunk budget of ${(budgets.maxSingleChunkBytes / 1024).toFixed(1)} KB`
       )
+    }
+    const source = fs.readFileSync(chunk.path, "utf8")
+    for (const [name, signature] of Object.entries(FORBIDDEN_INITIAL)) {
+      if (source.includes(signature)) {
+        violations.push(`Initial chunk ${chunk.src} contains ${name}`)
+      }
     }
   }
 

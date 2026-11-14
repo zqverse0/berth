@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useSlowBlink } from "@/components/ui/status-dot"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,12 +39,29 @@ import {
 } from "./group-model"
 import { MemberAvatar } from "./group-timeline"
 
-export const MEMBER_DOT: Record<MemberStatus, string> = {
+const MEMBER_DOT: Record<MemberStatus, string> = {
   attention: "bg-amber-500",
-  working: "bg-emerald-500 animate-pulse",
+  working: "bg-emerald-500 berth-slow-blink",
   idle: "bg-primary/70",
   offline: "bg-muted-foreground/30",
   left: "bg-muted-foreground/20",
+}
+
+/** 成员状态点；「工作中」用全局慢闪，不用 CSS 无限动画（见 status-dot.tsx）。 */
+export function MemberDot({
+  status,
+  className,
+}: {
+  status: MemberStatus
+  className?: string
+}) {
+  useSlowBlink(status === "working")
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("rounded-full", MEMBER_DOT[status], className)}
+    />
+  )
 }
 
 const STATUS_TEXT: Record<MemberStatus, string> = {
@@ -138,13 +156,7 @@ function BodyChips({
               onJumpPane?.(pane!)
             }}
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                MEMBER_DOT[state]
-              )}
-            />
+            <MemberDot status={state} className="size-1.5 shrink-0" />
             <span className="truncate">
               {body.agent ? agentName(body.agent) : "?"} · {dirName(body.cwd)}
             </span>
@@ -241,12 +253,9 @@ function MemberCard({
           >
             <span className="relative">
               <MemberAvatar agent={memberAgent(member)} name={member.name} />
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background",
-                  MEMBER_DOT[status]
-                )}
+              <MemberDot
+                status={status}
+                className="absolute -bottom-0.5 -right-0.5 size-2.5 ring-2 ring-background"
               />
             </span>
             <span className="min-w-0 flex-1">

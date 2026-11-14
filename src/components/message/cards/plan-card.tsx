@@ -11,8 +11,8 @@ import {
   CircleDashedIcon,
   CircleDotIcon,
   ListTodoIcon,
-  Loader2Icon,
 } from "lucide-react"
+import { BusyRing } from "@/components/ui/status-dot"
 
 // ── Shared status/priority label + style helpers ──────────────────────
 // Single source of truth for plan entry labels/colors, shared by <PlanCard>
@@ -82,7 +82,7 @@ function StatusIcon({
   }
   if (status === "in_progress") {
     return isStreaming ? (
-      <Loader2Icon className="size-3.5 shrink-0 animate-spin text-primary" />
+      <BusyRing className="size-3.5 shrink-0 text-primary" />
     ) : (
       <CircleDotIcon className="size-3.5 shrink-0 text-primary" />
     )

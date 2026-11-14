@@ -123,8 +123,8 @@ pub async fn list_legacy_resource_archive(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn save_primary_tabs(
-    app: crate::AppHandle,
+pub async fn save_primary_tabs<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     items: Vec<PrimaryTab>,
     expected_version: i64,
@@ -132,7 +132,7 @@ pub async fn save_primary_tabs(
 ) -> Result<SavePrimaryTabsOutcome, AppCommandError> {
     save_primary_tabs_core(
         &db.conn,
-        &EventEmitter::Tauri(app),
+        &EventEmitter::tauri(app),
         items,
         expected_version,
         origin,

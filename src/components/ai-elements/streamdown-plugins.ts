@@ -15,8 +15,8 @@ export type HeavyKind = "code" | "math" | "mermaid"
 // --- Why this module exists --------------------------------------------------
 //
 // The three heavy Streamdown plugins pull in the largest dependencies in the
-// whole frontend: `@streamdown/code` → shiki (+ its full grammar/theme index,
-// ~3.8M), `@streamdown/math` → katex (~4.3M), `@streamdown/mermaid` → mermaid +
+// whole frontend: the code plugin → shiki (`./code-highlighter`, whitelisted
+// grammars only), `@streamdown/math` → katex (~4.3M), `@streamdown/mermaid` → mermaid +
 // cytoscape + the entire d3 galaxy + dagre (~70M+ unpacked). Statically
 // importing them — as `message.tsx`, `reasoning.tsx`, and `file-workspace-panel`
 // each did — forces all three (and their transitive deps) into the first-paint
@@ -101,7 +101,7 @@ function ensure(kind: HeavyKind): void {
     emit()
   }
   if (kind === "code") {
-    import("@streamdown/code")
+    import("./code-highlighter")
       .then((mod) => {
         loaded.code = makeSafeCode(mod.code)
       })

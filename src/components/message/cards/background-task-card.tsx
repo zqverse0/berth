@@ -105,9 +105,7 @@ function BackgroundTaskRowView({ row }: { row: BackgroundTaskRow }) {
         title={row.command ?? row.taskId ?? undefined}
       >
         {isRunning && row.isInFlight ? (
-          <Shimmer as="span" duration={1} shineColor="var(--primary)">
-            {title}
-          </Shimmer>
+          <Shimmer as="span">{title}</Shimmer>
         ) : (
           title
         )}

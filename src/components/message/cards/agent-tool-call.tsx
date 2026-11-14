@@ -11,7 +11,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/instant-collapsible"
 import { cn } from "@/lib/utils"
-import { ChevronRightIcon, Clock3, Loader2 } from "lucide-react"
+import { ChevronRightIcon, Clock3 } from "lucide-react"
+import { BusyRing } from "@/components/ui/status-dot"
 import { useTranslations } from "next-intl"
 import { AgentCapsule } from "./agent-capsule"
 import {
@@ -325,8 +326,8 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
         isLiveBackgroundLaunch ||
         outcomeBackground) && (
         <div className="flex items-center gap-2">
-          <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-          <Shimmer className="text-sm" duration={1} shineColor="var(--primary)">
+          <BusyRing className="size-3.5 text-muted-foreground" />
+          <Shimmer className="text-sm">
             {isLiveBackgroundLaunch || outcomeBackground
               ? tBg("cardRunning")
               : t("agentRunning")}

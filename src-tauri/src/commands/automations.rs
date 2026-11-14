@@ -293,13 +293,13 @@ pub async fn automations_core(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn automations(
+pub async fn automations<R: tauri::Runtime>(
     db: tauri::State<'_, AppDatabase>,
     manager: tauri::State<'_, TerminalSessionManager>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
     request: AutomationsRequest,
 ) -> Result<AutomationsResponse, AppCommandError> {
-    automations_core(&db, &manager, EventEmitter::Tauri(app), request).await
+    automations_core(&db, &manager, EventEmitter::tauri(app), request).await
 }
 
 /// 一次运行怎么启动：目录、首条消息、环境、启动输入。

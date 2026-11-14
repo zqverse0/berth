@@ -9,11 +9,12 @@ import { StatusBarAlerts } from "@/components/layout/status-bar/status-bar-alert
 import { StatusBarContext } from "@/components/layout/status-bar/status-bar-context"
 import { StatusBarDevices } from "@/components/layout/status-bar/status-bar-devices"
 import { StatusBarProject } from "@/components/layout/status-bar/status-bar-project"
+import { StatusBarResources } from "@/components/layout/status-bar/status-bar-resources"
 import { cn } from "@/lib/utils"
 
 /**
  * 窗口通栏状态栏，各段对齐上方各栏：视图栏下方为告警，侧栏段显示项目与分支（兼作下方面板的开关）、设备，
- * 工作区段显示当前文件位置、更新与后台任务，辅助段只读显示 Agent 用量；
+ * 工作区段显示当前文件位置、本机资源、更新与后台任务，辅助段只读显示 Agent 用量；
  * Agent 启动入口在视图栏，启动表单显示在侧栏。
  */
 export const StatusBar = memo(function StatusBar({
@@ -55,6 +56,7 @@ export const StatusBar = memo(function StatusBar({
           <div className="min-w-0 flex-1 overflow-hidden max-md:hidden">
             <StatusBarContext part="path" />
           </div>
+          <StatusBarResources />
           <StatusBarUpdate />
           <StatusBarTasks />
         </div>

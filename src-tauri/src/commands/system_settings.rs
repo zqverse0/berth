@@ -156,16 +156,18 @@ pub(crate) async fn load_system_terminal_settings(
 
 /// 远程访问未启动（启动早期）时 state 还没放进来。
 #[cfg(feature = "tauri-runtime")]
-fn remote_listeners(app: &crate::AppHandle) -> Result<State<'_, Listeners>, AppCommandError> {
+fn remote_listeners<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<State<'_, Listeners<R>>, AppCommandError> {
     use tauri::Manager;
-    app.try_state::<Listeners>()
+    app.try_state::<Listeners<R>>()
         .ok_or_else(|| AppCommandError::task_execution_failed("Remote access is starting"))
 }
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn get_remote_access(
-    app: crate::AppHandle,
+pub async fn get_remote_access<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
 ) -> Result<RemoteAccessStatus, AppCommandError> {
     remote_listeners(&app)?.status().await
 }
@@ -173,10 +175,10 @@ pub async fn get_remote_access(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 /// `password`：不传不改，空串清除（清除后不再监听）。
-pub async fn update_remote_access(
+pub async fn update_remote_access<R: tauri::Runtime>(
     settings: RemoteAccessSettings,
     password: Option<String>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<RemoteAccessStatus, AppCommandError> {
     remote_listeners(&app)?.update(settings, password).await
 }
@@ -211,10 +213,10 @@ pub async fn probe_terminal_shell_path(path: String) -> Result<bool, AppCommandE
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn update_system_language_settings(
+pub async fn update_system_language_settings<R: tauri::Runtime>(
     settings: SystemLanguageSettings,
     db: State<'_, AppDatabase>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<SystemLanguageSettings, AppCommandError> {
     let serialized = serde_json::to_string(&settings).map_err(|e| {
         AppCommandError::invalid_input("Failed to serialize language settings")
@@ -225,7 +227,7 @@ pub async fn update_system_language_settings(
         .await
         .map_err(AppCommandError::from)?;
 
-    let emitter = crate::event_bridge::EventEmitter::Tauri(app);
+    let emitter = crate::event_bridge::EventEmitter::tauri(app);
     crate::event_bridge::emit_event(&emitter, LANGUAGE_SETTINGS_UPDATED_EVENT, settings.clone());
 
     Ok(settings)
@@ -233,10 +235,10 @@ pub async fn update_system_language_settings(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn update_system_terminal_settings(
+pub async fn update_system_terminal_settings<R: tauri::Runtime>(
     settings: SystemTerminalSettings,
     db: State<'_, AppDatabase>,
-    app: crate::AppHandle,
+    app: tauri::AppHandle<R>,
 ) -> Result<SystemTerminalSettings, AppCommandError> {
     let normalized = normalize_terminal_settings(settings);
     let serialized = serde_json::to_string(&normalized).map_err(|e| {
@@ -248,7 +250,7 @@ pub async fn update_system_terminal_settings(
         .await
         .map_err(AppCommandError::from)?;
 
-    let emitter = crate::event_bridge::EventEmitter::Tauri(app);
+    let emitter = crate::event_bridge::EventEmitter::tauri(app);
     crate::event_bridge::emit_event(
         &emitter,
         TERMINAL_SETTINGS_UPDATED_EVENT,

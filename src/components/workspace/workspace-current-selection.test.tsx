@@ -275,7 +275,7 @@ it.each(["pdf", "office", "image"] as const)(
       dataMode: "resource",
       preview:
         kind === "image"
-          ? { kind, revision: 1, dataUrl: null }
+          ? { kind, revision: 1, blob: null }
           : { kind, revision: 1 },
       folderId: base.folderId,
       title: base.title,

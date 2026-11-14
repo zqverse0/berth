@@ -23,7 +23,7 @@ vi.mock("@streamdown/math", () => ({
   createMathPlugin: () => ({}),
 }))
 vi.mock("@streamdown/mermaid", () => ({ mermaid: {} }))
-vi.mock("@streamdown/code", () => ({
+vi.mock("./code-highlighter", () => ({
   code: {
     highlight: vi.fn(),
     supportsLanguage: vi.fn(() => true),

@@ -9,8 +9,8 @@ use base64::Engine;
 use tokio::sync::oneshot;
 
 #[tauri::command]
-pub async fn start_file_drag(
-    window: tauri::Window<crate::Rt>,
+pub async fn start_file_drag<R: tauri::Runtime>(
+    window: tauri::Window<R>,
     path: PathBuf,
     image_png: String,
 ) -> Result<(), String> {
@@ -32,8 +32,8 @@ pub async fn start_file_drag(
 }
 
 #[cfg(target_os = "linux")]
-fn begin(
-    window: &tauri::Window<crate::Rt>,
+fn begin<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
     path: &Path,
     image: Vec<u8>,
     ended: oneshot::Sender<()>,
@@ -95,8 +95,8 @@ fn begin(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn begin(
-    window: &tauri::Window<crate::Rt>,
+fn begin<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
     path: &Path,
     image: Vec<u8>,
     ended: oneshot::Sender<()>,

@@ -1,5 +1,5 @@
 //! Locate and launch the desktop GUI binary when the control socket is down.
-//! 没有显示器时改拉起同目录的无界面宿主 `berth-host`（同一份后端，见任务 11-02-device-first）。
+//! 没有显示器时以 `--headless` 拉起同一个 GUI 二进制，作为无界面宿主（见任务 11-02-device-first）。
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -23,15 +23,9 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(200);
 /// reachable. Failures to even try (no binary, no display) are `Err` with a
 /// user-facing message.
 pub(crate) fn try_launch_gui(deadline: Option<Instant>) -> Result<bool, String> {
-    let binary = if display_available() {
-        locate_gui_binary().ok_or(
-            "cannot find the berth-gui binary; set BERTH_GUI_BINARY or install the GUI",
-        )?
-    } else {
-        locate_host_binary()
-            .ok_or("no display available and no berth-host next to the CLI; install Berth")?
-    };
-    spawn_detached(&binary)?;
+    let binary = locate_gui_binary()
+        .ok_or("cannot find the berth-gui binary; set BERTH_GUI_BINARY or install the GUI")?;
+    spawn_detached(&binary, !display_available())?;
 
     let endpoint = match endpoint_for_label("gui") {
         Ok(endpoint) => endpoint,
@@ -64,28 +58,16 @@ fn locate_gui_binary() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// 没有显示器且装了 `berth-host`：[`try_launch_gui`] 会起无界面宿主。
+/// 没有显示器且找得到 GUI 二进制：[`try_launch_gui`] 会以 `--headless` 起无界面宿主。
 pub(crate) fn can_launch_host() -> bool {
-    !display_available() && locate_host_binary().is_some()
-}
-
-/// CLI 同目录的 `berth-host`。
-fn locate_host_binary() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .map(|exe| sibling(&exe, "berth-host"))
-        .filter(|path| path.is_file())
+    !display_available() && locate_gui_binary().is_some()
 }
 
 fn sibling_gui(cli: &std::path::Path) -> PathBuf {
-    sibling(cli, "berth-gui")
-}
-
-fn sibling(cli: &std::path::Path, name: &str) -> PathBuf {
     cli.with_file_name(if cfg!(windows) {
-        format!("{name}.exe")
+        "berth-gui.exe"
     } else {
-        name.to_owned()
+        "berth-gui"
     })
 }
 
@@ -112,8 +94,11 @@ fn linux_has_display(display: Option<&std::ffi::OsStr>, wayland: Option<&std::ff
     present(display) || present(wayland)
 }
 
-fn spawn_detached(binary: &std::path::Path) -> Result<(), String> {
+fn spawn_detached(binary: &std::path::Path, headless: bool) -> Result<(), String> {
     let mut command = Command::new(binary);
+    if headless {
+        command.arg("--headless");
+    }
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -127,7 +112,7 @@ fn spawn_detached(binary: &std::path::Path) -> Result<(), String> {
     command
         .spawn()
         .map(|mut child| {
-            // 常驻的 `berth node serve` 也会拉起宿主：子进程退出（如重复的 berth-host 让出）时要回收，
+            // 常驻的 `berth node serve` 也会拉起宿主：子进程退出（如重复的无界面宿主让出）时要回收，
             // 否则留下僵尸；CLI 先退出则由 init 接管。
             std::thread::spawn(move || child.wait());
         })

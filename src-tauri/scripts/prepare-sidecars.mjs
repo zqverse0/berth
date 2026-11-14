@@ -70,16 +70,6 @@ export const BINARIES = [
     sidecarName: "berth-cli",
     noDefaultFeatures: false,
   },
-  // 无显示器设备上的无界面宿主（同一份后端换 MockRuntime）。要把整个 GUI 后端再编一遍，
-  // 只在发布打包时构建；dev 的 `tauri.dev.conf.json` 不声明它。
-  {
-    packageName: "berth-gui",
-    binaryName: "berth-host",
-    sidecarName: "berth-host",
-    noDefaultFeatures: true,
-    features: ["headless"],
-    releaseOnly: true,
-  },
 ]
 
 // Optional runtimes such as berth-mcp are installed independently and are
@@ -512,7 +502,6 @@ function main() {
   // cargo build needs to run from src-tauri so it resolves the local manifest
   // and shares the swatinem/rust-cache key with other cargo invocations.
   for (const binary of BINARIES) {
-    if (binary.releaseOnly && devBuild) continue
     const input = fingerprintInputs({
       binary,
       target,
@@ -570,10 +559,6 @@ function main() {
     if (binary.noDefaultFeatures) args.push("--no-default-features")
     if (binary.features) args.push("--features", binary.features.join(","))
     args.push("--target", target)
-    // berth-host 与 GUI 同一个 crate：tauri-build 要求 externalBin 里每个文件都存在，包括
-    // 正要构建的它自己。先放空占位，构建完覆盖。
-    mkdirSync(BINARIES_DIR, { recursive: true })
-    if (!existsSync(dest)) writeFileSync(dest, "")
     execFileSync("cargo", args, { stdio: "inherit", cwd: SRC_TAURI })
 
     if (!isUsableArtifact(built, target)) {

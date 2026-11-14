@@ -128,7 +128,11 @@ export function BerthTasksConsole({
           <div className="flex min-h-0 flex-col gap-4">
             {/* 未启用时群组和任务都读不到，只给启用入口，不让面板报「未启用」错误。 */}
             {state.enabled ? (
-              <BerthTasksPanel folderId={folderId} data={state.tasks} />
+              <BerthTasksPanel
+                folderId={folderId}
+                data={state.tasks}
+                active={surfaceActive}
+              />
             ) : (
               <EnableBerthNotice
                 folderId={folderId}

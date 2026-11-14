@@ -69,8 +69,8 @@ pub async fn set_current_document_context_core(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn set_current_document_context(
-    window: crate::WebviewWindow,
+pub async fn set_current_document_context<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
     store: tauri::State<'_, std::sync::Arc<CurrentDocumentContextStore>>,
     request: SetCurrentDocumentContextRequest,
 ) -> Result<(), AppCommandError> {

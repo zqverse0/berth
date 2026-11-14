@@ -29,12 +29,12 @@ pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpd
 /// immediately with the current snapshot; the work runs detached and reports
 /// progress via the `app_update_state` event.
 #[tauri::command]
-pub async fn perform_app_update(
-    app: crate::AppHandle,
+pub async fn perform_app_update<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
     let handle = state.inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::tauri(app.clone());
 
     let (started, snap) = update_state::try_begin(&handle, &emitter);
     if !started {
@@ -54,8 +54,8 @@ pub async fn perform_app_update(
 /// Re-check, download, and install the update, driving progress into the shared
 /// handle. On success leaves the state at `ReadyToRestart`. Returns the error
 /// message (already stringified) so the caller can record it.
-async fn run_download(
-    app: crate::AppHandle,
+async fn run_download<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     handle: AppUpdateStateHandle,
     emitter: EventEmitter,
 ) -> Result<(), String> {
@@ -99,12 +99,12 @@ async fn run_download(
 /// `Restarting` first so the UI (and any other window) reflects it, then
 /// restarts after a short flush delay. `restart()` never returns.
 #[tauri::command]
-pub async fn restart_app(
-    app: crate::AppHandle,
+pub async fn restart_app<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<(), AppCommandError> {
     let handle = state.inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::tauri(app.clone());
     // Atomically claim the relaunch (flips to `Restarting`) only if an update is
     // genuinely staged — same authority check as the server `restart_impl`.
     // Guards a stale window / direct IPC call from relaunching during
