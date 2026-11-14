@@ -73,9 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      # 钉住与本地一致的版本：1.100 起 cargo 的 build 目录改为 build/<包>/<hash>，tauri-build 2.6
+      # 按旧布局推算 target 目录，复制 sidecar 时撞上 build/berth-cli 目录而失败（v0.38.2 Linux 构建）。
+      - name: Install Rust 1.96.1
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.96.1
           components: clippy
 
       - name: Rust cache
