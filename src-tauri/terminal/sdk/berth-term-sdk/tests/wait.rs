@@ -873,7 +873,7 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
         .arg("--bin")
         .arg("berth-termd")
         .arg("--package")
-        .arg("berth-termd")
+        .arg("berth-terminald")
         .arg("--locked")
         .arg("--manifest-path")
         .arg(workspace_root().join("Cargo.toml"))

@@ -1,7 +1,7 @@
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{HookName, OptionScopeSelector, ScopeSelector};
+use crate::{OptionScopeSelector, ScopeSelector};
 
 use super::compat::{compat_next_element, required_next};
 
@@ -111,17 +111,4 @@ pub struct ShowEnvironmentRequest {
     /// Whether output should use shell-export syntax.
     #[serde(default)]
     pub shell_format: bool,
-}
-
-/// Request payload for `show-hooks`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShowHooksRequest {
-    /// The selected hook scope.
-    pub scope: ScopeSelector,
-    /// Whether the query should use the window hook table.
-    pub window: bool,
-    /// Whether the query should use the pane hook table.
-    pub pane: bool,
-    /// The optional specific hook to display.
-    pub hook: Option<HookName>,
 }

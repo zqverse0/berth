@@ -13,16 +13,26 @@ use super::mode_tree_render::{mode_tree_list_rows, render_mode_tree_overlay, ren
 use super::mode_tree_selection::{
     clamp_scroll, collapse_or_parent, current_tree_kill_prompt, cycle_sort,
     ensure_selected_visible, expand_or_child, move_selection, repeat_search, selected_items,
-    tag_all, tagged_tree_kill_prompt, toggle_tag,
+    tagged_tree_kill_prompt, toggle_tag,
 };
 use super::mode_tree_sort::stable_order;
 use super::*;
 use crate::pane_terminals::HandlerState;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
 use berth_term_engine::{
     command_parser::CommandParser, input::InputParser, Screen, Style, Utf8Config,
 };
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// 测试条目用的动作：只关心树结构与标记时，用一个指向会话的 TreeTarget 填充。
+fn test_action() -> ModeTreeAction {
+    ModeTreeAction::TreeTarget {
+        session_name: SessionName::new("test").expect("valid session name"),
+        window_index: None,
+        pane_index: None,
+        pane_id: None,
+    }
+}
 use berth_term_proto::{NewSessionRequest, Request, Response, SessionName, TerminalSize};
 use tokio::sync::mpsc;
 
@@ -69,7 +79,7 @@ fn flat_build(ids: &[&str]) -> ModeTreeBuild {
                 search_text: id.to_string(),
                 preview: Vec::new(),
                 no_tag: false,
-                action: ModeTreeAction::None,
+                action: test_action(),
             },
         );
     }

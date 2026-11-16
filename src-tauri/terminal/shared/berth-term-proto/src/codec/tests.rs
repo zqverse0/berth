@@ -1,23 +1,16 @@
 use super::{decode_frame, encode_frame, FrameDecoder};
 use crate::{
-    AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionRequest, BreakPaneRequest,
-    CapturePaneRequest, ClockModeRequest, ControlMode, ControlModeRequest, ControlModeResponse,
-    CopyModeRequest, DeleteBufferRequest, DetachClientExtRequest, DetachClientRequest,
-    DisplayMessageExtRequest, DisplayMessageRequest, DisplayPanesRequest, HasSessionRequest,
-    HookLifecycle, HookName, JoinPaneRequest, KillPaneRequest, KillSessionRequest,
-    KillWindowRequest, LastPaneRequest, LastWindowRequest, LayoutName, ListBuffersRequest,
-    ListClientsRequest, ListPanesRequest, ListSessionsRequest, ListWindowsRequest,
-    LoadBufferRequest, MoveWindowRequest, MoveWindowTarget, NewSessionRequest, NewWindowRequest,
-    NextLayoutRequest, NextWindowRequest, OptionName, PaneTarget, PasteBufferRequest,
-    PreviousLayoutRequest, PreviousWindowRequest, RefreshClientRequest, RenameSessionRequest,
-    RenameWindowRequest, Request, ResizePaneAdjustment, ResizePaneRequest, RotateWindowDirection,
-    RotateWindowRequest, SaveBufferRequest, ScopeSelector, SelectLayoutRequest, SelectLayoutTarget,
-    SelectPaneAdjacentRequest, SelectPaneDirection, SelectPaneRequest, SelectWindowRequest,
-    SendKeysExt2Request, SendKeysRequest, SessionName, SetBufferRequest, SetEnvironmentRequest,
-    SetHookRequest, SetOptionMode, SetOptionRequest, ShowBufferRequest, ShowMessagesRequest,
-    SourceFileRequest, SplitDirection, SplitWindowExtRequest, SplitWindowRequest,
-    SplitWindowTarget, SuspendClientRequest, SwapPaneDirection, SwapPaneRequest, SwapWindowRequest,
-    SwitchClientExt3Request, SwitchClientRequest, Target, TerminalSize, WindowTarget,
+    AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionRequest, CapturePaneRequest,
+    CopyModeRequest, DetachClientExtRequest, DetachClientRequest, DisplayMessageExtRequest,
+    DisplayMessageRequest, HasSessionRequest, KillPaneRequest, KillSessionRequest,
+    KillWindowRequest, LayoutName, ListPanesRequest, ListSessionsRequest, ListWindowsRequest,
+    NewSessionRequest, NewWindowRequest, NextWindowRequest, OptionName, PaneTarget,
+    PasteBufferRequest, PreviousWindowRequest, RenameSessionRequest, RenameWindowRequest, Request,
+    ResizePaneAdjustment, ResizePaneRequest, ScopeSelector, SelectLayoutRequest,
+    SelectLayoutTarget, SelectPaneAdjacentRequest, SelectPaneDirection, SelectPaneRequest,
+    SelectWindowRequest, SendKeysExt2Request, SendKeysRequest, SessionName, SetBufferRequest,
+    SetOptionMode, SetOptionRequest, ShowBufferRequest, SplitDirection, SplitWindowExtRequest,
+    SplitWindowRequest, SplitWindowTarget, Target, TerminalSize, WindowTarget,
 };
 
 #[test]
@@ -130,31 +123,9 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             target: alpha.clone(),
             alerts_only: false,
         }),
-        Request::LastWindow(LastWindowRequest {
-            target: alpha.clone(),
-        }),
         Request::ListWindows(ListWindowsRequest {
             target: alpha.clone(),
             format: Some("#{window_index}".to_owned()),
-        }),
-        Request::MoveWindow(MoveWindowRequest {
-            source: Some(WindowTarget::with_window(alpha.clone(), 1)),
-            target: MoveWindowTarget::Window(WindowTarget::with_window(beta.clone(), 3)),
-            renumber: false,
-            kill_destination: true,
-            detached: false,
-            after: false,
-            before: false,
-        }),
-        Request::SwapWindow(SwapWindowRequest {
-            source: WindowTarget::with_window(alpha.clone(), 1),
-            target: WindowTarget::with_window(beta.clone(), 3),
-            detached: true,
-        }),
-        Request::RotateWindow(RotateWindowRequest {
-            target: WindowTarget::with_window(alpha.clone(), 1),
-            direction: RotateWindowDirection::Down,
-            restore_zoom: false,
         }),
         Request::SplitWindow(SplitWindowRequest {
             target: SplitWindowTarget::Pane(pane.clone()),
@@ -162,37 +133,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             before: false,
             environment: None,
         }),
-        Request::SwapPane(SwapPaneRequest {
-            source: pane.clone(),
-            target: PaneTarget::with_window(beta.clone(), 2, 3),
-            direction: Some(SwapPaneDirection::Down),
-            detached: true,
-            preserve_zoom: false,
-        }),
-        Request::LastPane(LastPaneRequest {
-            target: WindowTarget::new(beta.clone()),
-            preserve_zoom: false,
-            input_disabled: None,
-        }),
-        Request::JoinPane(JoinPaneRequest {
-            source: PaneTarget::with_window(beta.clone(), 1, 2),
-            target: PaneTarget::with_window(beta.clone(), 3, 4),
-            direction: SplitDirection::Horizontal,
-            detached: false,
-            before: false,
-            full_size: false,
-            size: None,
-        }),
-        Request::BreakPane(Box::new(BreakPaneRequest {
-            source: PaneTarget::with_window(beta.clone(), 1, 2),
-            target: Some(WindowTarget::with_window(beta.clone(), 5)),
-            name: Some("scratch".to_owned()),
-            detached: true,
-            after: false,
-            before: false,
-            print_target: false,
-            format: None,
-        })),
         Request::KillPane(KillPaneRequest {
             target: pane.clone(),
             kill_all_except: false,
@@ -201,20 +141,9 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             target: SelectLayoutTarget::Window(window.clone()),
             layout: LayoutName::MainVertical,
         }),
-        Request::NextLayout(NextLayoutRequest {
-            target: window.clone(),
-        }),
-        Request::PreviousLayout(PreviousLayoutRequest { target: window }),
         Request::ResizePane(ResizePaneRequest {
             target: pane.clone(),
             adjustment: ResizePaneAdjustment::AbsoluteWidth { columns: 34 },
-        }),
-        Request::DisplayPanes(DisplayPanesRequest {
-            target: beta.clone(),
-            duration_ms: None,
-            non_blocking: false,
-            no_command: false,
-            template: None,
         }),
         Request::SelectPane(Box::new(SelectPaneRequest {
             target: pane.clone(),
@@ -250,7 +179,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
         Request::AttachSession(AttachSessionRequest {
             target: alpha.clone(),
         }),
-        Request::SwitchClient(SwitchClientRequest { target: alpha }),
         Request::DetachClient(DetachClientRequest),
         Request::SetOption(SetOptionRequest {
             scope: ScopeSelector::Global,
@@ -263,33 +191,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             option: OptionName::TerminalFeatures,
             value: "xterm:RGB".to_owned(),
             mode: SetOptionMode::Append,
-        }),
-        Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-            scope: ScopeSelector::Session(beta.clone()),
-            name: "TERM".to_owned(),
-            value: "xterm-256color".to_owned(),
-            mode: None,
-            hidden: false,
-            format: false,
-        })),
-        Request::SetHook(SetHookRequest {
-            scope: ScopeSelector::Session(beta.clone()),
-            hook: HookName::ClientAttached,
-            command: "printf ready".to_owned(),
-            lifecycle: HookLifecycle::OneShot,
-        }),
-        Request::SetHookMutation(crate::SetHookMutationRequest {
-            scope: ScopeSelector::Window(WindowTarget::with_window(
-                SessionName::new("alpha").unwrap(),
-                2,
-            )),
-            hook: HookName::WindowLayoutChanged,
-            command: Some("display-message updated".to_owned()),
-            lifecycle: HookLifecycle::Persistent,
-            append: true,
-            unset: false,
-            run_immediately: false,
-            index: Some(3),
         }),
         Request::SetBuffer(SetBufferRequest {
             name: Some("named".to_owned()),
@@ -310,20 +211,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             raw: false,
             bracketed: false,
         })),
-        Request::ListBuffers(ListBuffersRequest::default()),
-        Request::DeleteBuffer(DeleteBufferRequest { name: None }),
-        Request::LoadBuffer(LoadBufferRequest {
-            path: "/tmp/input".to_owned(),
-            cwd: None,
-            name: Some("loaded".to_owned()),
-            set_clipboard: false,
-        }),
-        Request::SaveBuffer(SaveBufferRequest {
-            path: "/tmp/output".to_owned(),
-            cwd: None,
-            name: Some("loaded".to_owned()),
-            append: false,
-        }),
         Request::CapturePane(Box::new(CapturePaneRequest {
             target: PaneTarget::with_window(SessionName::new("alpha").unwrap(), 0, 0),
             start: Some(-5),
@@ -386,22 +273,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             format: Some("#{pane_id}".to_owned()),
             target_window_index: None,
         }),
-        Request::SourceFile(Box::new(SourceFileRequest {
-            paths: vec!["/tmp/rmux.conf".to_owned()],
-            quiet: false,
-            parse_only: false,
-            verbose: true,
-            expand_paths: false,
-            target: None,
-            caller_cwd: None,
-            stdin: None,
-        })),
-        Request::ShowHooks(crate::ShowHooksRequest {
-            scope: ScopeSelector::Global,
-            window: true,
-            pane: false,
-            hook: Some(HookName::PaneExited),
-        }),
         Request::CopyMode(CopyModeRequest {
             target: Some(PaneTarget::with_window(
                 SessionName::new("alpha").unwrap(),
@@ -421,65 +292,7 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             )),
             page_up: true,
         }),
-        Request::ControlMode(ControlModeRequest {
-            mode: ControlMode::ControlControl,
-            client_terminal: crate::ClientTerminalContext::default(),
-        }),
-        Request::ClockMode(ClockModeRequest {
-            target: Some(PaneTarget::with_window(
-                SessionName::new("alpha").unwrap(),
-                0,
-                0,
-            )),
-        }),
-        Request::ShowMessages(ShowMessagesRequest {
-            jobs: true,
-            terminals: true,
-            target_client: Some("1234".to_owned()),
-        }),
         Request::KillServer(crate::KillServerRequest),
-        Request::LockServer(crate::LockServerRequest),
-        Request::LockSession(crate::LockSessionRequest {
-            target: SessionName::new("alpha").unwrap(),
-        }),
-        Request::LockClient(crate::LockClientRequest {
-            target_client: "=".to_owned(),
-        }),
-        Request::ServerAccess(crate::ServerAccessRequest {
-            add: false,
-            deny: false,
-            list: true,
-            read_only: false,
-            write: false,
-            user: None,
-        }),
-        Request::RefreshClient(Box::new(RefreshClientRequest {
-            target_client: Some("=".to_owned()),
-            adjustment: Some(2),
-            clear_pan: false,
-            pan_left: false,
-            pan_right: true,
-            pan_up: false,
-            pan_down: false,
-            status_only: false,
-            clipboard_query: false,
-            flags: Some("read-only".to_owned()),
-            flags_alias: Some("!ignore-size".to_owned()),
-            subscriptions: vec!["%0:on".to_owned()],
-            subscriptions_format: vec!["name:%0:#{pane_id}".to_owned()],
-            control_size: Some("80x24".to_owned()),
-            colour_report: Some("%0:rgb".to_owned()),
-        })),
-        Request::ListClients(Box::new(ListClientsRequest {
-            format: Some("#{client_name}".to_owned()),
-            filter: Some("#{client_control_mode}".to_owned()),
-            sort_order: Some("name".to_owned()),
-            reversed: true,
-            target_session: Some(beta.clone()),
-        })),
-        Request::SuspendClient(SuspendClientRequest {
-            target_client: Some("=".to_owned()),
-        }),
         Request::DetachClientExt(DetachClientExtRequest {
             target_client: Some("=".to_owned()),
             all_other_clients: true,
@@ -520,18 +333,6 @@ fn every_request_variant_round_trips_through_the_frame_codec() {
             },
             vec![crate::CAPABILITY_ATTACH_RENDER.to_owned()],
         ))),
-        Request::SwitchClientExt3(Box::new(SwitchClientExt3Request {
-            target_client: Some("=".to_owned()),
-            target: Some("beta:0.1".to_owned()),
-            key_table: Some("prefix".to_owned()),
-            last_session: false,
-            next_session: false,
-            previous_session: false,
-            toggle_read_only: true,
-            sort_order: Some("size".to_owned()),
-            skip_environment_update: true,
-            zoom: true,
-        })),
         Request::Handshake(crate::HandshakeRequest::requiring([
             crate::CAPABILITY_DETACHED_RPC,
             crate::CAPABILITY_HANDSHAKE,
@@ -559,24 +360,6 @@ fn display_message_request_appends_after_existing_request_variants() {
     let encoded = bincode::serialize(&request).expect("request encodes");
 
     assert_eq!(&encoded[..4], 44_u32.to_le_bytes().as_slice());
-    assert_eq!(
-        bincode::deserialize::<Request>(&encoded).expect("request decodes"),
-        request
-    );
-}
-
-#[test]
-fn show_hooks_request_appends_after_existing_request_variants() {
-    let request = Request::ShowHooks(crate::ShowHooksRequest {
-        scope: ScopeSelector::Global,
-        window: false,
-        pane: false,
-        hook: Some(HookName::ClientAttached),
-    });
-
-    let encoded = bincode::serialize(&request).expect("request encodes");
-
-    assert_eq!(&encoded[..4], 54_u32.to_le_bytes().as_slice());
     assert_eq!(
         bincode::deserialize::<Request>(&encoded).expect("request decodes"),
         request
@@ -612,33 +395,7 @@ fn copy_mode_request_appends_after_existing_request_variants() {
 
 #[test]
 fn server_lifecycle_request_variants_append_after_spread_layout() {
-    let cases = [
-        (72_u32, Request::KillServer(crate::KillServerRequest)),
-        (73_u32, Request::LockServer(crate::LockServerRequest)),
-        (
-            74_u32,
-            Request::LockSession(crate::LockSessionRequest {
-                target: SessionName::new("alpha").expect("valid session"),
-            }),
-        ),
-        (
-            75_u32,
-            Request::LockClient(crate::LockClientRequest {
-                target_client: "=".to_owned(),
-            }),
-        ),
-        (
-            76_u32,
-            Request::ServerAccess(crate::ServerAccessRequest {
-                add: false,
-                deny: false,
-                list: true,
-                read_only: false,
-                write: false,
-                user: None,
-            }),
-        ),
-    ];
+    let cases = [(72_u32, Request::KillServer(crate::KillServerRequest))];
 
     for (expected_tag, request) in cases {
         let encoded = bincode::serialize(&request).expect("request encodes");
@@ -653,42 +410,6 @@ fn server_lifecycle_request_variants_append_after_spread_layout() {
 #[test]
 fn client_surface_request_variants_append_after_server_access() {
     let cases = [
-        (
-            77_u32,
-            Request::RefreshClient(Box::new(RefreshClientRequest {
-                target_client: Some("=".to_owned()),
-                adjustment: None,
-                clear_pan: false,
-                pan_left: false,
-                pan_right: false,
-                pan_up: false,
-                pan_down: false,
-                status_only: true,
-                clipboard_query: false,
-                flags: None,
-                flags_alias: None,
-                subscriptions: Vec::new(),
-                subscriptions_format: Vec::new(),
-                control_size: None,
-                colour_report: None,
-            })),
-        ),
-        (
-            78_u32,
-            Request::ListClients(Box::new(ListClientsRequest {
-                format: None,
-                filter: None,
-                sort_order: None,
-                reversed: false,
-                target_session: Some(SessionName::new("alpha").expect("valid session")),
-            })),
-        ),
-        (
-            79_u32,
-            Request::SuspendClient(SuspendClientRequest {
-                target_client: Some("=".to_owned()),
-            }),
-        ),
         (
             80_u32,
             Request::DetachClientExt(DetachClientExtRequest {
@@ -712,21 +433,6 @@ fn client_surface_request_variants_append_after_server_access() {
                 working_directory: Some("/tmp".to_owned()),
                 client_terminal: crate::ClientTerminalContext::default(),
                 client_size: Some(TerminalSize { cols: 90, rows: 30 }),
-            })),
-        ),
-        (
-            82_u32,
-            Request::SwitchClientExt3(Box::new(SwitchClientExt3Request {
-                target_client: Some("=".to_owned()),
-                target: Some("alpha".to_owned()),
-                key_table: None,
-                last_session: false,
-                next_session: false,
-                previous_session: false,
-                toggle_read_only: false,
-                sort_order: None,
-                skip_environment_update: false,
-                zoom: true,
             })),
         ),
         (
@@ -757,25 +463,6 @@ fn client_surface_request_variants_append_after_server_access() {
             request
         );
     }
-}
-
-#[test]
-fn clock_mode_request_appends_after_control_mode_request() {
-    let request = Request::ClockMode(ClockModeRequest {
-        target: Some(PaneTarget::with_window(
-            SessionName::new("alpha").expect("valid session"),
-            0,
-            0,
-        )),
-    });
-
-    let encoded = bincode::serialize(&request).expect("request encodes");
-
-    assert_eq!(&encoded[..4], 64_u32.to_le_bytes().as_slice());
-    assert_eq!(
-        bincode::deserialize::<Request>(&encoded).expect("request decodes"),
-        request
-    );
 }
 
 #[test]
@@ -972,9 +659,6 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
         crate::Response::PreviousWindow(crate::PreviousWindowResponse {
             target: WindowTarget::with_window(alpha.clone(), 1),
         }),
-        crate::Response::LastWindow(crate::LastWindowResponse {
-            target: WindowTarget::with_window(alpha.clone(), 0),
-        }),
         crate::Response::ListWindows(crate::ListWindowsResponse {
             windows: vec![crate::WindowListEntry {
                 target: WindowTarget::new(alpha.clone()),
@@ -989,32 +673,7 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
             }],
             output: crate::CommandOutput::from_stdout("0:shell*\n"),
         }),
-        crate::Response::MoveWindow(crate::MoveWindowResponse {
-            session_name: alpha.clone(),
-            target: Some(WindowTarget::with_window(alpha.clone(), 3)),
-        }),
-        crate::Response::SwapWindow(crate::SwapWindowResponse {
-            source: WindowTarget::with_window(alpha.clone(), 1),
-            target: WindowTarget::with_window(alpha.clone(), 3),
-        }),
-        crate::Response::RotateWindow(crate::RotateWindowResponse {
-            target: WindowTarget::with_window(alpha.clone(), 1),
-        }),
         crate::Response::SplitWindow(crate::SplitWindowResponse { pane: pane.clone() }),
-        crate::Response::SwapPane(crate::SwapPaneResponse {
-            source: pane.clone(),
-            target: PaneTarget::with_window(SessionName::new("beta").unwrap(), 2, 3),
-        }),
-        crate::Response::LastPane(crate::LastPaneResponse {
-            target: PaneTarget::with_window(SessionName::new("beta").unwrap(), 0, 2),
-        }),
-        crate::Response::JoinPane(crate::JoinPaneResponse {
-            target: PaneTarget::with_window(SessionName::new("beta").unwrap(), 3, 2),
-        }),
-        crate::Response::BreakPane(crate::BreakPaneResponse {
-            target: PaneTarget::with_window(SessionName::new("beta").unwrap(), 5, 2),
-            output: None,
-        }),
         crate::Response::KillPane(crate::KillPaneResponse {
             target: pane.clone(),
             window_destroyed: false,
@@ -1022,28 +681,15 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
         crate::Response::SelectLayout(crate::SelectLayoutResponse {
             layout: LayoutName::MainVertical,
         }),
-        crate::Response::NextLayout(crate::NextLayoutResponse {
-            layout: LayoutName::Tiled,
-        }),
-        crate::Response::PreviousLayout(crate::PreviousLayoutResponse {
-            layout: LayoutName::EvenVertical,
-        }),
         crate::Response::ResizePane(crate::ResizePaneResponse {
             target: pane.clone(),
             adjustment: ResizePaneAdjustment::AbsoluteWidth { columns: 80 },
-        }),
-        crate::Response::DisplayPanes(crate::DisplayPanesResponse {
-            target: WindowTarget::new(alpha.clone()),
-            pane_count: 2,
         }),
         crate::Response::SelectPane(crate::SelectPaneResponse {
             target: pane.clone(),
         }),
         crate::Response::SendKeys(crate::SendKeysResponse { key_count: 3 }),
         crate::Response::AttachSession(crate::AttachSessionResponse {
-            session_name: alpha.clone(),
-        }),
-        crate::Response::SwitchClient(crate::SwitchClientResponse {
             session_name: alpha.clone(),
         }),
         crate::Response::DetachClient(crate::DetachClientResponse),
@@ -1057,15 +703,6 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
             option: OptionName::TerminalFeatures,
             mode: SetOptionMode::Append,
         }),
-        crate::Response::SetEnvironment(crate::SetEnvironmentResponse {
-            scope: ScopeSelector::Session(alpha.clone()),
-            name: "TERM".to_owned(),
-        }),
-        crate::Response::SetHook(crate::SetHookResponse {
-            scope: ScopeSelector::Session(alpha),
-            hook: HookName::ClientAttached,
-            lifecycle: HookLifecycle::Persistent,
-        }),
         crate::Response::Error(crate::ErrorResponse {
             error: crate::TerminalError::SessionNotFound("gone".to_owned()),
         }),
@@ -1077,18 +714,6 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
         }),
         crate::Response::PasteBuffer(crate::PasteBufferResponse {
             buffer_name: "buffer0".to_owned(),
-        }),
-        crate::Response::ListBuffers(crate::ListBuffersResponse {
-            output: crate::CommandOutput::from_stdout(b"buffer0: 6 bytes: \"buffer\"\n".to_vec()),
-        }),
-        crate::Response::DeleteBuffer(crate::DeleteBufferResponse {
-            buffer_name: "buffer0".to_owned(),
-        }),
-        crate::Response::LoadBuffer(crate::LoadBufferResponse {
-            buffer_name: "loaded".to_owned(),
-        }),
-        crate::Response::SaveBuffer(crate::SaveBufferResponse {
-            buffer_name: "loaded".to_owned(),
         }),
         crate::Response::CapturePane(crate::CapturePaneResponse::from_output(
             crate::CommandOutput::from_stdout(b"captured\n".to_vec()),
@@ -1109,49 +734,12 @@ fn every_response_variant_round_trips_through_the_frame_codec() {
         crate::Response::ListPanes(crate::ListPanesResponse {
             output: crate::CommandOutput::from_stdout(b"%0\n%1\n".to_vec()),
         }),
-        crate::Response::SourceFile(crate::SourceFileResponse::from_output(
-            crate::CommandOutput::from_stdout(b"display-message ok\n".to_vec()),
-        )),
-        crate::Response::ShowHooks(crate::ShowHooksResponse {
-            scope: ScopeSelector::Global,
-            output: crate::CommandOutput::from_stdout(b"client-attached[0] true\n".to_vec()),
-        }),
         crate::Response::CopyMode(crate::CopyModeResponse {
             target: PaneTarget::with_window(SessionName::new("alpha").unwrap(), 0, 0),
             active: true,
             view_mode: false,
         }),
-        crate::Response::ControlMode(ControlModeResponse {
-            mode: ControlMode::ControlControl,
-        }),
-        crate::Response::ClockMode(crate::ClockModeResponse {
-            target: PaneTarget::with_window(SessionName::new("alpha").unwrap(), 0, 0),
-            active: true,
-        }),
-        crate::Response::ShowMessages(crate::ShowMessagesResponse::from_output(
-            crate::CommandOutput::from_stdout(b"terminal\n".to_vec()),
-        )),
         crate::Response::KillServer(crate::KillServerResponse),
-        crate::Response::LockServer(crate::LockServerResponse),
-        crate::Response::LockSession(crate::LockSessionResponse {
-            target: SessionName::new("alpha").unwrap(),
-        }),
-        crate::Response::LockClient(crate::LockClientResponse {
-            target_client: "=".to_owned(),
-        }),
-        crate::Response::ServerAccess(crate::ServerAccessResponse {
-            output: crate::CommandOutput::from_stdout(b"owner (W)\n".to_vec()),
-        }),
-        crate::Response::RefreshClient(crate::RefreshClientResponse {
-            target_client: "=".to_owned(),
-        }),
-        crate::Response::ListClients(crate::ListClientsResponse {
-            output: crate::CommandOutput::from_stdout(b"= alpha\n".to_vec()),
-            match_count: 1,
-        }),
-        crate::Response::SuspendClient(crate::SuspendClientResponse {
-            target_client: "=".to_owned(),
-        }),
         crate::Response::Handshake(crate::HandshakeResponse::current()),
     ];
 
@@ -1169,22 +757,6 @@ fn display_message_response_appends_after_existing_response_variants() {
     let encoded = bincode::serialize(&response).expect("response encodes");
 
     assert_eq!(&encoded[..4], 44_u32.to_le_bytes().as_slice());
-    assert_eq!(
-        bincode::deserialize::<crate::Response>(&encoded).expect("response decodes"),
-        response
-    );
-}
-
-#[test]
-fn show_hooks_response_appends_after_existing_response_variants() {
-    let response = crate::Response::ShowHooks(crate::ShowHooksResponse {
-        scope: ScopeSelector::Global,
-        output: crate::CommandOutput::from_stdout(Vec::new()),
-    });
-
-    let encoded = bincode::serialize(&response).expect("response encodes");
-
-    assert_eq!(&encoded[..4], 53_u32.to_le_bytes().as_slice());
     assert_eq!(
         bincode::deserialize::<crate::Response>(&encoded).expect("response decodes"),
         response
@@ -1210,34 +782,10 @@ fn copy_mode_response_appends_after_existing_response_variants() {
 
 #[test]
 fn server_lifecycle_response_variants_append_after_show_messages() {
-    let cases = [
-        (
-            63_u32,
-            crate::Response::KillServer(crate::KillServerResponse),
-        ),
-        (
-            64_u32,
-            crate::Response::LockServer(crate::LockServerResponse),
-        ),
-        (
-            65_u32,
-            crate::Response::LockSession(crate::LockSessionResponse {
-                target: SessionName::new("alpha").expect("valid session"),
-            }),
-        ),
-        (
-            66_u32,
-            crate::Response::LockClient(crate::LockClientResponse {
-                target_client: "=".to_owned(),
-            }),
-        ),
-        (
-            67_u32,
-            crate::Response::ServerAccess(crate::ServerAccessResponse {
-                output: crate::CommandOutput::from_stdout(b"owner (W)\n".to_vec()),
-            }),
-        ),
-    ];
+    let cases = [(
+        63_u32,
+        crate::Response::KillServer(crate::KillServerResponse),
+    )];
 
     for (expected_tag, response) in cases {
         let encoded = bincode::serialize(&response).expect("response encodes");
@@ -1247,54 +795,4 @@ fn server_lifecycle_response_variants_append_after_show_messages() {
             response
         );
     }
-}
-
-#[test]
-fn client_surface_response_variants_append_after_server_access() {
-    let cases = [
-        (
-            68_u32,
-            crate::Response::RefreshClient(crate::RefreshClientResponse {
-                target_client: "=".to_owned(),
-            }),
-        ),
-        (
-            69_u32,
-            crate::Response::ListClients(crate::ListClientsResponse {
-                output: crate::CommandOutput::from_stdout(b"= alpha\n".to_vec()),
-                match_count: 1,
-            }),
-        ),
-        (
-            70_u32,
-            crate::Response::SuspendClient(crate::SuspendClientResponse {
-                target_client: "=".to_owned(),
-            }),
-        ),
-    ];
-
-    for (expected_tag, response) in cases {
-        let encoded = bincode::serialize(&response).expect("response encodes");
-        assert_eq!(&encoded[..4], expected_tag.to_le_bytes().as_slice());
-        assert_eq!(
-            bincode::deserialize::<crate::Response>(&encoded).expect("response decodes"),
-            response
-        );
-    }
-}
-
-#[test]
-fn clock_mode_response_appends_after_control_mode_response() {
-    let response = crate::Response::ClockMode(crate::ClockModeResponse {
-        target: PaneTarget::with_window(SessionName::new("alpha").expect("valid session"), 0, 0),
-        active: true,
-    });
-
-    let encoded = bincode::serialize(&response).expect("response encodes");
-
-    assert_eq!(&encoded[..4], 61_u32.to_le_bytes().as_slice());
-    assert_eq!(
-        bincode::deserialize::<crate::Response>(&encoded).expect("response decodes"),
-        response
-    );
 }

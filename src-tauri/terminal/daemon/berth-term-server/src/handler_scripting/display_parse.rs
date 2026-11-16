@@ -6,7 +6,7 @@ use berth_term_engine::{
 };
 use berth_term_proto::{
     CapturePaneRequest, ClearHistoryRequest, DisplayMessageExtRequest, DisplayMessageRequest,
-    PaneTarget, Request, ShowMessagesRequest, Target, TerminalError,
+    PaneTarget, Request, Target, TerminalError,
 };
 
 use super::tokens::CommandTokens;
@@ -535,29 +535,3 @@ fn display_all_formats_template() -> String {
 }
 
 const DISPLAY_ALL_EXTRA_FORMATS: &[&str] = &["command"];
-
-pub(super) fn parse_show_messages(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let mut jobs = false;
-    let mut terminals = false;
-    let mut target_client = None;
-
-    while let Some(token) = args.optional() {
-        match token.as_str() {
-            "-J" => jobs = true,
-            "-T" => terminals = true,
-            "-t" => target_client = Some(args.required("-t target-client")?),
-            flag if flag.starts_with('-') => return Err(unsupported_flag("show-messages", flag)),
-            _ => {
-                return Err(TerminalError::Server(format!(
-                    "unexpected argument '{token}' for show-messages"
-                )));
-            }
-        }
-    }
-
-    Ok(Request::ShowMessages(ShowMessagesRequest {
-        jobs,
-        terminals,
-        target_client,
-    }))
-}

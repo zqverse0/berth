@@ -7,17 +7,17 @@ use crate::format_runtime::render_runtime_template;
 use crate::outer_terminal::OuterTerminalContext;
 use crate::pane_io::AttachControl;
 use crate::server_access::current_owner_uid;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
 use berth_term_engine::{WINLINK_ACTIVITY, WINLINK_BELL, WINLINK_SILENCE};
 use berth_term_proto::{
     DisplayMessageRequest, HookName, KillWindowRequest, NewSessionExtRequest, NewSessionRequest,
     NewWindowRequest, NextWindowRequest, OptionName, PreviousWindowRequest, Request, Response,
-    ScopeSelector, SessionName, SetOptionMode, SetOptionRequest, ShowMessagesRequest,
-    SplitDirection, SplitWindowExtRequest, SplitWindowTarget, Target, TerminalSize, WindowTarget,
+    ScopeSelector, SessionName, SetOptionMode, SetOptionRequest, SplitDirection,
+    SplitWindowExtRequest, SplitWindowTarget, Target, TerminalSize, WindowTarget,
 };
 #[cfg(unix)]
 use berth_term_proto::{PaneTarget, SendKeysRequest};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{timeout, Duration};
 
@@ -866,117 +866,6 @@ async fn silence_monitor_sets_flags_after_idle() {
 }
 
 #[tokio::test]
-async fn show_messages_formats_log_and_terminal_info_and_prunes_to_limit() {
-    let handler = RequestHandler::new();
-    let session = create_session(&handler, "messages").await;
-    let (control_tx, _control_rx) = mpsc::unbounded_channel();
-    let _attach_id = handler
-        .register_attach(77, session.clone(), control_tx)
-        .await;
-
-    {
-        let mut state = handler.state.lock().await;
-        state.add_message("one");
-        state.add_message("two");
-    }
-    set_option(
-        &handler,
-        ScopeSelector::Global,
-        OptionName::MessageLimit,
-        "1",
-    )
-    .await;
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: false,
-            terminals: false,
-            target_client: None,
-        }))
-        .await;
-    let Response::ShowMessages(response) = response else {
-        panic!("expected show-messages response");
-    };
-    let rendered = String::from_utf8_lossy(response.output.stdout()).into_owned();
-    assert!(rendered.contains(": two"));
-    assert!(!rendered.contains(": one"));
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: false,
-            terminals: true,
-            target_client: Some("77".to_owned()),
-        }))
-        .await;
-    let Response::ShowMessages(response) = response else {
-        panic!("expected show-messages response");
-    };
-    let rendered = String::from_utf8_lossy(response.output.stdout()).into_owned();
-    assert!(rendered.contains("Terminal 0:"));
-    assert!(rendered.contains("client 77"));
-    assert!(!rendered.contains(": two"));
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: true,
-            terminals: false,
-            target_client: Some("77".to_owned()),
-        }))
-        .await;
-    let Response::ShowMessages(response) = response else {
-        panic!("expected show-messages response");
-    };
-    assert!(response.output.stdout().is_empty());
-
-    set_option(
-        &handler,
-        ScopeSelector::Global,
-        OptionName::MessageLimit,
-        "0",
-    )
-    .await;
-    let state = handler.state.lock().await;
-    assert!(state.message_log.is_empty());
-}
-
-#[tokio::test]
-async fn show_messages_log_is_available_without_current_client() {
-    let handler = RequestHandler::new();
-    let _session = create_session(&handler, "messages-detached").await;
-    {
-        let mut state = handler.state.lock().await;
-        state.add_message("detached log entry");
-    }
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: false,
-            terminals: false,
-            target_client: None,
-        }))
-        .await;
-    let Response::ShowMessages(response) = response else {
-        panic!("expected detached show-messages log output");
-    };
-    let rendered = String::from_utf8_lossy(response.output.stdout());
-    assert!(rendered.contains("detached log entry"));
-
-    for (jobs, terminals) in [(true, false), (false, true), (true, true)] {
-        let response = handler
-            .handle(Request::ShowMessages(ShowMessagesRequest {
-                jobs,
-                terminals,
-                target_client: None,
-            }))
-            .await;
-        let Response::Error(error) = response else {
-            panic!("expected show-messages -J/-T to require a current client");
-        };
-        assert_eq!(error.error.to_string(), "no current client");
-    }
-}
-
-#[tokio::test]
 async fn format_variables_focus_clearing_and_alert_navigation_follow_winlink_flags() {
     let handler = RequestHandler::new();
     let session = create_session(&handler, "formats").await;
@@ -1361,44 +1250,6 @@ async fn silence_deduplication_skips_second_silence_on_same_winlink() {
             }
         }
     }
-}
-
-#[tokio::test]
-async fn show_messages_invalid_target_client_returns_error() {
-    let handler = RequestHandler::new();
-    let _session = create_session(&handler, "bad-target").await;
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: false,
-            terminals: true,
-            target_client: Some("not-a-number".to_owned()),
-        }))
-        .await;
-    assert!(
-        matches!(response, Response::Error(_)),
-        "non-numeric target client should produce an error"
-    );
-}
-
-#[tokio::test]
-async fn show_messages_message_log_resolves_target_client() {
-    let handler = RequestHandler::new();
-    let _session = create_session(&handler, "bad-message-target").await;
-
-    let response = handler
-        .handle(Request::ShowMessages(ShowMessagesRequest {
-            jobs: false,
-            terminals: false,
-            target_client: Some("999999".to_owned()),
-        }))
-        .await;
-    assert_eq!(
-        response,
-        Response::Error(berth_term_proto::ErrorResponse {
-            error: berth_term_proto::TerminalError::Server("can't find client: 999999".to_owned())
-        })
-    );
 }
 
 #[tokio::test]

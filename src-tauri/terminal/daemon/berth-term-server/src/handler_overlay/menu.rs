@@ -1,5 +1,4 @@
 use berth_term_engine::{BoxLines, Style};
-use berth_term_proto::Target;
 
 use super::mouse::{mouse_drag, mouse_release};
 use crate::input_keys::MouseForwardEvent;
@@ -14,9 +13,6 @@ pub(super) const MENU_TAB: u8 = 0x04;
 
 #[derive(Debug, Clone)]
 pub(in crate::handler) struct MenuOverlayState {
-    pub(in crate::handler) id: u64,
-    pub(in crate::handler) requester_pid: u32,
-    pub(in crate::handler) current_target: Target,
     pub(in crate::handler) rect: OverlayRect,
     pub(in crate::handler) title: String,
     pub(in crate::handler) style: Style,
@@ -111,7 +107,6 @@ pub(in crate::handler) struct MenuOverlayItem {
 
 #[derive(Debug, Clone)]
 pub(in crate::handler) enum OverlayMenuAction {
-    Command(String),
     Popup(PopupMenuAction),
 }
 

@@ -24,7 +24,7 @@ async fn attached_mode_tree_acceptance_uses_mode_before_prefix_or_pty() {
     ));
 
     let commands = handler
-        .parse_control_commands("choose-tree -Zw")
+        .parse_command_string_one_group("choose-tree -Zw")
         .await
         .expect("choose-tree parses");
     handler

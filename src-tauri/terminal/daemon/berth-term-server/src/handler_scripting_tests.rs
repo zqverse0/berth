@@ -1,24 +1,19 @@
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::RequestHandler;
 use crate::handler::scripting_support::QueueExecutionContext;
-use crate::hook_runtime::with_hook_execution;
 use berth_term_engine::command_parser::CommandParser;
 use berth_term_engine::TargetFindContext;
 use berth_term_proto::{
-    BreakPaneRequest, DisplayMessageRequest, IfShellRequest, KillWindowRequest, LastWindowRequest,
-    LinkWindowRequest, NewSessionExtRequest, NewSessionRequest, NewWindowRequest,
-    NextWindowRequest, OptionName, OptionScopeSelector, PaneTarget, PreviousWindowRequest, Request,
-    RespawnPaneRequest, RespawnWindowRequest, Response, RotateWindowDirection, RotateWindowRequest,
+    DisplayMessageRequest, IfShellRequest, KillWindowRequest, NewSessionExtRequest,
+    NewSessionRequest, NewWindowRequest, NextWindowRequest, OptionName, PaneTarget,
+    PreviousWindowRequest, Request, RespawnPaneRequest, RespawnWindowRequest, Response,
     RunShellDelaySeconds, RunShellRequest, RunShellResponse, ScopeSelector, SelectPaneRequest,
-    SessionName, SetEnvironmentRequest, SetOptionMode, SetOptionRequest, ShowBufferRequest,
-    ShowOptionsRequest, SourceFileRequest, SplitDirection, SplitWindowRequest, SplitWindowTarget,
-    SwapPaneDirection, SwapPaneRequest, Target, TerminalSize, WaitForMode, WaitForRequest,
+    SessionName, SetOptionMode, SetOptionRequest, ShowBufferRequest, SplitDirection,
+    SplitWindowRequest, SplitWindowTarget, Target, TerminalSize, WaitForMode, WaitForRequest,
     WaitForResponse, WindowTarget,
 };
 
@@ -47,19 +42,6 @@ fn run_shell(command: &str, background: bool) -> Request {
     }))
 }
 
-fn source_file_request(paths: Vec<String>, cwd: Option<PathBuf>) -> Request {
-    Request::SourceFile(Box::new(SourceFileRequest {
-        paths,
-        quiet: false,
-        parse_only: false,
-        verbose: false,
-        expand_paths: false,
-        target: None,
-        caller_cwd: cwd,
-        stdin: None,
-    }))
-}
-
 fn temp_root(label: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -69,23 +51,6 @@ fn temp_root(label: &str) -> PathBuf {
         "rmux-source-file-{label}-{}-{unique}",
         std::process::id()
     ))
-}
-
-fn write_config(path: &Path, contents: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("config parent directory");
-    }
-    fs::write(path, contents).expect("write config");
-}
-
-fn write_executable_script(path: &Path, contents: &str) {
-    write_config(path, contents);
-    #[cfg(unix)]
-    {
-        let mut permissions = fs::metadata(path).expect("script metadata").permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).expect("script permissions");
-    }
 }
 
 fn shell_quote(path: &Path) -> String {
@@ -196,12 +161,6 @@ fn shell_success_command() -> String {
 #[path = "handler_scripting_tests/run_shell.rs"]
 mod run_shell;
 
-#[path = "handler_scripting_tests/source_file_core.rs"]
-mod source_file_core;
-
-#[path = "handler_scripting_tests/source_file_conditions.rs"]
-mod source_file_conditions;
-
 #[path = "handler_scripting_tests/if_shell.rs"]
 mod if_shell;
 
@@ -216,9 +175,6 @@ mod parsed_queue_targets;
 
 #[path = "handler_scripting_tests/parsed_queue_windows_mouse.rs"]
 mod parsed_queue_windows_mouse;
-
-#[path = "handler_scripting_tests/parsed_queue_move_window_current.rs"]
-mod parsed_queue_move_window_current;
 
 #[path = "handler_scripting_tests/parsed_queue_select_zoom.rs"]
 mod parsed_queue_select_zoom;

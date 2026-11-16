@@ -1,6 +1,6 @@
+use berth_term_proto::TerminalError;
 use regex::RegexBuilder;
 use std::borrow::Cow;
-use berth_term_proto::TerminalError;
 
 use super::args::parse_single_argument;
 use super::text::{

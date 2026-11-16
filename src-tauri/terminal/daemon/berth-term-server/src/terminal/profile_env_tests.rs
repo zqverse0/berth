@@ -1,11 +1,11 @@
 #![cfg(windows)]
 
 use super::TerminalProfile;
+use berth_term_engine::{EnvironmentStore, OptionStore};
+use berth_term_proto::{OptionName, ScopeSelector, SessionName, SetOptionMode};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use berth_term_engine::{EnvironmentStore, OptionStore};
-use berth_term_proto::{OptionName, ScopeSelector, SessionName, SetOptionMode};
 
 static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
 

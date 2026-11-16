@@ -14,7 +14,7 @@ fn collapse_or_parent_moves_to_parent_when_already_collapsed() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     items.insert(
@@ -28,7 +28,7 @@ fn collapse_or_parent_moves_to_parent_when_already_collapsed() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     let build = ModeTreeBuild {
@@ -58,7 +58,7 @@ fn expand_or_child_expands_then_enters() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     items.insert(
@@ -72,7 +72,7 @@ fn expand_or_child_expands_then_enters() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     let build = ModeTreeBuild {
@@ -119,7 +119,7 @@ fn expand_or_child_skips_ghost_children() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     let build = ModeTreeBuild {
@@ -216,13 +216,4 @@ fn parse_choose_tree_double_dash_separates_template() {
         .expect("ok")
         .expect("recognized");
     assert_eq!(mode.template.as_deref(), Some("-not-a-flag"));
-}
-
-#[test]
-fn customize_mode_rejects_extra_argument() {
-    let parsed = CommandParser::new()
-        .parse_one_group("customize-mode unexpected")
-        .expect("parses");
-    let err = RequestHandler::parse_mode_tree_queue_command(parsed.commands()[0].clone());
-    assert!(err.is_err());
 }

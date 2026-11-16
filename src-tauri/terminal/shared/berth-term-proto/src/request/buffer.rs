@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 use crate::{PaneTarget, PaneTargetRef};
 
@@ -49,58 +48,6 @@ pub struct PasteBufferRequest {
     /// Whether bracketed paste wrappers should be emitted when enabled on the pane.
     #[serde(default)]
     pub bracketed: bool,
-}
-
-/// Request payload for `list-buffers`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ListBuffersRequest {
-    /// Optional format template.
-    #[serde(default)]
-    pub format: Option<String>,
-    /// Optional filter expression.
-    #[serde(default)]
-    pub filter: Option<String>,
-    /// Optional sort order string.
-    #[serde(default)]
-    pub sort_order: Option<String>,
-    /// Whether to reverse the rendered order.
-    #[serde(default)]
-    pub reversed: bool,
-}
-
-/// Request payload for `delete-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeleteBufferRequest {
-    /// The optional buffer name. When `None`, the stack-head buffer is deleted.
-    pub name: Option<String>,
-}
-
-/// Request payload for `load-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoadBufferRequest {
-    /// The caller-supplied path to read.
-    pub path: String,
-    /// The caller working directory used to resolve relative paths.
-    pub cwd: Option<PathBuf>,
-    /// The optional buffer name. When `None`, an unnamed buffer is created.
-    pub name: Option<String>,
-    /// Whether the loaded content should also be copied to the client clipboard.
-    #[serde(default)]
-    pub set_clipboard: bool,
-}
-
-/// Request payload for `save-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SaveBufferRequest {
-    /// The caller-supplied path to write.
-    pub path: String,
-    /// The caller working directory used to resolve relative paths.
-    pub cwd: Option<PathBuf>,
-    /// The optional buffer name. When `None`, the stack-head buffer is saved.
-    pub name: Option<String>,
-    /// Whether output should append to the file instead of replacing it.
-    #[serde(default)]
-    pub append: bool,
 }
 
 /// Request payload for `capture-pane`.

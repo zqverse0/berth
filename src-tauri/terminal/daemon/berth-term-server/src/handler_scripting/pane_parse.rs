@@ -2,27 +2,21 @@ use std::path::PathBuf;
 
 use berth_term_engine::{SessionStore, TargetFindContext};
 use berth_term_proto::{
-    BreakPaneRequest, KillPaneRequest, LastPaneRequest, PipePaneRequest, Request,
-    RespawnPaneRequest, SelectPaneAdjacentRequest, SelectPaneDirection, SelectPaneMarkRequest,
-    SelectPaneRequest, SplitDirection, SplitWindowExtRequest, SplitWindowRequest,
-    SwapPaneDirection, SwapPaneRequest, TerminalError, WindowTarget,
+    KillPaneRequest, Request, RespawnPaneRequest, SelectPaneAdjacentRequest, SelectPaneDirection,
+    SelectPaneMarkRequest, SelectPaneRequest, SplitDirection, SplitWindowExtRequest,
+    SplitWindowRequest, TerminalError,
 };
 
-use super::tokens::{
-    parse_compact_flag_cluster, rebuild_shell_command, CommandTokens, CompactFlag,
-};
-use super::values::{missing_argument, parse_percentage, unsupported_flag};
+use super::tokens::{parse_compact_flag_cluster, CommandTokens, CompactFlag};
+use super::values::{parse_percentage, removed_option, unsupported_flag};
 use super::{
-    implicit_pane_target, implicit_split_target, marked_pane_target, parse_pane_target,
-    parse_split_window_target, parse_window_target,
+    implicit_pane_target, implicit_split_target, parse_pane_target, parse_split_window_target,
 };
 
 const DEFAULT_SPLIT_WINDOW_PRINT_FORMAT: &str = "#{session_name}:#{window_index}.#{pane_index}";
 
 #[path = "pane_parse/join_move.rs"]
 mod join_move;
-
-pub(super) use self::join_move::{parse_join_pane, parse_move_pane};
 
 #[derive(Debug, Clone)]
 pub(super) struct ParsedSplitWindowCommand {
@@ -203,11 +197,7 @@ pub(super) fn parse_select_pane(
     };
 
     if last {
-        Ok(Request::LastPane(LastPaneRequest {
-            target: WindowTarget::with_window(target.session_name().clone(), target.window_index()),
-            preserve_zoom,
-            input_disabled,
-        }))
+        Err(removed_option("select-pane -l"))
     } else if let Some(direction) = direction {
         Ok(Request::SelectPaneAdjacent(SelectPaneAdjacentRequest {
             target,
@@ -389,264 +379,6 @@ fn parse_split_window_command(
         print_target,
         format: format.unwrap_or_else(|| DEFAULT_SPLIT_WINDOW_PRINT_FORMAT.to_owned()),
     })
-}
-
-pub(super) fn parse_swap_pane(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut detached = false;
-    let mut direction = None;
-    let mut preserve_zoom = false;
-    let mut source = None;
-    let mut target = None;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-d" => {
-                let _ = args.optional();
-                detached = true;
-            }
-            "-Z" => {
-                let _ = args.optional();
-                preserve_zoom = true;
-            }
-            "-D" => {
-                let _ = args.optional();
-                if direction.is_some() {
-                    return Err(TerminalError::Server(
-                        "swap-pane accepts only one of -D or -U".to_owned(),
-                    ));
-                }
-                direction = Some(SwapPaneDirection::Down);
-            }
-            "-U" => {
-                let _ = args.optional();
-                if direction.is_some() {
-                    return Err(TerminalError::Server(
-                        "swap-pane accepts only one of -D or -U".to_owned(),
-                    ));
-                }
-                direction = Some(SwapPaneDirection::Up);
-            }
-            "-s" => {
-                let _ = args.optional();
-                source = Some(parse_pane_target("swap-pane", args.required("-s target")?)?);
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_pane_target("swap-pane", args.required("-t target")?)?);
-            }
-            _ => break,
-        }
-    }
-    args.no_extra("swap-pane")?;
-
-    let target = target.unwrap_or(implicit_pane_target(sessions, find_context, "swap-pane")?);
-    if direction.is_some() && source.is_some() {
-        return Err(TerminalError::Server(
-            "swap-pane -D/-U does not accept -s".to_owned(),
-        ));
-    }
-    let source = match direction {
-        Some(_) => target.clone(),
-        None => source.unwrap_or(marked_pane_target(sessions, find_context, "swap-pane")?),
-    };
-
-    Ok(Request::SwapPane(SwapPaneRequest {
-        source,
-        target,
-        direction,
-        detached,
-        preserve_zoom,
-    }))
-}
-
-pub(super) fn parse_break_pane(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut after = false;
-    let mut before = false;
-    let mut detached = false;
-    let mut format = None;
-    let mut print_target = false;
-    let mut source = None;
-    let mut target = None;
-    let mut name = None;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-a" => {
-                let _ = args.optional();
-                if before {
-                    return Err(TerminalError::Server(
-                        "break-pane accepts only one of -a or -b".to_owned(),
-                    ));
-                }
-                after = true;
-            }
-            "-b" => {
-                let _ = args.optional();
-                if after {
-                    return Err(TerminalError::Server(
-                        "break-pane accepts only one of -a or -b".to_owned(),
-                    ));
-                }
-                before = true;
-            }
-            "-d" => {
-                let _ = args.optional();
-                detached = true;
-            }
-            "-F" => {
-                let _ = args.optional();
-                format = Some(args.required("-F format")?);
-            }
-            "-P" => {
-                let _ = args.optional();
-                print_target = true;
-            }
-            "-s" => {
-                let _ = args.optional();
-                source = Some(parse_pane_target(
-                    "break-pane",
-                    args.required("-s target")?,
-                )?);
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_window_target(
-                    "break-pane",
-                    args.required("-t target")?,
-                )?);
-            }
-            "-n" => {
-                let _ = args.optional();
-                name = Some(args.required("-n name")?);
-            }
-            token => {
-                let Some(cluster) = parse_compact_flag_cluster(token, "abdP", "Fstn") else {
-                    break;
-                };
-                let _ = args.optional();
-                for flag in cluster {
-                    match flag {
-                        CompactFlag::Bare('a') => {
-                            if before {
-                                return Err(TerminalError::Server(
-                                    "break-pane accepts only one of -a or -b".to_owned(),
-                                ));
-                            }
-                            after = true;
-                        }
-                        CompactFlag::Bare('b') => {
-                            if after {
-                                return Err(TerminalError::Server(
-                                    "break-pane accepts only one of -a or -b".to_owned(),
-                                ));
-                            }
-                            before = true;
-                        }
-                        CompactFlag::Bare('d') => detached = true,
-                        CompactFlag::Bare('P') => print_target = true,
-                        CompactFlag::Bare(flag) => {
-                            return Err(unsupported_flag("break-pane", &format!("-{flag}")));
-                        }
-                        compact_flag @ CompactFlag::Value { flag: 'F', .. } => {
-                            format = Some(compact_flag.value_or_next(&mut args, "-F format")?);
-                        }
-                        compact_flag @ CompactFlag::Value { flag: 's', .. } => {
-                            source = Some(parse_pane_target(
-                                "break-pane",
-                                compact_flag.value_or_next(&mut args, "-s target")?,
-                            )?);
-                        }
-                        compact_flag @ CompactFlag::Value { flag: 't', .. } => {
-                            target = Some(parse_window_target(
-                                "break-pane",
-                                compact_flag.value_or_next(&mut args, "-t target")?,
-                            )?);
-                        }
-                        compact_flag @ CompactFlag::Value { flag: 'n', .. } => {
-                            name = Some(compact_flag.value_or_next(&mut args, "-n name")?);
-                        }
-                        CompactFlag::Value { flag, .. } => {
-                            return Err(unsupported_flag("break-pane", &format!("-{flag}")));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    args.no_extra("break-pane")?;
-
-    Ok(Request::BreakPane(Box::new(BreakPaneRequest {
-        source: source.unwrap_or(implicit_pane_target(sessions, find_context, "break-pane")?),
-        target,
-        name,
-        detached,
-        after,
-        before,
-        print_target,
-        format,
-    })))
-}
-
-pub(super) fn parse_pipe_pane(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let mut target = None;
-    let mut stdin = false;
-    let mut stdout = false;
-    let mut once = false;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-I" => {
-                let _ = args.optional();
-                stdin = true;
-            }
-            "-O" => {
-                let _ = args.optional();
-                stdout = true;
-            }
-            "-o" => {
-                let _ = args.optional();
-                once = true;
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_pane_target("pipe-pane", args.required("-t target")?)?);
-            }
-            _ => break,
-        }
-    }
-
-    let command = {
-        let remaining = args.remaining();
-        (!remaining.is_empty()).then(|| rebuild_shell_command(remaining))
-    };
-
-    Ok(Request::PipePane(PipePaneRequest {
-        target: target.ok_or_else(|| missing_argument("pipe-pane", "-t target"))?,
-        stdin,
-        stdout: if stdin || stdout { stdout } else { true },
-        once,
-        command,
-    }))
 }
 
 pub(super) fn parse_respawn_pane(

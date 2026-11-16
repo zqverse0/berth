@@ -16,15 +16,11 @@ use crate::renderer;
 mod automatic_names;
 #[path = "handler_alerts/pane_alert_coalescer.rs"]
 mod pane_alert_coalescer;
-#[path = "handler_alerts/show_messages.rs"]
-mod show_messages;
 #[path = "handler_alerts/silence_timers.rs"]
 mod silence_timers;
 
 pub(in crate::handler) use pane_alert_coalescer::PaneAlertCoalescer;
 use pane_alert_coalescer::PANE_ALERT_COALESCE_DELAY;
-
-const SHOW_MESSAGES_TEMPLATE: &str = "#{t/p:message_time}: #{message_text}";
 
 #[derive(Debug)]
 pub(super) struct SilenceTimerState {
@@ -73,20 +69,6 @@ struct AlertPlan {
     show_message: bool,
     message_text: String,
     lifecycle_event: Option<LifecycleEvent>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TerminalSummary {
-    attach_pid: u32,
-    session_name: SessionName,
-    cols: u16,
-    rows: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct JobSummary {
-    attach_pid: u32,
-    session_name: SessionName,
 }
 
 impl AlertKind {

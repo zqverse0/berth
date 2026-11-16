@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
 use berth_term_engine::{
     command_parser::{CommandParseError, ParsedCommand, ParsedCommands},
     command_queue::CommandQueue,
-    LifecycleEvent, ENVIRON_HIDDEN,
+    ENVIRON_HIDDEN,
 };
 use berth_term_proto::request::Request;
-use berth_term_proto::{CommandOutput, Response, ScopeSelector, Target, TerminalError};
+use berth_term_proto::{CommandOutput, ScopeSelector, Target, TerminalError};
+use std::collections::VecDeque;
 
 use super::RequestHandler;
 use crate::control::ControlCommandResult;
@@ -56,16 +56,10 @@ mod session_parse;
 mod shell_parse;
 #[path = "handler_scripting/shell_runtime.rs"]
 mod shell_runtime;
-#[path = "handler_scripting/source_files.rs"]
-mod source_files;
-#[path = "handler_scripting/source_runtime.rs"]
-mod source_runtime;
 #[path = "handler_scripting/split_window_runtime.rs"]
 mod split_window_runtime;
 #[path = "handler_scripting/targets.rs"]
 mod targets;
-#[path = "handler_scripting/tmux_compat.rs"]
-mod tmux_compat;
 #[path = "handler_scripting/tokens.rs"]
 mod tokens;
 #[path = "handler_scripting/values.rs"]
@@ -89,14 +83,11 @@ pub(crate) use self::request_parse::parse_request_from_parts;
 pub(super) use self::runtime::spawn_background_async;
 use self::targets::{
     implicit_pane_target, implicit_session_name, implicit_split_target, implicit_window_target,
-    is_unsupported_named_layout, marked_pane_target, parse_layout_name, parse_move_window_target,
-    parse_new_window_target_argument, parse_pane_target, parse_select_layout_target,
-    parse_session_name, parse_split_window_target, parse_target_arg, parse_window_target,
-    queue_target_find_context, resolve_target_argument_with_spec, QueueTargetFindContextInput,
+    is_unsupported_named_layout, parse_layout_name, parse_new_window_target_argument,
+    parse_pane_target, parse_select_layout_target, parse_session_name, parse_split_window_target,
+    parse_target_arg, parse_window_target, queue_target_find_context, QueueTargetFindContextInput,
 };
 use super::target_support::requester_environment_pane_id;
-
-const SOURCE_FILE_NESTING_LIMIT: usize = 50;
 
 impl RequestHandler {
     #[cfg(test)]
@@ -124,13 +115,6 @@ impl RequestHandler {
             .map_err(command_parse_error_to_terminal)
     }
 
-    pub(crate) async fn parse_control_commands(
-        &self,
-        command: &str,
-    ) -> Result<ParsedCommands, TerminalError> {
-        self.parse_command_string_one_group(command).await
-    }
-
     #[async_recursion::async_recursion]
     pub(super) async fn execute_parsed_commands(
         &self,
@@ -145,20 +129,6 @@ impl RequestHandler {
             Some(error) => Err(error),
             None => Ok(CommandOutput::from_stdout(result.stdout)),
         }
-    }
-
-    pub(crate) async fn execute_control_commands(
-        &self,
-        requester_pid: u32,
-        commands: ParsedCommands,
-    ) -> ControlCommandResult {
-        self.execute_command_queue(
-            requester_pid,
-            commands,
-            QueueExecutionContext::without_caller_cwd(),
-            QueueMode::Control,
-        )
-        .await
     }
 
     pub(in crate::handler) async fn start_attached_prompt_binding_commands(
@@ -237,14 +207,12 @@ impl RequestHandler {
             return ControlCommandResult {
                 stdout: Vec::new(),
                 error: Some(error),
-                exit_status: Some(1),
             };
         }
         let mut queue = CommandQueue::from_parsed(commands);
         let mut contexts = VecDeque::from(vec![context; queue.len()]);
         let mut stdout = Vec::new();
         let mut errors = Vec::new();
-        let mut exit_status = None;
 
         while let Some(item) = queue.pop_front() {
             let item_context = contexts
@@ -257,12 +225,8 @@ impl RequestHandler {
                 Ok(QueueCommandAction::Normal {
                     output: Some(output),
                     error,
-                    exit_status: action_exit_status,
                 }) => {
                     stdout.extend_from_slice(output.stdout());
-                    if let Some(status) = action_exit_status {
-                        exit_status = Some(status);
-                    }
                     if let Some(error) = error {
                         errors.push(error);
                     }
@@ -270,11 +234,7 @@ impl RequestHandler {
                 Ok(QueueCommandAction::Normal {
                     output: None,
                     error,
-                    exit_status: action_exit_status,
                 }) => {
-                    if let Some(status) = action_exit_status {
-                        exit_status = Some(status);
-                    }
                     if let Some(error) = error {
                         errors.push(error);
                     }
@@ -283,13 +243,9 @@ impl RequestHandler {
                     batches,
                     output,
                     error,
-                    exit_status: action_exit_status,
                 }) => {
                     if let Some(output) = output {
                         stdout.extend_from_slice(output.stdout());
-                    }
-                    if let Some(status) = action_exit_status {
-                        exit_status = Some(status);
                     }
                     if let Some(error) = error {
                         errors.push(error);
@@ -300,7 +256,6 @@ impl RequestHandler {
                             .await
                         {
                             errors.push(error);
-                            exit_status = Some(1);
                             continue;
                         }
                         let inserted = commands.commands().len();
@@ -316,31 +271,12 @@ impl RequestHandler {
                     queue.remove_group(item.group());
                 }
             }
-            if item_context.source_file_depth > 0
-                && !item_context.uses_explicit_current_target()
-                && !contexts.is_empty()
-            {
-                let updated_target = self
-                    .implicit_source_file_target(requester_pid)
-                    .await
-                    .map(Target::Pane);
-                for context in &mut contexts {
-                    if context.source_file_depth == item_context.source_file_depth
-                        && !context.uses_explicit_current_target()
-                    {
-                        *context = context
-                            .clone()
-                            .with_implicit_current_target(updated_target.clone());
-                    }
-                }
-            }
             let _ = self.request_shutdown_if_pending();
         }
 
         ControlCommandResult {
             stdout,
             error: aggregate_terminal_errors(errors),
-            exit_status,
         }
     }
 
@@ -391,11 +327,7 @@ impl RequestHandler {
                     attached_session.as_ref(),
                 )
                 .await;
-                return Err(source_file_context_error(
-                    error,
-                    &command_for_hooks,
-                    context,
-                ));
+                return Err(error);
             }
         };
         let can_write = self.requester_can_write(requester_pid).await;
@@ -413,7 +345,6 @@ impl RequestHandler {
             QueueInvocation::NoOp => Ok(QueueCommandAction::Normal {
                 output: None,
                 error: None,
-                exit_status: None,
             }),
             QueueInvocation::Request(request) => {
                 let request = apply_queue_context_to_request(request, context);
@@ -441,30 +372,17 @@ impl RequestHandler {
                 .await;
                 match mode {
                     QueueMode::Detached => queue_action_from_response(outcome.response),
-                    QueueMode::Control => {
-                        self.control_queue_action_from_outcome(
-                            requester_pid,
-                            request_for_hooks,
-                            outcome,
-                        )
-                        .await
-                    }
                 }
             }
             QueueInvocation::StartServer => Ok(QueueCommandAction::Normal {
                 output: None,
                 error: None,
-                exit_status: None,
             }),
             QueueInvocation::NewWindow(command) => {
                 self.execute_queued_new_window(requester_pid, command).await
             }
             QueueInvocation::IfShell(command) => {
                 self.execute_queued_if_shell(requester_pid, command, context)
-                    .await
-            }
-            QueueInvocation::SourceFile(command) => {
-                self.execute_queued_source_file(requester_pid, command, context)
                     .await
             }
             QueueInvocation::ListPanesAll(command) => {
@@ -486,10 +404,6 @@ impl RequestHandler {
                 self.execute_queued_mode_tree(requester_pid, command, context)
                     .await
             }
-            QueueInvocation::Overlay(command) => {
-                self.execute_queued_overlay(requester_pid, command, context)
-                    .await
-            }
             QueueInvocation::PromptHistory(command) => {
                 self.execute_queued_prompt_history(command).await
             }
@@ -505,7 +419,7 @@ impl RequestHandler {
             .await;
         }
 
-        result.map_err(|error| source_file_context_error(error, &command_for_hooks, context))
+        result
     }
 
     async fn apply_parse_time_assignments(
@@ -563,7 +477,6 @@ impl RequestHandler {
             if let QueueCommandAction::Normal {
                 output: Some(output),
                 error,
-                exit_status: _,
             } = action
             {
                 stdout.extend_from_slice(output.stdout());
@@ -576,7 +489,6 @@ impl RequestHandler {
         Ok(QueueCommandAction::Normal {
             output: Some(CommandOutput::from_stdout(stdout)),
             error: None,
-            exit_status: None,
         })
     }
 }
@@ -607,22 +519,6 @@ fn aggregate_terminal_errors(errors: Vec<TerminalError>) -> Option<TerminalError
     }
 }
 
-fn source_file_context_error(
-    error: TerminalError,
-    command: &ParsedCommand,
-    context: &QueueExecutionContext,
-) -> TerminalError {
-    let Some(current_file) = context.current_file.as_deref() else {
-        return error;
-    };
-    let include_line_prefix = source_file_error_uses_line_prefix(command.name(), &error);
-    let message = source_file_command_error_message(command.name(), error);
-    if !include_line_prefix || has_source_file_line_prefix(&message) {
-        return TerminalError::Server(message);
-    }
-    TerminalError::Server(format!("{}:{}: {}", current_file, command.line(), message))
-}
-
 fn apply_queue_context_to_request(
     mut request: Request,
     context: &QueueExecutionContext,
@@ -633,80 +529,8 @@ fn apply_queue_context_to_request(
                 run_shell.target = Some(target.clone());
             }
         }
-        if context.source_file_depth != 0 {
-            run_shell.source_depth = Some(context.source_file_depth);
-        }
     }
     request
-}
-
-fn source_file_command_error_message(command_name: &str, error: TerminalError) -> String {
-    let message = match &error {
-        TerminalError::InvalidTarget { value, reason }
-            if matches!(command_name, "link-window" | "move-window")
-                && reason == "window index already exists in session" =>
-        {
-            window_index_from_target(value)
-                .map(|index| format!("index in use: {index}"))
-                .unwrap_or_else(|| terminal_error_message_ref(&error))
-        }
-        _ => terminal_error_message_ref(&error),
-    };
-    if let Some(flag) = message.strip_prefix(&format!("unsupported {command_name} flag: ")) {
-        return format!("command {command_name}: unknown flag {flag}");
-    }
-    if let Some(flag) = unexpected_flag_argument_for_command(&message, command_name) {
-        return format!("command {command_name}: unknown flag {flag}");
-    }
-    if let Some(flag) = unsupported_flag_for_command(&message, command_name) {
-        return format!("command {command_name}: unknown flag {flag}");
-    }
-    message
-}
-
-fn source_file_error_uses_line_prefix(command_name: &str, error: &TerminalError) -> bool {
-    if !matches!(command_name, "link-window" | "move-window") {
-        return true;
-    }
-    match error {
-        TerminalError::InvalidTarget { reason, .. } => {
-            reason != "window index already exists in session"
-        }
-        TerminalError::Server(message) => !message.starts_with("index in use: "),
-        _ => true,
-    }
-}
-
-fn window_index_from_target(value: &str) -> Option<&str> {
-    let (_, window) = value.split_once(':')?;
-    let window = window.split_once('.').map_or(window, |(window, _)| window);
-    (!window.is_empty() && window.bytes().all(|byte| byte.is_ascii_digit())).then_some(window)
-}
-
-fn unexpected_flag_argument_for_command<'a>(
-    message: &'a str,
-    command_name: &str,
-) -> Option<&'a str> {
-    let flag = message.strip_prefix("unexpected argument '")?;
-    let suffix = format!("' for {command_name}");
-    let flag = flag.strip_suffix(&suffix)?;
-    flag.starts_with('-').then_some(flag)
-}
-
-fn unsupported_flag_for_command<'a>(message: &'a str, command_name: &str) -> Option<&'a str> {
-    let flag = message.strip_prefix("unsupported flag '")?;
-    let suffix = format!("' for {command_name}");
-    flag.strip_suffix(&suffix)
-}
-
-fn has_source_file_line_prefix(message: &str) -> bool {
-    let Some((_, rest)) = message.split_once(':') else {
-        return false;
-    };
-    let Some((line, _)) = rest.split_once(':') else {
-        return false;
-    };
-    !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn terminal_error_message(error: TerminalError) -> String {
@@ -716,71 +540,8 @@ fn terminal_error_message(error: TerminalError) -> String {
     }
 }
 
-fn terminal_error_message_ref(error: &TerminalError) -> String {
-    match error {
-        TerminalError::Server(message) => message.clone(),
-        other => other.to_string(),
-    }
-}
-
-impl RequestHandler {
-    async fn control_queue_action_from_outcome(
-        &self,
-        requester_pid: u32,
-        request: Request,
-        outcome: crate::pane_io::HandleOutcome,
-    ) -> Result<QueueCommandAction, TerminalError> {
-        if let Some(_attach) = outcome.attach {
-            if matches!(
-                request,
-                Request::AttachSession(_)
-                    | Request::AttachSessionExt(_)
-                    | Request::AttachSessionExt2(_)
-                    | Request::AttachSessionExt3(_)
-            ) {
-                let Response::AttachSession(response) = &outcome.response else {
-                    return Err(TerminalError::Server(
-                        "attach-session upgrade requires an attach-session response".to_owned(),
-                    ));
-                };
-                {
-                    let mut state = self.state.lock().await;
-                    if let Some(session) = state.sessions.session_mut(&response.session_name) {
-                        session.touch_attached();
-                    }
-                }
-                let _ = self
-                    .set_control_session(requester_pid, Some(response.session_name.clone()))
-                    .await?;
-                self.emit_client_attached(requester_pid, response.session_name.clone())
-                    .await;
-            }
-        }
-
-        if matches!(request, Request::NewSession(_) | Request::NewSessionExt(_)) {
-            if let Response::NewSession(response) = &outcome.response {
-                if !response.detached
-                    && self
-                        .attach_control_to_existing_session(requester_pid, &response.session_name)
-                        .await
-                {
-                    self.emit(LifecycleEvent::ClientSessionChanged {
-                        session_name: response.session_name.clone(),
-                        client_name: Some(requester_pid.to_string()),
-                    })
-                    .await;
-                }
-            }
-        }
-
-        queue_action_from_response(outcome.response)
-    }
-}
+impl RequestHandler {}
 
 fn command_parse_error_to_terminal(error: CommandParseError) -> TerminalError {
     TerminalError::Server(error.to_string())
 }
-
-#[cfg(test)]
-#[path = "handler_scripting/config_path_tests.rs"]
-mod config_path_tests;

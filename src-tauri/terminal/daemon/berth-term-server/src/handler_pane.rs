@@ -8,14 +8,10 @@ mod pane_attached_key_dispatch;
 mod pane_broadcast;
 #[path = "handler_pane/by_id.rs"]
 mod pane_by_id;
-#[path = "handler_pane/display_panes.rs"]
-mod pane_display_panes;
 #[path = "handler_pane/inspection.rs"]
 mod pane_inspection;
 #[path = "handler_pane/io_encoding.rs"]
 mod pane_io_encoding;
-#[path = "handler_pane/key_bindings.rs"]
-mod pane_key_bindings;
 #[path = "handler_pane/layout.rs"]
 mod pane_layout;
 #[path = "handler_pane/lifecycle.rs"]
@@ -39,15 +35,12 @@ pub(super) use pane_attached_input::retain_partial_attached_control_input;
 pub(super) use pane_by_id::resolve_pane_target_ref;
 #[cfg(windows)]
 pub(in crate::handler) use pane_inspection::format_references_pane_pid;
-pub(super) use pane_inspection::{
-    attached_status_message_for_error, command_output_from_lines, display_time,
-};
+pub(super) use pane_inspection::{attached_status_message_for_error, display_time};
 pub(super) use pane_io_encoding::write_bracketed_pane_payload;
 use pane_io_encoding::{
-    encode_key_for_target, encode_mouse_for_target, encode_tokens_for_target,
-    expand_send_key_tokens, pane_id_for_input_target, prepare_pane_input_write,
-    prepare_synchronized_pane_input_writes, write_bytes_to_target, write_bytes_to_target_io,
-    write_bytes_to_targets, PaneInputWrite,
+    encode_mouse_for_target, encode_tokens_for_target, expand_send_key_tokens,
+    pane_id_for_input_target, prepare_pane_input_write, prepare_synchronized_pane_input_writes,
+    write_bytes_to_target, write_bytes_to_target_io, write_bytes_to_targets, PaneInputWrite,
 };
 pub(in crate::handler) use pane_management::SplitWindowParts;
 pub(super) use pane_prompt_input::decode_prompt_input_event;
@@ -55,7 +48,6 @@ pub(in crate::handler) use pane_snapshot::PaneSnapshotRevisionRegistry;
 
 use berth_term_proto::{PaneTarget, Target, TerminalError};
 
-use super::RequestHandler;
 use crate::pane_terminals::{session_not_found, HandlerState};
 
 struct AttachedKeyDispatch {

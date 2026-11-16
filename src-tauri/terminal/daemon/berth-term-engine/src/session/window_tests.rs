@@ -1,6 +1,6 @@
 use super::{session_name, Session};
 use crate::PaneGeometry;
-use berth_term_proto::{RotateWindowDirection, TerminalError, TerminalSize};
+use berth_term_proto::{TerminalError, TerminalSize};
 
 #[path = "window_tests/navigation.rs"]
 mod navigation;

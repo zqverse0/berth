@@ -130,8 +130,7 @@ async fn window_mutation_methods_send_typed_requests() {
 #[tokio::test]
 async fn session_windows_lists_real_entries_in_one_round_trip() {
     use berth_term_proto::{
-        CommandOutput, ListWindowsRequest, ListWindowsResponse, TerminalSize,
-        WindowListEntry,
+        CommandOutput, ListWindowsRequest, ListWindowsResponse, TerminalSize, WindowListEntry,
     };
 
     let (client_stream, mut server_stream) = tokio::io::duplex(4096);
@@ -174,7 +173,10 @@ async fn session_windows_lists_real_entries_in_one_round_trip() {
                     window_id: "@9".to_owned(),
                     name: None,
                     pane_count: 2,
-                    size: TerminalSize { cols: 100, rows: 30 },
+                    size: TerminalSize {
+                        cols: 100,
+                        rows: 30,
+                    },
                     layout: LayoutName::Tiled,
                     active: false,
                     last: true,
@@ -186,10 +188,7 @@ async fn session_windows_lists_real_entries_in_one_round_trip() {
     )
     .await;
 
-    let entries = listed
-        .await
-        .expect("task alive")
-        .expect("windows listed");
+    let entries = listed.await.expect("task alive").expect("windows listed");
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].index, 7);
     assert_eq!(entries[0].id.as_u32(), 4);
@@ -222,9 +221,6 @@ async fn session_windows_empty_list_is_valid() {
         }),
     )
     .await;
-    let entries = listed
-        .await
-        .expect("task alive")
-        .expect("windows listed");
+    let entries = listed.await.expect("task alive").expect("windows listed");
     assert!(entries.is_empty());
 }

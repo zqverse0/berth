@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use berth_term_engine::KeyCode;
 use berth_term_os::identity::UserIdentity;
-use berth_term_proto::{PaneTarget, TerminalPixels, TerminalSize, WindowTarget};
+use berth_term_proto::{TerminalPixels, TerminalSize};
 use tokio::sync::mpsc;
 
 use super::super::mode_tree_support::ModeTreeClientState;
@@ -29,9 +29,6 @@ pub(in crate::handler) struct ActiveAttach {
     pub(in crate::handler) session_name: berth_term_proto::SessionName,
     pub(in crate::handler) last_session: Option<berth_term_proto::SessionName>,
     pub(in crate::handler) flags: ClientFlags,
-    pub(in crate::handler) pan_window: Option<u32>,
-    pub(in crate::handler) pan_ox: u32,
-    pub(in crate::handler) pan_oy: u32,
     pub(in crate::handler) control_tx: mpsc::UnboundedSender<AttachControl>,
     pub(in crate::handler) control_backlog: Arc<AtomicUsize>,
     pub(in crate::handler) render_stream: bool,
@@ -48,7 +45,6 @@ pub(in crate::handler) struct ActiveAttach {
     pub(in crate::handler) render_generation: u64,
     pub(in crate::handler) overlay_generation: u64,
     pub(in crate::handler) overlay_state_id: u64,
-    pub(in crate::handler) display_panes_state_id: u64,
     pub(in crate::handler) key_table_name: Option<String>,
     pub(in crate::handler) key_table_set_at: Option<Instant>,
     pub(in crate::handler) repeat_deadline: Option<Instant>,
@@ -60,24 +56,6 @@ pub(in crate::handler) struct ActiveAttach {
     pub(in crate::handler) mode_tree: Option<ModeTreeClientState>,
     pub(in crate::handler) mode_tree_frame: Option<Vec<u8>>,
     pub(in crate::handler) overlay: Option<ClientOverlayState>,
-    pub(in crate::handler) display_panes: Option<DisplayPanesClientState>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::handler) struct DisplayPanesClientState {
-    pub(in crate::handler) id: u64,
-    pub(in crate::handler) window: WindowTarget,
-    pub(in crate::handler) labels: Vec<DisplayPanesLabel>,
-    pub(in crate::handler) input: String,
-    pub(in crate::handler) template: Option<String>,
-    pub(in crate::handler) clear_frame: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::handler) struct DisplayPanesLabel {
-    pub(in crate::handler) label: String,
-    pub(in crate::handler) target: PaneTarget,
-    pub(in crate::handler) target_string: String,
 }
 
 #[derive(Debug)]
@@ -119,29 +97,6 @@ impl ActiveAttachState {
                 active.last_session = Some(new_name.clone());
             }
         }
-    }
-
-    pub(in crate::handler) fn toggle_read_only(
-        &mut self,
-        attach_pid: u32,
-    ) -> Result<ClientFlags, berth_term_proto::TerminalError> {
-        let active = self.by_pid.get_mut(&attach_pid).ok_or_else(|| {
-            berth_term_proto::TerminalError::Server("attached client disappeared".to_owned())
-        })?;
-        active.flags.toggle_read_only();
-        Ok(active.flags)
-    }
-
-    pub(in crate::handler) fn last_session_for_client(
-        &self,
-        attach_pid: u32,
-    ) -> Result<Option<berth_term_proto::SessionName>, berth_term_proto::TerminalError> {
-        self.by_pid
-            .get(&attach_pid)
-            .map(|active| active.last_session.clone())
-            .ok_or_else(|| {
-                berth_term_proto::TerminalError::Server("attached client disappeared".to_owned())
-            })
     }
 
     pub(in crate::handler) fn attached_client_pids_for_session(

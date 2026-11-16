@@ -30,34 +30,3 @@ async fn runtime_command_alias_option_drives_command_string_parser() {
 
     assert_eq!(output.stdout(), b"hello\n");
 }
-
-#[tokio::test]
-async fn runtime_command_alias_option_drives_source_file_parser() {
-    let handler = RequestHandler::new();
-    set_command_alias(&handler, "sbuf=set-buffer -b aliased").await;
-
-    let root = temp_root("command-alias");
-    let config = root.join("main.conf");
-    write_config(&config, "sbuf from-source\n");
-    assert_eq!(
-        handler
-            .handle(source_file_request(
-                vec!["main.conf".to_owned()],
-                Some(root)
-            ))
-            .await,
-        Response::SourceFile(berth_term_proto::SourceFileResponse::no_output())
-    );
-
-    assert_eq!(
-        handler
-            .handle(Request::ShowBuffer(ShowBufferRequest {
-                name: Some("aliased".to_owned()),
-            }))
-            .await
-            .command_output()
-            .expect("aliased buffer output")
-            .stdout(),
-        b"from-source"
-    );
-}

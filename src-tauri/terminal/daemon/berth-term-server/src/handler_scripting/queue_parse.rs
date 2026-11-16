@@ -10,15 +10,12 @@ use berth_term_proto::{SessionName, Target, TerminalError, WindowTarget};
 use super::command_args::{
     command_argument_for_error, pop_command_list_argument, pop_string_argument, CommandListArgument,
 };
-use super::source_files::ParsedSourceFileCommand;
-use super::source_files::SourceSyntax;
 use super::targets::{
-    implicit_session_name, implicit_window_target, parse_pane_target,
-    parse_queued_new_window_target_argument, parse_target_arg, resolve_queue_target_argument,
-    NewWindowTargetIndex,
+    implicit_session_name, implicit_window_target, parse_queued_new_window_target_argument,
+    parse_target_arg, resolve_queue_target_argument, NewWindowTargetIndex,
 };
 use super::tokens::{parse_compact_flag_cluster, CompactFlag};
-use super::values::{missing_argument, unsupported_flag};
+use super::values::unsupported_flag;
 use crate::pane_terminals::session_not_found;
 
 #[derive(Debug, Clone)]
@@ -361,123 +358,5 @@ pub(super) fn parse_queued_if_shell(
         else_commands,
         target,
         caller_cwd: caller_cwd.map(Path::to_path_buf),
-    })
-}
-
-pub(super) fn parse_queued_source_file(
-    command: ParsedCommand,
-    caller_cwd: Option<&Path>,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<ParsedSourceFileCommand, TerminalError> {
-    let mut args = VecDeque::from(command.arguments().to_vec());
-    let mut quiet = false;
-    let mut parse_only = false;
-    let mut verbose = false;
-    let mut expand_paths = false;
-    let mut target = None;
-
-    while let Some(token) = args.front().and_then(CommandArgument::as_string) {
-        match token {
-            "--" => {
-                let _ = args.pop_front();
-                break;
-            }
-            "-" => break,
-            "-F" => {
-                let _ = args.pop_front();
-                expand_paths = true;
-            }
-            "-n" => {
-                let _ = args.pop_front();
-                parse_only = true;
-            }
-            "-q" => {
-                let _ = args.pop_front();
-                quiet = true;
-            }
-            "-v" => {
-                let _ = args.pop_front();
-                verbose = true;
-            }
-            "-t" => {
-                let _ = args.pop_front();
-                target = Some(parse_queued_source_file_target(
-                    pop_string_argument(&mut args, "-t target")?,
-                    sessions,
-                    find_context,
-                )?);
-            }
-            token if token.starts_with('-') => {
-                let Some(cluster) = parse_compact_flag_cluster(token, "Fnqv", "t") else {
-                    return Err(unsupported_flag("source-file", token));
-                };
-                let _ = args.pop_front();
-                for flag in cluster {
-                    match flag {
-                        CompactFlag::Bare('F') => expand_paths = true,
-                        CompactFlag::Bare('n') => parse_only = true,
-                        CompactFlag::Bare('q') => quiet = true,
-                        CompactFlag::Bare('v') => verbose = true,
-                        CompactFlag::Bare(flag) => {
-                            return Err(unsupported_flag("source-file", &format!("-{flag}")));
-                        }
-                        CompactFlag::Value { flag: 't', value } => {
-                            let value =
-                                compact_value_or_next_argument(&mut args, value, "-t target")?;
-                            target = Some(parse_queued_source_file_target(
-                                value,
-                                sessions,
-                                find_context,
-                            )?);
-                        }
-                        CompactFlag::Value { flag, .. } => {
-                            return Err(unsupported_flag("source-file", &format!("-{flag}")));
-                        }
-                    }
-                }
-            }
-            _ => break,
-        }
-    }
-
-    let mut paths = Vec::new();
-    while let Some(argument) = args.pop_front() {
-        paths.push(match argument {
-            CommandArgument::String(value) => value,
-            CommandArgument::Commands(_) => {
-                return Err(TerminalError::Server(
-                    "source-file path must be a string argument".to_owned(),
-                ));
-            }
-        });
-    }
-    if paths.is_empty() {
-        return Err(missing_argument("source-file", "path"));
-    }
-
-    Ok(ParsedSourceFileCommand {
-        paths,
-        quiet,
-        parse_only,
-        verbose,
-        expand_paths,
-        target,
-        caller_cwd: caller_cwd.map(Path::to_path_buf),
-        stdin: None,
-        current_file: None,
-        syntax: SourceSyntax::Terminal,
-    })
-}
-
-fn parse_queued_source_file_target(
-    value: String,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<berth_term_proto::PaneTarget, TerminalError> {
-    parse_pane_target("source-file", value.clone()).or_else(|_| {
-        let resolved =
-            resolve_queue_target_argument("source-file", 't', value, sessions, find_context)?;
-        parse_pane_target("source-file", resolved)
     })
 }

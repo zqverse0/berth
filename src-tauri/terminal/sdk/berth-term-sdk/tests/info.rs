@@ -167,6 +167,8 @@ fn populated_pane() -> PaneInfo {
         output_sequence: 1_700_000_321,
         exit_state: None,
         agent: Default::default(),
+        foreground_command: None,
+        foreground_path: None,
     }
 }
 
@@ -350,6 +352,8 @@ fn info_snapshot_aggregates_sessions_windows_and_panes() {
                     message: Some("clean".to_owned()),
                 }),
                 agent: Default::default(),
+                foreground_command: None,
+                foreground_path: None,
             },
         ],
     );
@@ -702,6 +706,8 @@ fn info_dto_field_sets_pin_the_v1_metadata_surface() {
             "output_sequence",
             "exit_state",
             "agent",
+            "foreground_command",
+            "foreground_path",
         ],
         "PaneInfo",
     );

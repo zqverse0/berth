@@ -1,36 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::SessionName;
-
 /// Request payload for `kill-server`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KillServerRequest;
-
-/// Request payload for internal daemon status inspection.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DaemonStatusRequest;
-
-/// Request payload for internal idle-only daemon shutdown.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShutdownIfIdleRequest;
-
-/// Request payload for `lock-server`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LockServerRequest;
-
-/// Request payload for `lock-session`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LockSessionRequest {
-    /// The exact target session name.
-    pub target: SessionName,
-}
-
-/// Request payload for `lock-client`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LockClientRequest {
-    /// The target client identifier or `=`.
-    pub target_client: String,
-}
 
 /// Request payload for `server-access`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

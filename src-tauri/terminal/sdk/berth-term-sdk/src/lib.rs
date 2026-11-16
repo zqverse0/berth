@@ -55,6 +55,8 @@
 pub mod actions;
 pub mod binding;
 
+/// Berth's supported terminal-client capability boundary.
+pub mod berth;
 pub mod bootstrap;
 #[cfg(feature = "available")]
 pub mod broadcast;
@@ -77,7 +79,6 @@ pub mod events;
 pub mod extract;
 pub mod handles;
 pub mod info;
-pub mod paint;
 #[cfg(feature = "available")]
 #[path = "available/input.rs"]
 pub mod input;
@@ -91,28 +92,25 @@ pub mod load_state;
 #[cfg(feature = "available")]
 #[path = "available/locator.rs"]
 pub mod locator;
+pub mod paint;
 #[cfg(feature = "available")]
 #[path = "available/pane_set.rs"]
 pub mod pane_set;
 pub mod snapshot;
 pub mod spec;
-/// Berth's supported terminal-client capability boundary.
-pub mod berth;
 #[cfg(feature = "available")]
 #[path = "available/trace.rs"]
 pub mod trace;
 pub mod types;
 #[cfg(feature = "available")]
 pub mod wait;
-#[cfg(all(feature = "available", feature = "web"))]
-#[path = "available/web_share.rs"]
-pub mod web_share;
 
 #[allow(dead_code)]
 pub(crate) mod transport;
 
 #[cfg(feature = "available")]
 pub use actions::{FillStrategy, PaneKeyboard, PaneMouse, PaneScrollDirection, PaneSetKeyboard};
+pub use berth_term_proto::LayoutName;
 #[cfg(feature = "available")]
 pub use broadcast::{
     BroadcastPaneFailure, BroadcastPaneSuccess, BroadcastResult, Input, PartialBroadcastFailure,
@@ -178,12 +176,9 @@ pub use snapshot::{
 #[cfg(feature = "available")]
 pub use spec::{
     AttachSessionReuse, AttachSessionSpec, ClientTerminalSpec, NewSessionReuse, NewSessionSpec,
-    RefreshClientSpec, SplitDirectionSpec, SplitSpec, SplitTargetSpec, SubscriptionSpec,
+    SplitDirectionSpec, SplitSpec, SplitTargetSpec,
 };
 pub use spec::{ProcessCommandSpec, ProcessSpec};
-pub use berth_term_proto::LayoutName;
-#[cfg(all(feature = "available", feature = "web"))]
-pub use berth_term_proto::{WebTerminalPalette, WebTerminalTheme};
 #[cfg(feature = "available")]
 pub use trace::{TerminalTraceBuilder, TraceSession};
 pub use types::{
@@ -192,7 +187,3 @@ pub use types::{
 };
 #[cfg(feature = "available")]
 pub use wait::{ArmedWait, VisibleTextExpectation, VisibleTextWait, WaitTimeoutError};
-#[cfg(all(feature = "available", feature = "web"))]
-pub use web_share::{
-    WebConfigInfo, WebShareBuilder, WebShareHandle, WebShareLookup, WebShareSummary,
-};

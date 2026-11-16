@@ -1,95 +1,10 @@
-use super::{key_code_lookup_bits, key_string_lookup_string, KeyCode};
-
-const DEFAULT_LIST_KEYS_TMUX_3_4: &str = include_str!("default_list_keys_tmux_3_4.txt");
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DefaultListKeysDisplay<'a> {
-    pub(crate) index: usize,
-    pub(crate) key_string: &'a str,
-    pub(crate) command_string: &'a str,
-}
-
-pub(crate) fn list_keys_display(
-    table_name: &str,
-    key: KeyCode,
-) -> Option<DefaultListKeysDisplay<'static>> {
-    DEFAULT_LIST_KEYS_TMUX_3_4
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| parse_default_list_keys_line(index, line))
-        .find(|row| {
-            row.table_name == table_name
-                && default_display_key_matches(row.key_string, key_code_lookup_bits(key))
-        })
-        .map(|row| DefaultListKeysDisplay {
-            index: row.index,
-            key_string: row.key_string,
-            command_string: row.command_string,
-        })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DefaultListKeysRow<'a> {
-    index: usize,
-    table_name: &'a str,
-    key_string: &'a str,
-    command_string: &'a str,
-}
-
-fn parse_default_list_keys_line(index: usize, line: &str) -> Option<DefaultListKeysRow<'_>> {
-    let after_table_flag = line.split_once(" -T ")?.1.trim_start();
-    let table_end = after_table_flag.find(char::is_whitespace)?;
-    let table_name = &after_table_flag[..table_end];
-    let after_table = after_table_flag[table_end..].trim_start();
-    let key_end = after_table.find(char::is_whitespace)?;
-    let key_string = &after_table[..key_end];
-    let command_string = after_table[key_end..].trim_start();
-    Some(DefaultListKeysRow {
-        index,
-        table_name,
-        key_string,
-        command_string,
-    })
-}
-
-fn default_display_key_matches(display_key: &str, key: KeyCode) -> bool {
-    let normalized = normalize_default_display_key(display_key);
-    key_string_lookup_string(normalized.as_ref())
-        .map(key_code_lookup_bits)
-        .is_some_and(|candidate| candidate == key)
-}
-
-fn normalize_default_display_key(display_key: &str) -> std::borrow::Cow<'_, str> {
-    if let Some(stripped) = display_key.strip_prefix('\\') {
-        return std::borrow::Cow::Owned(stripped.to_owned());
-    }
-    if let Some(stripped) = display_key
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-    {
-        return std::borrow::Cow::Owned(stripped.to_owned());
-    }
-    std::borrow::Cow::Borrowed(display_key)
-}
-
-// Berth：一个终端 Tab 对应一个只有单 pane 的 window，分屏由 GUI 的 Tab 组负责。
+// Berth：attach 只提供帮助（berth-cli `ATTACH_KEYS`）列出的按键：C-b d / n / p / 0-9 / w / [ / PPage、
+// 鼠标点选与滚轮回看，以及 copy-mode 两张表；其余上游默认键（命令行、菜单、时钟、客户端切换等）不提供。
+// 一个终端 Tab 对应一个只有单 pane 的 window，分屏由 GUI 的 Tab 组负责。
 // 因此去掉上游的 `"` / `%` 分屏键和菜单里的分屏项，避免 attach 时建出 GUI 看不到的 pane。
 // GUI 以 window 名为终端 id、以会话名认项目，所以也去掉 `,` / `$` 重命名键；
 // `c` 建出的窗口没有终端 id，新 Tab 走 `berth terminal create`；菜单里的同类项一并去掉。
 pub(crate) const DEFAULT_BINDING_STRINGS: &[&str] = &[
-    "bind -N 'Send the prefix key' C-b { send-prefix }",
-    "bind -N 'Rotate through the panes' C-o { rotate-window }",
-    "bind -N 'Suspend the current client' C-z { suspend-client }",
-    "bind -N 'Select next layout' Space { next-layout }",
-    "bind -N 'Break pane to a new window' ! { break-pane }",
-    "bind -N 'List all paste buffers' '#' { list-buffers }",
-    "bind -N 'Kill current window' & { confirm-before -p\"kill-window #W? (y/n)\" kill-window }",
-    "bind -N 'Prompt for window index to select' \"'\" { command-prompt -T window-target -pindex { select-window -t ':%%' } }",
-    "bind -N 'Switch to previous client' ( { switch-client -p }",
-    "bind -N 'Switch to next client' ) { switch-client -n }",
-    "bind -N 'Delete the most recent paste buffer' - { delete-buffer }",
-    "bind -N 'Move the current window' . { command-prompt -T target { move-window -t '%%' } }",
-    "bind -N 'Describe key binding' '/' { command-prompt -kpkey  { list-keys -1N '%%' } }",
     "bind -N 'Select window 0' 0 { select-window -t:=0 }",
     "bind -N 'Select window 1' 1 { select-window -t:=1 }",
     "bind -N 'Select window 2' 2 { select-window -t:=2 }",
@@ -100,97 +15,12 @@ pub(crate) const DEFAULT_BINDING_STRINGS: &[&str] = &[
     "bind -N 'Select window 7' 7 { select-window -t:=7 }",
     "bind -N 'Select window 8' 8 { select-window -t:=8 }",
     "bind -N 'Select window 9' 9 { select-window -t:=9 }",
-    "bind -N 'Prompt for a command' : { command-prompt }",
-    "bind -N 'Move to the previously active pane' \\; { last-pane }",
-    "bind -N 'Choose a paste buffer from a list' = { choose-buffer -Z }",
-    "bind -N 'List key bindings' ? { list-keys -N }",
-    "bind -N 'Choose and detach a client from a list' D { choose-client -Z }",
-    "bind -N 'Spread panes out evenly' E { select-layout -E }",
-    "bind -N 'Switch to the last client' L { switch-client -l }",
-    "bind -N 'Clear the marked pane' M { select-pane -M }",
     "bind -N 'Enter copy mode' [ { copy-mode }",
-    "bind -N 'Paste the most recent paste buffer' ] { paste-buffer -p }",
     "bind -N 'Detach the current client' d { detach-client }",
-    "bind -N 'Search for a pane' f { command-prompt { find-window -Z -- '%%' } }",
-    "bind -N 'Display window information' i { display-message }",
-    "bind -N 'Select the previously current window' l { last-window }",
-    "bind -N 'Toggle the marked pane' m { select-pane -m }",
     "bind -N 'Select the next window' n { next-window }",
-    "bind -N 'Select the next pane' o { select-pane -t:.+ }",
-    "bind -N 'Customize options' C { customize-mode -Z }",
     "bind -N 'Select the previous window' p { previous-window }",
-    "bind -N 'Display pane numbers' q { display-panes }",
-    "bind -N 'Redraw the current client' r { refresh-client }",
-    "bind -N 'Choose a session from a list' s { choose-tree -Zs }",
-    "bind -N 'Show a clock' t { clock-mode }",
     "bind -N 'Choose a window from a list' w { choose-tree -Zw }",
-    "bind -N 'Kill the active pane' x { confirm-before -p\"kill-pane #P? (y/n)\" kill-pane }",
-    "bind -N 'Zoom the active pane' z { resize-pane -Z }",
-    "bind -N 'Swap the active pane with the pane above' '{' { swap-pane -U }",
-    "bind -N 'Swap the active pane with the pane below' '}' { swap-pane -D }",
-    "bind -N 'Show messages' '~' { show-messages }",
     "bind -N 'Enter copy mode and scroll up' PPage { copy-mode -u }",
-    "bind -N 'Select the pane above the active pane' -r Up { select-pane -U }",
-    "bind -N 'Select the pane below the active pane' -r Down { select-pane -D }",
-    "bind -N 'Select the pane to the left of the active pane' -r Left { select-pane -L }",
-    "bind -N 'Select the pane to the right of the active pane' -r Right { select-pane -R }",
-    "bind -N 'Set the even-horizontal layout' M-1 { select-layout even-horizontal }",
-    "bind -N 'Set the even-vertical layout' M-2 { select-layout even-vertical }",
-    "bind -N 'Set the main-horizontal layout' M-3 { select-layout main-horizontal }",
-    "bind -N 'Set the main-vertical layout' M-4 { select-layout main-vertical }",
-    "bind -N 'Select the tiled layout' M-5 { select-layout tiled }",
-    "bind -N 'Select the next window with an alert' M-n { next-window -a }",
-    "bind -N 'Rotate through the panes in reverse' M-o { rotate-window -D }",
-    "bind -N 'Select the previous window with an alert' M-p { previous-window -a }",
-    "bind -N 'Move the visible part of the window up' -r S-Up { refresh-client -U 10 }",
-    "bind -N 'Move the visible part of the window down' -r S-Down { refresh-client -D 10 }",
-    "bind -N 'Move the visible part of the window left' -r S-Left { refresh-client -L 10 }",
-    "bind -N 'Move the visible part of the window right' -r S-Right { refresh-client -R 10 }",
-    "bind -N 'Reset so the visible part of the window follows the cursor' -r DC { refresh-client -c }",
-    "bind -N 'Resize the pane up by 5' -r M-Up { resize-pane -U 5 }",
-    "bind -N 'Resize the pane down by 5' -r M-Down { resize-pane -D 5 }",
-    "bind -N 'Resize the pane left by 5' -r M-Left { resize-pane -L 5 }",
-    "bind -N 'Resize the pane right by 5' -r M-Right { resize-pane -R 5 }",
-    "bind -N 'Resize the pane up' -r C-Up { resize-pane -U }",
-    "bind -N 'Resize the pane down' -r C-Down { resize-pane -D }",
-    "bind -N 'Resize the pane left' -r C-Left { resize-pane -L }",
-    "bind -N 'Resize the pane right' -r C-Right { resize-pane -R }",
-    concat!(
-        "bind -N 'Display window menu' < { display-menu -xW -yW -T '#[align=centre]#{window_index}:#{window_name}' ",
-        " '#{?#{>:#{session_windows},1},,-}Swap Left' 'l' {swap-window -t:-1}",
-        " '#{?#{>:#{session_windows},1},,-}Swap Right' 'r' {swap-window -t:+1}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-window}",
-        " ''",
-        " 'Kill' 'X' {kill-window}",
-        " 'Respawn' 'R' {respawn-window -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        " }"
-    ),
-    concat!(
-        "bind -N 'Display pane menu' > { display-menu -xP -yP -T '#[align=centre]#{pane_index} (#{pane_id})' ",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}' '<' {send -X history-top}",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}' '>' {send -X history-bottom}",
-        " ''",
-        " '#{?#{&&:#{buffer_size},#{==:#{pane_in_mode},0}},Paste #[underscore]#{=/9/...:buffer_sample},}' 'p' {paste-buffer}",
-        " ''",
-        " '#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}' 'C-r' {if -F '#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}' 'copy-mode -t='; send -Xt= search-backward -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}' 'C-y' {copy-mode -q; send-keys -l -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}' 'c' {copy-mode -q; set-buffer -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_line,Copy Line,}' 'l' {copy-mode -q; set-buffer -- \"#{q:mouse_line}\"}",
-        " ''",
-        " '#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}' 'C-h' {copy-mode -q; send-keys -l -- \"#{q:mouse_hyperlink}\"}",
-        " '#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}' 'h' {copy-mode -q; set-buffer -- \"#{q:mouse_hyperlink}\"}",
-        " ''",
-        " '#{?#{>:#{window_panes},1},,-}Swap Up' 'u' {swap-pane -U}",
-        " '#{?#{>:#{window_panes},1},,-}Swap Down' 'd' {swap-pane -D}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-pane}",
-        " ''",
-        " 'Kill' 'X' {kill-pane}",
-        " 'Respawn' 'R' {respawn-pane -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        " '#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}' 'z' {resize-pane -Z}",
-        " }"
-    ),
     "bind -n MouseDown1Pane { select-pane -t=; send -M }",
     "bind -n MouseDrag1Pane { if -F '#{||:#{pane_in_mode},#{mouse_any_flag}}' { send -M } { copy-mode -M } }",
     "bind -n WheelUpPane { if -F '#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}' { send -M } { copy-mode -e } }",
@@ -201,94 +31,6 @@ pub(crate) const DEFAULT_BINDING_STRINGS: &[&str] = &[
     "bind -n MouseDown1Status { select-window -t= }",
     "bind -n WheelDownStatus { next-window }",
     "bind -n WheelUpStatus { previous-window }",
-    concat!(
-        "bind -n MouseDown3StatusLeft { display-menu -t= -xM -yW -T '#[align=centre]#{session_name}' ",
-        " 'Next' 'n' {switch-client -n}",
-        " 'Previous' 'p' {switch-client -p}",
-        " ''",
-        " 'Renumber' 'N' {move-window -r}",
-        " }"
-    ),
-    concat!(
-        "bind -n M-MouseDown3StatusLeft { display-menu -t= -xM -yW -T '#[align=centre]#{session_name}' ",
-        " 'Next' 'n' {switch-client -n}",
-        " 'Previous' 'p' {switch-client -p}",
-        " ''",
-        " 'Renumber' 'N' {move-window -r}",
-        " }"
-    ),
-    concat!(
-        "bind -n MouseDown3Status { display-menu -t= -xW -yW -T '#[align=centre]#{window_index}:#{window_name}' ",
-        " '#{?#{>:#{session_windows},1},,-}Swap Left' 'l' {swap-window -t:-1}",
-        " '#{?#{>:#{session_windows},1},,-}Swap Right' 'r' {swap-window -t:+1}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-window}",
-        " ''",
-        " 'Kill' 'X' {kill-window}",
-        " 'Respawn' 'R' {respawn-window -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        "}"
-    ),
-    concat!(
-        "bind -n M-MouseDown3Status { display-menu -t= -xW -yW -T '#[align=centre]#{window_index}:#{window_name}' ",
-        " '#{?#{>:#{session_windows},1},,-}Swap Left' 'l' {swap-window -t:-1}",
-        " '#{?#{>:#{session_windows},1},,-}Swap Right' 'r' {swap-window -t:+1}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-window}",
-        " ''",
-        " 'Kill' 'X' {kill-window}",
-        " 'Respawn' 'R' {respawn-window -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        "}"
-    ),
-    concat!(
-        "bind -n MouseDown3Pane { if -Ft= '#{||:#{mouse_any_flag},#{&&:#{pane_in_mode},#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}}}' { select-pane -t=; send -M } { display-menu -t= -xM -yM -T '#[align=centre]#{pane_index} (#{pane_id})' ",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}' '<' {send -X history-top}",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}' '>' {send -X history-bottom}",
-        " ''",
-        " '#{?#{&&:#{buffer_size},#{==:#{pane_in_mode},0}},Paste #[underscore]#{=/9/...:buffer_sample},}' 'p' {paste-buffer}",
-        " ''",
-        " '#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}' 'C-r' {if -F '#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}' 'copy-mode -t='; send -Xt= search-backward -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}' 'C-y' {copy-mode -q; send-keys -l -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}' 'c' {copy-mode -q; set-buffer -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_line,Copy Line,}' 'l' {copy-mode -q; set-buffer -- \"#{q:mouse_line}\"}",
-        " ''",
-        " '#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}' 'C-h' {copy-mode -q; send-keys -l -- \"#{q:mouse_hyperlink}\"}",
-        " '#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}' 'h' {copy-mode -q; set-buffer -- \"#{q:mouse_hyperlink}\"}",
-        " ''",
-        " '#{?#{>:#{window_panes},1},,-}Swap Up' 'u' {swap-pane -U}",
-        " '#{?#{>:#{window_panes},1},,-}Swap Down' 'd' {swap-pane -D}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-pane}",
-        " ''",
-        " 'Kill' 'X' {kill-pane}",
-        " 'Respawn' 'R' {respawn-pane -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        " '#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}' 'z' {resize-pane -Z}",
-        " } }"
-    ),
-    concat!(
-        "bind -n M-MouseDown3Pane { display-menu -t= -xM -yM -T '#[align=centre]#{pane_index} (#{pane_id})' ",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}' '<' {send -X history-top}",
-        " '#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}' '>' {send -X history-bottom}",
-        " ''",
-        " '#{?#{&&:#{buffer_size},#{==:#{pane_in_mode},0}},Paste #[underscore]#{=/9/...:buffer_sample},}' 'p' {paste-buffer}",
-        " ''",
-        " '#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}' 'C-r' {if -F '#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}' 'copy-mode -t='; send -Xt= search-backward -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}' 'C-y' {copy-mode -q; send-keys -l -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}' 'c' {copy-mode -q; set-buffer -- \"#{q:mouse_word}\"}",
-        " '#{?mouse_line,Copy Line,}' 'l' {copy-mode -q; set-buffer -- \"#{q:mouse_line}\"}",
-        " ''",
-        " '#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}' 'C-h' {copy-mode -q; send-keys -l -- \"#{q:mouse_hyperlink}\"}",
-        " '#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}' 'h' {copy-mode -q; set-buffer -- \"#{q:mouse_hyperlink}\"}",
-        " ''",
-        " '#{?#{>:#{window_panes},1},,-}Swap Up' 'u' {swap-pane -U}",
-        " '#{?#{>:#{window_panes},1},,-}Swap Down' 'd' {swap-pane -D}",
-        " '#{?pane_marked_set,,-}Swap Marked' 's' {swap-pane}",
-        " ''",
-        " 'Kill' 'X' {kill-pane}",
-        " 'Respawn' 'R' {respawn-pane -k}",
-        " '#{?pane_marked,Unmark,Mark}' 'm' {select-pane -m}",
-        " '#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}' 'z' {resize-pane -Z}",
-        " }"
-    ),
     "bind -Tcopy-mode C-Space { send -X begin-selection }",
     "bind -Tcopy-mode C-a { send -X start-of-line }",
     "bind -Tcopy-mode C-c { send -X cancel }",
@@ -449,3 +191,79 @@ pub(crate) const DEFAULT_BINDING_STRINGS: &[&str] = &[
     "bind -Tcopy-mode-vi C-Up { send -X scroll-up }",
     "bind -Tcopy-mode-vi C-Down { send -X scroll-down }",
 ];
+
+#[cfg(test)]
+mod berth_default_bindings_tests {
+    use std::collections::BTreeSet;
+
+    use crate::keys::{key_string_lookup_key, KeyBindingStore};
+
+    fn table_keys(store: &KeyBindingStore, name: &str) -> BTreeSet<String> {
+        store
+            .table(name)
+            .unwrap_or_else(|| panic!("默认按键表缺少 {name}"))
+            .active()
+            .keys()
+            .map(|key| key_string_lookup_key(*key, false))
+            .collect()
+    }
+
+    fn set(keys: &[&str]) -> BTreeSet<String> {
+        keys.iter().map(|key| (*key).to_owned()).collect()
+    }
+
+    /// attach 帮助（berth-cli `ATTACH_KEYS`）只承诺这些键；多出或缺少都要先改帮助与本测试。
+    #[test]
+    fn default_tables_match_documented_attach_keys() {
+        let store = KeyBindingStore::with_defaults().expect("默认绑定可解析");
+
+        assert_eq!(
+            table_keys(&store, "prefix"),
+            set(&[
+                "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "PPage", "[", "d", "n", "p", "w"
+            ])
+        );
+        assert_eq!(
+            table_keys(&store, "root"),
+            set(&[
+                "DoubleClick1Pane",
+                "MouseDown1Pane",
+                "MouseDown1Status",
+                "MouseDown2Pane",
+                "MouseDrag1Border",
+                "MouseDrag1Pane",
+                "TripleClick1Pane",
+                "WheelDownStatus",
+                "WheelUpPane",
+                "WheelUpStatus",
+            ])
+        );
+        for table in ["copy-mode", "copy-mode-vi"] {
+            assert!(
+                !table_keys(&store, table).is_empty(),
+                "{table} 回看键表应保留"
+            );
+        }
+    }
+
+    #[test]
+    fn documented_prefix_keys_run_expected_commands() {
+        let store = KeyBindingStore::with_defaults().expect("默认绑定可解析");
+        let prefix = store.table("prefix").expect("prefix 表");
+        let command_of = |key: &str| {
+            prefix
+                .active()
+                .iter()
+                .find(|(code, _)| key_string_lookup_key(**code, false) == key)
+                .map(|(_, binding)| binding.commands().commands()[0].name().to_owned())
+                .unwrap_or_else(|| panic!("prefix 表缺少 {key}"))
+        };
+
+        assert_eq!(command_of("d"), "detach-client");
+        assert_eq!(command_of("n"), "next-window");
+        assert_eq!(command_of("p"), "previous-window");
+        assert_eq!(command_of("0"), "select-window");
+        assert_eq!(command_of("w"), "choose-tree");
+        assert_eq!(command_of("["), "copy-mode");
+    }
+}

@@ -12,16 +12,7 @@ mod automatic_rename;
 mod client_flags;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
-mod clock_mode;
-#[cfg(any(unix, windows))]
-#[cfg_attr(windows, allow(dead_code))]
 mod control;
-#[cfg(any(unix, windows))]
-#[cfg_attr(windows, allow(dead_code))]
-mod control_mode;
-#[cfg(any(unix, windows))]
-#[cfg_attr(windows, allow(dead_code))]
-mod control_notifications;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod copy_mode;
@@ -37,9 +28,6 @@ mod handler;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod handler_support;
-#[cfg(any(unix, windows))]
-#[cfg_attr(windows, allow(dead_code))]
-mod hook_compat;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod hook_runtime;
@@ -127,20 +115,5 @@ mod unix_socket;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod wait_for;
-#[cfg(all(any(unix, windows), feature = "web"))]
-mod web;
 
-/// Fuzzing entry points for protocol parsers.
-#[cfg(all(any(unix, windows), feature = "web", feature = "fuzzing"))]
-#[doc(hidden)]
-pub mod fuzzing {
-    /// Feeds arbitrary bytes into the server-side share client-frame parser.
-    pub fn websocket_client_frame(data: &[u8]) {
-        crate::web::fuzz_client_frame(data);
-    }
-}
-
-pub use daemon::{
-    default_socket_path, ConfigFileSelection, ConfigLoadOptions, DaemonConfig, ServerDaemon,
-    ServerHandle,
-};
+pub use daemon::{default_socket_path, DaemonConfig, ServerDaemon, ServerHandle};

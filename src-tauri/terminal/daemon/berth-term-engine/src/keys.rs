@@ -1,10 +1,6 @@
 //! tmux-compatible key code parsing and key table storage.
 #![allow(clippy::unusual_byte_groupings)]
 
-use crate::command_parser::{
-    parse_command_string, CommandParseError, CommandParser, ParsedCommands,
-};
-
 #[path = "keys/defaults.rs"]
 mod defaults;
 #[path = "keys/store.rs"]
@@ -12,10 +8,7 @@ mod store;
 #[path = "keys/string_table.rs"]
 mod string_table;
 
-pub use store::{
-    KeyBinding, KeyBindingDisplay, KeyBindingSortOrder, KeyBindingStore, KeyBindingTable,
-    KeyBindingTableRef,
-};
+pub use store::{KeyBinding, KeyBindingStore, KeyBindingTable, KeyBindingTableRef};
 use string_table::{
     decode_mouse_key, key_string_entry_for_key, key_string_search_table, mouse_key_name,
 };
@@ -114,9 +107,6 @@ const KEYC_REPORT_LIGHT_THEME: KeyCode = KEYC_NONE + 48;
 const KEYC_MOUSE: KeyCode = KEYC_NONE + 49;
 /// Internal drag-in-progress sentinel key.
 pub const KEYC_DRAGGING: KeyCode = KEYC_NONE + 50;
-
-/// Default `list-keys` template.
-pub const LIST_KEYS_TEMPLATE: &str = "#{?notes_only,#{key_prefix}#{p|#{key_string_width}:key_string} #{?key_note,#{key_note},#{key_command}},bind-key#{?key_has_repeat, #{?key_repeat,-r,  },} -T #{p|#{key_table_width}:key_table} #{p|#{key_string_width}:key_string} #{key_command}}";
 
 /// Returns the key bits used for binding lookup.
 #[must_use]
@@ -472,17 +462,6 @@ fn maybe_append_flags(mut output: String, saved: KeyCode, with_flags: bool) -> S
         output.push(']');
     }
     output
-}
-
-/// Parses a `bind-key` command payload from raw argv-style tokens.
-pub fn parse_binding_command_tokens(
-    tokens: &[String],
-) -> Result<ParsedCommands, CommandParseError> {
-    if tokens.len() == 1 {
-        parse_command_string(&tokens[0])
-    } else {
-        CommandParser::new().parse_arguments(tokens)
-    }
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use crate::TerminalError;
 use berth_term_proto::{
     encode_frame, ErrorResponse, FrameDecoder, HandshakeResponse, HasSessionRequest,
     HasSessionResponse, KillServerRequest, KillServerResponse, Request, Response, SessionName,
-    CAPABILITY_DAEMON_SHUTDOWN, CAPABILITY_HANDSHAKE, BERTH_TERM_WIRE_VERSION,
+    BERTH_TERM_WIRE_VERSION, CAPABILITY_DAEMON_SHUTDOWN, CAPABILITY_HANDSHAKE,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
@@ -248,7 +248,6 @@ async fn capabilities_daemon_instance_missing_epoch_is_a_deterministic_none() {
         "旧 daemon 必须得到确定性「无法确认」，而不是错误或猜测"
     );
 }
-
 
 #[test]
 fn shutdown_treats_post_ack_peer_close_states_as_clean() {

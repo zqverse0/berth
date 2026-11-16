@@ -93,92 +93,6 @@ async fn attached_session_mutations_emit_refresh_switches() {
 }
 
 #[tokio::test]
-async fn switch_client_updates_the_tracked_session_for_follow_up_refreshes() {
-    let handler = RequestHandler::new();
-    let requester_pid = std::process::id();
-    let alpha = session_name("alpha");
-    let beta = session_name("beta");
-
-    for session_name in [alpha.clone(), beta.clone()] {
-        let created = handler
-            .handle(Request::NewSession(NewSessionRequest {
-                session_name,
-                detached: true,
-                size: Some(TerminalSize { cols: 80, rows: 24 }),
-                environment: None,
-            }))
-            .await;
-        assert!(matches!(created, Response::NewSession(_)));
-    }
-
-    let split = handler
-        .handle(Request::SplitWindow(SplitWindowRequest {
-            target: SplitWindowTarget::Session(beta.clone()),
-            direction: berth_term_proto::SplitDirection::Horizontal,
-            before: false,
-            environment: None,
-        }))
-        .await;
-    assert!(matches!(split, Response::SplitWindow(_)));
-
-    let (control_tx, mut control_rx) = mpsc::unbounded_channel();
-    let _attach_id = handler
-        .register_attach(requester_pid, alpha, control_tx)
-        .await;
-
-    let switched = handler
-        .handle(Request::SwitchClient(SwitchClientRequest {
-            target: beta.clone(),
-        }))
-        .await;
-    assert_eq!(
-        switched,
-        Response::SwitchClient(berth_term_proto::SwitchClientResponse {
-            session_name: beta.clone(),
-        })
-    );
-    let switch_frame = recv_render_frame(&mut control_rx, "switch refresh").await;
-    assert!(switch_frame.contains('│'));
-
-    let global_border = handler
-        .handle(Request::SetOption(SetOptionRequest {
-            scope: ScopeSelector::Global,
-            option: OptionName::PaneActiveBorderStyle,
-            value: "red".to_owned(),
-            mode: SetOptionMode::Replace,
-        }))
-        .await;
-    assert!(matches!(global_border, Response::SetOption(_)));
-    let global_frame = recv_render_frame(&mut control_rx, "global refresh").await;
-    assert!(global_frame.contains("\u{1b}[31m"));
-
-    let beta_window = WindowTarget::with_window(beta.clone(), 0);
-    let session_border = handler
-        .handle(Request::SetOption(SetOptionRequest {
-            scope: ScopeSelector::Window(beta_window),
-            option: OptionName::PaneActiveBorderStyle,
-            value: "blue".to_owned(),
-            mode: SetOptionMode::Replace,
-        }))
-        .await;
-    assert!(matches!(session_border, Response::SetOption(_)));
-    let session_frame = recv_render_frame(&mut control_rx, "session refresh").await;
-    assert!(session_frame.contains("\u{1b}[34m"));
-
-    let alpha_window = WindowTarget::with_window(session_name("alpha"), 0);
-    let other_session = handler
-        .handle(Request::SetOption(SetOptionRequest {
-            scope: ScopeSelector::Window(alpha_window),
-            option: OptionName::PaneBorderStyle,
-            value: "green".to_owned(),
-            mode: SetOptionMode::Replace,
-        }))
-        .await;
-    assert!(matches!(other_session, Response::SetOption(_)));
-    assert!(matches!(control_rx.try_recv(), Err(TryRecvError::Empty)));
-}
-
-#[tokio::test]
 async fn terminal_feature_mutations_refresh_attached_targets_with_client_context() {
     let handler = RequestHandler::new();
     let requester_pid = 42;
@@ -444,26 +358,6 @@ async fn different_requester_pids_can_control_the_sole_active_attach() {
         .register_attach(owner_pid, alpha.clone(), control_tx)
         .await;
 
-    let switched = handler
-        .dispatch(
-            intruder_pid,
-            Request::SwitchClient(SwitchClientRequest {
-                target: beta.clone(),
-            }),
-        )
-        .await
-        .response;
-    assert_eq!(
-        switched,
-        Response::SwitchClient(berth_term_proto::SwitchClientResponse {
-            session_name: beta.clone(),
-        })
-    );
-    let _ = recv_matching_attach_control(&mut control_rx, "switch refresh", |control| {
-        matches!(control, AttachControl::Switch(_))
-    })
-    .await;
-
     let detached = handler
         .dispatch(
             intruder_pid,
@@ -512,24 +406,6 @@ async fn rename_session_preserves_ambiguity_rules_for_switch_and_detach() {
         }))
         .await;
     assert!(matches!(renamed, Response::RenameSession(_)));
-
-    let switched = handler
-        .dispatch(
-            303,
-            Request::SwitchClient(SwitchClientRequest {
-                target: beta.clone(),
-            }),
-        )
-        .await
-        .response;
-    assert_eq!(
-        switched,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server(
-                "switch-client requires an unambiguous attached client".to_owned(),
-            ),
-        })
-    );
 
     let detached = handler
         .dispatch(303, Request::DetachClient(DetachClientRequest))

@@ -115,10 +115,6 @@ impl OuterTerminalContext {
         &self.terminal_features
     }
 
-    pub(crate) fn explicit_features_string(&self) -> String {
-        OuterTerminal::from_feature_names(self.terminal_features()).features_string()
-    }
-
     pub(crate) fn utf8(&self) -> bool {
         self.utf8
     }

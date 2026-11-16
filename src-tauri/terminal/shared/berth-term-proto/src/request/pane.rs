@@ -148,32 +148,6 @@ impl<'de> Deserialize<'de> for SplitWindowExtRequest {
     }
 }
 
-/// The supported relative directions for `swap-pane`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SwapPaneDirection {
-    /// Swap the target pane with the next pane.
-    Down,
-    /// Swap the target pane with the previous pane.
-    Up,
-}
-
-/// Request payload for `swap-pane`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwapPaneRequest {
-    /// The source pane slot.
-    pub source: PaneTarget,
-    /// The destination pane slot.
-    pub target: PaneTarget,
-    /// The optional relative swap direction for `-D` or `-U`.
-    #[serde(default)]
-    pub direction: Option<SwapPaneDirection>,
-    /// Whether pane selection should remain detached from the swap.
-    pub detached: bool,
-    /// Whether zoomed windows should be restored after the swap (`-Z`).
-    #[serde(default)]
-    pub preserve_zoom: bool,
-}
-
 /// Request payload for `last-pane`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LastPaneRequest {
@@ -305,25 +279,6 @@ pub struct ResizePaneTargetActionRequest {
     pub target: Option<String>,
     /// The semantic resize request.
     pub adjustment: ResizePaneAdjustment,
-}
-
-/// Request payload for `display-panes`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DisplayPanesRequest {
-    /// The exact session whose active window should receive the overlay.
-    pub target: SessionName,
-    /// Optional duration override in milliseconds.
-    #[serde(default)]
-    pub duration_ms: Option<u64>,
-    /// Whether the command should return immediately without waiting for selection.
-    #[serde(default)]
-    pub non_blocking: bool,
-    /// Whether pane selection should not run a follow-up command.
-    #[serde(default)]
-    pub no_command: bool,
-    /// Optional template command executed after pane selection.
-    #[serde(default)]
-    pub template: Option<String>,
 }
 
 /// Request payload for `pipe-pane`.

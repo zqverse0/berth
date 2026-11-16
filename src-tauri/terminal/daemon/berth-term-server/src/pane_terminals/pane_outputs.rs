@@ -275,26 +275,6 @@ impl HandlerState {
         (receiver, sender)
     }
 
-    pub(crate) fn session_pane_outputs(
-        &self,
-        session_name: &SessionName,
-    ) -> Result<Vec<(u32, PaneOutputSender)>, TerminalError> {
-        let _session = self
-            .sessions
-            .session(session_name)
-            .ok_or_else(|| session_not_found(session_name))?;
-        let runtime_session_name = self.runtime_session_name(session_name);
-        let Some(pane_outputs) = self.pane_outputs.get(&runtime_session_name) else {
-            return Ok(Vec::new());
-        };
-        let mut outputs = pane_outputs
-            .iter()
-            .map(|(pane_id, sender)| (pane_id.as_u32(), sender.clone()))
-            .collect::<Vec<_>>();
-        outputs.sort_by_key(|(pane_id, _)| *pane_id);
-        Ok(outputs)
-    }
-
     pub(in crate::pane_terminals) fn remove_session_pane_outputs(
         &mut self,
         session_name: &SessionName,
@@ -498,60 +478,6 @@ impl HandlerState {
         }
 
         self.insert_existing_pane_outputs(destination_session, outputs);
-        if let Err(error) =
-            self.pipes
-                .move_between_sessions(source_session, destination_session, pane_ids)
-        {
-            let restored = self.remove_pane_outputs(destination_session, pane_ids);
-            self.insert_existing_pane_outputs(source_session, restored);
-            return Err(error);
-        }
-        self.refresh_transcript_limits_for_session(destination_session);
-        Ok(())
-    }
-
-    pub(crate) fn swap_pane_outputs_between_sessions(
-        &mut self,
-        source_session: &SessionName,
-        source_pane_ids: &[PaneId],
-        destination_session: &SessionName,
-        destination_pane_ids: &[PaneId],
-    ) -> Result<(), TerminalError> {
-        if source_session == destination_session {
-            return Ok(());
-        }
-
-        let source_outputs = self.remove_pane_outputs(source_session, source_pane_ids);
-        let destination_outputs =
-            self.remove_pane_outputs(destination_session, destination_pane_ids);
-        if source_outputs.transcripts.len() != source_pane_ids.len()
-            || source_outputs.pane_outputs.len() != source_pane_ids.len()
-            || destination_outputs.transcripts.len() != destination_pane_ids.len()
-            || destination_outputs.pane_outputs.len() != destination_pane_ids.len()
-        {
-            self.insert_existing_pane_outputs(source_session, source_outputs);
-            self.insert_existing_pane_outputs(destination_session, destination_outputs);
-            return Err(TerminalError::Server(
-                "missing pane transcript for cross-session swap".to_owned(),
-            ));
-        }
-
-        self.insert_existing_pane_outputs(source_session, destination_outputs);
-        self.insert_existing_pane_outputs(destination_session, source_outputs);
-        if let Err(error) = self.pipes.swap_between_sessions(
-            source_session,
-            source_pane_ids,
-            destination_session,
-            destination_pane_ids,
-        ) {
-            let restored_source = self.remove_pane_outputs(source_session, destination_pane_ids);
-            let restored_destination =
-                self.remove_pane_outputs(destination_session, source_pane_ids);
-            self.insert_existing_pane_outputs(source_session, restored_destination);
-            self.insert_existing_pane_outputs(destination_session, restored_source);
-            return Err(error);
-        }
-        self.refresh_transcript_limits_for_session(source_session);
         self.refresh_transcript_limits_for_session(destination_session);
         Ok(())
     }

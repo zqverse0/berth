@@ -1,4 +1,4 @@
-use berth_term_proto::{LayoutName, SplitDirection, TerminalError, TerminalSize};
+use berth_term_proto::{LayoutName, SplitDirection, TerminalSize};
 
 use crate::{Pane, PaneGeometry};
 
@@ -8,13 +8,10 @@ mod cell;
 mod mutation;
 #[path = "layout/named.rs"]
 mod named;
-#[path = "layout/parser.rs"]
-mod parser;
 #[path = "layout/resize.rs"]
 mod resize;
 
 use cell::{LayoutCell, LayoutGeometry};
-use parser::LayoutParser;
 
 const PANE_BORDER_CELLS: u32 = 1;
 const PANE_MINIMUM: u32 = 1;
@@ -91,64 +88,6 @@ impl LayoutTree {
                 0,
             )),
             leaf_map: None,
-        }
-    }
-
-    pub(crate) fn parse(layout: &str, pane_count: usize) -> Result<Self, TerminalError> {
-        let (checksum, body) = layout
-            .split_once(',')
-            .ok_or_else(|| TerminalError::Server("invalid layout".to_owned()))?;
-        if checksum.len() != 4 {
-            return Err(TerminalError::Server("invalid layout".to_owned()));
-        }
-        let expected_checksum = u16::from_str_radix(checksum, 16)
-            .map_err(|_| TerminalError::Server("invalid layout".to_owned()))?;
-        if expected_checksum != layout_checksum(body) {
-            return Err(TerminalError::Server("invalid layout".to_owned()));
-        }
-
-        let mut parser = LayoutParser::new(body);
-        let root = parser.parse_cell()?;
-        if !parser.is_eof() {
-            return Err(TerminalError::Server("invalid layout".to_owned()));
-        }
-
-        let mut tree = Self {
-            root,
-            leaf_map: None,
-        };
-        while tree.leaf_count() > pane_count {
-            if !tree.remove_leaf(tree.leaf_count() - 1) {
-                return Err(TerminalError::Server("invalid layout".to_owned()));
-            }
-        }
-        if pane_count > tree.leaf_count() {
-            return Err(TerminalError::Server(format!(
-                "have {pane_count} panes but need {}",
-                tree.leaf_count()
-            )));
-        }
-
-        tree.root.fix_root_size_if_needed();
-        if !tree.root.check() {
-            return Err(TerminalError::Server(
-                "size mismatch after applying layout".to_owned(),
-            ));
-        }
-        tree.root.fix_offsets(0, 0);
-        Ok(tree)
-    }
-
-    #[must_use]
-    pub(crate) fn leaf_count(&self) -> usize {
-        self.root.leaf_count()
-    }
-
-    #[must_use]
-    pub(crate) fn size(&self) -> TerminalSize {
-        TerminalSize {
-            cols: self.root.geometry.width.min(u32::from(u16::MAX)) as u16,
-            rows: self.root.geometry.height.min(u32::from(u16::MAX)) as u16,
         }
     }
 

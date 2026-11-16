@@ -1,17 +1,13 @@
 use super::RequestHandler;
 use crate::pane_io::AttachControl;
-use std::path::Path;
 use berth_term_proto::{
-    DisplayMessageRequest, HookLifecycle, HookName, KillSessionRequest, KillWindowRequest,
-    LastWindowRequest, LinkWindowRequest, ListPanesRequest, ListWindowsRequest, MoveWindowRequest,
-    MoveWindowTarget, NewSessionExtRequest, NewSessionRequest, NewWindowRequest, NextWindowRequest,
-    OptionName, PaneTarget, PreviousWindowRequest, RenameSessionRequest, RenameWindowRequest,
-    Request, ResizeWindowAdjustment, ResizeWindowRequest, ResolveTargetRequest, ResolveTargetType,
-    RespawnWindowRequest, Response, RotateWindowDirection, RotateWindowRequest, ScopeSelector,
-    SelectWindowRequest, SessionName, SetOptionMode, SetOptionRequest, SplitDirection,
-    SplitWindowRequest, SplitWindowTarget, SwapWindowRequest, Target, TerminalSize,
-    UnlinkWindowRequest, WindowTarget,
+    KillWindowRequest, ListPanesRequest, ListWindowsRequest, NewSessionExtRequest,
+    NewSessionRequest, NewWindowRequest, NextWindowRequest, OptionName, PreviousWindowRequest,
+    RenameWindowRequest, Request, ResizeWindowAdjustment, ResizeWindowRequest,
+    RespawnWindowRequest, Response, ScopeSelector, SelectWindowRequest, SessionName, SetOptionMode,
+    SetOptionRequest, SplitWindowRequest, SplitWindowTarget, TerminalSize, WindowTarget,
 };
+use std::path::Path;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 
@@ -39,34 +35,6 @@ async fn create_session(handler: &RequestHandler, name: &str) {
             print_session_info: false,
             print_format: None,
             command: Some(quiet_window_test_command()),
-            process_command: None,
-            client_environment: None,
-            skip_environment_update: false,
-        })))
-        .await;
-    assert!(matches!(created, Response::NewSession(_)));
-}
-
-async fn create_grouped_session(handler: &RequestHandler, name: &str, group_target: &SessionName) {
-    let created = handler
-        .handle(Request::NewSessionExt(Box::new(NewSessionExtRequest {
-            session_name: Some(session_name(name)),
-            working_directory: None,
-            detached: true,
-            size: Some(TerminalSize {
-                cols: 120,
-                rows: 40,
-            }),
-            environment: None,
-            group_target: Some(group_target.clone()),
-            attach_if_exists: false,
-            detach_other_clients: false,
-            kill_other_clients: false,
-            flags: None,
-            window_name: None,
-            print_session_info: false,
-            print_format: None,
-            command: None,
             process_command: None,
             client_environment: None,
             skip_environment_update: false,
@@ -162,15 +130,6 @@ mod renumber;
 
 #[path = "handler_window_tests/listing_refresh.rs"]
 mod listing_refresh;
-
-#[path = "handler_window_tests/move_window.rs"]
-mod move_window;
-
-#[path = "handler_window_tests/swap_rotate.rs"]
-mod swap_rotate;
-
-#[path = "handler_window_tests/link_unlink.rs"]
-mod link_unlink;
 
 #[path = "handler_window_tests/active_selection.rs"]
 mod active_selection;

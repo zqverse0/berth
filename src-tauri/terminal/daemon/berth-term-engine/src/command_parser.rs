@@ -34,8 +34,6 @@ use lookup::lookup_command_at;
 pub use table::{CommandEntry, COMMAND_TABLE};
 
 const DEFAULT_MAX_COMMAND_BYTES: usize = 16 * 1024;
-/// Maximum size of a single command parsed from `source-file` input.
-pub const SOURCE_FILE_MAX_COMMAND_BYTES: usize = 1024 * 1024;
 
 /// Parses a tmux command string with default expansion context.
 pub fn parse_command_string(input: &str) -> Result<ParsedCommands, CommandParseError> {
@@ -139,17 +137,6 @@ impl ParsedCommands {
             .map(ParsedCommand::to_tmux_string)
             .collect::<Vec<_>>()
             .join(" ; ")
-    }
-
-    /// Converts the parsed commands to a command string suitable for
-    /// embedding in a `bind-key` line.
-    #[must_use]
-    pub fn to_tmux_binding_string(&self) -> String {
-        self.commands
-            .iter()
-            .map(ParsedCommand::to_tmux_string)
-            .collect::<Vec<_>>()
-            .join(" \\; ")
     }
 }
 

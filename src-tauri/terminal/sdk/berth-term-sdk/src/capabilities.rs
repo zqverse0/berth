@@ -6,8 +6,8 @@ use crate::diagnostics::FEATURE_PROTOCOL_CAPABILITIES;
 use crate::transport::TransportClient;
 use crate::{Result, TerminalError};
 use berth_term_proto::{
-    HandshakeRequest, ProcessCommand, Request, Response, CAPABILITY_HANDSHAKE,
-    CAPABILITY_SDK_PROCESS_COMMAND, BERTH_TERM_WIRE_VERSION,
+    HandshakeRequest, ProcessCommand, Request, Response, BERTH_TERM_WIRE_VERSION,
+    CAPABILITY_HANDSHAKE, CAPABILITY_SDK_PROCESS_COMMAND,
 };
 
 pub(crate) async fn require(client: &TransportClient, capabilities: &[&str]) -> Result<()> {

@@ -1,11 +1,12 @@
 use super::{
-    classify_mouse_event, copy_mode_mouse_context, MouseDragHandler, MouseForwardEvent,
-    MouseLayout, MouseLocation, PaneBorderStatus, PaneMouseTarget, PaneScrollbar,
-    PaneScrollbarsMode, ScrollbarPosition, StatusLineLayout, StatusRange, StatusRangeType,
+    classify_mouse_event, copy_mode_mouse_context, MouseForwardEvent, MouseLayout, MouseLocation,
+    PaneBorderStatus, PaneMouseTarget, PaneScrollbar, PaneScrollbarsMode, ScrollbarPosition,
+    StatusLineLayout, StatusRangeType,
 };
-use std::time::Instant;
+use crate::status_ranges::StatusRange;
 use berth_term_engine::{key_string_lookup_string, PaneGeometry, PaneId};
 use berth_term_proto::{PaneTarget, SessionName};
+use std::time::Instant;
 
 fn pane_target(index: u32) -> PaneTarget {
     PaneTarget::with_window(SessionName::new("alpha").expect("valid session"), 0, index)
@@ -227,62 +228,6 @@ fn second_click_timeout_yields_double_click_and_third_click_has_no_timer() {
         state.click_deadline.is_none(),
         "triple click skips the timer"
     );
-}
-
-#[test]
-fn drag_update_uses_dragging_sentinel_and_release_synthesizes_drag_end() {
-    let mut state = super::ClientMouseState {
-        drag_handler: Some(MouseDragHandler::CopyModeSelection {
-            target: pane_target(0),
-        }),
-        ..Default::default()
-    };
-    let now = Instant::now();
-    let layout = layout();
-
-    let start = classify_mouse_event(
-        &mut state,
-        &layout,
-        MouseForwardEvent {
-            b: 32,
-            lb: 0,
-            x: 6,
-            y: 6,
-            lx: 5,
-            ly: 5,
-            sgr_b: 32,
-            sgr_type: ' ',
-            ignore: false,
-        },
-        now,
-    )
-    .expect("drag start");
-    assert_eq!(start.key, super::KEYC_DRAGGING);
-    assert_eq!(state.drag_flag, 1);
-
-    let end = classify_mouse_event(
-        &mut state,
-        &layout,
-        MouseForwardEvent {
-            b: 3,
-            lb: 0,
-            x: 7,
-            y: 7,
-            lx: 6,
-            ly: 6,
-            sgr_b: 0,
-            sgr_type: ' ',
-            ignore: false,
-        },
-        now + std::time::Duration::from_millis(10),
-    )
-    .expect("drag end");
-    assert_eq!(
-        end.key,
-        key_string_lookup_string("MouseDragEnd1Pane").unwrap()
-    );
-    assert_eq!(state.drag_flag, 0);
-    assert_eq!(state.slider_mpos, -1);
 }
 
 #[test]

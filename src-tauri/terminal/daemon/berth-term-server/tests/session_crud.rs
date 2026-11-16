@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 mod common;
 
-use common::{
-    create_stale_socket, send_request, session_name, start_server, wait_for_socket_removal,
-    ClientConnection, TestHarness,
-};
 use berth_term_proto::{
     AttachSessionRequest, HasSessionRequest, KillSessionRequest, NewSessionRequest,
     RenameSessionRequest, Request, Response, TerminalError, TerminalSize,
 };
 use berth_term_server::{DaemonConfig, ServerDaemon};
+use common::{
+    create_stale_socket, send_request, session_name, start_server, wait_for_socket_removal,
+    ClientConnection, TestHarness,
+};
 use tokio::net::UnixStream;
 use tokio::sync::Barrier;
 use tokio::time::{sleep, Duration};
@@ -375,8 +375,8 @@ async fn attach_session_returns_an_upgrade_response() -> Result<(), Box<dyn Erro
 }
 
 #[tokio::test]
-async fn switch_and_detach_require_an_attached_client_before_any_session_lookup(
-) -> Result<(), Box<dyn Error>> {
+async fn detach_requires_an_attached_client_before_any_session_lookup() -> Result<(), Box<dyn Error>>
+{
     let harness = TestHarness::new("attached-client-required");
     let socket_path = harness.socket_path().to_path_buf();
     let handle = start_server(&harness).await?;
@@ -391,36 +391,6 @@ async fn switch_and_detach_require_an_attached_client_before_any_session_lookup(
     )
     .await?;
     assert!(matches!(created, Response::NewSession(_)));
-
-    let switch_response = send_request(
-        &socket_path,
-        &Request::SwitchClient(berth_term_proto::SwitchClientRequest {
-            target: session_name("alpha"),
-        }),
-    )
-    .await?;
-
-    assert_eq!(
-        switch_response,
-        Response::Error(berth_term_proto::ErrorResponse {
-            error: TerminalError::Message("no current client".to_owned()),
-        })
-    );
-
-    let missing_switch_response = send_request(
-        &socket_path,
-        &Request::SwitchClient(berth_term_proto::SwitchClientRequest {
-            target: session_name("missing"),
-        }),
-    )
-    .await?;
-
-    assert_eq!(
-        missing_switch_response,
-        Response::Error(berth_term_proto::ErrorResponse {
-            error: TerminalError::Message("no current client".to_owned()),
-        })
-    );
 
     let detach_response = send_request(
         &socket_path,

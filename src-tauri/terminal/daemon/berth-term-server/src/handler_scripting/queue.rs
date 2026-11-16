@@ -13,13 +13,10 @@ use super::prompt_parse::{
     ParsedCommandPromptCommand, ParsedConfirmBeforeCommand, ParsedPromptHistoryCommand,
 };
 use super::queue_parse::{ParsedIfShellCommand, ParsedNewWindowCommand};
-use super::source_files::ParsedSourceFileCommand;
 
 #[derive(Debug, Clone)]
 pub(in crate::handler) struct QueueExecutionContext {
     pub(super) caller_cwd: Option<PathBuf>,
-    pub(super) source_file_depth: usize,
-    pub(super) current_file: Option<String>,
     pub(super) current_target: Option<Target>,
     pub(super) current_target_allows_canfail_fallback: bool,
     pub(super) mouse_target: Option<Target>,
@@ -29,8 +26,6 @@ impl QueueExecutionContext {
     pub(in crate::handler) fn new(caller_cwd: Option<PathBuf>) -> Self {
         Self {
             caller_cwd,
-            source_file_depth: 0,
-            current_file: None,
             current_target: None,
             current_target_allows_canfail_fallback: false,
             mouse_target: None,
@@ -40,26 +35,9 @@ impl QueueExecutionContext {
     pub(in crate::handler) fn without_caller_cwd() -> Self {
         Self {
             caller_cwd: None,
-            source_file_depth: 0,
-            current_file: None,
             current_target: None,
             current_target_allows_canfail_fallback: false,
             mouse_target: None,
-        }
-    }
-
-    pub(in crate::handler) fn for_sourced_commands(
-        &self,
-        source_file_depth: usize,
-        current_file: Option<String>,
-    ) -> Self {
-        Self {
-            caller_cwd: self.caller_cwd.clone(),
-            source_file_depth,
-            current_file,
-            current_target: self.current_target.clone(),
-            current_target_allows_canfail_fallback: self.current_target_allows_canfail_fallback,
-            mouse_target: self.mouse_target.clone(),
         }
     }
 
@@ -70,19 +48,6 @@ impl QueueExecutionContext {
         self.current_target_allows_canfail_fallback = current_target.is_some();
         self.current_target = current_target;
         self
-    }
-
-    pub(in crate::handler) fn with_implicit_current_target(
-        mut self,
-        current_target: Option<Target>,
-    ) -> Self {
-        self.current_target = current_target;
-        self.current_target_allows_canfail_fallback = false;
-        self
-    }
-
-    pub(in crate::handler) fn uses_explicit_current_target(&self) -> bool {
-        self.current_target_allows_canfail_fallback
     }
 
     pub(in crate::handler) fn with_mouse_target(mut self, mouse_target: Option<Target>) -> Self {
@@ -106,20 +71,17 @@ pub(in crate::handler) enum QueueCommandAction {
     Normal {
         output: Option<CommandOutput>,
         error: Option<TerminalError>,
-        exit_status: Option<i32>,
     },
     InsertAfter {
         batches: Vec<(ParsedCommands, QueueExecutionContext)>,
         output: Option<CommandOutput>,
         error: Option<TerminalError>,
-        exit_status: Option<i32>,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum QueueMode {
     Detached,
-    Control,
 }
 
 #[derive(Debug, Clone)]
@@ -129,13 +91,11 @@ pub(super) enum QueueInvocation {
     StartServer,
     NewWindow(ParsedNewWindowCommand),
     IfShell(ParsedIfShellCommand),
-    SourceFile(ParsedSourceFileCommand),
     ListPanesAll(ParsedListPanesAllCommand),
     SplitWindow(ParsedSplitWindowCommand),
     CommandPrompt(ParsedCommandPromptCommand),
     ConfirmBefore(ParsedConfirmBeforeCommand),
     ModeTree(super::super::mode_tree_support::ParsedModeTreeCommand),
-    Overlay(super::super::overlay_support::ParsedOverlayCommand),
     PromptHistory(ParsedPromptHistoryCommand),
 }
 
@@ -164,7 +124,6 @@ pub(super) fn queue_action_from_response(
                 .filter(|output| !output.stdout().is_empty())
                 .cloned(),
             error: None,
-            exit_status: response.exit_status().filter(|status| *status != 0),
         }),
         response => Ok(QueueCommandAction::Normal {
             output: response
@@ -172,7 +131,6 @@ pub(super) fn queue_action_from_response(
                 .filter(|output| !output.stdout().is_empty())
                 .cloned(),
             error: None,
-            exit_status: None,
         }),
     }
 }
@@ -185,12 +143,10 @@ pub(super) fn prompt_queue_action_from_result(
             batches: vec![(parsed, context)],
             output: None,
             error: result.error,
-            exit_status: None,
         },
         None => QueueCommandAction::Normal {
             output: None,
             error: result.error,
-            exit_status: None,
         },
     }
 }

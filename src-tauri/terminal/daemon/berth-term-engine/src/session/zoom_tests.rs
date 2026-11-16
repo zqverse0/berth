@@ -86,28 +86,6 @@ fn select_pane_preserves_zoom_when_requested() {
 }
 
 #[test]
-fn last_pane_preserves_zoom_when_requested() {
-    let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 80, rows: 24 });
-    session.split_active_pane().expect("split succeeds");
-    session
-        .resize_pane_in_window(0, 1, ResizePaneAdjustment::Zoom)
-        .expect("zoom succeeds");
-
-    let selected = session
-        .last_pane_in_window_with_zoom(0, true)
-        .expect("last pane succeeds");
-
-    let window = session.window_at(0).expect("window exists");
-    assert_eq!(selected, 0);
-    assert!(window.is_zoomed());
-    assert_eq!(window.active_pane_index(), 0);
-    assert_eq!(
-        window.pane(0).expect("pane 0 exists").geometry(),
-        PaneGeometry::new(0, 0, 80, 24)
-    );
-}
-
-#[test]
 fn adjacent_select_preserves_zoom_when_requested() {
     let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 80, rows: 24 });
     session

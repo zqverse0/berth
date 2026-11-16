@@ -81,14 +81,6 @@ impl OuterTerminal {
         terminal
     }
 
-    pub(super) fn from_feature_names(feature_names: &[String]) -> Self {
-        let mut terminal = Self::default();
-        for feature in feature_names {
-            terminal.apply_feature_name(feature);
-        }
-        terminal
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn features_string(&self) -> String {
         let mut features = Vec::new();

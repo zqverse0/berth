@@ -76,26 +76,6 @@ const DISPLAY_PANE_GLYPHS: [[[u8; 5]; 5]; 10] = [
     ],
 ];
 
-pub(crate) fn render_display_panes_overlay(session: &Session, options: &OptionStore) -> Vec<u8> {
-    let specs = display_pane_specs(session, options);
-    if specs.is_empty() {
-        return Vec::new();
-    }
-
-    let mut frame = Vec::new();
-    frame.extend_from_slice(b"\x1b[s\x1b[?25l");
-    for spec in &specs {
-        for run in &spec.overlay_runs {
-            frame.extend_from_slice(super::cursor_position_bytes(run.y, run.x).as_slice());
-            frame.extend_from_slice(b"\x1b[0m");
-            frame.extend_from_slice(run.sgr.as_slice());
-            frame.extend_from_slice(run.text.as_bytes());
-        }
-    }
-    frame.extend_from_slice(b"\x1b[0m\x1b[u");
-    frame
-}
-
 pub(crate) fn render_display_panes_clear(session: &Session, options: &OptionStore) -> Vec<u8> {
     render_display_panes_clear_with_base(session, options, &super::render(session, options))
 }
@@ -121,32 +101,6 @@ pub(crate) fn render_display_panes_clear_with_base(
     frame.extend_from_slice(b"\x1b[0m\x1b[?25h\x1b[u");
     frame.extend_from_slice(base_frame);
     frame
-}
-
-pub(crate) fn display_panes_label_count(session: &Session, options: &OptionStore) -> u32 {
-    u32::try_from(display_pane_specs(session, options).len()).unwrap_or(u32::MAX)
-}
-
-pub(crate) fn display_pane_targets(
-    session: &Session,
-    options: &OptionStore,
-) -> Vec<DisplayPaneTarget> {
-    let mut targets = Vec::new();
-    for spec in display_pane_specs(session, options) {
-        targets.push(DisplayPaneTarget {
-            label: spec.label.clone(),
-            target: spec.target.clone(),
-            target_string: spec.target_string.clone(),
-        });
-        if let Some(alias) = spec.alias {
-            targets.push(DisplayPaneTarget {
-                label: alias,
-                target: spec.target,
-                target_string: spec.target_string,
-            });
-        }
-    }
-    targets
 }
 
 fn display_pane_specs(session: &Session, options: &OptionStore) -> Vec<DisplayPaneSpec> {
@@ -430,67 +384,14 @@ struct DisplayPaneClearRun {
     width: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DisplayPaneTarget {
-    pub(crate) label: String,
-    pub(crate) target: PaneTarget,
-    pub(crate) target_string: String,
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use berth_term_engine::{OptionStore, Session};
-    use berth_term_proto::{
-        ResizePaneAdjustment, ScopeSelector, SessionName, SetOptionMode, TerminalSize, WindowTarget,
-    };
+    use berth_term_proto::{ResizePaneAdjustment, SessionName, TerminalSize};
 
     fn session_name(value: &str) -> SessionName {
         SessionName::new(value).expect("valid session name")
-    }
-
-    #[test]
-    fn display_panes_overlay_places_labels_at_pane_centers() {
-        let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 8, rows: 4 });
-        session.split_active_pane().expect("split succeeds");
-
-        let options = OptionStore::new();
-        let frame = render_display_panes_overlay(&session, &options);
-        let frame = String::from_utf8(frame).expect("overlay is utf-8");
-
-        assert!(frame.contains("\u{1b}[2;3H\u{1b}[0m\u{1b}[44m0"));
-        assert!(frame.contains("\u{1b}[2;7H\u{1b}[0m\u{1b}[41m1"));
-    }
-
-    #[test]
-    fn display_panes_overlay_uses_tmux_big_digits_for_large_panes() {
-        let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 32, rows: 8 });
-        session.split_active_pane().expect("split succeeds");
-
-        let options = OptionStore::new();
-        let frame = String::from_utf8(render_display_panes_overlay(&session, &options))
-            .expect("overlay is utf-8");
-
-        assert!(frame.contains("\u{1b}[44m     "));
-        assert!(frame.contains("\u{1b}[41m "));
-        assert!(frame.contains("15x7") || frame.contains("16x7"));
-        assert!(!frame.contains("\u{1b}[7m"));
-    }
-
-    #[test]
-    fn zoomed_display_panes_overlay_labels_only_the_active_pane() {
-        let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 8, rows: 4 });
-        session.split_active_pane().expect("split succeeds");
-        session
-            .resize_pane(1, ResizePaneAdjustment::Zoom)
-            .expect("zoom succeeds");
-
-        let options = OptionStore::new();
-        let frame = render_display_panes_overlay(&session, &options);
-        let frame = String::from_utf8(frame).expect("overlay is utf-8");
-
-        assert!(frame.contains("\u{1b}[2;5H\u{1b}[0m\u{1b}[41m1"));
-        assert!(!frame.contains("\u{1b}[2;3H\u{1b}[0m\u{1b}[44m0"));
     }
 
     #[test]
@@ -502,45 +403,5 @@ mod tests {
             .expect("zoom succeeds");
 
         assert!(super::super::render(&session, &OptionStore::new()).contains(&b'['));
-    }
-
-    #[test]
-    fn display_panes_label_count_matches_renderable_overlay_labels() {
-        let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 3, rows: 4 });
-        session.split_active_pane().expect("split succeeds");
-        session.resize_terminal(TerminalSize { cols: 3, rows: 1 });
-
-        let options = OptionStore::new();
-        assert!(render_display_panes_overlay(&session, &options).is_empty());
-        assert_eq!(display_panes_label_count(&session, &options), 0);
-    }
-
-    #[test]
-    fn display_panes_uses_window_local_pane_base_index_for_labels() {
-        let mut session = Session::new(session_name("alpha"), TerminalSize { cols: 12, rows: 4 });
-        session.split_active_pane().expect("split succeeds");
-        let mut options = OptionStore::new();
-        options
-            .set(
-                ScopeSelector::Window(WindowTarget::with_window(session.name().clone(), 0)),
-                OptionName::PaneBaseIndex,
-                "10".to_owned(),
-                SetOptionMode::Replace,
-            )
-            .expect("pane-base-index set succeeds");
-
-        let targets = display_pane_targets(&session, &options);
-
-        assert_eq!(
-            targets
-                .iter()
-                .map(|target| target.label.as_str())
-                .collect::<Vec<_>>(),
-            vec!["10", "a", "11", "b"]
-        );
-        assert_eq!(targets[0].target.pane_index(), 0);
-        assert_eq!(targets[1].target.pane_index(), 0);
-        assert_eq!(targets[2].target.pane_index(), 1);
-        assert_eq!(targets[3].target.pane_index(), 1);
     }
 }

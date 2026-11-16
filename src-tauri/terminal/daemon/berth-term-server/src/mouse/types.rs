@@ -4,7 +4,7 @@ use berth_term_engine::{PaneGeometry, PaneId};
 use berth_term_proto::PaneTarget;
 
 use crate::input_keys::MouseForwardEvent;
-pub(crate) use crate::status_ranges::{StatusLineLayout, StatusRange, StatusRangeType};
+pub(crate) use crate::status_ranges::{StatusLineLayout, StatusRangeType};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum MouseLocation {
@@ -148,12 +148,6 @@ pub(crate) struct MouseLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MouseDragHandler {
-    CopyModeSelection { target: PaneTarget },
-    CopyModeScrollbar { target: PaneTarget },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttachedMouseEvent {
     pub(crate) raw: MouseForwardEvent,
     pub(crate) session_id: u32,
@@ -186,5 +180,4 @@ pub(crate) struct ClientMouseState {
     pub(crate) scrolling_flag: bool,
     pub(crate) slider_mpos: i32,
     pub(crate) current_event: Option<AttachedMouseEvent>,
-    pub(crate) drag_handler: Option<MouseDragHandler>,
 }

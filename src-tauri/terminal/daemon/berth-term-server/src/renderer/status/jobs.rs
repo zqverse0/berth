@@ -427,10 +427,10 @@ fn status_job_stdout(stdout: Vec<u8>) -> String {
 
 #[cfg(test)]
 fn test_profile(environment: &[(&str, &str)]) -> TerminalProfile {
-    use std::collections::HashMap;
-    use std::path::Path;
     use berth_term_engine::{EnvironmentStore, OptionStore};
     use berth_term_proto::SessionName;
+    use std::collections::HashMap;
+    use std::path::Path;
 
     let mut spawn_environment = HashMap::new();
     for (name, value) in environment {

@@ -56,10 +56,13 @@ mod boundary_tests {
                 .join("Cargo.toml"),
         )
         .expect("read src-tauri/Cargo.toml");
+        // 只看依赖行本身，不绑定版本号等无关写法
+        let dependency = cargo_toml
+            .lines()
+            .find(|line| line.trim_start().starts_with("berth-term-sdk ="))
+            .expect("berth-gui depends on berth-term-sdk");
         assert!(
-            cargo_toml.contains(
-                "berth-term-sdk = { path = \"terminal/sdk/berth-term-sdk\", version = \"0.29.9\", default-features = false }"
-            ),
+            dependency.contains("default-features = false"),
             "berth-gui must depend on berth-term-sdk with default-features = false"
         );
     }

@@ -15,8 +15,6 @@ use crate::pane_terminals::HandlerState;
 use crate::pane_visible_geometry::visible_pane_content_geometry;
 #[path = "renderer/borders.rs"]
 mod borders;
-#[path = "renderer/clock_mode.rs"]
-mod clock_mode;
 #[path = "renderer/display_panes.rs"]
 mod display_panes;
 #[path = "renderer/format_draw.rs"]
@@ -35,18 +33,11 @@ use borders::{
     render_cells, render_pane_border_status_lines as render_border_status, runtime_border_cells,
 };
 #[cfg_attr(windows, allow(unused_imports))]
-pub(crate) use clock_mode::{
-    render_clock_overlay, render_clock_restore_frame, ClockPaneRestoreData,
-};
 #[cfg_attr(windows, allow(unused_imports))]
-pub(crate) use display_panes::{
-    display_pane_targets, display_panes_label_count, render_display_panes_clear,
-    render_display_panes_clear_with_base, render_display_panes_overlay,
-};
+pub(crate) use display_panes::render_display_panes_clear;
 pub(crate) use format_draw::{
     format_draw_content_width, format_draw_line, render_formatted_line, FormattedLine,
 };
-#[allow(unused_imports)]
 pub(crate) use overlay::{
     render_menu_overlay, render_popup_overlay, resolve_overlay_rect, status_line_layout,
     MenuRenderItem, MenuRenderSpec, OverlayMousePosition, OverlayPositionContext, OverlayRect,
@@ -71,15 +62,6 @@ pub(crate) struct RenderedPrompt {
 
 pub(crate) fn render(session: &Session, options: &OptionStore) -> Vec<u8> {
     render_with_attached_count_and_prompt(session, options, 0, None)
-}
-
-#[allow(dead_code)]
-pub(crate) fn render_with_attached_count(
-    session: &Session,
-    options: &OptionStore,
-    attached_count: usize,
-) -> Vec<u8> {
-    render_with_attached_count_and_prompt(session, options, attached_count, None)
 }
 
 pub(crate) fn render_with_attached_count_and_prompt(

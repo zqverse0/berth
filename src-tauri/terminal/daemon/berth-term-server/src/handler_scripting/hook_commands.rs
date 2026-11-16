@@ -8,16 +8,6 @@ use crate::hook_runtime::current_hook_formats;
 use crate::terminal::{spawn_hook_command_with_profile, TerminalProfile};
 
 impl RequestHandler {
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::handler) async fn execute_hook_command(
-        &self,
-        requester_pid: u32,
-        command: &str,
-    ) -> Result<(), TerminalError> {
-        self.execute_hook_command_with_context(requester_pid, command, None)
-            .await
-    }
-
     pub(in crate::handler) async fn execute_hook_command_with_context(
         &self,
         requester_pid: u32,
@@ -85,7 +75,7 @@ impl RequestHandler {
             session_name,
             session_id,
             &self.socket_path(),
-            !self.config_loading_active(),
+            true,
             None,
         )
     }

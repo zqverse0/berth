@@ -23,7 +23,6 @@ impl PendingShutdownReason {
         match self {
             Self::ExitEmpty => "exit-empty",
             Self::KillServer => "kill-server",
-            Self::SeamlessUpgradeIdle => "seamless-upgrade-idle",
         }
     }
 }
@@ -84,11 +83,7 @@ impl RequestHandler {
             .shutdown_reason
             .lock()
             .expect("shutdown reason mutex must not be poisoned");
-        if let Some(
-            reason
-            @ (PendingShutdownReason::ExitEmpty | PendingShutdownReason::SeamlessUpgradeIdle),
-        ) = reason
-        {
+        if let Some(reason @ PendingShutdownReason::ExitEmpty) = reason {
             match self.pending_idle_shutdown_state(reason, excluded_connection_id) {
                 IdleShutdownState::StillApplies => {}
                 IdleShutdownState::Stale => {
@@ -122,10 +117,7 @@ impl RequestHandler {
                 .expect("retained exited output mutex must not be poisoned");
             if retained_outputs.is_empty(std::time::Instant::now()) {
                 true
-            } else if matches!(
-                reason,
-                Some(PendingShutdownReason::ExitEmpty | PendingShutdownReason::SeamlessUpgradeIdle)
-            ) {
+            } else if matches!(reason, Some(PendingShutdownReason::ExitEmpty)) {
                 retained_outputs.clear();
                 true
             } else {
@@ -248,14 +240,7 @@ impl RequestHandler {
         }
         drop(active_detached_connections);
 
-        let Ok(active_control) = self.active_control.try_lock() else {
-            return IdleShutdownState::Unknown;
-        };
-        if active_control.by_pid.is_empty() {
-            IdleShutdownState::StillApplies
-        } else {
-            IdleShutdownState::Stale
-        }
+        IdleShutdownState::StillApplies
     }
 }
 
@@ -313,33 +298,6 @@ impl Drop for DetachedRequestGuard {
 mod tests {
     use super::*;
     use crate::daemon::ShutdownHandle;
-
-    #[tokio::test]
-    async fn idle_shutdown_retry_preserves_excluded_detached_connection() {
-        let handler = RequestHandler::new();
-        let (shutdown_handle, shutdown_rx) = ShutdownHandle::new();
-        handler.install_shutdown_handle(shutdown_handle);
-
-        let requester_connection_id = 7;
-        let _requester_connection = handler.begin_detached_connection(requester_connection_id);
-        handler.queue_shutdown_request(PendingShutdownReason::SeamlessUpgradeIdle);
-
-        let active_connections = handler
-            .active_detached_connections
-            .lock()
-            .expect("active detached connection mutex must not be poisoned");
-        assert!(
-            !handler.request_shutdown_if_pending_excluding_detached_connection(Some(
-                requester_connection_id
-            ))
-        );
-        drop(active_connections);
-
-        tokio::time::timeout(std::time::Duration::from_millis(500), shutdown_rx)
-            .await
-            .expect("retry should preserve requester exclusion and request shutdown")
-            .expect("shutdown receiver should complete cleanly");
-    }
 
     #[tokio::test]
     async fn idle_shutdown_retries_after_in_flight_detached_request() {

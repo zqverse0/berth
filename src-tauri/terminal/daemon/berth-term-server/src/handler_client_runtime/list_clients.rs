@@ -6,8 +6,6 @@ pub(in crate::handler) struct ListClientSnapshot {
     pub(in crate::handler) pid: u32,
     pub(in crate::handler) tty: String,
     pub(in crate::handler) control: bool,
-    pub(in crate::handler) session_name: Option<berth_term_proto::SessionName>,
-    pub(in crate::handler) order: u64,
     pub(in crate::handler) width: u16,
     pub(in crate::handler) height: u16,
     pub(in crate::handler) termname: String,

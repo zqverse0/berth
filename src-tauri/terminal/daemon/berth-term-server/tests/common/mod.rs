@@ -11,17 +11,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use berth_term_proto::{
+    decode_frame, encode_frame, AttachSessionRequest, AttachSessionResponse, FrameDecoder, Request,
+    Response, SessionName, TerminalError, TerminalSize, BERTH_TERM_FRAME_MAGIC,
+    BERTH_TERM_WIRE_VERSION, DEFAULT_MAX_DETACHED_FRAME_LENGTH,
+};
+use berth_term_server::{DaemonConfig, ServerDaemon, ServerHandle};
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::fs::{flock, FlockOperation};
 use rustix::termios::{
     tcgetattr, tcgetwinsize, tcsetattr, OptionalActions, SpecialCodeIndex, Termios,
 };
-use berth_term_proto::{
-    decode_frame, encode_frame, AttachSessionRequest, AttachSessionResponse, FrameDecoder, Request,
-    Response, SessionName, TerminalError, TerminalSize, DEFAULT_MAX_DETACHED_FRAME_LENGTH,
-    BERTH_TERM_FRAME_MAGIC, BERTH_TERM_WIRE_VERSION,
-};
-use berth_term_server::{DaemonConfig, ServerDaemon, ServerHandle};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::{Mutex, MutexGuard};

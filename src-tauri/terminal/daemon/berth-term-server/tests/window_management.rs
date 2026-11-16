@@ -7,15 +7,13 @@ use std::time::{Duration, Instant};
 
 mod common;
 
-use common::{session_name, start_server, ClientConnection, TestHarness, PTY_TEST_LOCK};
 use berth_term_proto::{
-    KillWindowRequest, LastWindowRequest, ListPanesRequest, ListWindowsRequest, MoveWindowRequest,
-    MoveWindowResponse, MoveWindowTarget, NewSessionRequest, NewWindowRequest, NextWindowRequest,
-    PaneTarget, PreviousWindowRequest, RenameWindowRequest, Request, Response,
-    RotateWindowDirection, RotateWindowRequest, RotateWindowResponse, SelectWindowRequest,
-    SessionName, SplitWindowRequest, SplitWindowTarget, SwapWindowRequest, SwapWindowResponse,
-    TerminalSize, WindowTarget,
+    KillWindowRequest, ListPanesRequest, ListWindowsRequest, NewSessionRequest, NewWindowRequest,
+    NextWindowRequest, PaneTarget, PreviousWindowRequest, RenameWindowRequest, Request, Response,
+    SelectWindowRequest, SessionName, SplitWindowRequest, SplitWindowTarget, TerminalSize,
+    WindowTarget,
 };
+use common::{session_name, start_server, ClientConnection, TestHarness, PTY_TEST_LOCK};
 
 // PTY child processes can take a few seconds to appear consistently in
 // `/proc/<pid>/task/*/children` under full-workspace test load.
@@ -290,16 +288,6 @@ async fn window_navigation_and_listing_requests_round_trip_through_the_socket(
             target: WindowTarget::with_window(session.clone(), 0),
         })
     );
-    assert_eq!(
-        client
-            .send_request(&Request::LastWindow(LastWindowRequest {
-                target: session.clone(),
-            }))
-            .await?,
-        Response::LastWindow(berth_term_proto::LastWindowResponse {
-            target: WindowTarget::with_window(session.clone(), 1),
-        })
-    );
 
     let listed = client
         .send_request(&Request::ListWindows(ListWindowsRequest {
@@ -312,7 +300,7 @@ async fn window_navigation_and_listing_requests_round_trip_through_the_socket(
     };
     assert_eq!(
         std::str::from_utf8(listed.output.stdout())?,
-        "0:@0:0\n1:@1:1\n2:@2:0\n"
+        "0:@0:1\n1:@1:0\n2:@2:0\n"
     );
 
     handle.shutdown().await?;
@@ -369,140 +357,4 @@ async fn wait_for_session_pane_ttys(
         format!("timed out waiting for {expected_count} pane tty paths in session {session}")
             .into(),
     )
-}
-
-#[tokio::test]
-async fn window_move_swap_and_rotate_requests_round_trip_through_the_socket(
-) -> Result<(), Box<dyn Error>> {
-    let _guard = PTY_TEST_LOCK.lock().await;
-    let harness = TestHarness::new("window-movement-management");
-    let socket_path = harness.socket_path().to_path_buf();
-    let handle = start_server(&harness).await?;
-    let mut client = ClientConnection::connect(&socket_path).await?;
-    let alpha = session_name("alpha");
-    let beta = session_name("beta");
-
-    for session in [alpha.clone(), beta.clone()] {
-        let created = client
-            .send_request(&Request::NewSession(NewSessionRequest {
-                session_name: session,
-                detached: true,
-                size: Some(TerminalSize {
-                    cols: 120,
-                    rows: 40,
-                }),
-                environment: None,
-            }))
-            .await?;
-        assert!(matches!(created, Response::NewSession(_)));
-    }
-
-    assert!(matches!(
-        client
-            .send_request(&Request::NewWindow(Box::new(NewWindowRequest {
-                target: alpha.clone(),
-                name: Some("logs".to_owned()),
-                detached: true,
-                start_directory: None,
-                environment: None,
-                command: None,
-                process_command: None,
-                target_window_index: None,
-                insert_at_target: false,
-            })))
-            .await?,
-        Response::NewWindow(_)
-    ));
-    assert!(matches!(
-        client
-            .send_request(&Request::NewWindow(Box::new(NewWindowRequest {
-                target: alpha.clone(),
-                name: Some("scratch".to_owned()),
-                detached: true,
-                start_directory: None,
-                environment: None,
-                command: None,
-                process_command: None,
-                target_window_index: None,
-                insert_at_target: false,
-            })))
-            .await?,
-        Response::NewWindow(_)
-    ));
-
-    let moved = client
-        .send_request(&Request::MoveWindow(MoveWindowRequest {
-            source: Some(WindowTarget::with_window(alpha.clone(), 1)),
-            target: MoveWindowTarget::Window(WindowTarget::with_window(beta.clone(), 4)),
-            renumber: false,
-            kill_destination: false,
-            detached: true,
-            after: false,
-            before: false,
-        }))
-        .await?;
-    assert_eq!(
-        moved,
-        Response::MoveWindow(MoveWindowResponse {
-            session_name: beta.clone(),
-            target: Some(WindowTarget::with_window(beta.clone(), 4)),
-        })
-    );
-
-    let swapped = client
-        .send_request(&Request::SwapWindow(SwapWindowRequest {
-            source: WindowTarget::with_window(alpha.clone(), 2),
-            target: WindowTarget::with_window(beta.clone(), 4),
-            detached: true,
-        }))
-        .await?;
-    assert_eq!(
-        swapped,
-        Response::SwapWindow(SwapWindowResponse {
-            source: WindowTarget::with_window(alpha.clone(), 2),
-            target: WindowTarget::with_window(beta.clone(), 4),
-        })
-    );
-
-    assert_eq!(
-        client
-            .send_request(&Request::SplitWindow(SplitWindowRequest {
-                target: SplitWindowTarget::Pane(PaneTarget::with_window(alpha.clone(), 2, 0)),
-                direction: berth_term_proto::SplitDirection::Vertical,
-                before: false,
-                environment: None,
-            }))
-            .await?,
-        Response::SplitWindow(berth_term_proto::SplitWindowResponse {
-            pane: PaneTarget::with_window(alpha.clone(), 2, 1),
-        })
-    );
-
-    let rotated = client
-        .send_request(&Request::RotateWindow(RotateWindowRequest {
-            target: WindowTarget::with_window(alpha.clone(), 2),
-            direction: RotateWindowDirection::Up,
-            restore_zoom: false,
-        }))
-        .await?;
-    assert_eq!(
-        rotated,
-        Response::RotateWindow(RotateWindowResponse {
-            target: WindowTarget::with_window(alpha.clone(), 2),
-        })
-    );
-
-    let listed = client
-        .send_request(&Request::ListWindows(ListWindowsRequest {
-            target: alpha.clone(),
-            format: Some("#{window_index}:#{window_panes}".to_owned()),
-        }))
-        .await?;
-    let Response::ListWindows(listed) = listed else {
-        panic!("expected list-windows response");
-    };
-    assert_eq!(std::str::from_utf8(listed.output.stdout())?, "0:1\n2:2\n");
-
-    handle.shutdown().await?;
-    Ok(())
 }

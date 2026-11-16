@@ -7,9 +7,9 @@ use super::types::OpenAttachTarget;
 #[cfg(any(unix, windows))]
 use super::wire::emit_attach_bytes;
 #[cfg(any(unix, windows))]
-use std::io;
-#[cfg(any(unix, windows))]
 use berth_term_engine::{TerminalPassthrough, TerminalPassthroughKind};
+#[cfg(any(unix, windows))]
+use std::io;
 #[cfg(any(unix, windows))]
 use tracing::warn;
 

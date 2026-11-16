@@ -180,43 +180,6 @@ async fn send_keys_synchronize_panes_writes_to_each_live_pane() {
     );
 }
 
-#[tokio::test]
-async fn send_prefix_synchronize_panes_writes_to_each_live_pane() {
-    let handler = RequestHandler::new();
-    let alpha = session_name("alpha");
-
-    create_synchronized_two_pane_session(&handler, &alpha).await;
-
-    let pane_zero = PaneTarget::with_window(alpha.clone(), 0, 0);
-    let pane_one = PaneTarget::with_window(alpha.clone(), 0, 1);
-    {
-        let state = handler.state.lock().await;
-        state.start_pane_input_capture_for_test(&pane_zero);
-        state.start_pane_input_capture_for_test(&pane_one);
-    }
-
-    let response = handler
-        .handle(Request::SendPrefix(SendPrefixRequest {
-            target: Some(pane_zero.clone()),
-            secondary: false,
-        }))
-        .await;
-    assert!(matches!(
-        response,
-        Response::SendPrefix(SendPrefixResponse { key_count: 1, .. })
-    ));
-
-    let state = handler.state.lock().await;
-    assert_eq!(
-        state.pane_input_capture_for_test(&pane_zero),
-        Some(b"\x02".to_vec())
-    );
-    assert_eq!(
-        state.pane_input_capture_for_test(&pane_one),
-        Some(b"\x02".to_vec())
-    );
-}
-
 async fn create_synchronized_two_pane_session(
     handler: &RequestHandler,
     alpha: &berth_term_proto::SessionName,

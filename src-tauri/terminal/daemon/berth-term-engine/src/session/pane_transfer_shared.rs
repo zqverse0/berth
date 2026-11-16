@@ -1,5 +1,4 @@
-use super::target_error::invalid_window_target_with_reason;
-use super::{PaneSwapOptions, Session};
+use super::PaneSwapOptions;
 use crate::{Pane, Window};
 use berth_term_proto::TerminalError;
 
@@ -47,49 +46,4 @@ pub(super) fn apply_swap_between_windows(
 pub(super) struct SwapPaneEntry {
     pub(super) index: u32,
     pub(super) pane: Pane,
-}
-
-pub(super) const fn adjusted_insert_position(
-    source_position: usize,
-    target_position: usize,
-) -> usize {
-    if source_position < target_position {
-        target_position
-    } else {
-        target_position + 1
-    }
-}
-
-pub(super) const fn adjusted_insert_position_before(
-    source_position: usize,
-    target_position: usize,
-) -> usize {
-    if source_position < target_position {
-        target_position.saturating_sub(1)
-    } else {
-        target_position
-    }
-}
-
-pub(super) fn resolve_break_destination_index(
-    session: &Session,
-    target_window_index: Option<u32>,
-    allowed_occupied_index: Option<u32>,
-) -> Result<u32, TerminalError> {
-    match target_window_index {
-        Some(target_window_index) => {
-            if session.window_at(target_window_index).is_some()
-                && allowed_occupied_index != Some(target_window_index)
-            {
-                return Err(invalid_window_target_with_reason(
-                    session.name(),
-                    target_window_index,
-                    "window index already exists in session",
-                ));
-            }
-
-            Ok(target_window_index)
-        }
-        None => session.lowest_available_window_index_at_or_above(0),
-    }
 }

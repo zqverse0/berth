@@ -1,7 +1,7 @@
 use berth_term_engine::LifecycleEvent;
 use berth_term_proto::{
-    ErrorResponse, NextLayoutResponse, OptionName, PaneTarget, PreviousLayoutResponse,
-    ResizePaneAdjustment, ResizePaneResponse, Response, SelectLayoutResponse, WindowTarget,
+    ErrorResponse, OptionName, PaneTarget, ResizePaneAdjustment, ResizePaneResponse, Response,
+    SelectLayoutResponse, WindowTarget,
 };
 
 use super::super::RequestHandler;
@@ -59,81 +59,6 @@ impl RequestHandler {
         response
     }
 
-    pub(in crate::handler) async fn handle_select_custom_layout(
-        &self,
-        request: berth_term_proto::SelectCustomLayoutRequest,
-    ) -> Response {
-        let session_name = match &request.target {
-            berth_term_proto::SelectLayoutTarget::Session(session_name) => session_name.clone(),
-            berth_term_proto::SelectLayoutTarget::Window(target) => target.session_name().clone(),
-        };
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.mutate_session_and_resize_terminals(&session_name, |session| {
-                let window_index = layout_window_index(session, &request.target);
-                session.save_old_layout_in_window(window_index)?;
-                session.select_custom_layout_in_window(window_index, &request.layout)?;
-                let layout = session
-                    .window_at(window_index)
-                    .expect("selected layout window exists")
-                    .layout();
-                Ok(SelectLayoutResponse { layout })
-            }) {
-                Ok(response) => Response::SelectLayout(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::SelectLayout(_)) {
-            if let Some(target) =
-                layout_change_target_from_select_target(self, &request.target).await
-            {
-                self.emit(LifecycleEvent::WindowLayoutChanged { target })
-                    .await;
-            }
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_select_old_layout(
-        &self,
-        request: berth_term_proto::SelectOldLayoutRequest,
-    ) -> Response {
-        let session_name = match &request.target {
-            berth_term_proto::SelectLayoutTarget::Session(session_name) => session_name.clone(),
-            berth_term_proto::SelectLayoutTarget::Window(target) => target.session_name().clone(),
-        };
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.mutate_session_and_resize_terminals(&session_name, |session| {
-                let window_index = layout_window_index(session, &request.target);
-                let _ = session.reapply_old_layout_in_window(window_index)?;
-                let layout = session
-                    .window_at(window_index)
-                    .expect("selected layout window exists")
-                    .layout();
-                Ok(SelectLayoutResponse { layout })
-            }) {
-                Ok(response) => Response::SelectLayout(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::SelectLayout(_)) {
-            if let Some(target) =
-                layout_change_target_from_select_target(self, &request.target).await
-            {
-                self.emit(LifecycleEvent::WindowLayoutChanged { target })
-                    .await;
-            }
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
     pub(in crate::handler) async fn handle_spread_layout(
         &self,
         request: berth_term_proto::SpreadLayoutRequest,
@@ -166,72 +91,6 @@ impl RequestHandler {
                 self.emit(LifecycleEvent::WindowLayoutChanged { target })
                     .await;
             }
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_next_layout(
-        &self,
-        request: berth_term_proto::NextLayoutRequest,
-    ) -> Response {
-        let session_name = request.target.session_name().clone();
-        let response = {
-            let mut state = self.state.lock().await;
-            let option_size = layout_main_pane_size_for_window_target(&state, &request.target);
-            match state.mutate_session_and_resize_terminals(&session_name, |session| {
-                session.save_old_layout_in_window(request.target.window_index())?;
-                let layout = session.next_layout_in_window_with_main_pane_size(
-                    request.target.window_index(),
-                    option_size.width,
-                    option_size.height,
-                )?;
-                Ok(NextLayoutResponse { layout })
-            }) {
-                Ok(response) => Response::NextLayout(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::NextLayout(_)) {
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: request.target,
-            })
-            .await;
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_previous_layout(
-        &self,
-        request: berth_term_proto::PreviousLayoutRequest,
-    ) -> Response {
-        let session_name = request.target.session_name().clone();
-        let response = {
-            let mut state = self.state.lock().await;
-            let option_size = layout_main_pane_size_for_window_target(&state, &request.target);
-            match state.mutate_session_and_resize_terminals(&session_name, |session| {
-                session.save_old_layout_in_window(request.target.window_index())?;
-                let layout = session.previous_layout_in_window_with_main_pane_size(
-                    request.target.window_index(),
-                    option_size.width,
-                    option_size.height,
-                )?;
-                Ok(PreviousLayoutResponse { layout })
-            }) {
-                Ok(response) => Response::PreviousLayout(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::PreviousLayout(_)) {
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: request.target,
-            })
-            .await;
             self.refresh_attached_session(&session_name).await;
         }
 

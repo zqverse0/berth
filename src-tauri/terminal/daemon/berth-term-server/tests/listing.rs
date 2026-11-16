@@ -1,21 +1,15 @@
 #![cfg(unix)]
 
 use std::error::Error;
-use std::io;
-use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod common;
 
-use common::{send_request, session_name, start_server, TestHarness};
 use berth_term_proto::{
-    HasSessionRequest, HookLifecycle, HookName, ListPanesRequest, ListSessionsRequest,
-    NewSessionRequest, NewWindowRequest, Request, Response, ScopeSelector, SendKeysRequest,
-    SetEnvironmentRequest, SetHookRequest, SetOptionMode, SetOptionRequest, ShowEnvironmentRequest,
+    HasSessionRequest, ListPanesRequest, ListSessionsRequest, NewSessionRequest, NewWindowRequest,
+    Request, Response, ScopeSelector, SendKeysRequest, SetOptionMode, SetOptionRequest,
     ShowOptionsRequest, SplitWindowRequest, SplitWindowTarget, TerminalSize, WindowTarget,
 };
-
-const FILE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+use common::{send_request, session_name, start_server, TestHarness};
 
 #[tokio::test]
 async fn list_sessions_uses_shared_formatter_through_real_socket() -> Result<(), Box<dyn Error>> {
@@ -170,15 +164,6 @@ async fn rename_session_round_trips_and_migrates_session_scoped_state() -> Resul
     let handle = start_server(&harness).await?;
     let alpha = session_name("alpha");
     let gamma = session_name("gamma");
-    let hook_path = std::env::temp_dir().join(format!(
-        "rmux-rename-hook-{}-{}.txt",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after the unix epoch")
-            .as_nanos()
-    ));
-    let _ = std::fs::remove_file(&hook_path);
 
     let created = send_request(
         harness.socket_path(),
@@ -195,21 +180,6 @@ async fn rename_session_round_trips_and_migrates_session_scoped_state() -> Resul
     assert!(matches!(
         send_request(
             harness.socket_path(),
-            &Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Session(alpha.clone()),
-                name: "TERM".to_owned(),
-                value: "screen".to_owned(),
-                mode: None,
-                hidden: false,
-                format: false,
-            })),
-        )
-        .await?,
-        Response::SetEnvironment(_)
-    ));
-    assert!(matches!(
-        send_request(
-            harness.socket_path(),
             &Request::SetOption(SetOptionRequest {
                 scope: ScopeSelector::Window(WindowTarget::new(alpha.clone())),
                 option: berth_term_proto::OptionName::PaneBorderStyle,
@@ -219,19 +189,6 @@ async fn rename_session_round_trips_and_migrates_session_scoped_state() -> Resul
         )
         .await?,
         Response::SetOption(_)
-    ));
-    assert!(matches!(
-        send_request(
-            harness.socket_path(),
-            &Request::SetHook(SetHookRequest {
-                scope: ScopeSelector::Session(alpha.clone()),
-                hook: HookName::AfterSendKeys,
-                command: format!("printf renamed-hook > {}", hook_path.display()),
-                lifecycle: HookLifecycle::Persistent,
-            }),
-        )
-        .await?,
-        Response::SetHook(_)
     ));
 
     let renamed = send_request(
@@ -270,24 +227,6 @@ async fn rename_session_round_trips_and_migrates_session_scoped_state() -> Resul
         Response::HasSession(berth_term_proto::HasSessionResponse { exists: true })
     );
 
-    let environment = send_request(
-        harness.socket_path(),
-        &Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Session(gamma.clone()),
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }),
-    )
-    .await?;
-    let environment_output = environment
-        .command_output()
-        .expect("show-environment returns command output");
-    assert_eq!(
-        std::str::from_utf8(environment_output.stdout()).expect("environment output is utf-8"),
-        "TERM=screen\n"
-    );
-
     let options = send_request(
         harness.socket_path(),
         &Request::ShowOptions(ShowOptionsRequest {
@@ -315,31 +254,7 @@ async fn rename_session_round_trips_and_migrates_session_scoped_state() -> Resul
     )
     .await?;
     assert!(matches!(sent, Response::SendKeys(_)));
-    wait_for_file_contents(&hook_path, "renamed-hook").await?;
 
     handle.shutdown().await?;
-    let _ = std::fs::remove_file(&hook_path);
     Ok(())
-}
-
-async fn wait_for_file_contents(path: &Path, expected: &str) -> Result<(), Box<dyn Error>> {
-    let deadline = Instant::now() + FILE_WAIT_TIMEOUT;
-
-    while Instant::now() < deadline {
-        match std::fs::read_to_string(path) {
-            Ok(contents) if contents == expected => return Ok(()),
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-
-    Err(io::Error::other(format!(
-        "timed out waiting for '{}' to contain '{}'",
-        path.display(),
-        expected
-    ))
-    .into())
 }

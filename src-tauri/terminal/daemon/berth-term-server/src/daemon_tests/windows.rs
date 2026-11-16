@@ -1,13 +1,12 @@
 use super::{windows_pipe_responds, DaemonConfig, ServerDaemon};
+use berth_term_proto::{
+    encode_frame, ErrorResponse, FrameDecoder, HasSessionRequest, KillServerRequest,
+    KillSessionRequest, ListPanesRequest, ListSessionsRequest, ListWindowsRequest,
+    NewSessionRequest, Request, Response, SessionName, TerminalError, TerminalSize,
+};
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use berth_term_proto::{
-    encode_frame, ErrorResponse, FrameDecoder, HasSessionRequest, KillServerRequest,
-    KillSessionRequest, ListClientsRequest, ListPanesRequest, ListSessionsRequest,
-    ListWindowsRequest, LockServerRequest, NewSessionRequest, Request, Response, SessionName,
-    TerminalError, TerminalSize,
-};
 use tokio::net::windows::named_pipe::ServerOptions;
 
 static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -22,7 +21,12 @@ async fn windows_daemon_accepts_ipc_and_dispatches_runtime_requests() -> io::Res
 
     let response = tokio::task::spawn_blocking(move || {
         let mut stream = berth_term_ipc::connect_blocking(&endpoint, Duration::from_secs(5))?;
-        let request = Request::LockServer(LockServerRequest);
+        let request = Request::ListSessions(ListSessionsRequest {
+            format: None,
+            filter: None,
+            sort_order: None,
+            reversed: false,
+        });
         let frame = encode_frame(&request).map_err(io::Error::other)?;
         stream.write_all(&frame)?;
         read_response(&mut stream)
@@ -30,7 +34,7 @@ async fn windows_daemon_accepts_ipc_and_dispatches_runtime_requests() -> io::Res
     .await
     .map_err(io::Error::other)??;
 
-    assert!(matches!(response, Response::LockServer(_)));
+    assert!(matches!(response, Response::ListSessions(_)));
     assert_eq!(handle.socket_path(), socket_path.as_path());
     handle.shutdown().await
 }
@@ -152,13 +156,6 @@ async fn windows_daemon_empty_listing_requests_succeed() -> io::Result<()> {
                 target_window_index: None,
                 format: None,
             }),
-            Request::ListClients(Box::new(ListClientsRequest {
-                format: None,
-                filter: None,
-                sort_order: None,
-                reversed: false,
-                target_session: None,
-            })),
         ];
 
         requests
@@ -172,10 +169,6 @@ async fn windows_daemon_empty_listing_requests_succeed() -> io::Result<()> {
     for response in responses {
         match response {
             Response::ListSessions(response) => assert!(response.output.stdout().is_empty()),
-            Response::ListClients(response) => {
-                assert_eq!(response.match_count, 0);
-                assert!(response.output.stdout().is_empty());
-            }
             Response::Error(ErrorResponse {
                 error: TerminalError::SessionNotFound(name),
             }) => assert_eq!(name, "alpha"),

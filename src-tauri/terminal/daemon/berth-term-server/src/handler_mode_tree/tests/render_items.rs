@@ -16,7 +16,7 @@ fn render_visible_item_hides_single_pane_branch_marker_in_window_tree() {
         search_text: String::new(),
         preview: Vec::new(),
         no_tag: false,
-        action: ModeTreeAction::None,
+        action: test_action(),
     };
     let build = ModeTreeBuild {
         items: BTreeMap::from([
@@ -31,7 +31,7 @@ fn render_visible_item_hides_single_pane_branch_marker_in_window_tree() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
             (item.id.clone(), item.clone()),
@@ -46,7 +46,7 @@ fn render_visible_item_hides_single_pane_branch_marker_in_window_tree() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
         ]),
@@ -77,7 +77,7 @@ fn render_visible_item_keeps_branch_marker_for_multi_pane_window_tree_item() {
         search_text: String::new(),
         preview: Vec::new(),
         no_tag: false,
-        action: ModeTreeAction::None,
+        action: test_action(),
     };
     let build = ModeTreeBuild {
         items: BTreeMap::from([
@@ -92,7 +92,7 @@ fn render_visible_item_keeps_branch_marker_for_multi_pane_window_tree_item() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
             (item.id.clone(), item.clone()),
@@ -124,7 +124,7 @@ fn render_visible_item_omits_extra_leaf_padding_for_flat_pane_lists() {
         search_text: String::new(),
         preview: Vec::new(),
         no_tag: false,
-        action: ModeTreeAction::None,
+        action: test_action(),
     };
     let build = ModeTreeBuild {
         items: BTreeMap::from([
@@ -139,7 +139,7 @@ fn render_visible_item_omits_extra_leaf_padding_for_flat_pane_lists() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
             (
@@ -153,7 +153,7 @@ fn render_visible_item_omits_extra_leaf_padding_for_flat_pane_lists() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
             (
@@ -167,7 +167,7 @@ fn render_visible_item_omits_extra_leaf_padding_for_flat_pane_lists() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
             (item.id.clone(), item.clone()),
@@ -182,7 +182,7 @@ fn render_visible_item_omits_extra_leaf_padding_for_flat_pane_lists() {
                     search_text: String::new(),
                     preview: Vec::new(),
                     no_tag: false,
-                    action: ModeTreeAction::None,
+                    action: test_action(),
                 },
             ),
         ]),

@@ -7,9 +7,8 @@ use serde_json::json;
 
 use berth_term_sdk::{
     AttachSessionReuse, AttachSessionSpec, ClientTerminalSpec, NewSessionReuse, NewSessionSpec,
-    PaneRef, ProcessSpec, RefreshClientSpec, SessionName, SplitDirectionSpec, SplitSpec,
-    SplitTargetSpec, SubscriptionSpec, TargetRef, TerminalCommand, TerminalCommandKind,
-    TerminalEndpoint, TerminalSizeSpec, WindowRef,
+    PaneRef, ProcessSpec, SessionName, SplitDirectionSpec, SplitSpec, SplitTargetSpec, TargetRef,
+    TerminalCommand, TerminalCommandKind, TerminalEndpoint, TerminalSizeSpec, WindowRef,
 };
 
 fn session_name(value: &str) -> SessionName {
@@ -46,10 +45,6 @@ fn process_subscription_reuse_and_terminal_specs_round_trip() {
         command: Some(vec!["printf".to_owned(), "ok".to_owned()]),
         process_command: None,
         environment: Some(vec!["A=B".to_owned()]),
-    });
-    round_trip(SubscriptionSpec {
-        subscriptions: vec!["pane-output:%1".to_owned()],
-        subscriptions_format: vec!["client:#{client_name}".to_owned()],
     });
     round_trip(NewSessionReuse {
         attach_if_exists: true,
@@ -189,43 +184,6 @@ fn attach_session_spec_round_trip_and_maps_reuse_flags() {
 }
 
 #[test]
-fn refresh_client_spec_round_trip_and_maps_subscriptions() {
-    let spec = round_trip(RefreshClientSpec {
-        target_client: Some("client-1".to_owned()),
-        adjustment: Some(5),
-        clear_pan: true,
-        pan_left: false,
-        pan_right: true,
-        pan_up: false,
-        pan_down: true,
-        status_only: true,
-        clipboard_query: true,
-        flags: Some("read-only".to_owned()),
-        flags_alias: Some("active-pane".to_owned()),
-        subscriptions: SubscriptionSpec {
-            subscriptions: vec!["pane-output:%1".to_owned()],
-            subscriptions_format: vec!["client:#{client_name}".to_owned()],
-        },
-        control_size: Some("80x24".to_owned()),
-        colour_report: Some("fg".to_owned()),
-    });
-
-    let request = berth_term_proto::RefreshClientRequest::from(spec);
-    assert_eq!(request.target_client.as_deref(), Some("client-1"));
-    assert_eq!(request.adjustment, Some(5));
-    assert!(request.clear_pan);
-    assert!(!request.pan_left);
-    assert!(request.pan_right);
-    assert_eq!(request.subscriptions, vec!["pane-output:%1".to_owned()]);
-    assert_eq!(
-        request.subscriptions_format,
-        vec!["client:#{client_name}".to_owned()]
-    );
-    assert_eq!(request.control_size.as_deref(), Some("80x24"));
-    assert_eq!(request.colour_report.as_deref(), Some("fg"));
-}
-
-#[test]
 fn split_spec_round_trip_and_maps_direction_and_target() {
     let spec = round_trip(SplitSpec {
         target: SplitTargetSpec::Pane(PaneRef::new(session_name("alpha"), 2, 3)),
@@ -290,26 +248,6 @@ fn sparse_serde_payloads_preserve_proto_defaults() {
     );
     assert_eq!(request.client_size, None);
 
-    let refresh =
-        serde_json::from_value::<RefreshClientSpec>(json!({})).expect("sparse refresh DTO");
-    assert_eq!(refresh, RefreshClientSpec::default());
-    let request = berth_term_proto::RefreshClientRequest::from(refresh);
-    assert_eq!(request.target_client, None);
-    assert_eq!(request.adjustment, None);
-    assert!(!request.clear_pan);
-    assert!(!request.pan_left);
-    assert!(!request.pan_right);
-    assert!(!request.pan_up);
-    assert!(!request.pan_down);
-    assert!(!request.status_only);
-    assert!(!request.clipboard_query);
-    assert_eq!(request.flags, None);
-    assert_eq!(request.flags_alias, None);
-    assert_eq!(request.subscriptions, Vec::<String>::new());
-    assert_eq!(request.subscriptions_format, Vec::<String>::new());
-    assert_eq!(request.control_size, None);
-    assert_eq!(request.colour_report, None);
-
     let split = serde_json::from_value::<SplitSpec>(json!({
         "target": { "Session": "alpha" }
     }))
@@ -327,31 +265,6 @@ fn sparse_serde_payloads_preserve_proto_defaults() {
     );
     assert_eq!(request.environment, None);
     assert_eq!(request.command, None);
-
-    let command = serde_json::from_value::<TerminalCommand>(json!({
-        "command": { "RefreshClient": {} }
-    }))
-    .expect("sparse command DTO");
-    assert_eq!(command.endpoint, TerminalEndpoint::Default);
-    assert!(matches!(
-        command.into_request(),
-        berth_term_proto::Request::RefreshClient(request)
-            if request.target_client.is_none()
-                && request.adjustment.is_none()
-                && !request.clear_pan
-                && !request.pan_left
-                && !request.pan_right
-                && !request.pan_up
-                && !request.pan_down
-                && !request.status_only
-                && !request.clipboard_query
-                && request.flags.is_none()
-                && request.flags_alias.is_none()
-                && request.subscriptions.is_empty()
-                && request.subscriptions_format.is_empty()
-                && request.control_size.is_none()
-                && request.colour_report.is_none()
-    ));
 }
 
 #[test]
@@ -386,19 +299,6 @@ fn explicit_empty_options_are_not_normalized_away_in_proto_mappings() {
     assert_eq!(request.target_spec, Some(String::new()));
     assert_eq!(request.flags, Some(Vec::<String>::new()));
     assert_eq!(request.working_directory, Some(String::new()));
-
-    let refresh = RefreshClientSpec {
-        flags: Some(String::new()),
-        flags_alias: Some(String::new()),
-        control_size: Some(String::new()),
-        colour_report: Some(String::new()),
-        ..RefreshClientSpec::default()
-    };
-    let request = berth_term_proto::RefreshClientRequest::from(refresh);
-    assert_eq!(request.flags, Some(String::new()));
-    assert_eq!(request.flags_alias, Some(String::new()));
-    assert_eq!(request.control_size, Some(String::new()));
-    assert_eq!(request.colour_report, Some(String::new()));
 
     let split = SplitSpec {
         target: SplitTargetSpec::Session(session_name("alpha")),

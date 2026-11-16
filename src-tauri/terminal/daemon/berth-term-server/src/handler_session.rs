@@ -11,7 +11,7 @@ use berth_term_proto::request::NewSessionExtRequest;
 use berth_term_proto::types::OptionScopeSelector;
 use berth_term_proto::{
     CreatedPane, ErrorResponse, KillSessionRequest, KillSessionResponse, ListSessionsResponse,
-    NewSessionResponse, OptionName, Response, ScopeSelector, SessionId, SessionName, TerminalError,
+    NewSessionResponse, OptionName, Response, ScopeSelector, SessionName, TerminalError,
     WindowTarget,
 };
 
@@ -23,12 +23,12 @@ use crate::terminal::{parse_environment_assignments, validate_process_command};
 
 #[path = "handler_session/client_environment.rs"]
 mod client_environment;
-#[path = "handler_session/control_mode.rs"]
-mod control_mode;
 #[path = "handler_session/has.rs"]
 mod has;
 #[path = "handler_session/list.rs"]
 mod list;
+#[path = "handler_session/new_session_lifecycle.rs"]
+mod new_session_lifecycle;
 #[path = "handler_session/options.rs"]
 mod options;
 #[path = "handler_session/output.rs"]
@@ -469,8 +469,7 @@ impl RequestHandler {
             )
             .await;
         }
-        self.finish_new_session_lifecycle(requester_pid, &session_name, detached)
-            .await;
+        self.finish_new_session_lifecycle(&session_name).await;
 
         if !request.print_session_info {
             return response;
@@ -592,7 +591,6 @@ impl RequestHandler {
         }
 
         self.refresh_attached_session(&session_name).await;
-        self.refresh_control_session(&session_name).await;
     }
 
     #[cfg(windows)]
@@ -674,8 +672,6 @@ impl RequestHandler {
         }
         self.refresh_attached_session(&job.visible_session_name)
             .await;
-        self.refresh_control_session(&job.visible_session_name)
-            .await;
     }
 
     pub(in crate::handler) async fn handle_kill_session(
@@ -709,7 +705,6 @@ impl RequestHandler {
                 Response::KillSession(KillSessionResponse { existed: true })
             };
             self.refresh_attached_session(&session_name).await;
-            self.refresh_control_session(&session_name).await;
             return response;
         }
 
@@ -740,11 +735,10 @@ impl RequestHandler {
             self.cancel_session_silence_timers(session_name).await;
         }
 
-        let (response, queued_session_closed, removed_pane_ids, removed_sessions) = {
+        let (response, queued_session_closed, removed_pane_ids) = {
             let mut state = self.state.lock().await;
             let mut queued_events = Vec::new();
             let mut removed_pane_ids = Vec::new();
-            let mut removed_sessions: Vec<(SessionName, SessionId)> = Vec::new();
 
             for session_name in &sessions_to_remove {
                 if !state.sessions.contains_session(session_name) {
@@ -765,9 +759,8 @@ impl RequestHandler {
 
             for session_name in &sessions_to_remove {
                 match remove_session_locked(&mut state, session_name) {
-                    Ok((pane_ids, session_id, event)) => {
+                    Ok((pane_ids, event)) => {
                         removed_pane_ids.extend(pane_ids);
-                        removed_sessions.push((session_name.clone(), session_id));
                         queued_events.push(event);
                     }
                     Err(TerminalError::SessionNotFound(_)) => {}
@@ -779,15 +772,9 @@ impl RequestHandler {
                 Response::KillSession(KillSessionResponse { existed: true }),
                 queued_events,
                 removed_pane_ids,
-                removed_sessions,
             )
         };
 
-        #[cfg(all(any(unix, windows), feature = "web"))]
-        self.web_shares
-            .remove_targets_for_sessions(&removed_sessions);
-        #[cfg(not(all(any(unix, windows), feature = "web")))]
-        let _ = &removed_sessions;
         if !removed_pane_ids.is_empty() {
             self.forget_pane_snapshot_coalescers(&removed_pane_ids);
         }
@@ -846,7 +833,6 @@ impl RequestHandler {
         };
 
         if renamed {
-            self.rename_control_session(&session_name, &new_name).await;
             self.cancel_session_silence_timers(&session_name).await;
         }
         if matches!(response, Response::RenameSession(_)) {
@@ -896,13 +882,11 @@ impl RequestHandler {
         sort_list_sessions(&mut sessions, sort_order, request.reversed);
 
         let active_attach = self.active_attach.lock().await;
-        let active_control = self.active_control.lock().await;
         let lines = sessions
             .iter()
             .filter_map(|session| state.sessions.session(&session.name))
             .filter_map(|session| {
-                let attached_count = active_attach.attached_count(session.name())
-                    + active_control.attached_count(session.name());
+                let attached_count = active_attach.attached_count(session.name());
                 let active_window_index = session.active_window_index();
                 let active_window = session.window();
                 let mut context = FormatContext::from_session(session)
@@ -990,7 +974,7 @@ fn destroy_unattached_candidate_sessions(
 pub(in crate::handler) fn remove_session_locked(
     state: &mut HandlerState,
     session_name: &SessionName,
-) -> Result<(Vec<PaneId>, SessionId, QueuedLifecycleEvent), TerminalError> {
+) -> Result<(Vec<PaneId>, QueuedLifecycleEvent), TerminalError> {
     let current_runtime_owner = state.sessions.runtime_owner(session_name);
     let next_runtime_owner = state.sessions.runtime_owner_transfer_target(session_name);
     let removed_session = state.sessions.remove_session(session_name)?;
@@ -1020,7 +1004,7 @@ pub(in crate::handler) fn remove_session_locked(
         .into_iter()
         .filter(|pane_id| !surviving_pane_ids.contains(pane_id))
         .collect();
-    Ok((retired_pane_ids, session_id, event))
+    Ok((retired_pane_ids, event))
 }
 
 fn session_pane_ids(session: &berth_term_engine::Session) -> Vec<PaneId> {

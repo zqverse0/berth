@@ -1,9 +1,7 @@
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{
-    HookLifecycle, HookName, OptionName, OptionScopeSelector, ScopeSelector, SetOptionMode,
-};
+use crate::{OptionName, OptionScopeSelector, ScopeSelector, SetOptionMode};
 
 use super::compat::{compat_next_element, required_next};
 
@@ -180,38 +178,4 @@ pub struct SetEnvironmentRequest {
     /// Whether the value should be format-expanded before storage.
     #[serde(default)]
     pub format: bool,
-}
-
-/// Request payload for `set-hook`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetHookRequest {
-    /// The selected mutation scope.
-    pub scope: ScopeSelector,
-    /// The supported hook name.
-    pub hook: HookName,
-    /// The shell command string executed by the server.
-    pub command: String,
-    /// The hook lifecycle semantics.
-    pub lifecycle: HookLifecycle,
-}
-
-/// Extended request payload for `set-hook`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetHookMutationRequest {
-    /// The selected mutation scope.
-    pub scope: ScopeSelector,
-    /// The supported hook name.
-    pub hook: HookName,
-    /// The optional shell command string executed by the server.
-    pub command: Option<String>,
-    /// The hook lifecycle semantics.
-    pub lifecycle: HookLifecycle,
-    /// Whether the mutation should append to the next free array slot.
-    pub append: bool,
-    /// Whether the mutation should remove the hook instead of setting it.
-    pub unset: bool,
-    /// Whether the hook should fire immediately without storing the mutation.
-    pub run_immediately: bool,
-    /// The optional explicit array index.
-    pub index: Option<u32>,
 }

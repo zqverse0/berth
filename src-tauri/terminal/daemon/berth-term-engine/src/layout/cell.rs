@@ -55,14 +55,6 @@ impl LayoutCell {
         }
     }
 
-    #[must_use]
-    pub(super) fn leaf_count(&self) -> usize {
-        match &self.kind {
-            LayoutKind::Pane => 1,
-            LayoutKind::Split(_, children) => children.iter().map(Self::leaf_count).sum(),
-        }
-    }
-
     pub(super) fn collect_leaf_geometries(&self, geometries: &mut Vec<LayoutGeometry>) {
         match &self.kind {
             LayoutKind::Pane => geometries.push(self.geometry),
@@ -119,48 +111,6 @@ impl LayoutCell {
             }
         }
         body
-    }
-
-    #[must_use]
-    pub(super) fn check(&self) -> bool {
-        match &self.kind {
-            LayoutKind::Pane => true,
-            LayoutKind::Split(direction, children) => {
-                if children.is_empty() {
-                    return false;
-                }
-
-                let mut total = 0_u32;
-                for child in children {
-                    if !child.check() {
-                        return false;
-                    }
-                    match direction {
-                        LayoutDirection::LeftRight => {
-                            if child.geometry.height != self.geometry.height {
-                                return false;
-                            }
-                            total = total.saturating_add(child.geometry.width + PANE_BORDER_CELLS);
-                        }
-                        LayoutDirection::TopBottom => {
-                            if child.geometry.width != self.geometry.width {
-                                return false;
-                            }
-                            total = total.saturating_add(child.geometry.height + PANE_BORDER_CELLS);
-                        }
-                    }
-                }
-
-                match direction {
-                    LayoutDirection::LeftRight => {
-                        total.saturating_sub(PANE_BORDER_CELLS) == self.geometry.width
-                    }
-                    LayoutDirection::TopBottom => {
-                        total.saturating_sub(PANE_BORDER_CELLS) == self.geometry.height
-                    }
-                }
-            }
-        }
     }
 
     pub(super) fn fix_offsets(&mut self, x: u32, y: u32) {
@@ -310,37 +260,5 @@ impl LayoutCell {
         }
 
         changed
-    }
-
-    pub(super) fn fix_root_size_if_needed(&mut self) {
-        let LayoutKind::Split(direction, children) = &self.kind else {
-            return;
-        };
-        if children.is_empty() {
-            return;
-        }
-
-        let (expected_width, expected_height) = match direction {
-            LayoutDirection::LeftRight => (
-                children
-                    .iter()
-                    .map(|child| child.geometry.width + PANE_BORDER_CELLS)
-                    .sum::<u32>()
-                    .saturating_sub(PANE_BORDER_CELLS),
-                children[0].geometry.height,
-            ),
-            LayoutDirection::TopBottom => (
-                children[0].geometry.width,
-                children
-                    .iter()
-                    .map(|child| child.geometry.height + PANE_BORDER_CELLS)
-                    .sum::<u32>()
-                    .saturating_sub(PANE_BORDER_CELLS),
-            ),
-        };
-
-        self.geometry.width = expected_width;
-        self.geometry.height = expected_height;
-        self.fix_offsets(0, 0);
     }
 }

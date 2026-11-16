@@ -4,9 +4,8 @@ use super::RequestHandler;
 use berth_term_engine::events::SubscriptionLimits;
 use berth_term_proto::{
     ErrorResponse, NewSessionRequest, OptionName, PaneTarget, Request, Response, ScopeSelector,
-    SetEnvironmentMode, SetEnvironmentRequest, SetOptionMode, SetOptionRequest,
-    ShowEnvironmentRequest, ShowHooksRequest, ShowOptionsRequest, SplitDirection,
-    SplitWindowRequest, SplitWindowTarget, TerminalError, TerminalSize, WindowTarget,
+    SetOptionMode, SetOptionRequest, ShowOptionsRequest, SplitDirection, SplitWindowRequest,
+    SplitWindowTarget, TerminalError, TerminalSize, WindowTarget,
 };
 
 fn session_name(value: &str) -> berth_term_proto::SessionName {
@@ -140,69 +139,6 @@ async fn show_options_a_marks_inherited_values() {
 }
 
 #[tokio::test]
-async fn show_environment_returns_sorted_exact_scope_command_output() {
-    let handler = RequestHandler::new();
-    create_session(&handler, "alpha").await;
-
-    for (scope, name, value) in [
-        (ScopeSelector::Global, "COLORTERM", "truecolor"),
-        (
-            ScopeSelector::Session(session_name("alpha")),
-            "TERM",
-            "screen-256color",
-        ),
-    ] {
-        assert!(matches!(
-            handler
-                .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                    scope,
-                    name: name.to_owned(),
-                    value: value.to_owned(),
-                    mode: None,
-                    hidden: false,
-                    format: false,
-                })))
-                .await,
-            Response::SetEnvironment(_)
-        ));
-    }
-
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Session(session_name("alpha")),
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment should return command output");
-
-    assert_eq!(
-        std::str::from_utf8(output.stdout()).expect("utf8 output"),
-        "TERM=screen-256color\n"
-    );
-
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment -g should return command output");
-
-    assert_eq!(
-        std::str::from_utf8(output.stdout()).expect("utf8 output"),
-        "COLORTERM=truecolor\n"
-    );
-}
-
-#[tokio::test]
 async fn base_index_controls_future_window_allocation() {
     let handler = RequestHandler::new();
     create_session(&handler, "alpha").await;
@@ -259,48 +195,6 @@ async fn show_options_window_global_scope_is_a_valid_explicit_request() {
 }
 
 #[tokio::test]
-async fn show_environment_rejects_window_scope_requests() {
-    let handler = RequestHandler::new();
-    create_session(&handler, "alpha").await;
-
-    assert_eq!(
-        handler
-            .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-                scope: ScopeSelector::Window(WindowTarget::new(session_name("alpha"))),
-                name: None,
-                hidden: false,
-                shell_format: false,
-            }))
-            .await,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server(
-                "show-environment only supports global or session scope".to_owned()
-            ),
-        })
-    );
-}
-
-#[tokio::test]
-async fn show_environment_returns_empty_output_when_no_variables_are_set() {
-    let handler = RequestHandler::new();
-    create_session(&handler, "alpha").await;
-
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment should return command output");
-
-    assert!(output.stdout().is_empty());
-}
-
-#[tokio::test]
 async fn default_handler_seeds_global_show_environment_from_process_environment() {
     let handler = RequestHandler::default();
     let expected_environment = std::env::vars().collect::<HashMap<_, _>>();
@@ -309,21 +203,11 @@ async fn default_handler_seeds_global_show_environment_from_process_environment(
         .next()
         .expect("test process should expose at least one environment variable");
 
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
+    let state = handler.state.lock().await;
 
-    assert!(
-        stdout.contains(&format!("{}={}\n", expected.0, expected.1)),
+    assert_eq!(
+        state.environment.global_value(expected.0),
+        Some(expected.1.as_str()),
         "seeded global environment should contain the current process snapshot"
     );
 }
@@ -343,25 +227,17 @@ async fn seeded_global_environment_preserves_color_controls() {
         SubscriptionLimits::default(),
     );
 
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
+    let state = handler.state.lock().await;
 
-    assert!(stdout.contains("RMUX_KEEP_ME=yes\n"));
-    assert!(stdout.contains("CLICOLOR_FORCE=1\n"));
-    assert!(stdout.contains("NO_COLOR=1\n"));
-    assert!(stdout.contains("NO_COLORS=1\n"));
-    assert!(stdout.contains("NODE_DISABLE_COLORS=1\n"));
-    assert!(stdout.contains("CLICOLOR=0\n"));
+    assert_eq!(state.environment.global_value("RMUX_KEEP_ME"), Some("yes"));
+    assert_eq!(state.environment.global_value("CLICOLOR_FORCE"), Some("1"));
+    assert_eq!(state.environment.global_value("NO_COLOR"), Some("1"));
+    assert_eq!(state.environment.global_value("NO_COLORS"), Some("1"));
+    assert_eq!(
+        state.environment.global_value("NODE_DISABLE_COLORS"),
+        Some("1")
+    );
+    assert_eq!(state.environment.global_value("CLICOLOR"), Some("0"));
 }
 
 #[tokio::test]
@@ -423,53 +299,6 @@ async fn show_options_at_window_scope_resolves_window_then_session_then_global()
     assert!(!stdout.starts_with("status "));
     assert!(!stdout.contains("\nbase-index "));
     assert!(!stdout.starts_with("base-index "));
-}
-
-#[tokio::test]
-async fn show_hooks_global_scope_returns_tmux_default_values_when_unset() {
-    let handler = RequestHandler::new();
-
-    let response = handler
-        .handle(Request::ShowHooks(ShowHooksRequest {
-            scope: ScopeSelector::Global,
-            window: false,
-            pane: false,
-            hook: None,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-hooks should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-    let lines = stdout.lines().collect::<Vec<_>>();
-
-    assert_eq!(lines.len(), 54);
-    assert_eq!(lines.first().copied(), Some("after-bind-key"));
-    assert!(lines.contains(&"client-attached"));
-    assert!(lines.contains(&"session-created"));
-}
-
-#[tokio::test]
-async fn show_hooks_global_window_scope_returns_window_default_values_when_unset() {
-    let handler = RequestHandler::new();
-
-    let response = handler
-        .handle(Request::ShowHooks(ShowHooksRequest {
-            scope: ScopeSelector::Global,
-            window: true,
-            pane: false,
-            hook: None,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-hooks -gw should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-    let lines = stdout.lines().collect::<Vec<_>>();
-
-    assert_eq!(lines.len(), 11);
-    assert_eq!(lines.first().copied(), Some("pane-died"));
-    assert!(lines.contains(&"window-renamed"));
 }
 
 #[tokio::test]
@@ -602,217 +431,6 @@ async fn kill_pane_removes_pane_option_overrides() {
             OptionName::WindowStyle
         ),
         None
-    );
-}
-
-#[tokio::test]
-async fn show_environment_shell_format_escapes_special_characters() {
-    let handler = RequestHandler::new();
-
-    assert!(matches!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "TRICKY".to_owned(),
-                value: r#"$HOME "quoted" `cmd` back\slash"#.to_owned(),
-                mode: None,
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::SetEnvironment(_)
-    ));
-
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: Some("TRICKY".to_owned()),
-            hidden: false,
-            shell_format: true,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment -s should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-
-    assert_eq!(
-        stdout,
-        "TRICKY=\"\\$HOME \\\"quoted\\\" \\`cmd\\` back\\\\slash\"; export TRICKY;\n"
-    );
-}
-
-#[tokio::test]
-async fn show_environment_shell_format_cleared_entry_prints_unset() {
-    let handler = RequestHandler::new();
-
-    assert!(matches!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "STALE".to_owned(),
-                value: "old".to_owned(),
-                mode: None,
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::SetEnvironment(_)
-    ));
-    assert!(matches!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "STALE".to_owned(),
-                value: String::new(),
-                mode: Some(SetEnvironmentMode::Clear),
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::SetEnvironment(_)
-    ));
-
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Global,
-            name: Some("STALE".to_owned()),
-            hidden: false,
-            shell_format: true,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment -s should return command output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-
-    assert_eq!(stdout, "unset STALE;\n");
-}
-
-#[tokio::test]
-async fn show_environment_hidden_variable_round_trip() {
-    let handler = RequestHandler::new();
-    create_session(&handler, "alpha").await;
-
-    // Set a hidden variable.
-    assert!(matches!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Session(session_name("alpha")),
-                name: "SECRET".to_owned(),
-                value: "classified".to_owned(),
-                mode: Some(SetEnvironmentMode::Set),
-                hidden: true,
-                format: false,
-            })))
-            .await,
-        Response::SetEnvironment(_)
-    ));
-
-    // Normal show-environment should suppress hidden entries.
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Session(session_name("alpha")),
-            name: None,
-            hidden: false,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment returns output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-    assert!(
-        !stdout.contains("SECRET"),
-        "hidden variable should not appear in normal show-environment"
-    );
-
-    // show-environment -h should show only hidden entries.
-    let response = handler
-        .handle(Request::ShowEnvironment(ShowEnvironmentRequest {
-            scope: ScopeSelector::Session(session_name("alpha")),
-            name: None,
-            hidden: true,
-            shell_format: false,
-        }))
-        .await;
-    let output = response
-        .command_output()
-        .expect("show-environment -h returns output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8 output");
-    assert_eq!(stdout, "SECRET=classified\n");
-}
-
-#[tokio::test]
-async fn set_environment_clear_and_unset_validation() {
-    let handler = RequestHandler::new();
-
-    // -r rejects a value.
-    assert_eq!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "FOO".to_owned(),
-                value: "bar".to_owned(),
-                mode: Some(SetEnvironmentMode::Clear),
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server("can't specify a value with -r".to_owned()),
-        })
-    );
-
-    // -u rejects a value.
-    assert_eq!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "FOO".to_owned(),
-                value: "bar".to_owned(),
-                mode: Some(SetEnvironmentMode::Unset),
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server("can't specify a value with -u".to_owned()),
-        })
-    );
-
-    // Empty name is rejected.
-    assert_eq!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: String::new(),
-                value: "value".to_owned(),
-                mode: None,
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server("empty variable name".to_owned()),
-        })
-    );
-
-    // Name containing = is rejected.
-    assert_eq!(
-        handler
-            .handle(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-                scope: ScopeSelector::Global,
-                name: "FOO=BAR".to_owned(),
-                value: "value".to_owned(),
-                mode: None,
-                hidden: false,
-                format: false,
-            })))
-            .await,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server("variable name contains =".to_owned()),
-        })
     );
 }
 

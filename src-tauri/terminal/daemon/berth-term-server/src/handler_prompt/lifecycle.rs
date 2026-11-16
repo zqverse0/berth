@@ -2,7 +2,7 @@ use berth_term_proto::{OptionName, TerminalError};
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use super::super::control_support::ManagedClient;
+use super::super::client_support::ManagedClient;
 use super::super::scripting_support::{
     command_parser_from_state, spawn_background_async, ParsedPromptHistoryCommand,
     PromptHistoryAction, QueueCommandAction,
@@ -44,9 +44,6 @@ impl RequestHandler {
         };
         let attach_pid = match managed {
             ManagedClient::Attach(attach_pid) => attach_pid,
-            ManagedClient::Control(_) => {
-                return Ok(PromptStartOutcome::Immediate);
-            }
         };
 
         let (prompt, outcome) = if plan.background {
@@ -97,9 +94,6 @@ impl RequestHandler {
         };
         let attach_pid = match managed {
             ManagedClient::Attach(attach_pid) => attach_pid,
-            ManagedClient::Control(_) => {
-                return Ok(PromptStartOutcome::Immediate);
-            }
         };
 
         let (prompt, outcome) = if plan.background {
@@ -358,7 +352,6 @@ impl RequestHandler {
                         body.into_bytes(),
                     )),
                     error: None,
-                    exit_status: None,
                 })
             }
             PromptHistoryAction::Clear => {
@@ -366,7 +359,6 @@ impl RequestHandler {
                 Ok(QueueCommandAction::Normal {
                     output: None,
                     error: None,
-                    exit_status: None,
                 })
             }
         }

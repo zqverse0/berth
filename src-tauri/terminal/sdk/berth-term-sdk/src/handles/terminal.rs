@@ -22,8 +22,8 @@ use crate::{
 #[cfg(feature = "available")]
 use crate::{broadcast::BroadcastResult, Input};
 use berth_term_proto::{
-    HandshakeRequest, KillServerRequest, Request, Response, CAPABILITY_DAEMON_SHUTDOWN,
-    CAPABILITY_HANDSHAKE, BERTH_TERM_WIRE_VERSION,
+    HandshakeRequest, KillServerRequest, Request, Response, BERTH_TERM_WIRE_VERSION,
+    CAPABILITY_DAEMON_SHUTDOWN, CAPABILITY_HANDSHAKE,
 };
 
 #[path = "terminal/connect.rs"]

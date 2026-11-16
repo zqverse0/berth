@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::time::{Duration, Instant};
 
 use berth_term_engine::{
@@ -16,15 +14,13 @@ mod hit;
 mod types;
 
 use hit::{hit_to_attached_event, resolve_mouse_hit};
-#[allow(unused_imports)]
-pub(crate) use types::StatusRange;
+#[cfg(test)]
+pub(crate) use types::BorderControlRange;
 pub(crate) use types::{
     AttachedMouseEvent, ClassifiedMouseEvent, ClientMouseState, MouseEventKind, MouseLayout,
     MouseLocation, PaneBorderStatus, PaneMouseTarget, PaneScrollbar, PaneScrollbarsMode,
     ScrollbarPosition,
 };
-#[cfg(test)]
-pub(crate) use types::{BorderControlRange, MouseDragHandler};
 #[cfg_attr(windows, allow(unused_imports))]
 pub(crate) use types::{StatusLineLayout, StatusRangeType};
 
@@ -64,7 +60,7 @@ impl ClientMouseState {
                     MouseEventKind::DoubleClick,
                     event.clone(),
                     button_number(mouse_buttons(event.raw.b)),
-                    self.drag_handler.is_some(),
+                    false,
                     layout,
                 )
             })
@@ -299,7 +295,6 @@ pub(crate) fn classify_mouse_event(
         state.drag_flag = 0;
         state.scrolling_flag = false;
         state.slider_mpos = -1;
-        state.drag_handler = None;
     }
 
     let focus_target = if matches!(kind, MouseEventKind::MouseMove)
@@ -316,8 +311,6 @@ pub(crate) fn classify_mouse_event(
         && attached_event.location == MouseLocation::Pane
     {
         synthesize_mouse_key(kind, 0, attached_event.location)?
-    } else if matches!(kind, MouseEventKind::MouseDrag) && state.drag_handler.is_some() {
-        KEYC_DRAGGING
     } else {
         let button = button_number(mouse_buttons(button_bits));
         synthesize_mouse_key(kind, button, attached_event.location)?

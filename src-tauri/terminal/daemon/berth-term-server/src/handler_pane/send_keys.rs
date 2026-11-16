@@ -1,15 +1,10 @@
-use berth_term_engine::{key_code_lookup_bits, key_string_lookup_key, key_string_lookup_string};
-use berth_term_proto::{
-    ErrorResponse, OptionName, PaneTarget, Response, SendKeysResponse, SendPrefixResponse,
-    TerminalError,
-};
+use berth_term_proto::{ErrorResponse, PaneTarget, Response, SendKeysResponse, TerminalError};
 
 use super::super::RequestHandler;
 use super::{
-    encode_key_for_target, encode_mouse_for_target, encode_tokens_for_target,
-    expand_send_key_tokens, pane_id_for_input_target, prepare_pane_input_write,
-    prepare_synchronized_pane_input_writes, resolve_input_target, write_bytes_to_targets,
-    PaneInputWrite,
+    encode_mouse_for_target, encode_tokens_for_target, expand_send_key_tokens,
+    pane_id_for_input_target, prepare_pane_input_write, prepare_synchronized_pane_input_writes,
+    resolve_input_target, write_bytes_to_targets, PaneInputWrite,
 };
 use crate::keys::{parse_key_code, resolve_hex_key};
 use crate::limits::bounded_repeat_count;
@@ -186,13 +181,6 @@ impl RequestHandler {
         }
 
         if request.forward_mouse_event {
-            match self.exit_clock_mode(&target).await {
-                Ok(true) => {
-                    return Response::SendKeys(SendKeysResponse { key_count: 0 });
-                }
-                Ok(false) => {}
-                Err(error) => return Response::Error(ErrorResponse { error }),
-            }
             let attach_pid = match target_attach_pid {
                 Some(attach_pid) => attach_pid,
                 None => match self
@@ -318,74 +306,6 @@ impl RequestHandler {
             }
         }
         Ok(remaining)
-    }
-
-    pub(in crate::handler) async fn handle_send_prefix(
-        &self,
-        requester_pid: u32,
-        request: berth_term_proto::SendPrefixRequest,
-    ) -> Response {
-        let attached_session = {
-            let active_attach = self.active_attach.lock().await;
-            active_attach.current_session_candidate(requester_pid)
-        };
-        let target = {
-            let state = self.state.lock().await;
-            match resolve_input_target(&state, request.target.as_ref(), attached_session.as_ref()) {
-                Ok(target) => target,
-                Err(error) => return Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        let (writes, encoded, canonical_key) = {
-            let mut state = self.state.lock().await;
-            let option = if request.secondary {
-                OptionName::Prefix2
-            } else {
-                OptionName::Prefix
-            };
-            let Some(value) = state.options.resolve(Some(target.session_name()), option) else {
-                return Response::Error(ErrorResponse {
-                    error: TerminalError::Server("prefix key is not configured".to_owned()),
-                });
-            };
-            let Some(key) = key_string_lookup_string(value) else {
-                return Response::Error(ErrorResponse {
-                    error: TerminalError::Server(format!("unknown key: {value}")),
-                });
-            };
-            let canonical_key = key_string_lookup_key(key_code_lookup_bits(key), false);
-            let encoded = match encode_key_for_target(&state, &target, key) {
-                Ok(Some(encoded)) => encoded,
-                Ok(None) => {
-                    return Response::Error(ErrorResponse {
-                        error: TerminalError::Server(format!(
-                            "key {} cannot be sent to a pane",
-                            canonical_key
-                        )),
-                    });
-                }
-                Err(error) => return Response::Error(ErrorResponse { error }),
-            };
-            let writes = match prepare_synchronized_pane_input_writes(&mut state, &target, &encoded)
-            {
-                Ok(writes) => writes,
-                Err(error) => return Response::Error(ErrorResponse { error }),
-            };
-            (writes, encoded, canonical_key)
-        };
-
-        match self
-            .write_pane_input_and_mark_interactive(writes, encoded, 1)
-            .await
-        {
-            Response::SendKeys(_) => Response::SendPrefix(SendPrefixResponse {
-                target: Some(target),
-                key: canonical_key,
-                key_count: 1,
-            }),
-            other => other,
-        }
     }
 
     async fn write_pane_input_and_mark_interactive(

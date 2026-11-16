@@ -5,33 +5,6 @@ use berth_term_proto::{ScopeSelector, SessionName, TerminalError};
 /// tmux-compatible hidden environment entry flag.
 pub const ENVIRON_HIDDEN: u8 = 0x1;
 
-/// Renderable `show-environment` entry with tmux-compatible flags and tombstones.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShowEnvironmentEntry {
-    /// Environment variable name.
-    pub name: String,
-    /// Stored value, or `None` for a cleared tombstone.
-    pub value: Option<String>,
-    /// tmux-compatible entry flags.
-    pub flags: u8,
-    /// Whether `value` already contains tmux-style display escapes for raw bytes.
-    pub value_is_display_escape: bool,
-}
-
-impl ShowEnvironmentEntry {
-    /// Returns whether the entry is hidden from normal `show-environment` output.
-    #[must_use]
-    pub const fn is_hidden(&self) -> bool {
-        self.flags & ENVIRON_HIDDEN != 0
-    }
-
-    /// Returns whether the entry is a cleared tombstone.
-    #[must_use]
-    pub const fn is_cleared(&self) -> bool {
-        self.value.is_none()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct EnvironmentEntry {
     value: Option<String>,
@@ -74,16 +47,8 @@ impl EnvironmentEntry {
         self.implicit = false;
     }
 
-    const fn flags(&self) -> u8 {
-        self.flags
-    }
-
     fn value(&self) -> Option<&str> {
         self.value.as_deref()
-    }
-
-    fn show_value(&self) -> Option<&str> {
-        self.value.as_deref().or(self.display_value.as_deref())
     }
 
     const fn is_hidden(&self) -> bool {
@@ -171,13 +136,6 @@ impl EnvironmentStore {
             ScopeSelector::Window(_) | ScopeSelector::Pane(_) => {}
         }
         remove_environment_entry(self.scope_entries_mut(scope), name).is_some()
-    }
-
-    /// Returns whether the exact entry exists in the selected scope.
-    #[must_use]
-    pub fn contains_entry(&self, scope: &ScopeSelector, name: &str) -> bool {
-        self.scope_entries(scope)
-            .is_some_and(|entries| environment_entry(entries, name).is_some())
     }
 
     /// Returns the exact global value for the given variable, when present and not cleared.
@@ -327,62 +285,6 @@ impl EnvironmentStore {
         }
     }
 
-    /// Returns sorted `show-environment` entries for the selected global or session scope.
-    pub fn show_environment_entries(
-        &self,
-        scope: &ScopeSelector,
-        hidden_only: bool,
-        name: Option<&str>,
-    ) -> Result<Vec<ShowEnvironmentEntry>, TerminalError> {
-        let exact_entries = match scope {
-            ScopeSelector::Global => &self.global,
-            ScopeSelector::Session(session_name) => {
-                if let Some(entries) = self.sessions.get(session_name) {
-                    entries
-                } else {
-                    empty_environment_entries()
-                }
-            }
-            ScopeSelector::Window(_) | ScopeSelector::Pane(_) => {
-                return Err(TerminalError::Server(
-                    "show-environment only supports global or session scope".to_owned(),
-                ));
-            }
-        };
-
-        if let Some(name) = name {
-            let Some((stored_name, entry)) = environment_entry_with_name(exact_entries, name)
-            else {
-                return Err(TerminalError::Server(format!("unknown variable: {name}")));
-            };
-            if hidden_only && !entry.is_hidden() {
-                return Ok(Vec::new());
-            }
-            if !hidden_only && entry.is_hidden() {
-                return Ok(Vec::new());
-            }
-            return Ok(vec![ShowEnvironmentEntry {
-                name: stored_name.to_owned(),
-                value: entry.show_value().map(str::to_owned),
-                flags: entry.flags(),
-                value_is_display_escape: entry.value.is_none() && entry.display_value.is_some(),
-            }]);
-        }
-
-        let mut values = exact_entries
-            .iter()
-            .filter(|(_, entry)| hidden_only == entry.is_hidden())
-            .map(|(name, entry)| ShowEnvironmentEntry {
-                name: name.clone(),
-                value: entry.show_value().map(str::to_owned),
-                flags: entry.flags(),
-                value_is_display_escape: entry.value.is_none() && entry.display_value.is_some(),
-            })
-            .collect::<Vec<_>>();
-        values.sort_by(|left, right| left.name.cmp(&right.name));
-        Ok(values)
-    }
-
     /// Removes all session-local values for the given session.
     pub fn remove_session(
         &mut self,
@@ -423,6 +325,17 @@ impl EnvironmentStore {
         Ok(())
     }
 
+    /// 测试用：精确条目（含清除标记）是否存在于该作用域。
+    #[cfg(test)]
+    pub(crate) fn contains_entry(&self, scope: &ScopeSelector, name: &str) -> bool {
+        let entries = match scope {
+            ScopeSelector::Global => Some(&self.global),
+            ScopeSelector::Session(session_name) => self.sessions.get(session_name),
+            ScopeSelector::Window(_) | ScopeSelector::Pane(_) => None,
+        };
+        entries.is_some_and(|entries| environment_entry(entries, name).is_some())
+    }
+
     fn scope_entries_mut(
         &mut self,
         scope: ScopeSelector,
@@ -433,14 +346,6 @@ impl EnvironmentStore {
             ScopeSelector::Window(_) | ScopeSelector::Pane(_) => {
                 unreachable!("environment mutations are validated before storage")
             }
-        }
-    }
-
-    fn scope_entries(&self, scope: &ScopeSelector) -> Option<&HashMap<String, EnvironmentEntry>> {
-        match scope {
-            ScopeSelector::Global => Some(&self.global),
-            ScopeSelector::Session(session_name) => self.sessions.get(session_name),
-            ScopeSelector::Window(_) | ScopeSelector::Pane(_) => None,
         }
     }
 
@@ -608,12 +513,6 @@ fn remove_name_from_set(names: &mut HashSet<String>, name: &str) -> bool {
     }
 
     names.remove(name)
-}
-
-fn empty_environment_entries() -> &'static HashMap<String, EnvironmentEntry> {
-    static EMPTY: std::sync::OnceLock<HashMap<String, EnvironmentEntry>> =
-        std::sync::OnceLock::new();
-    EMPTY.get_or_init(HashMap::new)
 }
 
 #[cfg(test)]

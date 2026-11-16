@@ -1,17 +1,14 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use super::RequestHandler;
 use berth_term_engine::{input::InputParser, Screen};
 use berth_term_proto::types::OptionScopeSelector;
 use berth_term_proto::{
-    CapturePaneRequest, CapturePaneTargetActionRequest, LoadBufferRequest, NewSessionRequest,
-    PaneTarget, Request, Response, SaveBufferRequest, SendKeysRequest, SetBufferRequest,
-    SetOptionByNameRequest, SetOptionMode, ShowBufferRequest, TerminalSize,
+    CapturePaneRequest, CapturePaneTargetActionRequest, NewSessionRequest, PaneTarget, Request,
+    Response, SendKeysRequest, SetOptionByNameRequest, SetOptionMode, ShowBufferRequest,
+    TerminalSize,
 };
 use tokio::time::sleep;
-
-static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn session_name(value: &str) -> berth_term_proto::SessionName {
     berth_term_proto::SessionName::new(value).expect("valid session name")
@@ -41,42 +38,6 @@ fn capture_pane_request(
         quiet: false,
         start_is_absolute: false,
         end_is_absolute: false,
-    }
-}
-
-fn set_buffer_request(name: &str, content: &[u8]) -> SetBufferRequest {
-    SetBufferRequest {
-        name: Some(name.to_owned()),
-        content: content.to_vec(),
-        append: false,
-        new_name: None,
-        set_clipboard: false,
-    }
-}
-
-fn load_buffer_request(
-    path: &std::path::Path,
-    cwd: Option<std::path::PathBuf>,
-    name: &str,
-) -> LoadBufferRequest {
-    LoadBufferRequest {
-        path: path.display().to_string(),
-        cwd,
-        name: Some(name.to_owned()),
-        set_clipboard: false,
-    }
-}
-
-fn save_buffer_request(
-    path: &std::path::Path,
-    cwd: Option<std::path::PathBuf>,
-    name: &str,
-) -> SaveBufferRequest {
-    SaveBufferRequest {
-        path: path.display().to_string(),
-        cwd,
-        name: Some(name.to_owned()),
-        append: false,
     }
 }
 
@@ -346,200 +307,4 @@ async fn alternate_screen_off_keeps_program_output_on_main_screen() {
     let output = String::from_utf8(output.stdout().to_vec()).expect("capture output is utf8");
     assert!(output.contains("ALTLINE"), "{output:?}");
     assert!(output.contains("MAINLINE"), "{output:?}");
-}
-
-#[tokio::test]
-async fn load_buffer_reads_server_file() {
-    let handler = RequestHandler::new();
-    let path = temp_path("load-success");
-    std::fs::write(&path, b"loaded data").expect("write input");
-
-    let response = handler
-        .handle(Request::LoadBuffer(load_buffer_request(
-            &path, None, "loaded",
-        )))
-        .await;
-    match response {
-        Response::LoadBuffer(response) => assert_eq!(response.buffer_name, "loaded"),
-        other => panic!("expected load-buffer response, got {other:?}"),
-    }
-
-    let show = handler
-        .handle(Request::ShowBuffer(ShowBufferRequest {
-            name: Some("loaded".to_owned()),
-        }))
-        .await;
-    assert_eq!(
-        show.command_output()
-            .expect("show-buffer returns output")
-            .stdout(),
-        b"loaded data"
-    );
-
-    let _ = std::fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn load_buffer_failure_does_not_mutate_existing_buffer() {
-    let handler = RequestHandler::new();
-    let missing_path = temp_path("load-missing");
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            "stable",
-            b"original",
-        )))
-        .await;
-
-    let response = handler
-        .handle(Request::LoadBuffer(load_buffer_request(
-            &missing_path,
-            None,
-            "stable",
-        )))
-        .await;
-    assert!(matches!(response, Response::Error(_)));
-
-    let show = handler
-        .handle(Request::ShowBuffer(ShowBufferRequest {
-            name: Some("stable".to_owned()),
-        }))
-        .await;
-    assert_eq!(
-        show.command_output()
-            .expect("show-buffer returns output")
-            .stdout(),
-        b"original"
-    );
-}
-
-#[tokio::test]
-async fn load_buffer_resolves_relative_path_against_request_cwd() {
-    let handler = RequestHandler::new();
-    let root = temp_path("load-relative-root");
-    let nested_dir = root.join("nested");
-    std::fs::create_dir_all(&nested_dir).expect("create nested dir");
-    std::fs::write(nested_dir.join("input.txt"), b"relative data").expect("write input");
-
-    let response = handler
-        .handle(Request::LoadBuffer(load_buffer_request(
-            &std::path::Path::new("nested").join("input.txt"),
-            Some(root.clone()),
-            "loaded",
-        )))
-        .await;
-    match response {
-        Response::LoadBuffer(response) => assert_eq!(response.buffer_name, "loaded"),
-        other => panic!("expected load-buffer response, got {other:?}"),
-    }
-
-    let show = handler
-        .handle(Request::ShowBuffer(ShowBufferRequest {
-            name: Some("loaded".to_owned()),
-        }))
-        .await;
-    assert_eq!(
-        show.command_output()
-            .expect("show-buffer returns output")
-            .stdout(),
-        b"relative data"
-    );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn save_buffer_writes_server_file() {
-    let handler = RequestHandler::new();
-    let path = temp_path("save-success");
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request("saved", b"save me")))
-        .await;
-
-    let response = handler
-        .handle(Request::SaveBuffer(save_buffer_request(
-            &path, None, "saved",
-        )))
-        .await;
-    match response {
-        Response::SaveBuffer(response) => assert_eq!(response.buffer_name, "saved"),
-        other => panic!("expected save-buffer response, got {other:?}"),
-    }
-    assert_eq!(std::fs::read(&path).expect("read saved file"), b"save me");
-
-    let _ = std::fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn save_buffer_resolves_relative_path_against_request_cwd() {
-    let handler = RequestHandler::new();
-    let root = temp_path("save-relative-root");
-    let nested_dir = root.join("nested");
-    std::fs::create_dir_all(&nested_dir).expect("create nested dir");
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            "saved",
-            b"relative save",
-        )))
-        .await;
-
-    let response = handler
-        .handle(Request::SaveBuffer(save_buffer_request(
-            &std::path::Path::new("nested").join("output.txt"),
-            Some(root.clone()),
-            "saved",
-        )))
-        .await;
-    match response {
-        Response::SaveBuffer(response) => assert_eq!(response.buffer_name, "saved"),
-        other => panic!("expected save-buffer response, got {other:?}"),
-    }
-    assert_eq!(
-        std::fs::read(nested_dir.join("output.txt")).expect("read saved file"),
-        b"relative save"
-    );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn save_buffer_failure_does_not_mutate_existing_buffer() {
-    let handler = RequestHandler::new();
-    let path = temp_path("missing-parent").join("out.txt");
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            "stable",
-            b"original",
-        )))
-        .await;
-
-    let response = handler
-        .handle(Request::SaveBuffer(save_buffer_request(
-            &path, None, "stable",
-        )))
-        .await;
-    assert!(matches!(response, Response::Error(_)));
-
-    let show = handler
-        .handle(Request::ShowBuffer(ShowBufferRequest {
-            name: Some("stable".to_owned()),
-        }))
-        .await;
-    assert_eq!(
-        show.command_output()
-            .expect("show-buffer returns output")
-            .stdout(),
-        b"original"
-    );
-}
-
-fn temp_path(label: &str) -> std::path::PathBuf {
-    let unique_id = UNIQUE_ID.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "rmux-handler-{label}-{}-{unique_id}",
-        std::process::id()
-    ))
 }

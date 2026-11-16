@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::clock_mode::{ClockModeState, CLOCK_MODE_NAME};
 use crate::copy_mode::{CopyModeState, CopyModeSummary};
 use berth_term_engine::{
     style::Style, GridRenderOptions, Screen, ScreenCaptureRange, TerminalPassthrough,
@@ -19,7 +18,6 @@ pub(crate) type SharedPaneTranscript = Arc<Mutex<PaneTranscript>>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PaneModeState {
     Copy(Box<CopyModeState>),
-    Clock(ClockModeState),
     ModeTree(&'static str),
 }
 
@@ -28,7 +26,6 @@ pub(crate) struct PaneTranscript {
     mode: Option<PaneModeState>,
     output_sequence: u64,
     last_output_at: Option<Instant>,
-    next_clock_generation: u64,
     #[cfg(test)]
     utf8_config: Utf8Config,
 }
@@ -72,7 +69,6 @@ impl PaneTranscript {
             mode: None,
             output_sequence: 0,
             last_output_at: None,
-            next_clock_generation: 1,
             #[cfg(test)]
             utf8_config: Utf8Config::default(),
         }
@@ -246,7 +242,7 @@ impl PaneTranscript {
             Some(PaneModeState::Copy(mode)) => {
                 Some(mode.render_screen().capture_transcript(range, options))
             }
-            Some(PaneModeState::Clock(_) | PaneModeState::ModeTree(_)) | None => None,
+            Some(PaneModeState::ModeTree(_)) | None => None,
         }
     }
 
@@ -324,14 +320,14 @@ impl PaneTranscript {
     pub(crate) fn copy_mode_state(&self) -> Option<&CopyModeState> {
         match &self.mode {
             Some(PaneModeState::Copy(mode)) => Some(mode.as_ref()),
-            Some(PaneModeState::Clock(_) | PaneModeState::ModeTree(_)) | None => None,
+            Some(PaneModeState::ModeTree(_)) | None => None,
         }
     }
 
     pub(crate) fn copy_mode_state_mut(&mut self) -> Option<&mut CopyModeState> {
         match &mut self.mode {
             Some(PaneModeState::Copy(mode)) => Some(mode.as_mut()),
-            Some(PaneModeState::Clock(_) | PaneModeState::ModeTree(_)) | None => None,
+            Some(PaneModeState::ModeTree(_)) | None => None,
         }
     }
 
@@ -353,31 +349,13 @@ impl PaneTranscript {
                 self.mode = None;
                 true
             }
-            Some(PaneModeState::Clock(_) | PaneModeState::ModeTree(_)) | None => false,
+            Some(PaneModeState::ModeTree(_)) | None => false,
         }
-    }
-
-    pub(crate) fn enter_clock_mode(&mut self) -> u64 {
-        let generation = self.next_clock_generation;
-        self.next_clock_generation = self.next_clock_generation.saturating_add(1);
-        self.mode = Some(PaneModeState::Clock(ClockModeState::new(generation)));
-        generation
     }
 
     pub(crate) fn clock_mode_generation(&self) -> Option<u64> {
         match self.mode {
-            Some(PaneModeState::Clock(mode)) => Some(mode.generation()),
             Some(PaneModeState::Copy(_) | PaneModeState::ModeTree(_)) | None => None,
-        }
-    }
-
-    pub(crate) fn clear_clock_mode(&mut self) -> bool {
-        match self.mode {
-            Some(PaneModeState::Clock(_)) => {
-                self.mode = None;
-                true
-            }
-            Some(PaneModeState::Copy(_) | PaneModeState::ModeTree(_)) | None => false,
         }
     }
 
@@ -393,7 +371,7 @@ impl PaneTranscript {
                 self.mode = None;
                 true
             }
-            Some(PaneModeState::Copy(_) | PaneModeState::Clock(_)) | None => false,
+            Some(PaneModeState::Copy(_)) | None => false,
         }
     }
 
@@ -408,7 +386,6 @@ impl PaneTranscript {
             } else {
                 "copy-mode"
             }),
-            Some(PaneModeState::Clock(_)) => Some(CLOCK_MODE_NAME),
             Some(PaneModeState::ModeTree(mode_name)) => Some(mode_name),
             None => None,
         }

@@ -10,15 +10,8 @@ use super::mode_tree_model::{
 pub(super) fn parse_mode_tree_queue_command(
     command: ParsedCommand,
 ) -> Result<Option<ParsedModeTreeCommand>, TerminalError> {
-    if command.name() == "find-window" {
-        return parse_find_window_as_tree(command).map(Some);
-    }
-
     let kind = match command.name() {
         "choose-tree" => ModeTreeKind::Tree,
-        "choose-buffer" => ModeTreeKind::Buffer,
-        "choose-client" => ModeTreeKind::Client,
-        "customize-mode" => ModeTreeKind::Customize,
         _ => return Ok(None),
     };
 
@@ -110,7 +103,7 @@ pub(super) fn parse_mode_tree_queue_command(
         }
     }
 
-    let template = if kind == ModeTreeKind::Customize || args.is_empty() {
+    let template = if args.is_empty() {
         None
     } else {
         Some(join_command_arguments(&mut args, "mode-tree template")?)
@@ -141,135 +134,9 @@ pub(super) fn parse_mode_tree_queue_command(
     }))
 }
 
-/// Transforms `find-window [-CiNrTZ] [-t target] match-string` into a
-/// `choose-tree` mode tree command with the appropriate filter format,
-/// matching tmux `cmd-find-window.c` semantics.
-fn parse_find_window_as_tree(
-    command: ParsedCommand,
-) -> Result<ParsedModeTreeCommand, TerminalError> {
-    let mut args = VecDeque::from(command.arguments().to_vec());
-    let mut search_content = false;
-    let mut search_name = false;
-    let mut search_title = false;
-    let mut case_insensitive = false;
-    let mut regex = false;
-    let mut zoom = false;
-    let mut target = None;
-
-    while let Some(token) = args.front().and_then(CommandArgument::as_string) {
-        if token == "--" {
-            let _ = args.pop_front();
-            break;
-        }
-        if token == "-" || !token.starts_with('-') {
-            break;
-        }
-
-        let flag_token = pop_string_argument(&mut args, "find-window flag")?;
-        let flag_iter = flag_token
-            .strip_prefix('-')
-            .unwrap_or_default()
-            .char_indices();
-        for (offset, ch) in flag_iter {
-            match ch {
-                'C' => search_content = true,
-                'i' => case_insensitive = true,
-                'N' => search_name = true,
-                'r' => regex = true,
-                'T' => search_title = true,
-                'Z' => zoom = true,
-                't' => {
-                    let attached_start = 1 + offset + ch.len_utf8();
-                    target = Some(if attached_start < flag_token.len() {
-                        flag_token[attached_start..].to_owned()
-                    } else {
-                        pop_string_argument(&mut args, "-t target")?
-                    });
-                    break;
-                }
-                other => {
-                    return Err(TerminalError::Server(format!(
-                        "unsupported flag '-{other}' for find-window"
-                    )));
-                }
-            }
-        }
-    }
-
-    let match_string = pop_string_argument(&mut args, "find-window match-string")?;
-
-    if let Some(extra) = args.front() {
-        return Err(TerminalError::Server(format!(
-            "unexpected argument '{}' for find-window",
-            command_argument_for_error(extra)
-        )));
-    }
-
-    if !search_content && !search_name && !search_title {
-        search_content = true;
-        search_name = true;
-        search_title = true;
-    }
-
-    let suffix = match (regex, case_insensitive) {
-        (true, true) => "/ri",
-        (true, false) => "/r",
-        (false, true) => "/i",
-        (false, false) => "",
-    };
-    let star = if regex { "" } else { "*" };
-
-    let filter = match (search_content, search_name, search_title) {
-        (true, true, true) => format!(
-            "#{{||:#{{C{suffix}:{match_string}}},#{{||:#{{m{suffix}:{star}{match_string}{star},#{{window_name}}}},#{{m{suffix}:{star}{match_string}{star},#{{pane_title}}}}}}}}"
-        ),
-        (true, true, false) => format!(
-            "#{{||:#{{C{suffix}:{match_string}}},#{{m{suffix}:{star}{match_string}{star},#{{window_name}}}}}}"
-        ),
-        (true, false, true) => format!(
-            "#{{||:#{{C{suffix}:{match_string}}},#{{m{suffix}:{star}{match_string}{star},#{{pane_title}}}}}}"
-        ),
-        (false, true, true) => format!(
-            "#{{||:#{{m{suffix}:{star}{match_string}{star},#{{window_name}}}},#{{m{suffix}:{star}{match_string}{star},#{{pane_title}}}}}}"
-        ),
-        (true, false, false) => format!("#{{C{suffix}:{match_string}}}"),
-        (false, true, false) => {
-            format!("#{{m{suffix}:{star}{match_string}{star},#{{window_name}}}}")
-        }
-        (false, false, true) => {
-            format!("#{{m{suffix}:{star}{match_string}{star},#{{pane_title}}}}")
-        }
-        (false, false, false) => unreachable!("defaults applied above"),
-    };
-
-    Ok(ParsedModeTreeCommand {
-        kind: ModeTreeKind::Tree,
-        target,
-        preview_mode: PreviewMode::Normal,
-        row_format: None,
-        filter_format: Some(filter),
-        key_format: None,
-        template: None,
-        sort_order: None,
-        reversed: false,
-        tree_depth: TreeDepth::Pane,
-        show_all_group_members: false,
-        auto_accept: false,
-        zoom,
-    })
-}
-
 pub(super) fn default_order_seq(kind: ModeTreeKind) -> Vec<SortOrder> {
     match kind {
         ModeTreeKind::Tree => vec![SortOrder::Index, SortOrder::Name, SortOrder::Activity],
-        ModeTreeKind::Buffer => vec![SortOrder::Creation, SortOrder::Name, SortOrder::Size],
-        ModeTreeKind::Client => vec![
-            SortOrder::Name,
-            SortOrder::Size,
-            SortOrder::Creation,
-            SortOrder::Activity,
-        ],
-        ModeTreeKind::Customize => Vec::new(),
     }
 }
 

@@ -29,9 +29,7 @@ mod state;
 
 pub(crate) use crate::client_flags::ClientFlags;
 pub(crate) use state::AttachRegistration;
-pub(super) use state::{
-    ActiveAttach, ActiveAttachState, DisplayPanesClientState, DisplayPanesLabel,
-};
+pub(super) use state::{ActiveAttach, ActiveAttachState};
 
 impl RequestHandler {
     pub(crate) async fn handle_attached_keystroke(
@@ -125,7 +123,7 @@ impl RequestHandler {
             Some(session_name),
             session_id,
             &self.socket_path(),
-            !self.config_loading_active(),
+            true,
             None,
         )?;
         Ok(profile.attach_shell_command(command))
@@ -407,55 +405,6 @@ pub(super) fn attach_target_for_session(
             render_size: None,
             window_index: None,
             master: AttachTargetMaster::Clone,
-            socket_path,
-        },
-    )
-}
-
-#[cfg(feature = "web")]
-pub(super) fn attach_render_target_for_session(
-    state: &HandlerState,
-    session_name: &berth_term_proto::SessionName,
-    attached_count: usize,
-    terminal_context: &OuterTerminalContext,
-    socket_path: &Path,
-) -> Result<AttachTarget, berth_term_proto::TerminalError> {
-    attach_target_for_session_with_prompt(
-        state,
-        session_name,
-        attached_count,
-        AttachTargetRenderOptions {
-            prompt: None,
-            key_table: None,
-            terminal_context,
-            render_size: None,
-            window_index: None,
-            master: AttachTargetMaster::Omit,
-            socket_path,
-        },
-    )
-}
-
-#[cfg(feature = "web")]
-pub(super) fn attach_render_target_for_session_window(
-    state: &HandlerState,
-    session_name: &berth_term_proto::SessionName,
-    window_index: Option<u32>,
-    attached_count: usize,
-    terminal_context: &OuterTerminalContext,
-    socket_path: &Path,
-) -> Result<AttachTarget, berth_term_proto::TerminalError> {
-    attach_target_for_session_with_prompt(
-        state,
-        session_name,
-        attached_count,
-        AttachTargetRenderOptions {
-            prompt: None,
-            key_table: None,
-            terminal_context,
-            render_size: None,
-            window_index,
-            master: AttachTargetMaster::Omit,
             socket_path,
         },
     )

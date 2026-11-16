@@ -44,17 +44,6 @@ async fn navigation_commands_wrap_and_remain_session_scoped() {
             target: WindowTarget::with_window(alpha.clone(), 3),
         })
     );
-    assert_eq!(
-        handler
-            .handle(Request::LastWindow(LastWindowRequest {
-                target: alpha.clone(),
-            }))
-            .await,
-        Response::LastWindow(berth_term_proto::LastWindowResponse {
-            target: WindowTarget::with_window(alpha.clone(), 7),
-        })
-    );
-
     let state = handler.state.lock().await;
     let alpha_session = state
         .sessions
@@ -64,8 +53,8 @@ async fn navigation_commands_wrap_and_remain_session_scoped() {
         .sessions
         .session(&beta)
         .expect("beta session should exist");
-    assert_eq!(alpha_session.active_window_index(), 7);
-    assert_eq!(alpha_session.last_window_index(), Some(3));
+    assert_eq!(alpha_session.active_window_index(), 3);
+    assert_eq!(alpha_session.last_window_index(), Some(7));
     assert_eq!(beta_session.active_window_index(), 0);
     assert_eq!(beta_session.last_window_index(), None);
 }
@@ -76,17 +65,6 @@ async fn navigation_commands_return_tmux_style_errors_when_history_is_missing() 
     let alpha = session_name("alpha");
     create_session(&handler, "alpha").await;
     insert_window(&handler, &alpha, 2).await;
-
-    assert_eq!(
-        handler
-            .handle(Request::LastWindow(LastWindowRequest {
-                target: alpha.clone(),
-            }))
-            .await,
-        Response::Error(berth_term_proto::ErrorResponse {
-            error: berth_term_proto::TerminalError::Message("no last window".to_owned()),
-        })
-    );
 
     assert_eq!(
         handler
@@ -285,16 +263,6 @@ async fn window_mutations_refresh_attached_sessions() {
         Response::PreviousWindow(_)
     ));
     assert_refresh(control_rx.try_recv().expect("previous-window refresh"));
-
-    assert!(matches!(
-        handler
-            .handle(Request::LastWindow(LastWindowRequest {
-                target: alpha.clone(),
-            }))
-            .await,
-        Response::LastWindow(_)
-    ));
-    assert_refresh(control_rx.try_recv().expect("last-window refresh"));
 
     assert!(matches!(
         handler

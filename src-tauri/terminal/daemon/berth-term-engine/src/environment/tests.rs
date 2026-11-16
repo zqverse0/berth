@@ -1,6 +1,6 @@
-use super::{EnvironmentStore, ShowEnvironmentEntry, ENVIRON_HIDDEN};
-use std::collections::HashMap;
+use super::{EnvironmentStore, ENVIRON_HIDDEN};
 use berth_term_proto::{ScopeSelector, SessionName, TerminalError};
+use std::collections::HashMap;
 
 fn session_name(value: &str) -> SessionName {
     SessionName::new(value).expect("valid session name")
@@ -28,32 +28,6 @@ fn global_set_then_read_returns_the_exact_value() {
 
     assert_eq!(store.global_value("TERM"), Some("xterm-256color"));
     assert_eq!(store.resolve(None, "TERM"), Some("xterm-256color"));
-}
-
-#[cfg(windows)]
-#[test]
-fn named_show_environment_lookup_is_case_insensitive_on_windows() {
-    let mut store = EnvironmentStore::new();
-
-    store.set(
-        ScopeSelector::Global,
-        "Path".to_owned(),
-        "C:\\rmux".to_owned(),
-    );
-
-    let entries = store
-        .show_environment_entries(&ScopeSelector::Global, false, Some("PATH"))
-        .expect("case-insensitive lookup succeeds");
-
-    assert_eq!(
-        entries,
-        vec![ShowEnvironmentEntry {
-            name: "Path".to_owned(),
-            value: Some("C:\\rmux".to_owned()),
-            flags: 0,
-            value_is_display_escape: false,
-        }]
-    );
 }
 
 #[test]
@@ -186,17 +160,6 @@ fn display_only_implicit_globals_are_not_applied_to_child_environments() {
         process_environment.get("RAW").map(String::as_str),
         Some("raw-bytes")
     );
-    assert_eq!(
-        store
-            .show_environment_entries(&ScopeSelector::Global, false, Some("RAW"))
-            .expect("show env"),
-        vec![ShowEnvironmentEntry {
-            name: "RAW".to_owned(),
-            value: Some("A\\377B".to_owned()),
-            flags: 0,
-            value_is_display_escape: true,
-        }]
-    );
 }
 
 #[test]
@@ -239,10 +202,7 @@ fn unset_global_suppresses_process_environment_but_session_unset_removes_only_lo
         process_environment.get("BAR").map(String::as_str),
         Some("client")
     );
-    assert!(store
-        .show_environment_entries(&ScopeSelector::Global, false, None)
-        .expect("show env")
-        .is_empty());
+    assert!(store.global_entries().next().is_none());
     assert_eq!(
         store.suppressed_process_environment_names(Some(&alpha), true),
         ["FOO".to_owned()].into_iter().collect()
@@ -282,56 +242,6 @@ fn explicit_global_set_replaces_implicit_case_insensitively() {
     assert_eq!(
         process_environment.get("RMUXCASE").map(String::as_str),
         Some("override")
-    );
-}
-
-#[test]
-fn show_environment_filters_hidden_entries_and_preserves_tombstones() {
-    let mut store = EnvironmentStore::new();
-    let alpha = session_name("alpha");
-
-    store.set(
-        ScopeSelector::Session(alpha.clone()),
-        "TERM".to_owned(),
-        "screen".to_owned(),
-    );
-    store.set_with_flags(
-        ScopeSelector::Session(alpha.clone()),
-        "SECRET".to_owned(),
-        "value".to_owned(),
-        ENVIRON_HIDDEN,
-    );
-    store.clear(ScopeSelector::Session(alpha.clone()), "EMPTY".to_owned());
-
-    assert_eq!(
-        store
-            .show_environment_entries(&ScopeSelector::Session(alpha.clone()), false, None)
-            .expect("visible entries"),
-        vec![
-            ShowEnvironmentEntry {
-                name: "EMPTY".to_owned(),
-                value: None,
-                flags: 0,
-                value_is_display_escape: false,
-            },
-            ShowEnvironmentEntry {
-                name: "TERM".to_owned(),
-                value: Some("screen".to_owned()),
-                flags: 0,
-                value_is_display_escape: false,
-            },
-        ]
-    );
-    assert_eq!(
-        store
-            .show_environment_entries(&ScopeSelector::Session(alpha), true, None)
-            .expect("hidden entries"),
-        vec![ShowEnvironmentEntry {
-            name: "SECRET".to_owned(),
-            value: Some("value".to_owned()),
-            flags: ENVIRON_HIDDEN,
-            value_is_display_escape: false,
-        }]
     );
 }
 

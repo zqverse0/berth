@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use berth_term_engine::events::{OutputCursorItem, PaneOutputSubscriptionKey};
 use berth_term_engine::LifecycleEvent;
-use berth_term_proto::{OptionName, PaneTarget, SessionId, Target, TerminalError, WindowTarget};
+use berth_term_proto::{OptionName, PaneTarget, Target, TerminalError, WindowTarget};
 
 use super::super::{
     prepare_lifecycle_event, scripting_support::format_context_for_target, RequestHandler,
@@ -38,7 +38,6 @@ enum PaneExitPlan {
     RemoveSession {
         runtime_session_name: berth_term_proto::SessionName,
         session_name: berth_term_proto::SessionName,
-        session_id: SessionId,
         target: PaneTarget,
         removed_pane_ids: Vec<berth_term_engine::PaneId>,
         pane_event: super::super::QueuedLifecycleEvent,
@@ -223,7 +222,6 @@ impl RequestHandler {
                             Some(PaneExitPlan::RemoveSession {
                                 runtime_session_name,
                                 session_name: target.session_name().clone(),
-                                session_id: removed_session.id(),
                                 target,
                                 removed_pane_ids: vec![event.pane_id],
                                 pane_event,
@@ -318,7 +316,6 @@ impl RequestHandler {
                 };
                 for session_name in session_names {
                     self.refresh_attached_session(&session_name).await;
-                    self.refresh_control_session(&session_name).await;
                 }
             }
             PaneExitPlan::RemovePane {
@@ -354,19 +351,16 @@ impl RequestHandler {
                     .await;
                 }
                 self.refresh_attached_session(&session_name).await;
-                self.refresh_control_session(&session_name).await;
             }
             PaneExitPlan::RemoveSession {
                 runtime_session_name,
                 session_name,
-                session_id,
                 target,
                 removed_pane_ids,
                 pane_event,
                 session_event,
                 output,
             } => {
-                self.prune_web_session(Some((session_name.clone(), session_id)));
                 self.retain_removed_pane_output(
                     &runtime_session_name,
                     event.pane_id,
@@ -384,7 +378,6 @@ impl RequestHandler {
                 self.cancel_session_silence_timers(&session_name).await;
                 self.emit_prepared(pane_event);
                 self.emit_prepared(session_event);
-                self.refresh_control_session(&session_name).await;
                 let _ = self.request_shutdown_if_server_empty().await;
             }
         }

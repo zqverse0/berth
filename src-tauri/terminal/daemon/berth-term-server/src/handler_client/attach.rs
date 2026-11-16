@@ -1,14 +1,12 @@
 use berth_term_proto::request::{
     AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionExtRequest,
 };
-use berth_term_proto::{
-    AttachSessionResponse, ErrorResponse, Response, TerminalError, CAPABILITY_ATTACH_RENDER,
-};
+use berth_term_proto::{AttachSessionResponse, ErrorResponse, Response, CAPABILITY_ATTACH_RENDER};
 use tokio::sync::mpsc;
 
 use super::super::{
     attach_support::attach_target_for_session, client_environment_snapshot,
-    control_support::ManagedClient, effective_client_terminal_context, parse_client_flags,
+    client_support::ManagedClient, effective_client_terminal_context, parse_client_flags,
     update_environment_from_client, RequestHandler,
 };
 use crate::outer_terminal::OuterTerminalContext;
@@ -145,17 +143,9 @@ impl RequestHandler {
             return HandleOutcome::response(Response::Error(ErrorResponse { error }));
         }
         if let Some(client) = self.managed_client_for_pid(requester_pid).await {
-            if let ManagedClient::Attach(attach_pid) = client {
-                if let Err(error) = self.set_attached_client_flags(attach_pid, flags).await {
-                    return HandleOutcome::response(Response::Error(ErrorResponse { error }));
-                }
-            } else if request.read_only || request.flags.is_some() {
-                return HandleOutcome::response(Response::Error(ErrorResponse {
-                    error: TerminalError::Server(
-                        "attach-session client flags are not available for control clients"
-                            .to_owned(),
-                    ),
-                }));
+            let ManagedClient::Attach(attach_pid) = client;
+            if let Err(error) = self.set_attached_client_flags(attach_pid, flags).await {
+                return HandleOutcome::response(Response::Error(ErrorResponse { error }));
             }
 
             return HandleOutcome::response(

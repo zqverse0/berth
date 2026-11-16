@@ -1,9 +1,5 @@
-use std::path::{Path, PathBuf};
-
 use berth_term_engine::{SessionStore, TargetFindContext};
-use berth_term_proto::{
-    DeleteBufferRequest, ListBuffersRequest, LoadBufferRequest, Request, TerminalError,
-};
+use berth_term_proto::{Request, TerminalError};
 
 use super::tokens::CommandTokens;
 use super::values::{missing_argument, unsupported_flag};
@@ -55,14 +51,6 @@ pub(super) fn parse_set_buffer(mut args: CommandTokens) -> Result<Request, Termi
         append,
         new_name,
         set_clipboard,
-    }))
-}
-
-pub(super) fn parse_show_buffer(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let name = parse_optional_buffer_name("show-buffer", &mut args)?;
-    args.no_extra("show-buffer")?;
-    Ok(Request::ShowBuffer(berth_term_proto::ShowBufferRequest {
-        name,
     }))
 }
 
@@ -119,106 +107,11 @@ pub(super) fn parse_paste_buffer(
     )))
 }
 
-pub(super) fn parse_list_buffers(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let mut format = None;
-    let mut filter = None;
-    let sort_order = None;
-    let reversed = false;
-
-    while let Some(token) = args.optional() {
-        match token.as_str() {
-            "-F" => format = Some(args.required("-F format")?),
-            "-f" => filter = Some(args.required("-f filter")?),
-            "-O" => return Err(unsupported_flag("list-buffers", "-O")),
-            "-r" => return Err(unsupported_flag("list-buffers", "-r")),
-            flag if flag.starts_with('-') => return Err(unsupported_flag("list-buffers", flag)),
-            _ => {
-                return Err(TerminalError::Server(format!(
-                    "unexpected argument '{token}' for list-buffers"
-                )));
-            }
-        }
-    }
-
-    Ok(Request::ListBuffers(ListBuffersRequest {
-        format,
-        filter,
-        sort_order,
-        reversed,
-    }))
-}
-
-pub(super) fn parse_delete_buffer(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let name = parse_optional_buffer_name("delete-buffer", &mut args)?;
-    args.no_extra("delete-buffer")?;
-    Ok(Request::DeleteBuffer(DeleteBufferRequest { name }))
-}
-
-pub(super) fn parse_load_buffer(
-    mut args: CommandTokens,
-    caller_cwd: Option<&Path>,
-) -> Result<Request, TerminalError> {
-    let mut name = None;
-    let mut set_clipboard = false;
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-b" => {
-                let _ = args.optional();
-                name = Some(args.required("-b buffer name")?);
-            }
-            "-w" => {
-                let _ = args.optional();
-                set_clipboard = true;
-            }
-            flag if flag.starts_with('-') => return Err(unsupported_flag("load-buffer", flag)),
-            _ => break,
-        }
-    }
-    let path = args.required("load-buffer path")?;
-    args.no_extra("load-buffer")?;
-    Ok(Request::LoadBuffer(LoadBufferRequest {
-        path,
-        cwd: caller_cwd.map(PathBuf::from),
+pub(super) fn parse_show_buffer(mut args: CommandTokens) -> Result<Request, TerminalError> {
+    let name = parse_optional_buffer_name("show-buffer", &mut args)?;
+    args.no_extra("show-buffer")?;
+    Ok(Request::ShowBuffer(berth_term_proto::ShowBufferRequest {
         name,
-        set_clipboard,
-    }))
-}
-
-pub(super) fn parse_save_buffer(
-    mut args: CommandTokens,
-    caller_cwd: Option<&Path>,
-) -> Result<Request, TerminalError> {
-    let mut name = None;
-    let mut append = false;
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-b" => {
-                let _ = args.optional();
-                name = Some(args.required("-b buffer name")?);
-            }
-            "-a" => {
-                let _ = args.optional();
-                append = true;
-            }
-            flag if flag.starts_with('-') => return Err(unsupported_flag("save-buffer", flag)),
-            _ => break,
-        }
-    }
-    let path = args.required("save-buffer path")?;
-    args.no_extra("save-buffer")?;
-    Ok(Request::SaveBuffer(berth_term_proto::SaveBufferRequest {
-        path,
-        cwd: caller_cwd.map(PathBuf::from),
-        name,
-        append,
     }))
 }
 

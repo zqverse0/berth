@@ -2,14 +2,10 @@ use std::collections::BTreeMap;
 
 use berth_term_os::identity::{IdentityResolver, UserIdentity};
 use berth_term_proto::request::{AttachSessionExt2Request, AttachSessionExt3Request};
-use berth_term_proto::{
-    AttachSessionExtRequest, CommandOutput, Request, ServerAccessRequest, SessionName, Target,
-    TerminalError,
-};
+use berth_term_proto::{AttachSessionExtRequest, Request, SessionName, Target, TerminalError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AccessMode {
-    ReadOnly,
     ReadWrite,
 }
 
@@ -18,20 +14,6 @@ impl AccessMode {
     pub(crate) const fn can_write(self) -> bool {
         matches!(self, Self::ReadWrite)
     }
-
-    #[must_use]
-    pub(crate) const fn display_suffix(self) -> &'static str {
-        match self {
-            Self::ReadOnly => "R",
-            Self::ReadWrite => "W",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ResolvedUser {
-    pub(crate) uid: u32,
-    pub(crate) name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,57 +43,8 @@ impl ServerAccessStore {
     }
 
     #[must_use]
-    pub(crate) fn owner_uid(&self) -> u32 {
-        self.owner_uid
-    }
-
-    #[must_use]
     pub(crate) fn mode_for_identity(&self, identity: &UserIdentity) -> Option<AccessMode> {
         self.entries.get(identity).copied()
-    }
-
-    pub(crate) fn set_mode(&mut self, uid: u32, mode: AccessMode) -> Result<(), TerminalError> {
-        let identity = UserIdentity::Uid(uid);
-        self.ensure_mutable_identity(&identity)?;
-        self.entries.insert(identity, mode);
-        Ok(())
-    }
-
-    pub(crate) fn remove_uid(&mut self, uid: u32) -> Result<(), TerminalError> {
-        let identity = UserIdentity::Uid(uid);
-        self.ensure_mutable_identity(&identity)?;
-        self.entries.remove(&identity);
-        Ok(())
-    }
-
-    #[must_use]
-    pub(crate) fn contains_uid(&self, uid: u32) -> bool {
-        self.entries.contains_key(&UserIdentity::Uid(uid))
-    }
-
-    pub(crate) fn render_list(&self) -> CommandOutput {
-        let mut stdout = Vec::new();
-        for (identity, mode) in &self.entries {
-            if is_reserved_superuser_identity(identity) {
-                continue;
-            }
-            let line = format!(
-                "{} ({})\n",
-                user_name_for_identity(identity),
-                mode.display_suffix()
-            );
-            stdout.extend_from_slice(line.as_bytes());
-        }
-        CommandOutput::from_stdout(stdout)
-    }
-
-    fn ensure_mutable_identity(&self, identity: &UserIdentity) -> Result<(), TerminalError> {
-        if is_reserved_superuser_identity(identity) || *identity == self.owner_identity {
-            return Err(TerminalError::Server(
-                "root and the server owner cannot be modified".to_owned(),
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -122,16 +55,6 @@ fn insert_platform_superuser_access(entries: &mut BTreeMap<UserIdentity, AccessM
 
 #[cfg(windows)]
 fn insert_platform_superuser_access(_entries: &mut BTreeMap<UserIdentity, AccessMode>) {}
-
-#[cfg(unix)]
-fn is_reserved_superuser_identity(identity: &UserIdentity) -> bool {
-    *identity == UserIdentity::Uid(0)
-}
-
-#[cfg(windows)]
-fn is_reserved_superuser_identity(_identity: &UserIdentity) -> bool {
-    false
-}
 
 pub(crate) fn current_owner_uid() -> u32 {
     current_user_identity()
@@ -145,41 +68,6 @@ pub(crate) fn current_owner_uid() -> u32 {
 
 fn current_user_identity() -> std::io::Result<UserIdentity> {
     IdentityResolver::current()
-}
-
-pub(crate) fn resolve_user(value: &str) -> Result<ResolvedUser, TerminalError> {
-    #[cfg(unix)]
-    if let Some(user) = IdentityResolver::unix_user_by_name(value).map_err(resolve_user_error)? {
-        return Ok(ResolvedUser {
-            uid: user.uid,
-            name: user.name,
-        });
-    }
-
-    let uid = value
-        .parse::<u32>()
-        .map_err(|_| TerminalError::Server(format!("unknown user: {value}")))?;
-    #[cfg(unix)]
-    let Some(user) = IdentityResolver::unix_user_by_uid(uid).map_err(resolve_user_error)?
-    else {
-        return Err(TerminalError::Server(format!("unknown user: {value}")));
-    };
-
-    #[cfg(windows)]
-    let _ = uid;
-    #[cfg(windows)]
-    return Err(TerminalError::Server(format!("unknown user: {value}")));
-
-    #[cfg(unix)]
-    Ok(ResolvedUser {
-        uid,
-        name: user.name,
-    })
-}
-
-#[cfg(unix)]
-fn resolve_user_error(error: std::io::Error) -> TerminalError {
-    TerminalError::Server(format!("failed to resolve user: {error}"))
 }
 
 #[must_use]
@@ -196,14 +84,6 @@ pub(crate) fn user_name_for_uid(uid: u32) -> String {
     #[cfg(windows)]
     {
         uid.to_string()
-    }
-}
-
-#[must_use]
-fn user_name_for_identity(identity: &UserIdentity) -> String {
-    match identity {
-        UserIdentity::Uid(uid) => user_name_for_uid(*uid),
-        UserIdentity::Sid(sid) => sid.to_string(),
     }
 }
 
@@ -310,12 +190,8 @@ fn read_only_request_allowed(request: &Request) -> bool {
                 | Request::AttachSessionExt(_)
                 | Request::AttachSessionExt2(_)
                 | Request::AttachSessionExt3(_)
-                | Request::ListClients(_)
                 | Request::ShowOptions(_)
-                | Request::ShowEnvironment(_)
-                | Request::ShowHooks(_)
                 | Request::ShowBuffer(_)
-                | Request::ListBuffers(_)
                 | Request::SubscribePaneOutput(_)
                 | Request::SubscribePaneOutputRef(_)
                 | Request::UnsubscribePaneOutput(_)
@@ -327,13 +203,8 @@ fn read_only_request_allowed(request: &Request) -> bool {
                 | Request::SdkWaitForOutput(_)
                 | Request::SdkWaitForOutputRef(_)
                 | Request::CancelSdkWait(_)
-                | Request::ShowMessages(_)
                 | Request::ListSessions(_)
-                | Request::ListKeys(_)
-                | Request::ControlMode(_)
                 | Request::Handshake(_)
-                | Request::DaemonStatus(_)
-                | Request::ServerAccess(ServerAccessRequest { list: true, .. })
         ),
     }
 }
@@ -346,42 +217,16 @@ fn display_message_request_is_read_only(print: bool) -> bool {
     print
 }
 
-pub(crate) fn validate_server_access_request(
-    request: &ServerAccessRequest,
-) -> Result<(), TerminalError> {
-    if request.list {
-        return Ok(());
-    }
-    #[cfg(windows)]
-    {
-        Err(TerminalError::Server(
-            "server-access user mutations are unsupported on Windows; named-pipe access is scoped to the current Windows SID".to_owned(),
-        ))
-    }
-    #[cfg(not(windows))]
-    {
-        if request.user.is_none() {
-            return Err(TerminalError::Server("missing user argument".to_owned()));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use berth_term_proto::{
         AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionExtRequest,
         AttachSessionRequest, CancelSdkWaitRequest, CapturePaneRequest,
-        CapturePaneTargetActionRequest, ClockModeRequest, CopyModeRequest, DetachClientExtRequest,
-        DetachClientRequest, DisplayMessageExtRequest, DisplayMessageRequest, DisplayPanesRequest,
-        LastPaneRequest, LastWindowRequest, NextLayoutRequest, NextWindowRequest,
-        PaneOutputSubscriptionStart, PaneSnapshotRequest, PaneTarget, PreviousLayoutRequest,
-        PreviousWindowRequest, RefreshClientRequest, ResolveTargetRequest, ResolveTargetType,
-        SdkWaitForOutputRequest, SdkWaitId, SdkWaitOwnerId, SelectPaneAdjacentRequest,
-        SelectPaneDirection, SelectPaneRequest, SessionName, SuspendClientRequest,
-        SwitchClientExt2Request, SwitchClientExt3Request, SwitchClientExtRequest,
-        SwitchClientRequest, TerminalSize, WindowTarget,
+        CapturePaneTargetActionRequest, DisplayMessageExtRequest, DisplayMessageRequest,
+        PaneOutputSubscriptionStart, PaneSnapshotRequest, PaneTarget, ResolveTargetRequest,
+        ResolveTargetType, SdkWaitForOutputRequest, SdkWaitId, SdkWaitOwnerId, SessionName,
+        TerminalSize,
     };
 
     #[test]
@@ -424,20 +269,6 @@ mod tests {
         let store = ServerAccessStore::new(current_owner_uid());
 
         assert_eq!(store.mode_for_identity(&owner), Some(AccessMode::ReadWrite));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolve_user_uses_platform_account_database() {
-        let UserIdentity::Uid(uid) = current_user_identity().expect("current identity") else {
-            panic!("Unix current identity should be a uid");
-        };
-        let by_uid = resolve_user(&uid.to_string()).expect("current uid resolves");
-        let by_name = resolve_user(&by_uid.name).expect("current name resolves");
-
-        assert_eq!(by_uid.uid, uid);
-        assert_eq!(by_name.uid, uid);
-        assert_eq!(by_name.name, by_uid.name);
     }
 
     #[test]
@@ -599,158 +430,6 @@ mod tests {
                 .expect("display-message -p -c is read-only format expansion"),
             extended
         );
-    }
-
-    #[test]
-    fn read_only_access_rejects_display_overlays() {
-        assert_read_only_rejected(Request::DisplayMessage(DisplayMessageRequest {
-            target: None,
-            print: false,
-            message: Some("visible overlay".to_owned()),
-            empty_target_context: false,
-        }));
-        assert_read_only_rejected(Request::DisplayMessageExt(Box::new(
-            DisplayMessageExtRequest {
-                target: None,
-                print: false,
-                message: Some("visible overlay".to_owned()),
-                target_client: Some("=".to_owned()),
-                empty_target_context: false,
-            },
-        )));
-        assert_read_only_rejected(Request::DisplayPanes(DisplayPanesRequest {
-            target: session_name(),
-            duration_ms: None,
-            non_blocking: false,
-            no_command: false,
-            template: None,
-        }));
-    }
-
-    #[test]
-    fn read_only_access_rejects_session_window_and_pane_mutations() {
-        let session = session_name();
-        let window = WindowTarget::new(session.clone());
-        let pane = PaneTarget::new(session.clone(), 0);
-        let select_pane = SelectPaneRequest {
-            target: pane.clone(),
-            title: None,
-            input_disabled: None,
-            preserve_zoom: false,
-            style: None,
-        };
-
-        for request in [
-            Request::NextWindow(NextWindowRequest {
-                target: session.clone(),
-                alerts_only: false,
-            }),
-            Request::PreviousWindow(PreviousWindowRequest {
-                target: session.clone(),
-                alerts_only: false,
-            }),
-            Request::LastWindow(LastWindowRequest {
-                target: session.clone(),
-            }),
-            Request::LastPane(LastPaneRequest {
-                target: window.clone(),
-                preserve_zoom: false,
-                input_disabled: None,
-            }),
-            Request::NextLayout(NextLayoutRequest {
-                target: window.clone(),
-            }),
-            Request::PreviousLayout(PreviousLayoutRequest {
-                target: window.clone(),
-            }),
-            Request::SelectPane(Box::new(select_pane)),
-            Request::SelectPaneAdjacent(SelectPaneAdjacentRequest {
-                target: pane,
-                direction: SelectPaneDirection::Right,
-                preserve_zoom: false,
-            }),
-            Request::CopyMode(CopyModeRequest {
-                target: None,
-                page_down: false,
-                exit_on_scroll: false,
-                hide_position: false,
-                mouse_drag_start: false,
-                cancel_mode: false,
-                scrollbar_scroll: false,
-                source: None,
-                page_up: false,
-            }),
-            Request::ClockMode(ClockModeRequest { target: None }),
-        ] {
-            assert_read_only_rejected(request);
-        }
-    }
-
-    #[test]
-    fn read_only_access_rejects_client_control_mutations() {
-        let session = session_name();
-        for request in [
-            Request::SwitchClient(SwitchClientRequest {
-                target: session.clone(),
-            }),
-            Request::SwitchClientExt(SwitchClientExtRequest {
-                target: Some(session.clone()),
-                key_table: None,
-            }),
-            Request::SwitchClientExt2(Box::new(SwitchClientExt2Request {
-                target: Some(session.clone()),
-                key_table: None,
-                last_session: false,
-                next_session: false,
-                previous_session: false,
-                toggle_read_only: false,
-                flags: None,
-                sort_order: None,
-                skip_environment_update: false,
-            })),
-            Request::SwitchClientExt3(Box::new(SwitchClientExt3Request {
-                target_client: Some("123".to_owned()),
-                target: Some(session.to_string()),
-                key_table: None,
-                last_session: false,
-                next_session: false,
-                previous_session: false,
-                toggle_read_only: false,
-                sort_order: None,
-                skip_environment_update: false,
-                zoom: false,
-            })),
-            Request::DetachClient(DetachClientRequest),
-            Request::DetachClientExt(DetachClientExtRequest {
-                target_client: Some("123".to_owned()),
-                all_other_clients: false,
-                target_session: None,
-                kill_on_detach: false,
-                exec_command: None,
-            }),
-            Request::RefreshClient(Box::new(RefreshClientRequest {
-                target_client: Some("123".to_owned()),
-                adjustment: None,
-                clear_pan: false,
-                pan_left: false,
-                pan_right: false,
-                pan_up: false,
-                pan_down: false,
-                status_only: true,
-                clipboard_query: false,
-                flags: None,
-                flags_alias: None,
-                subscriptions: Vec::new(),
-                subscriptions_format: Vec::new(),
-                control_size: None,
-                colour_report: None,
-            })),
-            Request::SuspendClient(SuspendClientRequest {
-                target_client: Some("123".to_owned()),
-            }),
-        ] {
-            assert_read_only_rejected(request);
-        }
     }
 
     #[test]
@@ -923,37 +602,5 @@ mod tests {
             start_is_absolute: false,
             end_is_absolute: false,
         }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn server_access_user_mutations_are_explicitly_unsupported_on_windows() {
-        let error = validate_server_access_request(&ServerAccessRequest {
-            add: true,
-            deny: false,
-            list: false,
-            read_only: false,
-            write: false,
-            user: Some("someone".to_owned()),
-        })
-        .expect_err("Windows cannot safely map server-access users to Unix UIDs");
-
-        assert!(error
-            .to_string()
-            .contains("unsupported on Windows; named-pipe access"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn server_access_list_still_validates_on_windows() {
-        validate_server_access_request(&ServerAccessRequest {
-            add: false,
-            deny: false,
-            list: true,
-            read_only: false,
-            write: false,
-            user: None,
-        })
-        .expect("server-access -l remains read-only and portable");
     }
 }

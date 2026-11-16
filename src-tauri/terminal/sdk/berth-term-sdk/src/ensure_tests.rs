@@ -2,7 +2,7 @@ use super::*;
 use crate::transport::TransportClient;
 use berth_term_proto::{
     encode_frame, FrameDecoder, HandshakeRequest, HandshakeResponse, NewSessionResponse,
-    ProcessCommand, CAPABILITY_HANDSHAKE, CAPABILITY_SDK_PROCESS_COMMAND, BERTH_TERM_WIRE_VERSION,
+    ProcessCommand, BERTH_TERM_WIRE_VERSION, CAPABILITY_HANDSHAKE, CAPABILITY_SDK_PROCESS_COMMAND,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

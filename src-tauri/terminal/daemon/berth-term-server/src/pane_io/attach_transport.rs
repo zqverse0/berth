@@ -4,14 +4,10 @@ use std::task::{Context, Poll, Waker};
 
 use berth_term_ipc::{is_peer_disconnect, LocalStream};
 use berth_term_proto::AttachFrameDecoder;
-#[cfg(feature = "web")]
-use tokio::io::DuplexStream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf, ReadHalf, WriteHalf};
 use tokio::sync::Mutex;
 
 const ATTACH_READ_BUFFER_SIZE: usize = 8192;
-#[cfg(feature = "web")]
-const IN_PROCESS_ATTACH_BUFFER_SIZE: usize = 64 * 1024;
 
 pub(crate) struct AttachTransport {
     reader: Mutex<Box<dyn AsyncRead + Send + Unpin>>,
@@ -94,50 +90,5 @@ impl AttachTransport {
 impl From<LocalStream> for AttachTransport {
     fn from(stream: LocalStream) -> Self {
         Self::from_io(stream)
-    }
-}
-
-#[cfg(feature = "web")]
-pub(crate) fn in_process_attach_pair() -> (AttachTransport, DuplexStream) {
-    let (client, server) = tokio::io::duplex(IN_PROCESS_ATTACH_BUFFER_SIZE);
-    (AttachTransport::from_io(server), client)
-}
-
-#[cfg(all(test, feature = "web"))]
-mod tests {
-    use berth_term_proto::{encode_attach_message, AttachFrameDecoder, AttachMessage};
-
-    use super::{in_process_attach_pair, TryAttachRead};
-
-    #[tokio::test]
-    async fn in_process_transport_reads_attach_frames() {
-        let (transport, mut client) = in_process_attach_pair();
-        let frame =
-            encode_attach_message(&AttachMessage::Data(b"hello".to_vec())).expect("frame encodes");
-        tokio::io::AsyncWriteExt::write_all(&mut client, &frame)
-            .await
-            .expect("client writes frame");
-
-        let mut decoder = AttachFrameDecoder::new();
-        assert!(transport
-            .read_into(&mut decoder)
-            .await
-            .expect("transport reads"));
-        assert_eq!(
-            decoder.next_message().expect("frame decodes"),
-            Some(AttachMessage::Data(b"hello".to_vec()))
-        );
-    }
-
-    #[tokio::test]
-    async fn empty_in_process_transport_try_read_would_block() {
-        let (transport, _client) = in_process_attach_pair();
-        let mut decoder = AttachFrameDecoder::new();
-        assert!(matches!(
-            transport
-                .try_read_into(&mut decoder)
-                .expect("try read succeeds"),
-            TryAttachRead::WouldBlock
-        ));
     }
 }

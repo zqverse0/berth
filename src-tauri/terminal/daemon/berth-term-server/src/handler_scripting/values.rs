@@ -24,14 +24,6 @@ pub(super) fn parse_u32(command: &str, flag: &str, value: &str) -> Result<u32, T
     })
 }
 
-pub(super) fn parse_u64(command: &str, flag: &str, value: &str) -> Result<u64, TerminalError> {
-    value.parse().map_err(|error| {
-        TerminalError::Server(format!(
-            "{command} {flag} expects an unsigned 64-bit integer: {error}"
-        ))
-    })
-}
-
 pub(super) fn parse_percentage(
     command: &str,
     flag: &str,
@@ -76,4 +68,9 @@ pub(super) fn missing_argument(command: &str, argument: &str) -> TerminalError {
 
 pub(super) fn unsupported_flag(command: &str, flag: &str) -> TerminalError {
     TerminalError::Server(format!("command {command}: unknown flag {flag}"))
+}
+
+/// 已从 Berth 终端移除的命令选项，统一报错。
+pub(super) fn removed_option(option: &str) -> TerminalError {
+    TerminalError::Server(format!("{option} 已从 Berth 终端移除"))
 }

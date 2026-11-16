@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Local;
 use berth_term_proto::TerminalError;
+use chrono::Local;
 
 use crate::vis::encode_buffer_sample;
 

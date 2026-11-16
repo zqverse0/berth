@@ -29,7 +29,6 @@ use crate::client_flags::ClientFlags;
 use crate::input_keys::{decode_extended_key, decode_mouse, ExtendedKeyDecode, MouseDecode};
 use crate::key_table::{decode_attached_key, AttachedKeyDecode};
 use crate::mouse::{classify_mouse_event, layout_for_session};
-use crate::pane_io::{AttachControl, OverlayFrame};
 
 #[path = "attached_input/bracketed_paste.rs"]
 mod bracketed_paste;
@@ -616,92 +615,6 @@ impl RequestHandler {
             .and_then(key_string_lookup_string)
             .and_then(key_code_to_bytes)
             .and_then(|bytes| (bytes.len() == 1).then_some(bytes[0]))
-    }
-
-    pub(super) async fn attached_persistent_overlay_active(&self, attach_pid: u32) -> bool {
-        let active_attach = self.active_attach.lock().await;
-        active_attach
-            .by_pid
-            .get(&attach_pid)
-            .is_some_and(|active| active.mode_tree.is_some() || active.overlay.is_some())
-    }
-
-    pub(super) async fn restore_mode_tree_overlay_if_active(
-        &self,
-        attach_pid: u32,
-    ) -> Result<bool, TerminalError> {
-        let Some((
-            session_name,
-            render_generation,
-            overlay_generation,
-            state_id,
-            frame,
-            control_tx,
-        )) = ({
-            let mut active_attach = self.active_attach.lock().await;
-            let Some(active) = active_attach.by_pid.get_mut(&attach_pid) else {
-                return Ok(false);
-            };
-            let Some(frame) = active.mode_tree_frame.clone() else {
-                return Ok(false);
-            };
-            if active.mode_tree.is_none() || active.suspended {
-                return Ok(false);
-            }
-            active.overlay_generation = active.overlay_generation.saturating_add(1);
-            Some((
-                active.session_name.clone(),
-                active.render_generation,
-                active.overlay_generation,
-                active.mode_tree_state_id,
-                frame,
-                active.control_tx.clone(),
-            ))
-        })
-        else {
-            return Ok(false);
-        };
-        let mut restore_frame = self
-            .render_mode_tree_overlay_clear_frame(&session_name)
-            .await
-            .unwrap_or_default();
-        restore_frame.extend(frame);
-        let overlay = OverlayFrame::persistent_with_state(
-            restore_frame,
-            render_generation,
-            overlay_generation,
-            state_id,
-        );
-        Ok(control_tx.send(AttachControl::Overlay(overlay)).is_ok())
-    }
-
-    async fn render_mode_tree_overlay_clear_frame(
-        &self,
-        session_name: &berth_term_proto::SessionName,
-    ) -> Option<Vec<u8>> {
-        let state = self.state.lock().await;
-        let session = state.sessions.session(session_name)?;
-        let size = session.window().size();
-        let status_on = state
-            .options
-            .resolve(Some(session.name()), OptionName::Status)
-            .map(|value| value != "off")
-            .unwrap_or(true);
-        let usable_rows = size.rows.saturating_sub(u16::from(status_on));
-        if usable_rows == 0 || size.cols == 0 {
-            return Some(Vec::new());
-        }
-
-        let blank = " ".repeat(usize::from(size.cols));
-        let mut frame = Vec::new();
-        frame.extend_from_slice(b"\x1b[s\x1b[0m");
-        for row in 0..usable_rows {
-            frame.extend_from_slice(
-                format!("\x1b[{};1H{}", row.saturating_add(1), blank).as_bytes(),
-            );
-        }
-        frame.extend_from_slice(b"\x1b[0m\x1b[u");
-        Some(frame)
     }
 }
 

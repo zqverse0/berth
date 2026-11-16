@@ -260,9 +260,6 @@ impl HandlerState {
         runtime_session_name: &SessionName,
         pane_id: PaneId,
     ) -> bool {
-        if let Some(pipe) = self.remove_pane_pipe(runtime_session_name, pane_id) {
-            pipe.stop();
-        }
         self.remove_pane_output(runtime_session_name, pane_id);
         if let Some(dead_panes) = self.dead_panes.get_mut(runtime_session_name) {
             let _ = dead_panes.remove(&pane_id);

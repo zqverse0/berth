@@ -1,4 +1,4 @@
-use berth_term_proto::{LayoutName, ResizePaneAdjustment, SplitDirection, TerminalError};
+use berth_term_proto::{LayoutName, ResizePaneAdjustment, SplitDirection};
 
 use super::Window;
 use crate::layout::{LayoutDirection, LayoutOptions, LayoutTree};
@@ -174,28 +174,6 @@ impl Window {
             self.apply_layout_tree();
         }
         resized
-    }
-
-    pub(crate) fn apply_custom_layout(&mut self, layout: &str) -> Result<(), TerminalError> {
-        if self.panes.is_empty() {
-            return Err(TerminalError::Server("invalid layout".to_owned()));
-        }
-        let tree = LayoutTree::parse(layout, self.panes.len())?;
-        self.size = tree.size();
-        self.layout_tree = Some(tree);
-        self.custom_layout = true;
-        self.apply_layout_tree();
-        Ok(())
-    }
-
-    pub(crate) fn reapply_old_layout(&mut self) -> Result<bool, TerminalError> {
-        let previous_old_layout = self.old_layout.clone();
-        self.old_layout = Some(self.layout_dump());
-        let Some(old_layout) = previous_old_layout else {
-            return Ok(false);
-        };
-        self.apply_custom_layout(&old_layout)?;
-        Ok(true)
     }
 
     pub(crate) fn spread_layout(&mut self, pane_index: u32) -> bool {

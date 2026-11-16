@@ -216,8 +216,8 @@ mod tests {
     use crate::{PaneRef, TerminalEndpoint};
     use berth_term_proto::{
         encode_frame, CapturePaneResponse, CommandOutput, FrameDecoder, HandshakeResponse,
-        PaneTarget, PaneTargetRef, CAPABILITY_HANDSHAKE, CAPABILITY_SDK_PANE_BY_ID,
-        CAPABILITY_SDK_PANE_GENERATION_GUARD, BERTH_TERM_WIRE_VERSION,
+        PaneTarget, PaneTargetRef, BERTH_TERM_WIRE_VERSION, CAPABILITY_HANDSHAKE,
+        CAPABILITY_SDK_PANE_BY_ID, CAPABILITY_SDK_PANE_GENERATION_GUARD,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

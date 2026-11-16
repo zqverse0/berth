@@ -1,22 +1,17 @@
 use berth_term_engine::{command_parser::CommandParser, LifecycleEvent};
 use berth_term_proto::{
-    DeleteBufferRequest, KillPaneRequest, KillSessionRequest, KillWindowRequest, PaneTarget,
-    PasteBufferRequest, Response, SessionName, SetOptionByNameRequest, SetOptionMode,
-    TerminalError, UnbindKeyRequest, WindowTarget,
+    KillPaneRequest, KillSessionRequest, KillWindowRequest, PaneTarget, Response, SessionName,
+    TerminalError, WindowTarget,
 };
 
 use super::super::attach_support::attach_target_for_session;
-use super::super::control_support::ManagedClient;
+use super::super::client_support::ManagedClient;
 use super::super::prompt_support::substitute_prompt_template;
 use super::super::scripting_support::QueueExecutionContext;
 use super::super::RequestHandler;
-use super::mode_tree_model::{
-    ModeTreeAction, ModeTreeBuild, ModeTreeClientState, ModeTreeKind, ModeTreePromptCallback,
-};
+use super::mode_tree_model::{ModeTreeAction, ModeTreeBuild, ModeTreeClientState};
 use super::mode_tree_selection::{current_selected_item, selected_items, tree_kill_sort_key};
-use super::{
-    CHOOSE_BUFFER_DEFAULT_TEMPLATE, CHOOSE_CLIENT_DEFAULT_TEMPLATE, CHOOSE_TREE_DEFAULT_TEMPLATE,
-};
+use super::CHOOSE_TREE_DEFAULT_TEMPLATE;
 use crate::pane_io::AttachControl;
 use crate::pane_terminals::session_not_found;
 
@@ -56,24 +51,6 @@ impl RequestHandler {
                     *pane_index,
                 )
                 .await?;
-            }
-            ModeTreeAction::Buffer { .. }
-                if mode.template.as_deref() == Some(CHOOSE_BUFFER_DEFAULT_TEMPLATE) =>
-            {
-                self.perform_buffer_paste(attach_pid, false).await?;
-            }
-            ModeTreeAction::Client { .. }
-                if mode.template.as_deref() == Some(CHOOSE_CLIENT_DEFAULT_TEMPLATE) =>
-            {
-                self.perform_client_detach(attach_pid).await?;
-            }
-            ModeTreeAction::CustomizeOption { .. } | ModeTreeAction::CustomizeKey { .. }
-                if matches!(mode.kind, ModeTreeKind::Customize) =>
-            {
-                self.start_customize_set_prompt(attach_pid).await?;
-            }
-            ModeTreeAction::None if matches!(mode.kind, ModeTreeKind::Customize) => {
-                // Category headers in customize-mode: no-op on Enter.
             }
             _ => {
                 self.run_mode_tree_template(attach_pid, &mode, &build)
@@ -192,46 +169,6 @@ impl RequestHandler {
         Ok(())
     }
 
-    pub(super) async fn perform_buffer_paste(
-        &self,
-        attach_pid: u32,
-        delete_after: bool,
-    ) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        let target = self.mode_tree_active_pane(&mode.session_name).await?;
-        for item in selected_items(&mode, &build) {
-            let ModeTreeAction::Buffer { name } = &item.action else {
-                continue;
-            };
-            let response = self
-                .handle_paste_buffer(PasteBufferRequest {
-                    name: Some(name.clone()),
-                    target: target.clone(),
-                    delete_after,
-                    separator: None,
-                    linefeed: false,
-                    raw: false,
-                    bracketed: false,
-                })
-                .await;
-            if let Response::Error(error) = response {
-                return Err(error.error);
-            }
-        }
-        self.dismiss_mode_tree_with_refresh(attach_pid).await
-    }
-
     pub(super) async fn perform_tree_kill_current(
         &self,
         attach_pid: u32,
@@ -324,11 +261,6 @@ impl RequestHandler {
                     })
                     .await
                 }
-                ModeTreeAction::None
-                | ModeTreeAction::Buffer { .. }
-                | ModeTreeAction::Client { .. }
-                | ModeTreeAction::CustomizeOption { .. }
-                | ModeTreeAction::CustomizeKey { .. } => continue,
             };
             if let Response::Error(error) = response {
                 return Err(error.error);
@@ -338,258 +270,5 @@ impl RequestHandler {
             self.refresh_mode_tree_overlay_if_active(attach_pid).await?;
         }
         Ok(())
-    }
-
-    pub(super) async fn perform_buffer_delete(&self, attach_pid: u32) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        for item in selected_items(&mode, &build) {
-            let ModeTreeAction::Buffer { name } = &item.action else {
-                continue;
-            };
-            let response = self
-                .handle_delete_buffer(DeleteBufferRequest {
-                    name: Some(name.clone()),
-                })
-                .await;
-            if let Response::Error(error) = response {
-                return Err(error.error);
-            }
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
-    }
-
-    pub(super) async fn perform_client_detach(&self, attach_pid: u32) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        let items = selected_items(&mode, &build);
-
-        // Detach self last so other detaches complete while we still have state.
-        let mut self_detach = false;
-        for item in &items {
-            let ModeTreeAction::Client { pid, control } = item.action else {
-                continue;
-            };
-            if pid == attach_pid && !control {
-                self_detach = true;
-                continue;
-            }
-            if control {
-                let session = self.exit_control_client(pid, None).await?;
-                if let Some(session_name) = session {
-                    self.emit(LifecycleEvent::ClientDetached {
-                        session_name,
-                        client_name: Some(pid.to_string()),
-                    })
-                    .await;
-                }
-            } else if let Ok(session_name) = self
-                .send_attach_control(pid, AttachControl::Detach, "detach-client", None)
-                .await
-            {
-                self.emit(LifecycleEvent::ClientDetached {
-                    session_name,
-                    client_name: Some(pid.to_string()),
-                })
-                .await;
-            }
-        }
-        if self_detach {
-            if let Ok(session_name) = self
-                .send_attach_control(attach_pid, AttachControl::Detach, "detach-client", None)
-                .await
-            {
-                self.emit(LifecycleEvent::ClientDetached {
-                    session_name,
-                    client_name: Some(attach_pid.to_string()),
-                })
-                .await;
-            }
-            return Ok(());
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
-    }
-
-    pub(super) async fn start_customize_set_prompt(
-        &self,
-        attach_pid: u32,
-    ) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        let selected = selected_items(&mode, &build);
-        let Some(selected) = selected.first() else {
-            return Ok(());
-        };
-        match &selected.action {
-            ModeTreeAction::CustomizeOption { scope, name, .. } => {
-                self.start_mode_tree_prompt(
-                    attach_pid,
-                    ModeTreePromptCallback::CustomizeSetOption {
-                        scope: scope.clone(),
-                        name: name.clone(),
-                    },
-                )
-                .await?;
-            }
-            ModeTreeAction::CustomizeKey {
-                table_name, key, ..
-            } => {
-                self.start_mode_tree_prompt(
-                    attach_pid,
-                    ModeTreePromptCallback::CustomizeSetKey {
-                        table_name: table_name.clone(),
-                        key: *key,
-                    },
-                )
-                .await?;
-            }
-            ModeTreeAction::None
-            | ModeTreeAction::TreeTarget { .. }
-            | ModeTreeAction::Buffer { .. }
-            | ModeTreeAction::Client { .. } => {}
-        }
-        Ok(())
-    }
-
-    pub(super) async fn perform_customize_unset(
-        &self,
-        attach_pid: u32,
-    ) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        let selected = selected_items(&mode, &build);
-        let Some(selected) = selected.first() else {
-            return Ok(());
-        };
-        match &selected.action {
-            ModeTreeAction::CustomizeOption { scope, name, .. } => {
-                let response = self
-                    .handle_set_option_by_name(SetOptionByNameRequest {
-                        scope: scope.clone(),
-                        name: name.clone(),
-                        value: None,
-                        mode: SetOptionMode::Replace,
-                        only_if_unset: false,
-                        unset: true,
-                        unset_pane_overrides: false,
-                        format: false,
-                        format_target: None,
-                    })
-                    .await;
-                if let Response::Error(error) = response {
-                    return Err(error.error);
-                }
-            }
-            ModeTreeAction::CustomizeKey {
-                table_name,
-                key_string,
-                ..
-            } => {
-                let response = self
-                    .handle_unbind_key(UnbindKeyRequest {
-                        table_name: table_name.clone(),
-                        all: false,
-                        key: Some(key_string.clone()),
-                        quiet: true,
-                    })
-                    .await;
-                if let Response::Error(error) = response {
-                    return Err(error.error);
-                }
-            }
-            _ => {}
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
-    }
-
-    pub(super) async fn perform_customize_reset(
-        &self,
-        attach_pid: u32,
-    ) -> Result<(), TerminalError> {
-        let mut mode = {
-            let active_attach = self.active_attach.lock().await;
-            let active = active_attach
-                .by_pid
-                .get(&attach_pid)
-                .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
-            active
-                .mode_tree
-                .clone()
-                .ok_or_else(|| TerminalError::Server("mode-tree is not active".to_owned()))?
-        };
-        let build = self.build_mode_tree(&mut mode, attach_pid).await?;
-        let selected = selected_items(&mode, &build);
-        let Some(selected) = selected.first() else {
-            return Ok(());
-        };
-        match &selected.action {
-            ModeTreeAction::CustomizeOption { scope, name, .. } => {
-                let response = self
-                    .handle_set_option_by_name(SetOptionByNameRequest {
-                        scope: scope.clone(),
-                        name: name.clone(),
-                        value: None,
-                        mode: SetOptionMode::Replace,
-                        only_if_unset: false,
-                        unset: true,
-                        unset_pane_overrides: false,
-                        format: false,
-                        format_target: None,
-                    })
-                    .await;
-                if let Response::Error(error) = response {
-                    return Err(error.error);
-                }
-            }
-            ModeTreeAction::CustomizeKey {
-                table_name, key, ..
-            } => {
-                let mut state = self.state.lock().await;
-                state.key_bindings.reset_binding(table_name, *key);
-                drop(state);
-            }
-            _ => {}
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
     }
 }

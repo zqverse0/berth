@@ -8,7 +8,6 @@ use berth_term_proto::{
 };
 
 use super::super::{format_client_uid, format_client_user, ListClientSnapshot, RequestHandler};
-use crate::control_notifications::format_control_message_line;
 use crate::format_runtime::{render_runtime_template, RuntimeFormatContext};
 use crate::pane_terminals::{session_not_found, HandlerState};
 use crate::renderer;
@@ -77,7 +76,6 @@ impl RequestHandler {
             },
             None => None,
         };
-        let requester_is_control = self.is_control_client(requester_pid).await;
         let format_client_pid = match target_attach_pid {
             Some(attach_pid) => Some(attach_pid),
             None => self
@@ -104,7 +102,6 @@ impl RequestHandler {
             let active_attach = self.active_attach.lock().await;
             match active_attach.session_for_attached_client(session_client_pid, "display-message") {
                 Ok(session_name) => session_name,
-                Err(_error) if requester_is_control => None,
                 Err(error) => return Response::Error(ErrorResponse { error }),
             }
         } else {
@@ -112,13 +109,11 @@ impl RequestHandler {
         };
         let fallback_session_name = if attached_session_name.is_some() {
             attached_session_name
-        } else if requester_is_control {
-            self.control_session_name(requester_pid).await
         } else {
             None
         };
 
-        if target.is_none() && fallback_session_name.is_none() && !print && !requester_is_control {
+        if target.is_none() && fallback_session_name.is_none() && !print {
             return Response::DisplayMessage(DisplayMessageResponse::no_output());
         }
 
@@ -174,20 +169,6 @@ impl RequestHandler {
         }
 
         let Some(session_name) = session_name else {
-            let expanded = {
-                let state = self.state.lock().await;
-                let mut runtime =
-                    RuntimeFormatContext::new(FormatContext::new()).with_state(&state);
-                if let Some(client) = requester_client.as_ref() {
-                    runtime = with_runtime_client_values(runtime, client);
-                }
-                render_runtime_template(template, &runtime, true)
-            };
-            self.send_control_notification_to(
-                requester_pid,
-                format_control_message_line(&expanded),
-            )
-            .await;
             return Response::DisplayMessage(DisplayMessageResponse::no_output());
         };
         let context_target = target.unwrap_or_else(|| Target::Session(session_name.clone()));
@@ -241,15 +222,6 @@ impl RequestHandler {
                 display_time(&state.options, &session_name),
             )
         };
-
-        if requester_is_control && target_attach_pid.is_none() {
-            self.send_control_notification_to(
-                requester_pid,
-                format_control_message_line(&expanded),
-            )
-            .await;
-            return Response::DisplayMessage(DisplayMessageResponse::no_output());
-        }
 
         let delivered = match target_attach_pid {
             Some(attach_pid) => {
@@ -709,12 +681,4 @@ fn collect_list_pane_output(
         stdout.push(b'\n');
     }
     CommandOutput::from_stdout(stdout)
-}
-
-pub(in crate::handler) fn command_output_from_lines(lines: &[String]) -> CommandOutput {
-    if lines.is_empty() {
-        return CommandOutput::from_stdout(Vec::new());
-    }
-
-    CommandOutput::from_stdout(format!("{}\n", lines.join("\n")).into_bytes())
 }

@@ -1,6 +1,10 @@
 #[cfg(windows)]
 use super::{spawn_hook_command_with_profile, TerminalProfile};
 #[cfg(windows)]
+use berth_term_engine::{EnvironmentStore, OptionStore};
+#[cfg(windows)]
+use berth_term_proto::{OptionName, ScopeSelector, SetOptionMode};
+#[cfg(windows)]
 use std::error::Error;
 #[cfg(windows)]
 use std::fs;
@@ -8,10 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::time::Duration;
-#[cfg(windows)]
-use berth_term_engine::{EnvironmentStore, OptionStore};
-#[cfg(windows)]
-use berth_term_proto::{OptionName, ScopeSelector, SetOptionMode};
 #[cfg(windows)]
 use tokio::time::sleep;
 

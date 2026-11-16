@@ -7,6 +7,10 @@ use super::SessionBaseEnvironment;
 use super::{
     parse_environment_assignments, spawn_hook_command, validate_process_command, TerminalProfile,
 };
+use berth_term_engine::{EnvironmentStore, OptionStore};
+use berth_term_proto::{OptionName, ProcessCommand, ScopeSelector, SessionName, SetOptionMode};
+#[cfg(windows)]
+use berth_term_pty::TerminalSize as PtyTerminalSize;
 use std::collections::HashMap;
 use std::error::Error;
 #[cfg(any(unix, windows))]
@@ -24,10 +28,6 @@ use std::thread;
 use std::time::Duration;
 #[cfg(windows)]
 use std::time::Instant;
-use berth_term_engine::{EnvironmentStore, OptionStore};
-use berth_term_proto::{OptionName, ProcessCommand, ScopeSelector, SessionName, SetOptionMode};
-#[cfg(windows)]
-use berth_term_pty::TerminalSize as PtyTerminalSize;
 use tokio::time::sleep;
 
 static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);

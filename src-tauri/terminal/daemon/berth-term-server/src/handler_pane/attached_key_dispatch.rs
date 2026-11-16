@@ -59,10 +59,6 @@ impl RequestHandler {
             attached_live_input,
         } = dispatch;
 
-        if self.exit_clock_mode(target).await? {
-            return Ok(true);
-        }
-
         let now = Instant::now();
         let snapshot = {
             let active_attach = self.active_attach.lock().await;

@@ -84,17 +84,6 @@ impl Session {
         Ok(last_window)
     }
 
-    /// Restores tmux's winlink stack fallback after unlinking an active linked slot.
-    pub fn restore_last_window_after_active_unlink(&mut self) {
-        if self.last_window.is_some() {
-            return;
-        }
-        let next_last = self
-            .ordered_window_indexes_after(self.active_window, true)
-            .next();
-        self.last_window = next_last;
-    }
-
     fn ordered_window_indexes_after(
         &self,
         start_window: u32,

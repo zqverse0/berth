@@ -12,8 +12,8 @@ mod rules;
 mod types;
 
 use bindings::HookBindings;
-use rules::{hook_class, hook_inventory, hook_is_visible_in_show_hooks, root_for_hook};
-pub use rules::{hook_global_root, validate_hook_registration, validate_hook_scope};
+pub use rules::validate_hook_scope;
+use rules::{hook_class, root_for_hook};
 use types::HookClass;
 pub use types::{HookBindingView, HookDispatch, HookGlobalRoot, HookSetOptions};
 
@@ -119,152 +119,6 @@ impl HookStore {
         Ok(())
     }
 
-    /// Returns the first explicit global command for the given hook, when present.
-    #[must_use]
-    pub fn global_command(&self, hook: HookName) -> Option<&str> {
-        self.global_bindings(root_for_hook(hook)).command(hook)
-    }
-
-    /// Returns the exact global command at the given array index, when present.
-    #[must_use]
-    pub fn global_command_at(&self, hook: HookName, index: u32) -> Option<&str> {
-        self.global_bindings(root_for_hook(hook))
-            .command_at(hook, index)
-    }
-
-    /// Returns the first explicit global lifecycle for the given hook, when present.
-    #[must_use]
-    pub fn global_lifecycle(&self, hook: HookName) -> Option<HookLifecycle> {
-        self.global_bindings(root_for_hook(hook)).lifecycle(hook)
-    }
-
-    /// Returns the exact global lifecycle at the given array index, when present.
-    #[must_use]
-    pub fn global_lifecycle_at(&self, hook: HookName, index: u32) -> Option<HookLifecycle> {
-        self.global_bindings(root_for_hook(hook))
-            .lifecycle_at(hook, index)
-    }
-
-    /// Returns the first exact session-local command for the given hook, when present.
-    #[must_use]
-    pub fn session_command(&self, session_name: &SessionName, hook: HookName) -> Option<&str> {
-        self.sessions
-            .get(session_name)
-            .and_then(|bindings| bindings.command(hook))
-    }
-
-    /// Returns the exact session-local command at the given array index, when present.
-    #[must_use]
-    pub fn session_command_at(
-        &self,
-        session_name: &SessionName,
-        hook: HookName,
-        index: u32,
-    ) -> Option<&str> {
-        self.sessions
-            .get(session_name)
-            .and_then(|bindings| bindings.command_at(hook, index))
-    }
-
-    /// Returns the first exact session-local lifecycle for the given hook, when present.
-    #[must_use]
-    pub fn session_lifecycle(
-        &self,
-        session_name: &SessionName,
-        hook: HookName,
-    ) -> Option<HookLifecycle> {
-        self.sessions
-            .get(session_name)
-            .and_then(|bindings| bindings.lifecycle(hook))
-    }
-
-    /// Returns the exact session-local lifecycle at the given array index, when present.
-    #[must_use]
-    pub fn session_lifecycle_at(
-        &self,
-        session_name: &SessionName,
-        hook: HookName,
-        index: u32,
-    ) -> Option<HookLifecycle> {
-        self.sessions
-            .get(session_name)
-            .and_then(|bindings| bindings.lifecycle_at(hook, index))
-    }
-
-    /// Returns the first exact window-local command for the given hook, when present.
-    #[must_use]
-    pub fn window_command(&self, target: &WindowTarget, hook: HookName) -> Option<&str> {
-        self.windows
-            .get(target)
-            .and_then(|bindings| bindings.command(hook))
-    }
-
-    /// Returns the first exact pane-local command for the given hook, when present.
-    #[must_use]
-    pub fn pane_command(&self, target: &PaneTarget, hook: HookName) -> Option<&str> {
-        self.panes
-            .get(target)
-            .and_then(|bindings| bindings.command(hook))
-    }
-
-    /// Returns the explicit hook bindings for the requested global root.
-    #[must_use]
-    pub fn global_bindings_view(
-        &self,
-        root: HookGlobalRoot,
-        hook: Option<HookName>,
-    ) -> Vec<HookBindingView> {
-        self.global_bindings(root).views(hook)
-    }
-
-    /// Returns the explicit session-local hook bindings.
-    #[must_use]
-    pub fn session_bindings_view(
-        &self,
-        session_name: &SessionName,
-        hook: Option<HookName>,
-    ) -> Vec<HookBindingView> {
-        self.sessions
-            .get(session_name)
-            .map_or_else(Vec::new, |bindings| bindings.views(hook))
-    }
-
-    /// Returns the explicit window-local hook bindings.
-    #[must_use]
-    pub fn window_bindings_view(
-        &self,
-        target: &WindowTarget,
-        hook: Option<HookName>,
-    ) -> Vec<HookBindingView> {
-        self.windows
-            .get(target)
-            .map_or_else(Vec::new, |bindings| bindings.views(hook))
-    }
-
-    /// Returns the explicit pane-local hook bindings.
-    #[must_use]
-    pub fn pane_bindings_view(
-        &self,
-        target: &PaneTarget,
-        hook: Option<HookName>,
-    ) -> Vec<HookBindingView> {
-        self.panes
-            .get(target)
-            .map_or_else(Vec::new, |bindings| bindings.views(hook))
-    }
-
-    /// Returns the tmux-compatible hook inventory visible at the requested global root.
-    #[must_use]
-    pub fn shipped_global_hooks(root: HookGlobalRoot, hook: Option<HookName>) -> Vec<HookName> {
-        hook_inventory()
-            .into_iter()
-            .filter(|candidate| hook.map(|expected| *candidate == expected).unwrap_or(true))
-            .filter(|candidate| {
-                hook_is_visible_in_show_hooks(*candidate) && root_for_hook(*candidate) == root
-            })
-            .collect()
-    }
-
     /// Resolves a hook for the provided event scope and returns the matching command batch.
     #[must_use]
     pub fn dispatch(&mut self, scope: &ScopeSelector, hook: HookName) -> Vec<HookDispatch> {
@@ -301,47 +155,6 @@ impl HookStore {
             keep
         });
         removed
-    }
-
-    /// Swaps window and pane hooks between two winlink slots.
-    pub fn swap_window_hooks(&mut self, source: &WindowTarget, target: &WindowTarget) {
-        if source == target {
-            return;
-        }
-
-        let source_window = self.windows.remove(source);
-        let target_window = self.windows.remove(target);
-        if let Some(bindings) = source_window {
-            self.windows.insert(target.clone(), bindings);
-        }
-        if let Some(bindings) = target_window {
-            self.windows.insert(source.clone(), bindings);
-        }
-
-        let source_panes = remove_window_pane_hooks(&mut self.panes, source);
-        let target_panes = remove_window_pane_hooks(&mut self.panes, target);
-        self.panes
-            .extend(rekey_pane_hooks(source_panes, source, target));
-        self.panes
-            .extend(rekey_pane_hooks(target_panes, target, source));
-    }
-
-    /// Moves window and pane hooks from one winlink slot to another.
-    pub fn move_window_hooks(&mut self, source: &WindowTarget, target: &WindowTarget) {
-        if source == target {
-            return;
-        }
-
-        let source_window = self.windows.remove(source);
-        let _ = self.windows.remove(target);
-        if let Some(bindings) = source_window {
-            self.windows.insert(target.clone(), bindings);
-        }
-
-        let source_panes = remove_window_pane_hooks(&mut self.panes, source);
-        let _ = remove_window_pane_hooks(&mut self.panes, target);
-        self.panes
-            .extend(rekey_pane_hooks(source_panes, source, target));
     }
 
     /// Removes all hooks owned by the given pane.
@@ -468,13 +281,6 @@ impl HookStore {
         }
     }
 
-    fn global_bindings(&self, root: HookGlobalRoot) -> &HookBindings {
-        match root {
-            HookGlobalRoot::Session => &self.session_global,
-            HookGlobalRoot::Window => &self.window_global,
-        }
-    }
-
     fn global_bindings_mut(&mut self, root: HookGlobalRoot) -> &mut HookBindings {
         match root {
             HookGlobalRoot::Session => &mut self.session_global,
@@ -559,50 +365,6 @@ impl HookStore {
 
         self.dispatch_window(scope, hook)
     }
-}
-
-fn remove_window_pane_hooks(
-    panes: &mut HashMap<PaneTarget, HookBindings>,
-    window: &WindowTarget,
-) -> Vec<(PaneTarget, HookBindings)> {
-    let pane_targets = panes
-        .keys()
-        .filter(|pane_target| {
-            pane_target.session_name() == window.session_name()
-                && pane_target.window_index() == window.window_index()
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    pane_targets
-        .into_iter()
-        .filter_map(|pane_target| {
-            panes
-                .remove(&pane_target)
-                .map(|bindings| (pane_target, bindings))
-        })
-        .collect()
-}
-
-fn rekey_pane_hooks(
-    panes: Vec<(PaneTarget, HookBindings)>,
-    source: &WindowTarget,
-    target: &WindowTarget,
-) -> Vec<(PaneTarget, HookBindings)> {
-    panes
-        .into_iter()
-        .map(move |(pane_target, bindings)| {
-            debug_assert_eq!(pane_target.session_name(), source.session_name());
-            debug_assert_eq!(pane_target.window_index(), source.window_index());
-            (
-                PaneTarget::with_window(
-                    target.session_name().clone(),
-                    target.window_index(),
-                    pane_target.pane_index(),
-                ),
-                bindings,
-            )
-        })
-        .collect()
 }
 
 fn remapped_window_target(

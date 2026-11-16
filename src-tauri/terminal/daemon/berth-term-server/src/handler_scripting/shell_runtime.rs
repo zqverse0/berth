@@ -112,10 +112,6 @@ impl RequestHandler {
                 .await;
             let context = QueueExecutionContext::new(request.start_directory.clone())
                 .with_current_target(current_target);
-            let context = match request.source_depth {
-                Some(depth) => context.for_sourced_commands(depth, None),
-                None => context,
-            };
             let output = self
                 .execute_parsed_commands(requester_pid, parsed, context)
                 .await?;
@@ -248,13 +244,12 @@ impl RequestHandler {
             session_id,
             &self.socket_path(),
             base_environment.as_ref(),
-            !self.config_loading_active(),
+            true,
             pane_id,
             request.start_directory.as_deref(),
         )
         .map(|profile| match request.source_depth {
             Some(depth) => profile.with_source_depth(depth),
-            None if self.config_loading_active() => profile.with_source_depth(1),
             None => profile,
         })
     }
@@ -287,7 +282,7 @@ impl RequestHandler {
             session_id,
             &self.socket_path(),
             base_environment.as_ref(),
-            !self.config_loading_active(),
+            true,
             None,
             request.caller_cwd.as_deref(),
         )
@@ -353,13 +348,11 @@ impl RequestHandler {
                 return Ok(QueueCommandAction::Normal {
                     output: None,
                     error: Some(error),
-                    exit_status: None,
                 });
             }
             return Ok(QueueCommandAction::Normal {
                 output: None,
                 error: None,
-                exit_status: None,
             });
         }
 
@@ -409,7 +402,6 @@ impl RequestHandler {
             return Ok(QueueCommandAction::Normal {
                 output: None,
                 error: None,
-                exit_status: None,
             });
         };
 
@@ -427,7 +419,6 @@ impl RequestHandler {
             )],
             output: None,
             error: None,
-            exit_status: None,
         })
     }
 
@@ -535,7 +526,7 @@ impl RequestHandler {
             session_id,
             &self.socket_path(),
             base_environment.as_ref(),
-            !self.config_loading_active(),
+            true,
             None,
             command.caller_cwd.as_deref(),
         )

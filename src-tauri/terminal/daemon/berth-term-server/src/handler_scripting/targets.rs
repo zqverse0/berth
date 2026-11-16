@@ -5,8 +5,8 @@ use berth_term_engine::{
     TargetFindFlags, TargetFindType, UnresolvedTarget,
 };
 use berth_term_proto::{
-    MoveWindowTarget, PaneTarget, SelectLayoutTarget, SessionName, SplitWindowTarget, Target,
-    TerminalError, WindowTarget,
+    PaneTarget, SelectLayoutTarget, SessionName, SplitWindowTarget, Target, TerminalError,
+    WindowTarget,
 };
 
 use super::super::target_support::pane_id_target;
@@ -553,27 +553,6 @@ pub(super) fn implicit_pane_target(
     }
 }
 
-pub(super) fn marked_pane_target(
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-    command_name: &str,
-) -> Result<PaneTarget, TerminalError> {
-    sessions
-        .resolve_unresolved_target(
-            &UnresolvedTarget::new("{marked}"),
-            TargetFindType::Pane,
-            TargetFindFlags::NONE,
-            find_context,
-        )
-        .map(|target| match target {
-            Target::Pane(target) => target,
-            _ => unreachable!("marked pane target lookup must return a pane"),
-        })
-        .map_err(|error| {
-            TerminalError::Server(format!("{command_name} requires a marked pane: {error}"))
-        })
-}
-
 pub(super) fn implicit_split_target(
     sessions: &SessionStore,
     find_context: &TargetFindContext,
@@ -782,17 +761,6 @@ pub(super) fn parse_pane_target(
             0,
         )),
         Ok(Target::Session(session_name)) => Ok(PaneTarget::with_window(session_name, 0, 0)),
-        Err(error) => Err(error),
-    }
-}
-
-pub(super) fn parse_move_window_target(value: String) -> Result<MoveWindowTarget, TerminalError> {
-    match Target::parse(&value) {
-        Ok(Target::Session(session_name)) => Ok(MoveWindowTarget::Session(session_name)),
-        Ok(Target::Window(target)) => Ok(MoveWindowTarget::Window(target)),
-        Ok(Target::Pane(_)) => Err(TerminalError::Server(format!(
-            "invalid move-window target '{value}': move-window target must match 'session' or 'session:window'"
-        ))),
         Err(error) => Err(error),
     }
 }

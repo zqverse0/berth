@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 
-use berth_term_engine::{BufferView, Session, Window};
+use berth_term_engine::{Session, Window};
 use berth_term_proto::SessionName;
 
-use super::mode_tree_model::{ClientSnapshot, SortOrder};
+use super::mode_tree_model::SortOrder;
 
 pub(super) fn sort_sessions(
     sessions: &mut Vec<(&SessionName, &Session)>,
@@ -42,38 +42,6 @@ pub(super) fn sort_windows(
     });
 }
 
-pub(super) fn sort_buffer_entries(
-    entries: &mut [BufferView<'_>],
-    sort_order: Option<SortOrder>,
-    reversed: bool,
-) {
-    entries.sort_by(|left, right| {
-        let ordering = match sort_order.unwrap_or(SortOrder::Creation) {
-            SortOrder::Creation | SortOrder::Index => left.order().cmp(&right.order()),
-            SortOrder::Name => left.name().cmp(right.name()),
-            SortOrder::Size => left.size().cmp(&right.size()),
-            SortOrder::Activity => left.created().cmp(&right.created()),
-        };
-        stable_order(ordering, reversed, left.name(), right.name())
-    });
-}
-
-pub(super) fn sort_clients(
-    clients: &mut [ClientSnapshot],
-    sort_order: Option<SortOrder>,
-    reversed: bool,
-) {
-    clients.sort_by(|left, right| {
-        let ordering = match sort_order.unwrap_or(SortOrder::Name) {
-            SortOrder::Name => left.label.cmp(&right.label),
-            SortOrder::Size => (left.width, left.height).cmp(&(right.width, right.height)),
-            SortOrder::Creation | SortOrder::Index => left.order.cmp(&right.order),
-            SortOrder::Activity => right.activity.cmp(&left.activity),
-        };
-        stable_order(ordering, reversed, &left.label, &right.label)
-    });
-}
-
 pub(super) fn stable_order<T: Ord>(
     ordering: Ordering,
     reversed: bool,
@@ -89,13 +57,6 @@ pub(super) fn stable_order<T: Ord>(
         left.cmp(&right)
     } else {
         primary
-    }
-}
-
-pub(super) fn split_name_value(line: &str) -> (String, String) {
-    match line.split_once(' ') {
-        Some((name, value)) => (name.to_owned(), value.to_owned()),
-        None => (line.to_owned(), String::new()),
     }
 }
 

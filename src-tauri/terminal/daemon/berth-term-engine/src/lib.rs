@@ -44,12 +44,11 @@ mod window;
 pub use box_lines::BoxLines;
 pub use buffers::{BufferStore, BufferView, RenameBufferOutcome, SetBufferOutcome};
 pub use dec_modes::{render_dec_modes, render_dec_modes_for_snapshot};
-pub use environment::{EnvironmentStore, ShowEnvironmentEntry, ENVIRON_HIDDEN};
+pub use environment::{EnvironmentStore, ENVIRON_HIDDEN};
 pub use formats::format_skip_delimiter;
 pub use grid::GridRenderOptions;
 pub use hooks::{
-    hook_global_root, validate_hook_registration, validate_hook_scope, HookBindingView,
-    HookDispatch, HookGlobalRoot, HookSetOptions, HookStore,
+    validate_hook_scope, HookBindingView, HookDispatch, HookGlobalRoot, HookSetOptions, HookStore,
 };
 pub use identity::{PaneId, SessionId, SessionName, WindowId};
 pub use input::{
@@ -58,19 +57,17 @@ pub use input::{
 };
 pub use keys::{
     key_code_is_mouse_move, key_code_lookup_bits, key_code_to_bytes, key_string_lookup_key,
-    key_string_lookup_string, parse_binding_command_tokens, KeyBinding, KeyBindingDisplay,
-    KeyBindingSortOrder, KeyBindingStore, KeyBindingTable, KeyBindingTableRef, KeyCode, KEYC_ANY,
-    KEYC_BSPACE, KEYC_BUILD_MODIFIERS, KEYC_CTRL, KEYC_CURSOR, KEYC_DRAGGING, KEYC_IMPLIED_META,
-    KEYC_KEYPAD, KEYC_LITERAL, KEYC_MASK_FLAGS, KEYC_MASK_KEY, KEYC_MASK_MODIFIERS, KEYC_MASK_TYPE,
-    KEYC_META, KEYC_NONE, KEYC_SENT, KEYC_SHIFT, KEYC_UNKNOWN, KEYC_USER, KEYC_VI,
-    LIST_KEYS_TEMPLATE,
+    key_string_lookup_string, KeyBinding, KeyBindingStore, KeyBindingTable, KeyBindingTableRef,
+    KeyCode, KEYC_ANY, KEYC_BSPACE, KEYC_BUILD_MODIFIERS, KEYC_CTRL, KEYC_CURSOR, KEYC_DRAGGING,
+    KEYC_IMPLIED_META, KEYC_KEYPAD, KEYC_LITERAL, KEYC_MASK_FLAGS, KEYC_MASK_KEY,
+    KEYC_MASK_MODIFIERS, KEYC_MASK_TYPE, KEYC_META, KEYC_NONE, KEYC_SENT, KEYC_SHIFT, KEYC_UNKNOWN,
+    KEYC_USER, KEYC_VI,
 };
 pub use lifecycle::LifecycleEvent;
 pub use options::{
     default_global_scope_for_option_name, option_affects_alerts, option_affects_rendering,
-    option_name_by_name, resolve_option_name, validate_option_mutation,
-    validate_option_name_mutation, OptionMutationOutcome, OptionNotification, OptionStore,
-    ShowOptionsMode,
+    resolve_option_name, validate_option_mutation, validate_option_name_mutation,
+    OptionMutationOutcome, OptionNotification, OptionStore, ShowOptionsMode,
 };
 pub use pane::{Pane, PaneGeometry};
 pub use screen::{AgentSignal, Screen, ScreenCellRef, ScreenCellView, ScreenLineView};

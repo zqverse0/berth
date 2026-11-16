@@ -1,22 +1,15 @@
 use std::collections::BTreeSet;
 
-use super::{
-    BreakPaneOptions, PaneJoinOptions, PaneSwapOptions, Session, SessionPaneTarget, SessionStore,
-};
+use super::{PaneSwapOptions, Session, SessionPaneTarget, SessionStore};
 use crate::{PaneGeometry, PaneId};
 use berth_term_proto::{
-    LayoutName, PaneSplitSize, ResizePaneAdjustment, RotateWindowDirection, SessionName,
-    SplitDirection, TerminalError, TerminalSize,
+    LayoutName, ResizePaneAdjustment, SessionName, SplitDirection, TerminalError, TerminalSize,
 };
 
 #[path = "window_tests.rs"]
 mod window_tests;
 fn session_name(value: &str) -> SessionName {
     SessionName::new(value).expect("valid session name")
-}
-
-fn layout_string(body: &str) -> String {
-    format!("{:04x},{}", crate::layout::layout_checksum(body), body)
 }
 
 #[path = "tests/pane_basics.rs"]

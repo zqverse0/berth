@@ -4,7 +4,6 @@ use berth_term_proto::{TerminalError, TerminalGeometry, TerminalSize};
 
 use super::pane_support::retain_partial_attached_control_input;
 use super::prompt_support::PromptInputEvent;
-use super::scripting_support::{QueueCommandAction, QueueExecutionContext};
 use super::RequestHandler;
 use crate::input_keys::{decode_mouse, MouseDecode};
 use crate::pane_io::{AttachControl, OverlayFrame};
@@ -14,14 +13,12 @@ use crate::pane_terminals::session_not_found;
 mod commands;
 #[path = "handler_overlay/interactions.rs"]
 mod interactions;
-#[path = "handler_overlay/parse.rs"]
-mod parse;
-pub(super) use parse::ParsedOverlayCommand;
-use parse::{parse_display_menu, parse_display_popup};
 #[path = "handler_overlay/layout.rs"]
 mod layout;
 #[path = "handler_overlay/menu.rs"]
 mod menu;
+#[path = "handler_overlay/parse.rs"]
+mod parse;
 use menu::MenuOverlayItem;
 #[path = "handler_overlay/mouse.rs"]
 mod mouse;
@@ -37,37 +34,6 @@ mod support;
 mod target;
 
 impl RequestHandler {
-    pub(super) fn parse_overlay_queue_command(
-        command_name: &str,
-        arguments: Vec<String>,
-    ) -> Result<Option<ParsedOverlayCommand>, TerminalError> {
-        match command_name {
-            "display-menu" | "menu" => parse_display_menu(arguments)
-                .map(|command| Some(ParsedOverlayCommand::Menu(command))),
-            "display-popup" | "popup" => parse_display_popup(arguments)
-                .map(|command| Some(ParsedOverlayCommand::Popup(command))),
-            _ => Ok(None),
-        }
-    }
-
-    pub(super) async fn execute_queued_overlay(
-        &self,
-        requester_pid: u32,
-        command: ParsedOverlayCommand,
-        context: &QueueExecutionContext,
-    ) -> Result<QueueCommandAction, TerminalError> {
-        match command {
-            ParsedOverlayCommand::Menu(command) => {
-                self.execute_queued_display_menu(requester_pid, command, context)
-                    .await
-            }
-            ParsedOverlayCommand::Popup(command) => {
-                self.execute_queued_display_popup(requester_pid, command, context)
-                    .await
-            }
-        }
-    }
-
     pub(super) async fn overlay_active(&self, attach_pid: u32) -> bool {
         let active_attach = self.active_attach.lock().await;
         active_attach
@@ -91,7 +57,6 @@ impl RequestHandler {
                 .get(&attach_pid)
                 .and_then(|active| active.overlay.as_ref())
                 .map(|overlay| match overlay {
-                    ClientOverlayState::Menu(_) => 0_u8,
                     ClientOverlayState::Popup(popup) if popup.nested_menu.is_some() => 0_u8,
                     ClientOverlayState::Popup(_) => 1_u8,
                 })
@@ -220,18 +185,6 @@ impl RequestHandler {
                 .and_then(|mode| mode.zoom_restore.clone());
             if let Some(overlay) = active.overlay.as_mut() {
                 match overlay {
-                    ClientOverlayState::Menu(menu) => {
-                        if size.cols == 0 || size.rows == 0 {
-                            close_overlay = true;
-                        } else {
-                            menu.rect.width = menu.rect.width.min(size.cols);
-                            menu.rect.height = menu.rect.height.min(size.rows);
-                            menu.rect.x =
-                                menu.rect.x.min(size.cols.saturating_sub(menu.rect.width));
-                            menu.rect.y =
-                                menu.rect.y.min(size.rows.saturating_sub(menu.rect.height));
-                        }
-                    }
                     ClientOverlayState::Popup(popup) => {
                         if size.cols == 0 || size.rows == 0 {
                             close_overlay = true;
@@ -388,56 +341,6 @@ impl RequestHandler {
             render_generation,
             overlay_generation,
         )));
-        Ok(())
-    }
-
-    pub(super) async fn popup_reader_tick(
-        &self,
-        attach_pid: u32,
-        popup_id: u64,
-    ) -> Result<(), TerminalError> {
-        let active_attach = self.active_attach.lock().await;
-        let Some(active) = active_attach.by_pid.get(&attach_pid) else {
-            return Ok(());
-        };
-        if active
-            .overlay
-            .as_ref()
-            .map(|overlay| overlay.id() != popup_id)
-            .unwrap_or(true)
-        {
-            return Ok(());
-        }
-        drop(active_attach);
-        self.refresh_interactive_overlay_if_active(attach_pid).await
-    }
-
-    pub(super) async fn popup_job_finished(
-        &self,
-        attach_pid: u32,
-        popup_id: u64,
-        status: i32,
-    ) -> Result<(), TerminalError> {
-        let should_close = {
-            let mut active_attach = self.active_attach.lock().await;
-            let Some(active) = active_attach.by_pid.get_mut(&attach_pid) else {
-                return Ok(());
-            };
-            let Some(ClientOverlayState::Popup(popup)) = active.overlay.as_mut() else {
-                return Ok(());
-            };
-            if popup.id != popup_id {
-                return Ok(());
-            }
-            popup.job = None;
-            popup.close_on_exit || (popup.close_on_zero_exit && status == 0)
-        };
-        if should_close {
-            self.clear_interactive_overlay(attach_pid, false).await?;
-        } else {
-            self.refresh_interactive_overlay_if_active(attach_pid)
-                .await?;
-        }
         Ok(())
     }
 }

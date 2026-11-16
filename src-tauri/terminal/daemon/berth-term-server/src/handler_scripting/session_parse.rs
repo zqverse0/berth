@@ -1,9 +1,8 @@
 use berth_term_engine::{SessionStore, TargetFindContext};
 use berth_term_proto::request::{AttachSessionExt2Request, NewSessionExtRequest};
 use berth_term_proto::{
-    ClientTerminalContext, DisplayPanesRequest, HasSessionRequest, KillSessionRequest,
-    LastWindowRequest, LockSessionRequest, NextWindowRequest, PreviousWindowRequest,
-    RenameSessionRequest, Request, SwitchClientRequest, TerminalError, TerminalSize,
+    ClientTerminalContext, HasSessionRequest, KillSessionRequest, NextWindowRequest,
+    PreviousWindowRequest, RenameSessionRequest, Request, TerminalError, TerminalSize,
 };
 
 use super::super::DEFAULT_SESSION_SIZE;
@@ -127,16 +126,6 @@ pub(super) fn parse_session_request(
             target,
             alerts_only,
         })),
-        "last-window" => Ok(Request::LastWindow(LastWindowRequest { target })),
-        "display-panes" => Ok(Request::DisplayPanes(DisplayPanesRequest {
-            target,
-            duration_ms: None,
-            non_blocking: false,
-            no_command: false,
-            template: None,
-        })),
-        "switch-client" => Ok(Request::SwitchClient(SwitchClientRequest { target })),
-        "lock-session" => Ok(Request::LockSession(LockSessionRequest { target })),
         _ => Err(TerminalError::Server(format!(
             "unsupported session request parser command: {command}"
         ))),

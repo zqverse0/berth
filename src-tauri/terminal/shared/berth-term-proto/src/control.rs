@@ -61,24 +61,6 @@ pub struct ClientTerminalContext {
     pub utf8: bool,
 }
 
-/// Detached upgrade request that switches a connection into tmux-compatible
-/// control mode while leaving the underlying RPC framing unchanged.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ControlModeRequest {
-    /// The requested control-mode flavor.
-    pub mode: ControlMode,
-    /// Terminal/runtime hints captured from the invoking client.
-    #[serde(default)]
-    pub client_terminal: ClientTerminalContext,
-}
-
-/// Detached upgrade response acknowledging entry into control mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ControlModeResponse {
-    /// The accepted control-mode flavor.
-    pub mode: ControlMode,
-}
-
 /// Guard kind for `%begin`, `%end`, and `%error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlGuardKind {

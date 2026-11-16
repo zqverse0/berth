@@ -27,16 +27,6 @@ impl ClientFlags {
         self
     }
 
-    pub(crate) fn toggle_read_only(&mut self) {
-        if self.contains(Self::READONLY) {
-            self.remove(Self::READONLY);
-            self.remove(Self::IGNORESIZE);
-        } else {
-            self.insert(Self::READONLY);
-            self.insert(Self::IGNORESIZE);
-        }
-    }
-
     pub(crate) fn insert_named(
         &mut self,
         name: &str,

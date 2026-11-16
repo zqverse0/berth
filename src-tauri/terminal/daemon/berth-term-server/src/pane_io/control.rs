@@ -179,7 +179,7 @@ pub(super) async fn apply_pending_attach_controls(
     persistent_overlay: &mut Option<Vec<u8>>,
     persistent_overlay_visible: &mut bool,
     persistent_overlay_state_id: &mut Option<u64>,
-    locked: &mut bool,
+    _locked: &mut bool,
 ) -> io::Result<PendingAttachAction> {
     let Some(control_rx) = attach_controls else {
         return Ok(PendingAttachAction::Write);
@@ -365,16 +365,6 @@ pub(super) async fn apply_pending_attach_controls(
             }
             Ok(AttachControl::Write(bytes)) => {
                 emit_attach_bytes(stream, &bytes).await?;
-            }
-            Ok(AttachControl::LockShellCommand(command)) => {
-                *locked = true;
-                emit_attach_message(stream, &AttachMessage::LockShellCommand(command)).await?;
-                should_drop_output = true;
-            }
-            Ok(AttachControl::Suspend) => {
-                *locked = true;
-                emit_attach_message(stream, &AttachMessage::Suspend).await?;
-                should_drop_output = true;
             }
             Err(mpsc::error::TryRecvError::Empty) => break,
             Err(mpsc::error::TryRecvError::Disconnected) => break,

@@ -78,6 +78,12 @@ pub(super) struct CommandTokens {
 }
 
 impl CommandTokens {
+    pub(super) fn peek_is_flag(&self) -> bool {
+        self.tokens
+            .front()
+            .is_some_and(|token| token.starts_with('-') && token != "-")
+    }
+
     pub(super) fn new(tokens: Vec<String>) -> Self {
         Self {
             tokens: tokens.into_iter().collect(),
@@ -115,12 +121,6 @@ impl CommandTokens {
                 .chars()
                 .collect(),
         )
-    }
-
-    pub(super) fn peek_is_flag(&self) -> bool {
-        self.tokens
-            .front()
-            .is_some_and(|token| token.starts_with('-') && token != "-")
     }
 
     pub(super) fn is_empty(&self) -> bool {

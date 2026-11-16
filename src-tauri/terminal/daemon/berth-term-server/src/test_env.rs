@@ -4,10 +4,6 @@ use tokio::sync::{Mutex, MutexGuard};
 
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-pub(crate) async fn lock_async() -> MutexGuard<'static, ()> {
-    ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
-}
-
 pub(crate) fn lock_blocking() -> MutexGuard<'static, ()> {
     ENV_LOCK.get_or_init(|| Mutex::new(())).blocking_lock()
 }

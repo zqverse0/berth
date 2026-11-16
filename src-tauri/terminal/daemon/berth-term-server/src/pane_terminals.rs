@@ -36,19 +36,10 @@ mod pane_access;
 mod pane_lifecycle;
 #[path = "pane_terminals/pane_outputs.rs"]
 mod pane_outputs;
-#[path = "pane_pipe.rs"]
-mod pane_pipe;
-#[cfg(feature = "web")]
-#[path = "pane_terminals/pane_scrollback.rs"]
-mod pane_scrollback;
 #[path = "pane_terminal_store.rs"]
 mod pane_terminal_store;
 #[path = "pane_terminals/pane_transcripts.rs"]
 mod pane_transcripts;
-#[path = "pane_terminals/pane_transfer.rs"]
-mod pane_transfer;
-#[path = "pane_terminals/pipes.rs"]
-mod pipes;
 #[path = "pane_terminals/rollback.rs"]
 mod rollback;
 #[path = "pane_terminals/session_mutation.rs"]
@@ -69,7 +60,6 @@ pub(crate) use lifecycle_state::PaneLifecycleState;
 use marked_pane::MarkedPane;
 pub(crate) use pane_outputs::PaneExitMetadata;
 use pane_outputs::{AttachedSubmittedLine, PaneOutputSpawn, RemovedPaneOutputs};
-use pane_pipe::PanePipeStore;
 use pane_terminal_store::PaneTerminalStore;
 #[cfg_attr(windows, allow(unused_imports))]
 pub(crate) use pane_transcripts::PaneCaptureRequest;
@@ -173,11 +163,9 @@ pub(crate) struct HandlerState {
     pane_input_captures: StdMutex<HashMap<String, Vec<u8>>>,
     dead_panes: HashMap<SessionName, HashMap<PaneId, PaneExitMetadata>>,
     marked_pane: Option<MarkedPane>,
-    pipes: PanePipeStore,
     auto_named_windows: HashSet<(SessionName, u32)>,
     window_link_groups: HashMap<u64, WindowLinkGroup>,
     window_link_slots: HashMap<WindowLinkSlot, u64>,
-    next_window_link_group_id: u64,
     #[cfg(unix)]
     pane_reader_runtime: Option<PaneReaderRuntime>,
     /// 与握手 capability 相同的 daemon epoch，用于编码注入 pane 的 `BERTH_TARGET_REF`。
@@ -254,9 +242,6 @@ impl HandlerState {
         runtime_sessions.dedup();
 
         for session_name in runtime_sessions {
-            for pipe in self.remove_session_pipes(&session_name).into_values() {
-                pipe.stop();
-            }
             self.remove_session_pane_outputs(&session_name);
             let _ = self.terminals.remove_session(&session_name);
         }
@@ -520,10 +505,6 @@ mod tests {
         assert_eq!(
             state.environment.session_value(&alpha, "TERM"),
             Some("screen")
-        );
-        assert_eq!(
-            state.hooks.session_command(&alpha, HookName::AfterSendKeys),
-            Some("true")
         );
         assert!(state.contains_session_terminals(&alpha));
         assert!(state.transcripts.contains_key(&alpha));

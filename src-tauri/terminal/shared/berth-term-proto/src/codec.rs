@@ -4,8 +4,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::envelope::{
-    decode_varint_u32, encode_varint_u32, SUPPORTED_WIRE_VERSION, BERTH_TERM_FRAME_MAGIC,
-    BERTH_TERM_WIRE_VERSION,
+    decode_varint_u32, encode_varint_u32, BERTH_TERM_FRAME_MAGIC, BERTH_TERM_WIRE_VERSION,
+    SUPPORTED_WIRE_VERSION,
 };
 use crate::TerminalError;
 

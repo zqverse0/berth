@@ -1,8 +1,5 @@
-use berth_term_engine::{command_parser::CommandParser, KeyCode};
-use berth_term_proto::types::OptionScopeSelector;
-use berth_term_proto::{
-    BindKeyRequest, Response, SetOptionByNameRequest, SetOptionMode, TerminalError,
-};
+use berth_term_engine::command_parser::CommandParser;
+use berth_term_proto::TerminalError;
 use tokio::sync::oneshot;
 
 use super::super::prompt_support::{
@@ -52,12 +49,6 @@ impl RequestHandler {
                 PromptType::Search,
             ),
             ModeTreePromptCallback::Command => (":".to_owned(), String::new(), PromptType::Command),
-            ModeTreePromptCallback::CustomizeSetOption { .. } => {
-                ("value ".to_owned(), String::new(), PromptType::Command)
-            }
-            ModeTreePromptCallback::CustomizeSetKey { .. } => {
-                ("command ".to_owned(), String::new(), PromptType::Command)
-            }
         };
         let plan = CommandPromptPlan {
             requester_pid: attach_pid,
@@ -115,16 +106,6 @@ impl RequestHandler {
             ModeTreePromptCallback::Command => {
                 let _ = self.apply_mode_tree_command(attach_pid, output).await;
             }
-            ModeTreePromptCallback::CustomizeSetOption { scope, name } => {
-                let _ = self
-                    .apply_customize_option_value(attach_pid, scope, name, output)
-                    .await;
-            }
-            ModeTreePromptCallback::CustomizeSetKey { table_name, key } => {
-                let _ = self
-                    .apply_customize_key_value(attach_pid, table_name, key, output)
-                    .await;
-            }
         }
     }
 
@@ -144,12 +125,6 @@ impl RequestHandler {
         };
         if auto_accept {
             return match action {
-                ModeTreeDeferredAction::DeleteBuffers => {
-                    self.perform_buffer_delete(attach_pid).await
-                }
-                ModeTreeDeferredAction::DetachClients => {
-                    self.perform_client_detach(attach_pid).await
-                }
                 ModeTreeDeferredAction::KillCurrentTreeSelection => {
                     self.perform_tree_kill_current(attach_pid).await
                 }
@@ -179,12 +154,6 @@ impl RequestHandler {
                 };
                 if result.inserted.is_some() {
                     let _ = match action {
-                        ModeTreeDeferredAction::DeleteBuffers => {
-                            handler.perform_buffer_delete(attach_pid).await
-                        }
-                        ModeTreeDeferredAction::DetachClients => {
-                            handler.perform_client_detach(attach_pid).await
-                        }
                         ModeTreeDeferredAction::KillCurrentTreeSelection => {
                             handler.perform_tree_kill_current(attach_pid).await
                         }
@@ -291,56 +260,5 @@ impl RequestHandler {
             self.refresh_attached_session(&session_name).await;
         }
         Ok(())
-    }
-
-    async fn apply_customize_option_value(
-        &self,
-        attach_pid: u32,
-        scope: OptionScopeSelector,
-        name: String,
-        value: String,
-    ) -> Result<(), TerminalError> {
-        let response = self
-            .handle_set_option_by_name(SetOptionByNameRequest {
-                scope,
-                name,
-                value: Some(value),
-                mode: SetOptionMode::Replace,
-                only_if_unset: false,
-                unset: false,
-                unset_pane_overrides: false,
-                format: false,
-                format_target: None,
-            })
-            .await;
-        if let Response::Error(error) = response {
-            return Err(error.error);
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
-    }
-
-    async fn apply_customize_key_value(
-        &self,
-        attach_pid: u32,
-        table_name: String,
-        key: KeyCode,
-        value: String,
-    ) -> Result<(), TerminalError> {
-        let parsed = CommandParser::new()
-            .parse_one_group(&value)
-            .map_err(|error| TerminalError::Server(error.message().to_owned()))?;
-        let response = self
-            .handle_bind_key(BindKeyRequest {
-                table_name,
-                key: berth_term_engine::key_string_lookup_key(key, false),
-                note: None,
-                repeat: false,
-                command: Some(vec![parsed.to_tmux_string()]),
-            })
-            .await;
-        if let Response::Error(error) = response {
-            return Err(error.error);
-        }
-        self.refresh_mode_tree_overlay_if_active(attach_pid).await
     }
 }

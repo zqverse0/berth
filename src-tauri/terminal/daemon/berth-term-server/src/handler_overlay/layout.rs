@@ -8,7 +8,7 @@ use crate::renderer::{
     status_line_layout, OverlayMousePosition, OverlayPositionContext, OverlayRect,
 };
 
-use super::parse::{ParsedDisplayMenuCommand, ParsedDisplayPopupCommand, PopupSizeSpec};
+use super::parse::{ParsedDisplayPopupCommand, PopupSizeSpec};
 use super::MenuOverlayItem;
 
 #[derive(Debug)]
@@ -24,47 +24,6 @@ pub(super) struct ResolvedPopupStyles {
     pub(super) style: Style,
     pub(super) border_style: Style,
     pub(super) border_lines: BoxLines,
-}
-
-pub(super) fn menu_styles_for_target(
-    state: &HandlerState,
-    target: &Target,
-    command: &ParsedDisplayMenuCommand,
-    runtime: &RuntimeFormatContext<'_>,
-) -> ResolvedMenuStyles {
-    let (session_name, window_index) = window_scope_for_target(state, target);
-    let base = menu_option_styles(state, session_name, window_index, command.border_lines);
-    ResolvedMenuStyles {
-        style: parse_style_with_runtime(
-            command.style.as_deref().or_else(|| {
-                state
-                    .options
-                    .resolve_for_window(session_name, window_index, OptionName::MenuStyle)
-            }),
-            runtime,
-        ),
-        selected_style: parse_style_with_runtime(
-            command.selected_style.as_deref().or_else(|| {
-                state.options.resolve_for_window(
-                    session_name,
-                    window_index,
-                    OptionName::MenuSelectedStyle,
-                )
-            }),
-            runtime,
-        ),
-        border_style: parse_style_with_runtime(
-            command.border_style.as_deref().or_else(|| {
-                state.options.resolve_for_window(
-                    session_name,
-                    window_index,
-                    OptionName::MenuBorderStyle,
-                )
-            }),
-            runtime,
-        ),
-        border_lines: command.border_lines.unwrap_or(base.border_lines),
-    }
 }
 
 pub(super) fn popup_styles_for_target(
@@ -137,7 +96,6 @@ pub(super) fn menu_option_styles(
 
 pub(super) fn resolve_popup_size(spec: Option<PopupSizeSpec>, default: u16, total: u16) -> u16 {
     match spec {
-        Some(PopupSizeSpec::Absolute(value)) => value.clamp(1, total.max(1)),
         Some(PopupSizeSpec::Percent(percent)) => {
             let value = ((u32::from(total.max(1)) * u32::from(percent)) / 100)
                 .clamp(1, u32::from(total.max(1)));

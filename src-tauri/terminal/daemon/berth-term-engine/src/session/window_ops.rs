@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ops::Bound::{Excluded, Unbounded};
 
-use berth_term_proto::{RotateWindowDirection, TerminalError, TerminalSize};
+use berth_term_proto::{TerminalError, TerminalSize};
 
 use super::target_error::{invalid_window_target, invalid_window_target_with_reason};
 use super::Session;
@@ -81,27 +81,6 @@ impl Session {
         Ok(())
     }
 
-    /// Inserts an existing window at the provided window index without rewriting its identities.
-    pub fn insert_existing_window(
-        &mut self,
-        window_index: u32,
-        window: Window,
-    ) -> Result<(), TerminalError> {
-        if self.windows.contains_key(&window_index) {
-            return Err(invalid_window_target_with_reason(
-                &self.name,
-                window_index,
-                "window index already exists in session",
-            ));
-        }
-
-        self.bump_allocators_for_window(&window);
-        self.windows.insert(window_index, window);
-        self.winlink_alert_flags
-            .insert(window_index, crate::AlertFlags::empty());
-        Ok(())
-    }
-
     /// Opens a destination slot for link-window style insertion by shifting existing winlinks upward.
     pub fn make_room_for_window(&mut self, window_index: u32) -> Result<(), TerminalError> {
         let first_gap = self.lowest_available_window_index_at_or_above(window_index)?;
@@ -120,41 +99,6 @@ impl Session {
         }
 
         Ok(())
-    }
-
-    /// Inserts a linked copy of an existing window at the destination slot.
-    pub fn link_window(
-        &mut self,
-        window_index: u32,
-        window: Window,
-        kill_destination: bool,
-        select_destination: bool,
-    ) -> Result<Option<Window>, TerminalError> {
-        if self.windows.contains_key(&window_index) && !kill_destination {
-            return Err(invalid_window_target_with_reason(
-                &self.name,
-                window_index,
-                "window index already exists in session",
-            ));
-        }
-
-        let removed = if kill_destination {
-            self.replace_window(window_index, window)?
-        } else {
-            self.insert_existing_window(window_index, window)?;
-            return if select_destination {
-                self.select_window(window_index)?;
-                Ok(None)
-            } else {
-                Ok(None)
-            };
-        };
-
-        if select_destination {
-            self.select_window(window_index)?;
-        }
-
-        Ok(Some(removed))
     }
 
     /// Replaces an existing window at the provided index and returns the removed window.
@@ -239,11 +183,6 @@ impl Session {
             window.set_automatic_name(name);
         }
         Ok(())
-    }
-
-    /// Reindexes sparse window slots into a contiguous `0..n` range without rewriting the windows themselves.
-    pub fn reindex_windows(&mut self) -> Result<BTreeMap<u32, u32>, TerminalError> {
-        self.reindex_windows_from(0)
     }
 
     /// Reindexes sparse window slots into a contiguous range starting at `first_index`.
@@ -352,71 +291,6 @@ impl Session {
         );
 
         Ok(removed_window)
-    }
-
-    /// Swaps two window slots within the same session while preserving the underlying windows.
-    pub fn swap_windows(
-        &mut self,
-        source_index: u32,
-        destination_index: u32,
-    ) -> Result<(), TerminalError> {
-        if !self.windows.contains_key(&source_index) {
-            return Err(invalid_window_target(&self.name, source_index));
-        }
-        if !self.windows.contains_key(&destination_index) {
-            return Err(invalid_window_target(&self.name, destination_index));
-        }
-        if source_index == destination_index {
-            return Ok(());
-        }
-
-        let source_window = self
-            .windows
-            .remove(&source_index)
-            .expect("source window must exist for swap");
-        let destination_window = self
-            .windows
-            .remove(&destination_index)
-            .expect("destination window must exist for swap");
-        let source_flags = self
-            .winlink_alert_flags
-            .remove(&source_index)
-            .unwrap_or_else(crate::AlertFlags::empty);
-        let destination_flags = self
-            .winlink_alert_flags
-            .remove(&destination_index)
-            .unwrap_or_else(crate::AlertFlags::empty);
-
-        self.windows.insert(source_index, destination_window);
-        self.windows.insert(destination_index, source_window);
-        self.winlink_alert_flags
-            .insert(source_index, destination_flags);
-        self.winlink_alert_flags
-            .insert(destination_index, source_flags);
-        Ok(())
-    }
-
-    /// Rotates pane positions in the addressed window without renumbering the panes themselves.
-    pub fn rotate_window(
-        &mut self,
-        window_index: u32,
-        direction: RotateWindowDirection,
-    ) -> Result<(), TerminalError> {
-        self.resolve_window_target_mut(window_index)?
-            .rotate_panes(direction);
-        Ok(())
-    }
-
-    /// Rotates pane positions with zoom save/restore via `-Z`.
-    pub fn rotate_window_with_zoom(
-        &mut self,
-        window_index: u32,
-        direction: RotateWindowDirection,
-        restore_zoom: bool,
-    ) -> Result<(), TerminalError> {
-        self.resolve_window_target_mut(window_index)?
-            .rotate_panes_with_zoom(direction, restore_zoom);
-        Ok(())
     }
 
     /// Sets the explicit size of the addressed window.

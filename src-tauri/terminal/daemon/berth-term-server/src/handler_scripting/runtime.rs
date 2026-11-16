@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use berth_term_proto::{TerminalError, DEFAULT_MAX_FRAME_LENGTH};
 #[cfg(unix)]
 use rustix::process::{kill_process_group, Pid, Signal};
-use berth_term_proto::{TerminalError, DEFAULT_MAX_FRAME_LENGTH};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -480,11 +480,11 @@ mod tests {
         BackgroundTaskLimiter, RUN_SHELL_TRUNCATION_MARKER,
     };
     use crate::terminal::TerminalProfile;
+    use berth_term_engine::{EnvironmentStore, OptionStore};
+    use berth_term_proto::{OptionName, ScopeSelector, SetOptionMode};
     use rustix::process::{kill_process, Pid, Signal};
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use berth_term_engine::{EnvironmentStore, OptionStore};
-    use berth_term_proto::{OptionName, ScopeSelector, SetOptionMode};
     use tokio::io::AsyncWriteExt;
 
     #[test]

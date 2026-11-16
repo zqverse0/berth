@@ -26,8 +26,7 @@ use mutation::{
 };
 pub use mutation::{validate_option_mutation, validate_option_name_mutation};
 pub use registry::{
-    option_affects_alerts, option_affects_rendering, option_name_by_name, resolve_option_name,
-    OptionQuery,
+    option_affects_alerts, option_affects_rendering, resolve_option_name, OptionQuery,
 };
 use registry::{option_metadata, OptionChangeMask, OptionValueType};
 pub use scope::default_global_scope_for_option_name;
@@ -282,56 +281,6 @@ impl OptionStore {
         self.panes.extend(source_panes);
     }
 
-    /// Swaps exact window and pane overrides between two winlink slots.
-    pub fn swap_window_overrides(&mut self, source: &WindowTarget, target: &WindowTarget) {
-        if source == target {
-            return;
-        }
-
-        let source_window = self.windows.remove(source);
-        let target_window = self.windows.remove(target);
-        if let Some(node) = source_window {
-            self.windows.insert(
-                target.clone(),
-                node.with_scope(OptionScopeSelector::Window(target.clone())),
-            );
-        }
-        if let Some(node) = target_window {
-            self.windows.insert(
-                source.clone(),
-                node.with_scope(OptionScopeSelector::Window(source.clone())),
-            );
-        }
-
-        let source_panes = remove_window_pane_options(&mut self.panes, source);
-        let target_panes = remove_window_pane_options(&mut self.panes, target);
-        self.panes
-            .extend(rekey_pane_options(source_panes, source, target));
-        self.panes
-            .extend(rekey_pane_options(target_panes, target, source));
-    }
-
-    /// Moves exact window and pane overrides from one winlink slot to another.
-    pub fn move_window_overrides(&mut self, source: &WindowTarget, target: &WindowTarget) {
-        if source == target {
-            return;
-        }
-
-        let source_window = self.windows.remove(source);
-        let _ = self.windows.remove(target);
-        if let Some(node) = source_window {
-            self.windows.insert(
-                target.clone(),
-                node.with_scope(OptionScopeSelector::Window(target.clone())),
-            );
-        }
-
-        let source_panes = remove_window_pane_options(&mut self.panes, source);
-        let _ = remove_window_pane_options(&mut self.panes, target);
-        self.panes
-            .extend(rekey_pane_options(source_panes, source, target));
-    }
-
     /// Removes all pane option overrides owned by the given pane.
     pub fn remove_pane(&mut self, target: &PaneTarget) -> Option<HashMap<OptionName, String>> {
         self.panes.remove(target).map(OptionNode::into_known_values)
@@ -507,45 +456,6 @@ impl OptionStore {
             !node.is_empty()
         });
     }
-}
-
-fn remove_window_pane_options(
-    panes: &mut PaneOptions,
-    window: &WindowTarget,
-) -> Vec<(PaneTarget, OptionNode)> {
-    let pane_targets = panes
-        .keys()
-        .filter(|pane_target| {
-            pane_target.session_name() == window.session_name()
-                && pane_target.window_index() == window.window_index()
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    pane_targets
-        .into_iter()
-        .filter_map(|pane_target| panes.remove(&pane_target).map(|node| (pane_target, node)))
-        .collect()
-}
-
-fn rekey_pane_options(
-    panes: Vec<(PaneTarget, OptionNode)>,
-    source: &WindowTarget,
-    target: &WindowTarget,
-) -> Vec<(PaneTarget, OptionNode)> {
-    panes
-        .into_iter()
-        .map(move |(pane_target, node)| {
-            let next_target = PaneTarget::with_window(
-                target.session_name().clone(),
-                target.window_index(),
-                pane_target.pane_index(),
-            );
-            let next_node = node.with_scope(OptionScopeSelector::Pane(next_target.clone()));
-            debug_assert_eq!(pane_target.session_name(), source.session_name());
-            debug_assert_eq!(pane_target.window_index(), source.window_index());
-            (next_target, next_node)
-        })
-        .collect()
 }
 
 fn remapped_window_target(

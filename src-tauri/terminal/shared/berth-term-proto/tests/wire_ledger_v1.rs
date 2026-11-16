@@ -19,13 +19,12 @@ use std::path::{Path, PathBuf};
 
 use berth_term_proto::{
     decode_frame, encode_frame, frame_kind_for_request, frame_kind_for_response, ledger_entry_for,
-    AttachSessionExt2Request, AttachSessionExt3Request, BindKeyRequest, CancelSdkWaitRequest,
+    AttachSessionExt2Request, AttachSessionExt3Request, CancelSdkWaitRequest,
     CancelSdkWaitResponse, CapturePaneRequest, CapturePaneTargetActionRequest,
-    ClientTerminalContext, ClockModeRequest, ControlMode, ControlModeRequest, ControlModeResponse,
-    DetachClientRequest, DisplayMessageExtRequest, ErrorResponse, FrameDecoder, FrameDirection,
-    FrameFeature, FrameKind, FrameStatus, HandshakeRequest, HandshakeResponse, HasSessionRequest,
-    HasSessionResponse, HookLifecycle, HookName, KillServerResponse, KillSessionRequest,
-    ListBuffersRequest, NewSessionResponse, OptionName, PaneId, PaneInputRequest, PaneKillRequest,
+    ClientTerminalContext, DetachClientRequest, DisplayMessageExtRequest, ErrorResponse,
+    FrameDecoder, FrameDirection, FrameFeature, FrameKind, FrameStatus, HandshakeRequest,
+    HandshakeResponse, HasSessionRequest, HasSessionResponse, KillServerResponse,
+    KillSessionRequest, NewSessionResponse, OptionName, PaneId, PaneInputRequest, PaneKillRequest,
     PaneOutputCursor, PaneOutputCursorRequest, PaneOutputCursorResponse, PaneOutputEvent,
     PaneOutputLagNotice, PaneOutputLagResponse, PaneOutputSubscriptionId,
     PaneOutputSubscriptionStart, PaneRecentOutput, PaneResizeRequest, PaneRespawnRequest,
@@ -33,12 +32,11 @@ use berth_term_proto::{
     PaneTarget, PaneTargetRef, Request, ResizePaneAdjustment, ResizePaneTargetActionRequest,
     ResolveTargetRequest, ResolveTargetType, Response, ScopeSelector, SdkWaitForOutputRefRequest,
     SdkWaitForOutputRequest, SdkWaitForOutputResponse, SdkWaitId, SdkWaitOutcome, SdkWaitOwnerId,
-    SendKeysExt2Request, SendKeysRequest, SendKeysResponse, SessionName, SetHookRequest,
-    SetOptionMode, SetOptionRequest, SplitDirection, SplitWindowTargetActionRequest,
+    SendKeysExt2Request, SendKeysRequest, SendKeysResponse, SessionName, SetOptionMode,
+    SetOptionRequest, SplitDirection, SplitWindowTargetActionRequest,
     SubscribePaneOutputRefRequest, SubscribePaneOutputRequest, SubscribePaneOutputResponse,
     TerminalError, TerminalSize, UnsubscribePaneOutputRequest, UnsubscribePaneOutputResponse,
-    WebShareConfigRequest, WebShareListener, WebShareRequest, WebShareResponse, WindowTarget,
-    BERTH_TERM_FRAME_MAGIC, BERTH_TERM_WIRE_VERSION, V1_FRAME_LEDGER,
+    WindowTarget, BERTH_TERM_FRAME_MAGIC, BERTH_TERM_WIRE_VERSION, V1_FRAME_LEDGER,
 };
 
 fn fixture_root() -> PathBuf {
@@ -109,10 +107,6 @@ fn fixtures() -> Vec<FullFrameFixture> {
         start_is_absolute: false,
         end_is_absolute: false,
     }));
-    let control_mode = Request::ControlMode(ControlModeRequest {
-        mode: ControlMode::ControlControl,
-        client_terminal: ClientTerminalContext::default(),
-    });
     let split_target_action =
         Request::SplitWindowTargetAction(Box::new(SplitWindowTargetActionRequest {
             target: Some("alpha:0.0".to_owned()),
@@ -190,13 +184,6 @@ fn fixtures() -> Vec<FullFrameFixture> {
             direction: FrameDirection::ClientToServer,
             feature: FrameFeature::Panes,
             encode: Frame::Request(capture_pane),
-        },
-        FullFrameFixture {
-            name: "control_mode_request",
-            kind: frame_kind_for_request(&control_mode),
-            direction: FrameDirection::ClientToServer,
-            feature: FrameFeature::Control,
-            encode: Frame::Request(control_mode),
         },
         FullFrameFixture {
             name: "split_window_target_action_request",
@@ -511,25 +498,11 @@ fn cross_section_requests() -> Vec<Request> {
             target: pane.clone(),
             keys: vec!["echo".to_owned()],
         }),
-        Request::ListBuffers(ListBuffersRequest::default()),
         Request::SetOption(SetOptionRequest {
             scope: ScopeSelector::Global,
             option: OptionName::DefaultTerminal,
             value: "tmux".to_owned(),
             mode: SetOptionMode::Replace,
-        }),
-        Request::SetHook(SetHookRequest {
-            scope: ScopeSelector::Global,
-            hook: HookName::ClientAttached,
-            command: "echo".to_owned(),
-            lifecycle: HookLifecycle::OneShot,
-        }),
-        Request::ControlMode(ControlModeRequest {
-            mode: ControlMode::Plain,
-            client_terminal: ClientTerminalContext::default(),
-        }),
-        Request::ClockMode(ClockModeRequest {
-            target: Some(pane.clone()),
         }),
         Request::CapturePane(Box::new(CapturePaneRequest {
             target: pane.clone(),
@@ -548,13 +521,6 @@ fn cross_section_requests() -> Vec<Request> {
             quiet: false,
             start_is_absolute: false,
             end_is_absolute: false,
-        })),
-        Request::BindKey(Box::new(BindKeyRequest {
-            table_name: "root".to_owned(),
-            key: "C-a".to_owned(),
-            note: None,
-            repeat: false,
-            command: Some(vec!["send-prefix".to_owned()]),
         })),
         Request::ResolveTarget(ResolveTargetRequest {
             target: Some("alpha:0.0".to_owned()),
@@ -625,7 +591,6 @@ fn cross_section_requests() -> Vec<Request> {
             target: pane_ref,
             title: Some("agent".to_owned()),
         }),
-        Request::WebShare(Box::new(WebShareRequest::Config(WebShareConfigRequest))),
         Request::DisplayMessageExt(Box::new(DisplayMessageExtRequest {
             target: Some(berth_term_proto::Target::Session(alpha.clone())),
             print: true,
@@ -683,9 +648,6 @@ fn cross_section_responses() -> Vec<Response> {
         }),
         Response::SendKeys(SendKeysResponse { key_count: 1 }),
         Response::KillServer(KillServerResponse),
-        Response::ControlMode(ControlModeResponse {
-            mode: ControlMode::ControlControl,
-        }),
         Response::Handshake(HandshakeResponse::current()),
         Response::SubscribePaneOutput(SubscribePaneOutputResponse {
             subscription_id: PaneOutputSubscriptionId::new(7),
@@ -732,18 +694,6 @@ fn cross_section_responses() -> Vec<Response> {
             wait_id: SdkWaitId::new(4),
             removed: true,
         }),
-        Response::WebShare(Box::new(WebShareResponse::Config(
-            berth_term_proto::WebShareConfigResponse {
-                listener: WebShareListener {
-                    host: "127.0.0.1".to_owned(),
-                    port: 9777,
-                    frontend_origin: "https://share.rmux.io".to_owned(),
-                },
-                output: berth_term_proto::CommandOutput::from_stdout(
-                    "127.0.0.1:9777 https://share.rmux.io\n",
-                ),
-            },
-        ))),
     ]
 }
 
@@ -865,8 +815,128 @@ fn ledger_active_size_matches_request_and_response_variant_count() {
         .iter()
         .filter(|entry| matches!(entry.status, FrameStatus::Active))
         .count();
-    // Active entries = 121 Request variants + 94 Response variants.
-    assert_eq!(active_count, 121 + 94, "active ledger size mismatch");
+    // Active entries = 76 Request variants + 53 Response variants（不含 Reserved<标签> 占位）。
+    assert_eq!(active_count, 76 + 53, "active ledger size mismatch");
+}
+
+/// 已删除命令的占位变体必须仍编码为原 bincode 标签，台账条目为 Reserved：
+/// 升级期间新旧 termd / CLI 共存时，其余变体的标签才不会错位。
+#[test]
+fn reserved_request_placeholders_keep_their_bincode_tags() {
+    for request in [
+        Request::Reserved9,
+        Request::Reserved11,
+        Request::Reserved12,
+        Request::Reserved13,
+        Request::Reserved15,
+        Request::Reserved16,
+        Request::Reserved17,
+        Request::Reserved18,
+        Request::Reserved22,
+        Request::Reserved27,
+        Request::Reserved30,
+        Request::Reserved31,
+        Request::Reserved32,
+        Request::Reserved33,
+        Request::Reserved35,
+        Request::Reserved39,
+        Request::Reserved40,
+        Request::Reserved41,
+        Request::Reserved42,
+        Request::Reserved51,
+        Request::Reserved53,
+        Request::Reserved54,
+        Request::Reserved56,
+        Request::Reserved57,
+        Request::Reserved58,
+        Request::Reserved59,
+        Request::Reserved60,
+        Request::Reserved63,
+        Request::Reserved64,
+        Request::Reserved65,
+        Request::Reserved68,
+        Request::Reserved69,
+        Request::Reserved70,
+        Request::Reserved73,
+        Request::Reserved74,
+        Request::Reserved75,
+        Request::Reserved76,
+        Request::Reserved77,
+        Request::Reserved78,
+        Request::Reserved79,
+        Request::Reserved82,
+        Request::Reserved85,
+        Request::Reserved86,
+        Request::Reserved88,
+        Request::Reserved89,
+        Request::Reserved112,
+        Request::Reserved113,
+        Request::Reserved114,
+    ] {
+        let kind = frame_kind_for_request(&request);
+        let encoded = bincode::serialize(&request).expect("encodes");
+        let tag = u32::from_le_bytes(encoded[..4].try_into().expect("4 tag bytes"));
+        assert_eq!(kind.bincode_tag(), tag, "placeholder drift for {request:?}");
+        let entry = ledger_entry_for(kind).expect("ledger entry exists");
+        assert!(matches!(entry.status, FrameStatus::Reserved));
+    }
+}
+
+#[test]
+fn reserved_response_placeholders_keep_their_bincode_tags() {
+    for response in [
+        Response::Reserved9,
+        Response::Reserved11,
+        Response::Reserved12,
+        Response::Reserved13,
+        Response::Reserved15,
+        Response::Reserved16,
+        Response::Reserved17,
+        Response::Reserved18,
+        Response::Reserved22,
+        Response::Reserved29,
+        Response::Reserved30,
+        Response::Reserved32,
+        Response::Reserved33,
+        Response::Reserved35,
+        Response::Reserved39,
+        Response::Reserved40,
+        Response::Reserved41,
+        Response::Reserved42,
+        Response::Reserved51,
+        Response::Reserved53,
+        Response::Reserved54,
+        Response::Reserved55,
+        Response::Reserved56,
+        Response::Reserved57,
+        Response::Reserved60,
+        Response::Reserved61,
+        Response::Reserved62,
+        Response::Reserved64,
+        Response::Reserved65,
+        Response::Reserved66,
+        Response::Reserved67,
+        Response::Reserved68,
+        Response::Reserved69,
+        Response::Reserved70,
+        Response::Reserved73,
+        Response::Reserved74,
+        Response::Reserved76,
+        Response::Reserved77,
+        Response::Reserved91,
+        Response::Reserved92,
+    ] {
+        let kind = frame_kind_for_response(&response);
+        let encoded = bincode::serialize(&response).expect("encodes");
+        let tag = u32::from_le_bytes(encoded[..4].try_into().expect("4 tag bytes"));
+        assert_eq!(
+            kind.bincode_tag(),
+            tag,
+            "placeholder drift for {response:?}"
+        );
+        let entry = ledger_entry_for(kind).expect("ledger entry exists");
+        assert!(matches!(entry.status, FrameStatus::Reserved));
+    }
 }
 
 #[test]
@@ -1034,9 +1104,6 @@ fn assert_request_semantic_equal(actual: &Request, expected: &Request, label: &s
             assert_eq!(actual.start, expected.start, "{label}");
             assert_eq!(actual.end, expected.end, "{label}");
             assert_eq!(actual.print, expected.print, "{label}");
-        }
-        (Request::ControlMode(actual), Request::ControlMode(expected)) => {
-            assert_eq!(actual.mode, expected.mode, "{label}");
         }
         (Request::SplitWindowTargetAction(actual), Request::SplitWindowTargetAction(expected)) => {
             assert_eq!(actual.target, expected.target, "{label}");
@@ -1277,7 +1344,7 @@ fn frame_decoder_with_zero_byte_chunks_still_decodes() {
     // Edge case: pushing zero bytes is a permitted no-op and must not
     // corrupt internal state. Interleave empty pushes with byte-by-byte
     // pushes and decode a fixture.
-    let bytes = read_fixture("control_mode_request");
+    let bytes = read_fixture("has_session_request");
     let mut decoder = FrameDecoder::new();
     decoder.push_bytes(&[]);
     for byte in &bytes {
@@ -1290,7 +1357,7 @@ fn frame_decoder_with_zero_byte_chunks_still_decodes() {
         .expect("zero-chunk decode")
         .expect("frame produced");
     match decoded {
-        Request::ControlMode(value) => assert_eq!(value.mode, ControlMode::ControlControl),
+        Request::HasSession(_) => {}
         other => panic!("unexpected variant: {other:?}"),
     }
     assert!(decoder.remaining_bytes().is_empty());
@@ -1442,7 +1509,6 @@ fn fixture_set_kinds_match_manifest_table() {
         ("kill_session_request", 0x0002),
         ("send_keys_request", 0x0019),
         ("capture_pane_request", 0x002B),
-        ("control_mode_request", 0x003F),
         ("split_window_target_action_request", 0x0076),
         ("resize_pane_target_action_request", 0x0077),
         ("capture_pane_target_action_request", 0x0078),

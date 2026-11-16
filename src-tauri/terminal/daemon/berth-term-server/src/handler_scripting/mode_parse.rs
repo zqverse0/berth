@@ -71,29 +71,3 @@ pub(super) fn parse_copy_mode(mut args: CommandTokens) -> Result<Request, Termin
         page_up,
     }))
 }
-
-pub(super) fn parse_clock_mode(mut args: CommandTokens) -> Result<Request, TerminalError> {
-    let mut target = None;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_pane_target(
-                    "clock-mode",
-                    args.required("-t target")?,
-                )?);
-            }
-            _ => break,
-        }
-    }
-
-    args.no_extra("clock-mode")?;
-    Ok(Request::ClockMode(berth_term_proto::ClockModeRequest {
-        target,
-    }))
-}

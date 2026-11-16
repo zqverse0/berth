@@ -118,24 +118,10 @@ impl RequestHandler {
         {
             return Ok(false);
         }
-        if self.display_panes_active(attach_pid).await {
-            self.handle_attached_display_panes_input(attach_pid, pending_input, bytes)
-                .await?;
-            return Ok(false);
-        }
         let target = self
             .attached_input_target(attach_pid)
             .await
             .map_err(io_other)?;
-        if self
-            .target_is_in_clock_mode(&target)
-            .await
-            .map_err(io_other)?
-        {
-            let _ = self.exit_clock_mode(&target).await.map_err(io_other)?;
-            pending_input.clear();
-            return Ok(false);
-        }
         let target_in_copy_mode = self
             .target_is_in_copy_mode(&target)
             .await
@@ -663,7 +649,6 @@ impl RequestHandler {
         if active.prompt.is_some()
             || active.mode_tree.is_some()
             || active.overlay.is_some()
-            || active.display_panes.is_some()
             || active.key_table_name.as_deref() == Some(PREFIX_TABLE)
         {
             return Ok(None);
@@ -731,19 +716,14 @@ impl RequestHandler {
             return Ok(None);
         }
 
-        let target = self
+        let _target = self
             .attached_input_target(attach_pid)
             .await
             .map_err(io_other)?;
         let interactive_mode_active = self.prompt_active(attach_pid).await
             || self.attached_prefix_table_active(attach_pid).await
             || self.mode_tree_active(attach_pid).await
-            || self.overlay_active(attach_pid).await
-            || self.display_panes_active(attach_pid).await
-            || self
-                .target_is_in_clock_mode(&target)
-                .await
-                .map_err(io_other)?;
+            || self.overlay_active(attach_pid).await;
         if !interactive_mode_active {
             return Ok(None);
         }

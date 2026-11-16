@@ -1,11 +1,11 @@
 #[cfg(any(unix, windows))]
+use berth_term_proto::{AttachFrameDecoder, AttachMessage};
+#[cfg(any(unix, windows))]
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 #[cfg(any(unix, windows))]
 use std::sync::Arc;
 #[cfg(any(unix, windows))]
 use std::{collections::VecDeque, io, sync::atomic::Ordering};
-#[cfg(any(unix, windows))]
-use berth_term_proto::{AttachFrameDecoder, AttachMessage};
 #[cfg(any(unix, windows))]
 use tokio::sync::mpsc;
 #[cfg(any(unix, windows))]
@@ -42,8 +42,6 @@ use crate::renderer::{PaneRenderDelta, PaneRenderDeltaFrame};
 use attach_output_batch::{
     collect_attach_output_batch, collect_attach_output_batch_metadata, AttachOutputBatch,
 };
-#[cfg(all(any(unix, windows), feature = "web"))]
-pub(crate) use attach_transport::in_process_attach_pair;
 use attach_transport::{AttachTransport, TryAttachRead};
 #[cfg(any(unix, windows))]
 use control::{
@@ -957,15 +955,6 @@ pub(crate) async fn forward_attach(
                         }
                         Some(AttachControl::Write(bytes)) => {
                             emit_attach_bytes(&stream, &bytes).await?;
-                        }
-                        Some(AttachControl::LockShellCommand(command)) => {
-                            locked = true;
-                            emit_attach_message(&stream, &AttachMessage::LockShellCommand(command))
-                                .await?;
-                        }
-                        Some(AttachControl::Suspend) => {
-                            locked = true;
-                            emit_attach_message(&stream, &AttachMessage::Suspend).await?;
                         }
                         None => attach_controls = None,
                     }

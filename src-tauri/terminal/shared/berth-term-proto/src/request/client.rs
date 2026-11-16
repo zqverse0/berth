@@ -144,22 +144,6 @@ impl AttachSessionExt3Request {
     }
 }
 
-/// Request payload for `switch-client`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwitchClientRequest {
-    /// The exact target session name.
-    pub target: SessionName,
-}
-
-/// Extended request payload for `switch-client`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwitchClientExtRequest {
-    /// The optional exact target session name.
-    pub target: Option<SessionName>,
-    /// The optional key table to set for the attached client.
-    pub key_table: Option<String>,
-}
-
 /// Further-extended request payload for `switch-client`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwitchClientExt2Request {
@@ -318,12 +302,4 @@ pub struct ListClientsRequest {
     /// Optional session filter.
     #[serde(default)]
     pub target_session: Option<SessionName>,
-}
-
-/// Request payload for `suspend-client`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SuspendClientRequest {
-    /// The optional target-client identifier or `=`.
-    #[serde(default)]
-    pub target_client: Option<String>,
 }

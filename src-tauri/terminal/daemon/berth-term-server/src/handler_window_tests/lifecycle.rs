@@ -146,112 +146,6 @@ async fn rename_window_persists_the_name_and_disables_automatic_rename() {
 }
 
 #[tokio::test]
-async fn rename_window_propagates_linked_slots_to_their_session_group_peers() {
-    let handler = RequestHandler::new();
-    let alpha = session_name("alpha");
-    let beta = session_name("beta");
-    let gamma = session_name("gamma");
-    let delta = session_name("delta");
-    create_session(&handler, "alpha").await;
-    create_grouped_session(&handler, "beta", &alpha).await;
-    create_session(&handler, "gamma").await;
-    create_grouped_session(&handler, "delta", &gamma).await;
-
-    let link = handler
-        .handle(Request::LinkWindow(LinkWindowRequest {
-            source: WindowTarget::with_window(alpha.clone(), 0),
-            target: WindowTarget::with_window(gamma.clone(), 1),
-            after: false,
-            before: false,
-            kill_destination: false,
-            detached: false,
-        }))
-        .await;
-    assert!(
-        matches!(link, Response::LinkWindow(_)),
-        "expected link-window success, got {link:?}"
-    );
-
-    let response = handler
-        .handle(Request::RenameWindow(RenameWindowRequest {
-            target: WindowTarget::with_window(alpha.clone(), 0),
-            name: "newname".to_owned(),
-        }))
-        .await;
-    assert!(
-        matches!(response, Response::RenameWindow(_)),
-        "expected rename-window success, got {response:?}"
-    );
-
-    let state = handler.state.lock().await;
-    for (session_name, window_index) in [(&alpha, 0), (&beta, 0), (&gamma, 1), (&delta, 1)] {
-        let window = state
-            .sessions
-            .session(session_name)
-            .and_then(|session| session.window_at(window_index))
-            .expect("linked window should exist");
-        assert_eq!(
-            window.name(),
-            Some("newname"),
-            "{session_name}:{window_index} should reflect linked rename"
-        );
-    }
-}
-
-#[tokio::test]
-async fn rename_window_from_session_group_peer_propagates_linked_family() {
-    let handler = RequestHandler::new();
-    let alpha = session_name("alpha");
-    let beta = session_name("beta");
-    let gamma = session_name("gamma");
-    let delta = session_name("delta");
-    create_session(&handler, "alpha").await;
-    create_grouped_session(&handler, "beta", &alpha).await;
-    create_session(&handler, "gamma").await;
-    create_grouped_session(&handler, "delta", &gamma).await;
-
-    let link = handler
-        .handle(Request::LinkWindow(LinkWindowRequest {
-            source: WindowTarget::with_window(alpha.clone(), 0),
-            target: WindowTarget::with_window(gamma.clone(), 1),
-            after: false,
-            before: false,
-            kill_destination: false,
-            detached: false,
-        }))
-        .await;
-    assert!(
-        matches!(link, Response::LinkWindow(_)),
-        "expected link-window success, got {link:?}"
-    );
-
-    let response = handler
-        .handle(Request::RenameWindow(RenameWindowRequest {
-            target: WindowTarget::with_window(beta.clone(), 0),
-            name: "peername".to_owned(),
-        }))
-        .await;
-    assert!(
-        matches!(response, Response::RenameWindow(_)),
-        "expected rename-window success, got {response:?}"
-    );
-
-    let state = handler.state.lock().await;
-    for (session_name, window_index) in [(&alpha, 0), (&beta, 0), (&gamma, 1), (&delta, 1)] {
-        let window = state
-            .sessions
-            .session(session_name)
-            .and_then(|session| session.window_at(window_index))
-            .expect("linked window should exist");
-        assert_eq!(
-            window.name(),
-            Some("peername"),
-            "{session_name}:{window_index} should reflect linked rename"
-        );
-    }
-}
-
-#[tokio::test]
 async fn kill_window_prefers_last_window_as_the_active_fallback() {
     let handler = RequestHandler::new();
     let alpha = session_name("alpha");
@@ -723,15 +617,6 @@ async fn kill_window_cleans_grouped_member_window_metadata_before_synchronizing(
                 SetOptionMode::Replace,
             )
             .expect("window option set succeeds");
-        state
-            .hooks
-            .set(
-                ScopeSelector::Window(beta_target.clone()),
-                HookName::WindowLayoutChanged,
-                "display-message beta".to_owned(),
-                HookLifecycle::Persistent,
-            )
-            .expect("window hook set succeeds");
         state.mark_auto_named_window(&beta, 1);
 
         assert_eq!(
@@ -739,12 +624,6 @@ async fn kill_window_cleans_grouped_member_window_metadata_before_synchronizing(
                 .options
                 .window_value(&beta_target, OptionName::AutomaticRename),
             Some("off")
-        );
-        assert_eq!(
-            state
-                .hooks
-                .window_command(&beta_target, HookName::WindowLayoutChanged),
-            Some("display-message beta")
         );
         assert!(state.tracks_auto_named_window(&beta, 1));
     }
@@ -783,12 +662,6 @@ async fn kill_window_cleans_grouped_member_window_metadata_before_synchronizing(
         state
             .options
             .window_value(&beta_target, OptionName::AutomaticRename),
-        None
-    );
-    assert_eq!(
-        state
-            .hooks
-            .window_command(&beta_target, HookName::WindowLayoutChanged),
         None
     );
     assert!(!state.tracks_auto_named_window(&beta, 1));

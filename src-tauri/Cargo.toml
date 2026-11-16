@@ -23,7 +23,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.38.3"
+version = "0.38.4"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -117,7 +117,6 @@ tar = "0.4"
 # Only our own backup archives (Deflated/Stored); the default features add
 # zstd/bzip2/xz C builds and AES.
 zip = { version = "2", default-features = false, features = ["deflate", "time"] }
-pulldown-cmark = "0.13"
 urlencoding = "2"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", version = "0.0.0", optional = true }
 # Same trimmed SQLite stack as berth-project-core: no TLS (a second rustls
@@ -130,7 +129,6 @@ sea-orm-migration = { version = "1.1", default-features = false, features = ["sq
 # the same bundled SQLite.
 rusqlite = "0.32"
 toml = "0.8"
-serde_yaml = "0.9"
 notify = "6"
 base64 = "0.22"
 kill_tree = { version = "0.2", features = ["blocking", "tokio"] }

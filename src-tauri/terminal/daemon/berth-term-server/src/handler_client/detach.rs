@@ -4,7 +4,7 @@ use berth_term_proto::{DetachClientResponse, ErrorResponse, Response, TerminalEr
 
 use crate::pane_io::AttachControl;
 
-use super::super::{control_support::ManagedClient, RequestHandler};
+use super::super::{client_support::ManagedClient, RequestHandler};
 
 impl RequestHandler {
     async fn detach_attach_client_with_mode(
@@ -104,16 +104,6 @@ impl RequestHandler {
                     .await;
                 }
             }
-            let control_pids = self
-                .detach_control_clients_for_session(session_name, None)
-                .await;
-            for control_pid in control_pids {
-                self.emit(LifecycleEvent::ClientDetached {
-                    session_name: session_name.clone(),
-                    client_name: Some(control_pid.to_string()),
-                })
-                .await;
-            }
             return Response::DetachClient(DetachClientResponse);
         }
 
@@ -185,20 +175,6 @@ impl RequestHandler {
                 }
                 Err(error) => Response::Error(ErrorResponse { error }),
             },
-            ManagedClient::Control(control_pid) => {
-                match self.exit_control_client(control_pid, None).await {
-                    Ok(Some(session_name)) => {
-                        self.emit(LifecycleEvent::ClientDetached {
-                            session_name,
-                            client_name: Some(control_pid.to_string()),
-                        })
-                        .await;
-                        Response::DetachClient(DetachClientResponse)
-                    }
-                    Ok(None) => Response::DetachClient(DetachClientResponse),
-                    Err(error) => Response::Error(ErrorResponse { error }),
-                }
-            }
         }
     }
 }

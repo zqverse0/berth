@@ -79,13 +79,3 @@ async fn parsed_queue_select_pane_direction_keep_zoom_preserves_zoom() {
 
     assert_zoomed_active(&handler, &session, 0).await;
 }
-
-#[tokio::test]
-async fn parsed_queue_select_pane_last_keep_zoom_preserves_zoom() {
-    let (handler, session) = handler_with_split_session("select-zoom-last").await;
-    zoom_pane(&handler, &session, 1).await;
-
-    execute(&handler, "select-pane -Z -l -t select-zoom-last:0.1").await;
-
-    assert_zoomed_active(&handler, &session, 0).await;
-}

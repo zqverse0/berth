@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AttachSessionSpec, NewSessionSpec, RefreshClientSpec, SplitSpec, TerminalEndpoint};
+use crate::{AttachSessionSpec, NewSessionSpec, SplitSpec, TerminalEndpoint};
 
 /// Captured result from the official SDK command escape hatch.
 ///
@@ -37,8 +37,6 @@ pub enum TerminalCommandKind {
     AttachSession(AttachSessionSpec),
     /// A `split-window` SDK spec.
     SplitWindow(SplitSpec),
-    /// A `refresh-client` SDK spec.
-    RefreshClient(RefreshClientSpec),
 }
 
 impl TerminalCommandKind {
@@ -50,7 +48,6 @@ impl TerminalCommandKind {
             Self::NewSession(_) => "new-session",
             Self::AttachSession(_) => "attach-session",
             Self::SplitWindow(_) => "split-window",
-            Self::RefreshClient(_) => "refresh-client",
         }
     }
 
@@ -85,12 +82,6 @@ impl From<SplitSpec> for TerminalCommandKind {
     }
 }
 
-impl From<RefreshClientSpec> for TerminalCommandKind {
-    fn from(value: RefreshClientSpec) -> Self {
-        Self::RefreshClient(value)
-    }
-}
-
 impl From<TerminalCommandKind> for berth_term_proto::Request {
     fn from(value: TerminalCommandKind) -> Self {
         match value {
@@ -100,7 +91,6 @@ impl From<TerminalCommandKind> for berth_term_proto::Request {
                 Self::AttachSessionExt2(Box::new(spec.into()))
             }
             TerminalCommandKind::SplitWindow(spec) => Self::SplitWindowExt(Box::new(spec.into())),
-            TerminalCommandKind::RefreshClient(spec) => Self::RefreshClient(Box::new(spec.into())),
         }
     }
 }
@@ -119,12 +109,6 @@ impl From<AttachSessionSpec> for berth_term_proto::Request {
 
 impl From<SplitSpec> for berth_term_proto::Request {
     fn from(value: SplitSpec) -> Self {
-        TerminalCommandKind::from(value).into()
-    }
-}
-
-impl From<RefreshClientSpec> for berth_term_proto::Request {
-    fn from(value: RefreshClientSpec) -> Self {
         TerminalCommandKind::from(value).into()
     }
 }
@@ -200,12 +184,6 @@ impl From<AttachSessionSpec> for TerminalCommand {
 
 impl From<SplitSpec> for TerminalCommand {
     fn from(value: SplitSpec) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<RefreshClientSpec> for TerminalCommand {
-    fn from(value: RefreshClientSpec) -> Self {
         Self::new(value)
     }
 }

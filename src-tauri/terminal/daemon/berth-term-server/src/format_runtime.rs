@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::pane_terminals::HandlerState;
-use chrono::Local;
 use berth_term_engine::formats::{
     expand_time_tokens, render_template, render_template_preserving_jobs, FormatContext,
     FormatVariable, FormatVariables,
@@ -12,6 +11,7 @@ use berth_term_engine::{
 };
 use berth_term_proto::OptionName;
 use berth_term_proto::{PaneTarget, SessionName, TerminalSize};
+use chrono::Local;
 
 static SERVER_START_TIME: OnceLock<i64> = OnceLock::new();
 
@@ -272,7 +272,12 @@ impl<'a> RuntimeFormatContext<'a> {
         let session = self.session?;
         let pane = self.pane?;
         let state = self.state?.pane_screen_state(session.name(), pane.id())?;
-        Some(state.agent_signal.state(state.agent_output_recent).to_owned())
+        Some(
+            state
+                .agent_signal
+                .state(state.agent_output_recent)
+                .to_owned(),
+        )
     }
 
     fn pane_screen_path(&self) -> Option<String> {

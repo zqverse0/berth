@@ -438,25 +438,6 @@ impl HandlerState {
             .copy_mode_render_screen()
     }
 
-    #[cfg(feature = "web")]
-    pub(crate) fn with_pane_screen<R>(
-        &self,
-        session_name: &SessionName,
-        pane_id: PaneId,
-        render: impl FnOnce(&Screen) -> R,
-    ) -> Option<R> {
-        let window_index = self
-            .sessions
-            .session(session_name)?
-            .window_index_for_pane_id(pane_id)?;
-        let runtime_session_name = self.runtime_session_name_for_window(session_name, window_index);
-        let transcript = self.transcripts.get(&runtime_session_name)?.get(&pane_id)?;
-        let transcript = transcript
-            .lock()
-            .expect("pane transcript mutex must not be poisoned");
-        Some(render(transcript.screen()))
-    }
-
     pub(crate) fn pane_screen(
         &self,
         session_name: &SessionName,
@@ -516,69 +497,6 @@ impl HandlerState {
                     .expect("pane transcript mutex must not be poisoned")
                     .pane_mode_name()
             })
-    }
-
-    pub(crate) fn pane_clock_mode_generation(
-        &self,
-        session_name: &SessionName,
-        pane_id: PaneId,
-    ) -> Option<u64> {
-        let window_index = self
-            .sessions
-            .session(session_name)?
-            .window_index_for_pane_id(pane_id)?;
-        let runtime_session_name = self.runtime_session_name_for_window(session_name, window_index);
-        self.transcripts
-            .get(&runtime_session_name)
-            .and_then(|panes| panes.get(&pane_id))
-            .and_then(|transcript| {
-                transcript
-                    .lock()
-                    .expect("pane transcript mutex must not be poisoned")
-                    .clock_mode_generation()
-            })
-    }
-
-    pub(crate) fn pane_visible_lines(
-        &self,
-        target: &PaneTarget,
-    ) -> Result<Vec<String>, TerminalError> {
-        let transcript = self.transcript_handle(target)?;
-        let transcript = transcript
-            .lock()
-            .expect("pane transcript mutex must not be poisoned");
-        let rows = self
-            .sessions
-            .session(target.session_name())
-            .and_then(|session| session.window_at(target.window_index()))
-            .and_then(|window| window.pane(target.pane_index()))
-            .map(|pane| usize::from(pane.geometry().rows()))
-            .ok_or_else(|| {
-                missing_pane_terminal(
-                    target.session_name(),
-                    target.window_index(),
-                    target.pane_index(),
-                )
-            })?;
-
-        let render_options = GridRenderOptions {
-            with_sequences: true,
-            trim_spaces: false,
-            ..GridRenderOptions::default()
-        };
-        let mut lines = Vec::with_capacity(rows);
-        for row in 0..rows {
-            let screen = transcript.capture_main(
-                ScreenCaptureRange::new(Some(row as i64), Some(row as i64)),
-                render_options,
-            );
-            let mut line = String::from_utf8_lossy(&screen).into_owned();
-            if line.ends_with('\n') {
-                line.pop();
-            }
-            lines.push(line);
-        }
-        Ok(lines)
     }
 
     #[cfg(test)]

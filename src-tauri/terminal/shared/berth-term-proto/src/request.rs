@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::{
-    ControlModeRequest, HandshakeRequest, PaneTarget, PaneTargetRef, SdkWaitId, SdkWaitOwnerId,
-    SessionName, Target, WindowTarget,
+    HandshakeRequest, PaneTarget, PaneTargetRef, SdkWaitId, SdkWaitOwnerId, SessionName, Target,
 };
 
 #[path = "request/compat.rs"]
@@ -17,39 +16,35 @@ pub use display::{DisplayMessageExtRequest, DisplayMessageRequest};
 
 #[path = "request/show.rs"]
 mod show;
-pub use show::ShowHooksRequest;
 pub use show::{ShowEnvironmentRequest, ShowOptionsRequest};
 
 #[path = "request/layout.rs"]
 mod layout;
 pub use layout::{
-    NextLayoutRequest, PreviousLayoutRequest, SelectCustomLayoutRequest, SelectLayoutRequest,
-    SelectLayoutTarget, SelectOldLayoutRequest, SpreadLayoutRequest,
+    SelectCustomLayoutRequest, SelectLayoutRequest, SelectLayoutTarget, SpreadLayoutRequest,
 };
 
 #[path = "request/pane.rs"]
 mod pane;
 pub use pane::{
-    BreakPaneRequest, DisplayPanesRequest, JoinPaneRequest, KillPaneRequest, LastPaneRequest,
-    MovePaneRequest, PaneBroadcastInputRequest, PaneInputRequest, PaneKillRequest,
-    PaneOutputCursorRequest, PaneOutputCursorWaitRequest, PaneOutputSubscriptionStart, PaneResizeRequest, PaneRespawnRequest,
-    PaneSelectRequest, PaneSnapshotRefRequest, PaneSnapshotRequest, PaneSplitSize, PipePaneRequest,
-    ResizePaneRequest, ResizePaneTargetActionRequest, RespawnPaneRequest,
-    SelectPaneAdjacentRequest, SelectPaneDirection, SelectPaneMarkRequest, SelectPaneRequest,
-    SendKeysExt2Request, SendKeysExtRequest, SendKeysRequest, SplitWindowExtRequest,
-    SplitWindowRequest, SplitWindowTarget, SplitWindowTargetActionRequest,
-    SubscribePaneOutputRefRequest, SubscribePaneOutputRequest, SwapPaneDirection, SwapPaneRequest,
-    UnsubscribePaneOutputRequest,
+    BreakPaneRequest, JoinPaneRequest, KillPaneRequest, LastPaneRequest, MovePaneRequest,
+    PaneBroadcastInputRequest, PaneInputRequest, PaneKillRequest, PaneOutputCursorRequest,
+    PaneOutputCursorWaitRequest, PaneOutputSubscriptionStart, PaneResizeRequest,
+    PaneRespawnRequest, PaneSelectRequest, PaneSnapshotRefRequest, PaneSnapshotRequest,
+    PaneSplitSize, PipePaneRequest, ResizePaneRequest, ResizePaneTargetActionRequest,
+    RespawnPaneRequest, SelectPaneAdjacentRequest, SelectPaneDirection, SelectPaneMarkRequest,
+    SelectPaneRequest, SendKeysExt2Request, SendKeysExtRequest, SendKeysRequest,
+    SplitWindowExtRequest, SplitWindowRequest, SplitWindowTarget, SplitWindowTargetActionRequest,
+    SubscribePaneOutputRefRequest, SubscribePaneOutputRequest, UnsubscribePaneOutputRequest,
 };
 
 #[path = "request/window.rs"]
 mod window;
 pub use window::{
-    KillWindowRequest, LastWindowRequest, LinkWindowRequest, ListWindowsRequest, MoveWindowRequest,
-    MoveWindowTarget, NewWindowRequest, NextWindowRequest, PaneWindowOperation, PaneWindowRequest,
+    KillWindowRequest, LinkWindowRequest, ListWindowsRequest, MoveWindowRequest, MoveWindowTarget,
+    NewWindowRequest, NextWindowRequest, PaneWindowOperation, PaneWindowRequest,
     PreviousWindowRequest, RenameWindowRequest, ResizeWindowAdjustment, ResizeWindowRequest,
     RespawnWindowRequest, RotateWindowDirection, RotateWindowRequest, SelectWindowRequest,
-    SwapWindowRequest,
 };
 
 #[path = "request/target.rs"]
@@ -66,48 +61,31 @@ pub use session::{
 
 #[path = "request/server.rs"]
 mod server;
-pub use server::{
-    DaemonStatusRequest, KillServerRequest, LockClientRequest, LockServerRequest,
-    LockSessionRequest, ServerAccessRequest, ShutdownIfIdleRequest,
-};
+pub use server::{KillServerRequest, ServerAccessRequest};
 
 #[path = "request/client.rs"]
 mod client;
 pub use client::{
     AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionExtRequest,
     AttachSessionRequest, DetachClientExtRequest, DetachClientRequest, ListClientsRequest,
-    RefreshClientRequest, SuspendClientRequest, SwitchClientExt2Request, SwitchClientExt3Request,
-    SwitchClientExtRequest, SwitchClientRequest,
+    RefreshClientRequest, SwitchClientExt2Request, SwitchClientExt3Request,
 };
 
 #[path = "request/keys.rs"]
 mod keys;
-pub use keys::{
-    BindKeyRequest, ClockModeRequest, CopyModeRequest, ListKeysRequest, SendPrefixRequest,
-    UnbindKeyRequest,
-};
+pub use keys::CopyModeRequest;
 
 #[path = "request/options.rs"]
 mod options;
 pub use options::{
-    SetEnvironmentMode, SetEnvironmentRequest, SetHookMutationRequest, SetHookRequest,
-    SetOptionByNameRequest, SetOptionRequest,
+    SetEnvironmentMode, SetEnvironmentRequest, SetOptionByNameRequest, SetOptionRequest,
 };
 
 #[path = "request/buffer.rs"]
 mod buffer;
 pub use buffer::{
     CapturePaneRefRequest, CapturePaneRequest, CapturePaneTargetActionRequest, ClearHistoryRequest,
-    DeleteBufferRequest, ListBuffersRequest, LoadBufferRequest, PasteBufferRequest,
-    SaveBufferRequest, SetBufferRequest, ShowBufferRequest,
-};
-
-#[path = "request/web.rs"]
-mod web;
-pub use web::{
-    CreateWebShareRequest, ListWebSharesRequest, LookupWebShareRequest, StopAllWebSharesRequest,
-    StopWebShareRequest, WebShareConfigRequest, WebShareRequest, WebShareScope, WebShareUrlOptions,
-    WebTerminalPalette, WebTerminalTheme,
+    PasteBufferRequest, SetBufferRequest, ShowBufferRequest,
 };
 
 /// All detached public command and internal RPC requests supported by the wire
@@ -132,34 +110,34 @@ pub enum Request {
     NextWindow(NextWindowRequest),
     /// `previous-window`
     PreviousWindow(PreviousWindowRequest),
-    /// `last-window`
-    LastWindow(LastWindowRequest),
+    /// 已删除（原 `last-window`）。只占住 bincode 标签 9，永不复用。
+    Reserved9,
     /// `list-windows`
     ListWindows(ListWindowsRequest),
-    /// `move-window`
-    MoveWindow(MoveWindowRequest),
-    /// `swap-window`
-    SwapWindow(SwapWindowRequest),
-    /// `rotate-window`
-    RotateWindow(RotateWindowRequest),
+    /// 已删除（原 `move-window`）。只占住 bincode 标签 11，永不复用。
+    Reserved11,
+    /// 已删除（原 `swap-window`）。只占住 bincode 标签 12，永不复用。
+    Reserved12,
+    /// 已删除（原 `rotate-window`）。只占住 bincode 标签 13，永不复用。
+    Reserved13,
     /// `split-window`
     SplitWindow(SplitWindowRequest),
-    /// `swap-pane`
-    SwapPane(SwapPaneRequest),
-    /// `last-pane`
-    LastPane(LastPaneRequest),
-    /// `join-pane`
-    JoinPane(JoinPaneRequest),
-    /// `break-pane`
-    BreakPane(Box<BreakPaneRequest>),
+    /// 已删除（原 `swap-pane`）。只占住 bincode 标签 15，永不复用。
+    Reserved15,
+    /// 已删除（原 `last-pane`）。只占住 bincode 标签 16，永不复用。
+    Reserved16,
+    /// 已删除（原 `join-pane`）。只占住 bincode 标签 17，永不复用。
+    Reserved17,
+    /// 已删除（原 `break-pane`）。只占住 bincode 标签 18，永不复用。
+    Reserved18,
     /// `kill-pane`
     KillPane(KillPaneRequest),
     /// `select-layout`
     SelectLayout(SelectLayoutRequest),
     /// `resize-pane`
     ResizePane(ResizePaneRequest),
-    /// `display-panes`
-    DisplayPanes(DisplayPanesRequest),
+    /// 已删除（原 `display-panes`）。只占住 bincode 标签 22，永不复用。
+    Reserved22,
     /// `select-pane`
     SelectPane(Box<SelectPaneRequest>),
     /// `select-pane -U/-D/-L/-R`
@@ -168,38 +146,38 @@ pub enum Request {
     SendKeys(SendKeysRequest),
     /// `attach-session`
     AttachSession(AttachSessionRequest),
-    /// `switch-client`
-    SwitchClient(SwitchClientRequest),
+    /// 已删除（原 `switch-client`）。只占住 bincode 标签 27，永不复用。
+    Reserved27,
     /// `detach-client`
     DetachClient(DetachClientRequest),
     /// `set-option`
     SetOption(SetOptionRequest),
-    /// `set-environment`
-    SetEnvironment(Box<SetEnvironmentRequest>),
-    /// `set-hook`
-    SetHook(SetHookRequest),
-    /// `next-layout`
-    NextLayout(NextLayoutRequest),
-    /// `previous-layout`
-    PreviousLayout(PreviousLayoutRequest),
+    /// 已删除（原 `set-environment`）。只占住 bincode 标签 30，永不复用。
+    Reserved30,
+    /// 已删除（原 `set-hook`）。只占住 bincode 标签 31，永不复用。
+    Reserved31,
+    /// 已删除（原 `next-layout`）。只占住 bincode 标签 32，永不复用。
+    Reserved32,
+    /// 已删除（原 `previous-layout`）。只占住 bincode 标签 33，永不复用。
+    Reserved33,
     /// `show-options`
     ShowOptions(ShowOptionsRequest),
-    /// `show-environment`
-    ShowEnvironment(ShowEnvironmentRequest),
+    /// 已删除（原 `show-environment`）。只占住 bincode 标签 35，永不复用。
+    Reserved35,
     /// `set-buffer`
     SetBuffer(SetBufferRequest),
     /// `show-buffer`
     ShowBuffer(ShowBufferRequest),
     /// `paste-buffer`
     PasteBuffer(Box<PasteBufferRequest>),
-    /// `list-buffers`
-    ListBuffers(ListBuffersRequest),
-    /// `delete-buffer`
-    DeleteBuffer(DeleteBufferRequest),
-    /// `load-buffer`
-    LoadBuffer(LoadBufferRequest),
-    /// `save-buffer`
-    SaveBuffer(SaveBufferRequest),
+    /// 已删除（原 `list-buffers`）。只占住 bincode 标签 39，永不复用。
+    Reserved39,
+    /// 已删除（原 `delete-buffer`）。只占住 bincode 标签 40，永不复用。
+    Reserved40,
+    /// 已删除（原 `load-buffer`）。只占住 bincode 标签 41，永不复用。
+    Reserved41,
+    /// 已删除（原 `save-buffer`）。只占住 bincode 标签 42，永不复用。
+    Reserved42,
     /// `capture-pane`
     CapturePane(Box<CapturePaneRequest>),
     /// `display-message`
@@ -216,84 +194,84 @@ pub enum Request {
     ListSessions(ListSessionsRequest),
     /// `list-panes`
     ListPanes(ListPanesRequest),
-    /// `source-file`
-    SourceFile(Box<SourceFileRequest>),
+    /// 已删除（原 `source-file`）。只占住 bincode 标签 51，永不复用。
+    Reserved51,
     /// `set-option` using an open string-based option name.
     SetOptionByName(Box<SetOptionByNameRequest>),
-    /// Extended `set-hook` mutation semantics.
-    SetHookMutation(SetHookMutationRequest),
-    /// `show-hooks`
-    ShowHooks(ShowHooksRequest),
+    /// 已删除（原 `set-hook`）。只占住 bincode 标签 53，永不复用。
+    Reserved53,
+    /// 已删除（原 `show-hooks`）。只占住 bincode 标签 54，永不复用。
+    Reserved54,
     /// Extended `send-keys` semantics including key-table dispatch and format expansion.
     SendKeysExt(SendKeysExtRequest),
-    /// Extended `switch-client` semantics including `-T key-table`.
-    SwitchClientExt(SwitchClientExtRequest),
-    /// `bind-key`
-    BindKey(Box<BindKeyRequest>),
-    /// `unbind-key`
-    UnbindKey(UnbindKeyRequest),
-    /// `list-keys`
-    ListKeys(Box<ListKeysRequest>),
-    /// `send-prefix`
-    SendPrefix(SendPrefixRequest),
+    /// 已删除（原 `switch-client`）。只占住 bincode 标签 56，永不复用。
+    Reserved56,
+    /// 已删除（原 `bind-key`）。只占住 bincode 标签 57，永不复用。
+    Reserved57,
+    /// 已删除（原 `unbind-key`）。只占住 bincode 标签 58，永不复用。
+    Reserved58,
+    /// 已删除（原 `list-keys`）。只占住 bincode 标签 59，永不复用。
+    Reserved59,
+    /// 已删除（原 `send-prefix`）。只占住 bincode 标签 60，永不复用。
+    Reserved60,
     /// `clear-history`
     ClearHistory(ClearHistoryRequest),
     /// `copy-mode`
     CopyMode(CopyModeRequest),
-    /// Internal detached upgrade into tmux-compatible control mode.
-    ControlMode(ControlModeRequest),
-    /// `clock-mode`
-    ClockMode(ClockModeRequest),
-    /// `show-messages`
-    ShowMessages(ShowMessagesRequest),
+    /// 已删除（原 `control-mode`）。只占住 bincode 标签 63，永不复用。
+    Reserved63,
+    /// 已删除（原 `clock-mode`）。只占住 bincode 标签 64，永不复用。
+    Reserved64,
+    /// 已删除（原 `show-messages`）。只占住 bincode 标签 65，永不复用。
+    Reserved65,
     /// Extended `new-session` semantics including grouped sessions and attach-if-exists.
     NewSessionExt(Box<NewSessionExtRequest>),
     /// Extended `attach-session` semantics including client flags and detach-others.
     AttachSessionExt(AttachSessionExtRequest),
-    /// Extended `switch-client` semantics including `-l`, `-n`, `-p`, and readonly toggles.
-    SwitchClientExt2(Box<SwitchClientExt2Request>),
-    /// `select-layout` with a tmux custom layout string.
-    SelectCustomLayout(SelectCustomLayoutRequest),
-    /// `select-layout -o`
-    SelectOldLayout(SelectOldLayoutRequest),
+    /// 已删除（原 `switch-client`）。只占住 bincode 标签 68，永不复用。
+    Reserved68,
+    /// 已删除（原 `select-layout`）。只占住 bincode 标签 69，永不复用。
+    Reserved69,
+    /// 已删除（原 `select-layout`）。只占住 bincode 标签 70，永不复用。
+    Reserved70,
     /// `select-layout -E`
     SpreadLayout(SpreadLayoutRequest),
     /// `kill-server`
     KillServer(KillServerRequest),
-    /// `lock-server`
-    LockServer(LockServerRequest),
-    /// `lock-session`
-    LockSession(LockSessionRequest),
-    /// `lock-client`
-    LockClient(LockClientRequest),
-    /// `server-access`
-    ServerAccess(ServerAccessRequest),
-    /// `refresh-client`
-    RefreshClient(Box<RefreshClientRequest>),
-    /// `list-clients`
-    ListClients(Box<ListClientsRequest>),
-    /// `suspend-client`
-    SuspendClient(SuspendClientRequest),
+    /// 已删除（原 `lock-server`）。只占住 bincode 标签 73，永不复用。
+    Reserved73,
+    /// 已删除（原 `lock-session`）。只占住 bincode 标签 74，永不复用。
+    Reserved74,
+    /// 已删除（原 `lock-client`）。只占住 bincode 标签 75，永不复用。
+    Reserved75,
+    /// 已删除（原 `server-access`）。只占住 bincode 标签 76，永不复用。
+    Reserved76,
+    /// 已删除（原 `refresh-client`）。只占住 bincode 标签 77，永不复用。
+    Reserved77,
+    /// 已删除（原 `list-clients`）。只占住 bincode 标签 78，永不复用。
+    Reserved78,
+    /// 已删除（原 `suspend-client`）。只占住 bincode 标签 79，永不复用。
+    Reserved79,
     /// Extended `detach-client` semantics including `-a`, `-s`, `-P`, and `-E`.
     DetachClientExt(DetachClientExtRequest),
     /// Further-extended `attach-session` semantics including `-c working-directory`.
     AttachSessionExt2(Box<AttachSessionExt2Request>),
-    /// Further-extended `switch-client` semantics including `-c target-client` and `-Z`.
-    SwitchClientExt3(Box<SwitchClientExt3Request>),
+    /// 已删除（原 `switch-client`）。只占住 bincode 标签 82，永不复用。
+    Reserved82,
     /// `resize-window`
     ResizeWindow(ResizeWindowRequest),
     /// `respawn-window`
     RespawnWindow(Box<RespawnWindowRequest>),
-    /// `move-pane`
-    MovePane(MovePaneRequest),
-    /// `pipe-pane`
-    PipePane(PipePaneRequest),
+    /// 已删除（原 `move-pane`）。只占住 bincode 标签 85，永不复用。
+    Reserved85,
+    /// 已删除（原 `pipe-pane`）。只占住 bincode 标签 86，永不复用。
+    Reserved86,
     /// `respawn-pane`
     RespawnPane(Box<RespawnPaneRequest>),
-    /// `link-window`
-    LinkWindow(LinkWindowRequest),
-    /// `unlink-window`
-    UnlinkWindow(UnlinkWindowRequest),
+    /// 已删除（原 `link-window`）。只占住 bincode 标签 88，永不复用。
+    Reserved88,
+    /// 已删除（原 `unlink-window`）。只占住 bincode 标签 89，永不复用。
+    Reserved89,
     /// `select-pane -m` / `select-pane -M`
     SelectPaneMark(SelectPaneMarkRequest),
     /// Internal detached target resolution for tmux-style raw target text.
@@ -338,12 +316,12 @@ pub enum Request {
     SubscribePaneOutputRef(SubscribePaneOutputRefRequest),
     /// Internal daemon-backed SDK byte wait endpoint with stable pane-id targeting.
     SdkWaitForOutputRef(SdkWaitForOutputRefRequest),
-    /// Internal daemon version and activity status endpoint.
-    DaemonStatus(DaemonStatusRequest),
-    /// Internal idle-only shutdown endpoint used by seamless upgrades.
-    ShutdownIfIdle(ShutdownIfIdleRequest),
-    /// Browser-visible pane sharing command family.
-    WebShare(Box<WebShareRequest>),
+    /// 已删除（原 `daemon-status`）。只占住 bincode 标签 112，永不复用。
+    Reserved112,
+    /// 已删除（原 `shutdown-if-idle`）。只占住 bincode 标签 113，永不复用。
+    Reserved113,
+    /// 已删除（原 `web-share`）。只占住 bincode 标签 114，永不复用。
+    Reserved114,
     /// `display-message` extension with target-client context.
     DisplayMessageExt(Box<DisplayMessageExtRequest>),
     /// `send-keys` extension with target-client context.
@@ -365,6 +343,12 @@ pub enum Request {
 }
 
 impl Request {
+    /// 是否为已删除命令的占位变体（`Reserved<标签>`，只占 bincode 标签）。
+    #[must_use]
+    pub fn is_reserved(&self) -> bool {
+        self.command_name() == "reserved"
+    }
+
     /// Returns the stable routing name for the request variant.
     #[must_use]
     pub const fn command_name(&self) -> &'static str {
@@ -378,44 +362,23 @@ impl Request {
             Self::RenameWindow(_) => "rename-window",
             Self::NextWindow(_) => "next-window",
             Self::PreviousWindow(_) => "previous-window",
-            Self::LastWindow(_) => "last-window",
             Self::ListWindows(_) => "list-windows",
-            Self::LinkWindow(_) => "link-window",
-            Self::MoveWindow(_) => "move-window",
-            Self::SwapWindow(_) => "swap-window",
-            Self::RotateWindow(_) => "rotate-window",
             Self::SplitWindow(_) | Self::SplitWindowExt(_) | Self::SplitWindowTargetAction(_) => {
                 "split-window"
             }
-            Self::SwapPane(_) => "swap-pane",
-            Self::LastPane(_) => "last-pane",
-            Self::JoinPane(_) => "join-pane",
-            Self::BreakPane(_) => "break-pane",
             Self::KillPane(_) => "kill-pane",
             Self::SelectLayout(_) => "select-layout",
             Self::ResizePane(_) => "resize-pane",
-            Self::DisplayPanes(_) => "display-panes",
             Self::SelectPane(_) | Self::SelectPaneAdjacent(_) | Self::SelectPaneMark(_) => {
                 "select-pane"
             }
             Self::SendKeys(_) | Self::SendKeysExt2(_) => "send-keys",
             Self::AttachSession(_) => "attach-session",
-            Self::SwitchClient(_) => "switch-client",
             Self::DetachClient(_) => "detach-client",
             Self::SetOption(_) => "set-option",
-            Self::SetEnvironment(_) => "set-environment",
-            Self::SetHook(_) => "set-hook",
-            Self::NextLayout(_) => "next-layout",
-            Self::PreviousLayout(_) => "previous-layout",
             Self::ShowOptions(_) => "show-options",
-            Self::ShowEnvironment(_) => "show-environment",
             Self::SetBuffer(_) => "set-buffer",
-            Self::ShowBuffer(_) => "show-buffer",
             Self::PasteBuffer(_) => "paste-buffer",
-            Self::ListBuffers(_) => "list-buffers",
-            Self::DeleteBuffer(_) => "delete-buffer",
-            Self::LoadBuffer(_) => "load-buffer",
-            Self::SaveBuffer(_) => "save-buffer",
             Self::CapturePane(_) | Self::CapturePaneTargetAction(_) | Self::CapturePaneRef(_) => {
                 "capture-pane"
             }
@@ -449,61 +412,71 @@ impl Request {
             Self::RenameSession(_) => "rename-session",
             Self::ListSessions(_) => "list-sessions",
             Self::ListPanes(_) => "list-panes",
-            Self::SourceFile(_) => "source-file",
-            Self::UnlinkWindow(_) => "unlink-window",
             Self::SetOptionByName(_) => "set-option",
-            Self::SetHookMutation(_) => "set-hook",
-            Self::ShowHooks(_) => "show-hooks",
             Self::SendKeysExt(_) => "send-keys",
-            Self::SwitchClientExt(_) => "switch-client",
-            Self::BindKey(_) => "bind-key",
-            Self::UnbindKey(_) => "unbind-key",
-            Self::ListKeys(_) => "list-keys",
-            Self::SendPrefix(_) => "send-prefix",
             Self::ClearHistory(_) => "clear-history",
             Self::CopyMode(_) => "copy-mode",
-            Self::ControlMode(_) => "control-mode",
-            Self::ClockMode(_) => "clock-mode",
-            Self::ShowMessages(_) => "show-messages",
             Self::NewSessionExt(_) => "new-session",
             Self::AttachSessionExt(_) => "attach-session",
-            Self::SwitchClientExt2(_) => "switch-client",
-            Self::SelectCustomLayout(_) => "select-layout",
-            Self::SelectOldLayout(_) => "select-layout",
             Self::SpreadLayout(_) => "select-layout",
             Self::ResizeWindow(_) => "resize-window",
             Self::RespawnWindow(_) => "respawn-window",
-            Self::MovePane(_) => "move-pane",
-            Self::PipePane(_) => "pipe-pane",
             Self::RespawnPane(_) => "respawn-pane",
             Self::KillServer(_) => "kill-server",
-            Self::LockServer(_) => "lock-server",
-            Self::LockSession(_) => "lock-session",
-            Self::LockClient(_) => "lock-client",
-            Self::ServerAccess(_) => "server-access",
-            Self::RefreshClient(_) => "refresh-client",
-            Self::ListClients(_) => "list-clients",
-            Self::SuspendClient(_) => "suspend-client",
             Self::DetachClientExt(_) => "detach-client",
             Self::AttachSessionExt2(_) | Self::AttachSessionExt3(_) => "attach-session",
-            Self::SwitchClientExt3(_) => "switch-client",
             Self::Handshake(_) => "handshake",
-            Self::DaemonStatus(_) => "daemon-status",
-            Self::ShutdownIfIdle(_) => "shutdown-if-idle",
-            Self::WebShare(_) => "web-share",
+            Self::ShowBuffer(_) => "show-buffer",
+            Self::Reserved9
+            | Self::Reserved11
+            | Self::Reserved12
+            | Self::Reserved13
+            | Self::Reserved15
+            | Self::Reserved16
+            | Self::Reserved17
+            | Self::Reserved18
+            | Self::Reserved22
+            | Self::Reserved27
+            | Self::Reserved30
+            | Self::Reserved31
+            | Self::Reserved32
+            | Self::Reserved33
+            | Self::Reserved35
+            | Self::Reserved39
+            | Self::Reserved40
+            | Self::Reserved41
+            | Self::Reserved42
+            | Self::Reserved51
+            | Self::Reserved53
+            | Self::Reserved54
+            | Self::Reserved56
+            | Self::Reserved57
+            | Self::Reserved58
+            | Self::Reserved59
+            | Self::Reserved60
+            | Self::Reserved63
+            | Self::Reserved64
+            | Self::Reserved65
+            | Self::Reserved68
+            | Self::Reserved69
+            | Self::Reserved70
+            | Self::Reserved73
+            | Self::Reserved74
+            | Self::Reserved75
+            | Self::Reserved76
+            | Self::Reserved77
+            | Self::Reserved78
+            | Self::Reserved79
+            | Self::Reserved82
+            | Self::Reserved85
+            | Self::Reserved86
+            | Self::Reserved88
+            | Self::Reserved89
+            | Self::Reserved112
+            | Self::Reserved113
+            | Self::Reserved114 => "reserved",
         }
     }
-}
-
-/// Request payload for `show-messages`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShowMessagesRequest {
-    /// Whether to print the server job summary.
-    pub jobs: bool,
-    /// Whether to print terminal information.
-    pub terminals: bool,
-    /// The optional target client filter used by terminal and job summaries.
-    pub target_client: Option<String>,
 }
 
 /// Request payload for `run-shell`.
@@ -571,37 +544,6 @@ pub struct IfShellRequest {
     /// Whether the condition should be evaluated asynchronously.
     #[serde(default)]
     pub background: bool,
-}
-
-/// Request payload for `source-file`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SourceFileRequest {
-    /// The path arguments to expand, glob, parse, and optionally execute.
-    pub paths: Vec<String>,
-    /// Whether missing files and glob misses should be suppressed.
-    pub quiet: bool,
-    /// Whether to parse only without executing parsed commands.
-    pub parse_only: bool,
-    /// Whether parsed commands should be printed to stdout.
-    pub verbose: bool,
-    /// Whether each path argument should be format-expanded before globbing.
-    pub expand_paths: bool,
-    /// Optional pane target used as the `-F` format context.
-    pub target: Option<PaneTarget>,
-    /// The caller working directory used to resolve relative paths.
-    pub caller_cwd: Option<PathBuf>,
-    /// Content read from client stdin for `source-file -`.
-    pub stdin: Option<String>,
-}
-
-/// Request payload for `unlink-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnlinkWindowRequest {
-    /// The window slot to remove.
-    pub target: WindowTarget,
-    /// Whether removing the final link is allowed (`-k`).
-    #[serde(default)]
-    pub kill_if_last: bool,
 }
 
 /// The supported `wait-for` operation modes.
@@ -690,8 +632,7 @@ mod compat_tests;
 mod tests {
     use super::*;
     use crate::{
-        OptionScopeSelector, PaneTarget, ScopeSelector, SelectPaneDirection, SetOptionMode,
-        SplitDirection, WebShareScope,
+        OptionScopeSelector, PaneTarget, SelectPaneDirection, SetOptionMode, SplitDirection,
     };
     use serde::Serialize;
     use std::mem::size_of;
@@ -782,20 +723,6 @@ mod tests {
             "set-option"
         );
         assert_eq!(
-            Request::SetHookMutation(SetHookMutationRequest {
-                scope: ScopeSelector::Global,
-                hook: crate::HookName::AfterNewSession,
-                command: None,
-                lifecycle: crate::HookLifecycle::Persistent,
-                append: false,
-                unset: true,
-                run_immediately: false,
-                index: None,
-            })
-            .command_name(),
-            "set-hook"
-        );
-        assert_eq!(
             Request::AttachSessionExt2(Box::new(AttachSessionExt2Request {
                 target: Some(alpha()),
                 target_spec: None,
@@ -829,22 +756,6 @@ mod tests {
             )))
             .command_name(),
             "attach-session"
-        );
-        assert_eq!(
-            Request::SwitchClientExt3(Box::new(SwitchClientExt3Request {
-                target_client: None,
-                target: Some("alpha:0.0".to_owned()),
-                key_table: None,
-                last_session: false,
-                next_session: false,
-                previous_session: false,
-                toggle_read_only: false,
-                sort_order: None,
-                skip_environment_update: false,
-                zoom: false,
-            }))
-            .command_name(),
-            "switch-client"
         );
         assert_eq!(
             Request::ResolveTarget(ResolveTargetRequest {
@@ -897,29 +808,22 @@ mod tests {
         eprintln!("PR6G size baseline: Request={request_size} Box<T>={box_size}");
         eprintln!(
             "PR6G candidate sizes: NewSessionExt={} NewWindow={} SetOptionByName={} \
-             AttachSessionExt3={} SwitchClientExt3={} SendKeysExt2={} SourceFile={} WebShare={}",
+             AttachSessionExt3={} SwitchClientExt3={} SendKeysExt2={}",
             size_of::<NewSessionExtRequest>(),
             size_of::<NewWindowRequest>(),
             size_of::<SetOptionByNameRequest>(),
             size_of::<AttachSessionExt3Request>(),
             size_of::<SwitchClientExt3Request>(),
             size_of::<SendKeysExt2Request>(),
-            size_of::<SourceFileRequest>(),
-            size_of::<WebShareRequest>(),
         );
         let mut remaining = [
             ("AttachSessionExt2", size_of::<AttachSessionExt2Request>()),
-            ("BindKey", size_of::<BindKeyRequest>()),
             ("BreakPane", size_of::<BreakPaneRequest>()),
             ("CapturePane", size_of::<CapturePaneRequest>()),
             ("ClearHistory", size_of::<ClearHistoryRequest>()),
-            ("ClockMode", size_of::<ClockModeRequest>()),
-            ("ControlMode", size_of::<ControlModeRequest>()),
             ("CopyMode", size_of::<CopyModeRequest>()),
             ("CreateSessionLease", size_of::<CreateSessionLeaseRequest>()),
-            ("DeleteBuffer", size_of::<DeleteBufferRequest>()),
             ("DetachClientExt", size_of::<DetachClientExtRequest>()),
-            ("DisplayPanes", size_of::<DisplayPanesRequest>()),
             ("DisplayMessage", size_of::<DisplayMessageRequest>()),
             ("DisplayMessageExt", size_of::<DisplayMessageExtRequest>()),
             ("Handshake", size_of::<HandshakeRequest>()),
@@ -929,11 +833,9 @@ mod tests {
             ("KillWindow", size_of::<KillWindowRequest>()),
             ("LinkWindow", size_of::<LinkWindowRequest>()),
             ("ListClients", size_of::<ListClientsRequest>()),
-            ("ListKeys", size_of::<ListKeysRequest>()),
             ("ListPanes", size_of::<ListPanesRequest>()),
             ("ListSessions", size_of::<ListSessionsRequest>()),
             ("ListWindows", size_of::<ListWindowsRequest>()),
-            ("LoadBuffer", size_of::<LoadBufferRequest>()),
             ("MovePane", size_of::<MovePaneRequest>()),
             ("MoveWindow", size_of::<MoveWindowRequest>()),
             ("NewSession", size_of::<NewSessionRequest>()),
@@ -953,7 +855,6 @@ mod tests {
             ("ResizeWindow", size_of::<ResizeWindowRequest>()),
             ("RotateWindow", size_of::<RotateWindowRequest>()),
             ("RunShell", size_of::<RunShellRequest>()),
-            ("SaveBuffer", size_of::<SaveBufferRequest>()),
             ("SelectCustomLayout", size_of::<SelectCustomLayoutRequest>()),
             ("SelectLayout", size_of::<SelectLayoutRequest>()),
             ("SelectPane", size_of::<SelectPaneRequest>()),
@@ -961,13 +862,9 @@ mod tests {
             ("SelectPaneMark", size_of::<SelectPaneMarkRequest>()),
             ("SetEnvironment", size_of::<SetEnvironmentRequest>()),
             ("SetBuffer", size_of::<SetBufferRequest>()),
-            ("SetHook", size_of::<SetHookRequest>()),
-            ("SetHookMutation", size_of::<SetHookMutationRequest>()),
             ("SetOption", size_of::<SetOptionRequest>()),
             ("ShowBuffer", size_of::<ShowBufferRequest>()),
             ("ShowEnvironment", size_of::<ShowEnvironmentRequest>()),
-            ("ShowHooks", size_of::<ShowHooksRequest>()),
-            ("ShowMessages", size_of::<ShowMessagesRequest>()),
             ("ShowOptions", size_of::<ShowOptionsRequest>()),
             ("SplitWindow", size_of::<SplitWindowRequest>()),
             ("SplitWindowExt", size_of::<SplitWindowExtRequest>()),
@@ -1041,25 +938,6 @@ mod tests {
             },
             vec![crate::CAPABILITY_ATTACH_RENDER.to_owned()],
         ));
-        assert_box_serializes_like_value(WebShareRequest::Create(CreateWebShareRequest {
-            scope: WebShareScope::Session(alpha()),
-            public_base_url: Some("https://example.invalid".to_owned()),
-            tunnel_provider: None,
-            frontend_url: Some("https://share.example.invalid".to_owned()),
-            ttl_seconds: Some(60),
-            expires_at_unix: None,
-            max_spectators: Some(8),
-            max_operators: Some(1),
-            url_options: WebShareUrlOptions::default(),
-            require_pin: true,
-            operator_pin: Some("123456".to_owned()),
-            spectator_pin: Some("654321".to_owned()),
-            terminal_palette: None,
-            operator: true,
-            spectator: true,
-            controls: true,
-            kill_session_on_expire: false,
-        }));
     }
 
     fn assert_box_serializes_like_value<T>(value: T)

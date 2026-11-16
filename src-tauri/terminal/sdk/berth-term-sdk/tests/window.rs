@@ -11,8 +11,8 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use berth_term_proto::{
-    encode_frame, FrameDecoder, HasSessionRequest, LinkWindowRequest, ListPanesRequest,
-    ListWindowsRequest, NewWindowRequest, Request, Response, WindowListEntry, WindowTarget,
+    encode_frame, FrameDecoder, HasSessionRequest, ListPanesRequest, ListWindowsRequest,
+    NewWindowRequest, Request, Response, WindowListEntry, WindowTarget,
 };
 use berth_term_sdk::{
     EnsureSession, SessionName, SplitDirection, TerminalClientBuilder, TerminalError,
@@ -361,167 +361,6 @@ async fn window_close_synchronizes_grouped_session_listings() -> TestResult {
     harness.finish().await
 }
 
-#[tokio::test]
-async fn window_close_removes_linked_window_from_every_affected_listing() -> TestResult {
-    let _lock = LIVE_DAEMON_LOCK.lock().await;
-    let harness = Harness::start("window-linked-close").await?;
-    let terminal = harness.terminal();
-
-    let linked_a = session_name("sdkwinlinka");
-    let linked_b = session_name("sdkwinlinkb");
-    let linked_b_peer = session_name("sdkwinlinkc");
-    let linked_session = EnsureSession::named(linked_a.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    EnsureSession::named(linked_b.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    EnsureSession::named(linked_b_peer.clone())
-        .create_only()
-        .group_target(linked_b.clone())
-        .ensure(&terminal)
-        .await?;
-    raw_new_window(harness.socket_path(), linked_a.clone(), 2).await?;
-    raw_link_window(
-        harness.socket_path(),
-        linked_a.clone(),
-        0,
-        linked_b.clone(),
-        1,
-    )
-    .await?;
-
-    let linked_a_window = raw_window(harness.socket_path(), linked_a.clone(), 0).await?;
-    let linked_b_window = raw_window(harness.socket_path(), linked_b.clone(), 1).await?;
-    let linked_b_peer_window = raw_window(harness.socket_path(), linked_b_peer.clone(), 1).await?;
-    assert_eq!(
-        linked_a_window.window_id, linked_b_window.window_id,
-        "link-window should expose one stable window id through both sessions"
-    );
-    assert_eq!(
-        linked_b_window.window_id, linked_b_peer_window.window_id,
-        "grouped sessions should expose the linked window through every member"
-    );
-    let linked_panes = raw_list_pane_ids(harness.socket_path(), linked_a.clone(), Some(0)).await?;
-
-    assert_eq!(
-        linked_session.window(0).close().await?,
-        WindowCloseOutcome::Closed {
-            active: WindowRef::new(linked_a.clone(), 2)
-        }
-    );
-    assert_eq!(
-        raw_list_window_indices(harness.socket_path(), linked_a.clone()).await?,
-        vec![2]
-    );
-    assert_eq!(
-        raw_list_window_indices(harness.socket_path(), linked_b.clone()).await?,
-        vec![0]
-    );
-    assert_eq!(
-        raw_list_window_indices(harness.socket_path(), linked_b_peer.clone()).await?,
-        vec![0]
-    );
-    let remaining_linked_panes =
-        raw_list_pane_ids(harness.socket_path(), linked_a.clone(), None).await?;
-    assert!(linked_panes
-        .iter()
-        .all(|pane_id| !remaining_linked_panes.contains(pane_id)));
-    let remaining_linked_b_panes =
-        raw_list_pane_ids(harness.socket_path(), linked_b.clone(), None).await?;
-    assert!(linked_panes
-        .iter()
-        .all(|pane_id| !remaining_linked_b_panes.contains(pane_id)));
-    let remaining_linked_b_peer_panes =
-        raw_list_pane_ids(harness.socket_path(), linked_b_peer.clone(), None).await?;
-    assert!(linked_panes
-        .iter()
-        .all(|pane_id| !remaining_linked_b_peer_panes.contains(pane_id)));
-
-    let stale_linked_target = terminal.window(WindowRef::new(linked_b.clone(), 1)).await?;
-    assert_eq!(stale_linked_target.panes().await?, Vec::new());
-    assert_eq!(
-        stale_linked_target.close().await?,
-        WindowCloseOutcome::AlreadyClosed {
-            target: WindowRef::new(linked_b, 1)
-        }
-    );
-
-    harness.finish().await
-}
-
-#[tokio::test]
-async fn window_split_through_linked_target_updates_every_linked_view() -> TestResult {
-    let _lock = LIVE_DAEMON_LOCK.lock().await;
-    let harness = Harness::start("window-linked-split").await?;
-    let terminal = harness.terminal();
-
-    let linked_a = session_name("sdkwinsplita");
-    let linked_b = session_name("sdkwinsplitb");
-    let linked_b_peer = session_name("sdkwinsplitc");
-    EnsureSession::named(linked_a.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    EnsureSession::named(linked_b.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    EnsureSession::named(linked_b_peer.clone())
-        .create_only()
-        .group_target(linked_b.clone())
-        .ensure(&terminal)
-        .await?;
-    raw_link_window(
-        harness.socket_path(),
-        linked_a.clone(),
-        0,
-        linked_b.clone(),
-        1,
-    )
-    .await?;
-
-    let linked_target = terminal.window(WindowRef::new(linked_b.clone(), 1)).await?;
-    let window_id = linked_target.id().await?.expect("linked target is listed");
-    assert_eq!(linked_target.panes().await?.len(), 1);
-
-    let split_pane = terminal
-        .pane(berth_term_sdk::PaneRef::new(linked_b.clone(), 1, 0))
-        .await?
-        .split(SplitDirection::Right)
-        .await?;
-    let split_ref = split_pane.target().clone();
-    assert_eq!(split_ref.session_name, linked_b);
-    assert_eq!(split_ref.window_index, 1);
-
-    let linked_target_panes = linked_target.panes().await?;
-    assert_eq!(linked_target_panes.len(), 2);
-    assert!(linked_target_panes
-        .iter()
-        .any(|pane| pane.target == split_ref));
-
-    let linked_a_window = raw_window(harness.socket_path(), linked_a.clone(), 0).await?;
-    let linked_b_window = raw_window(harness.socket_path(), linked_b.clone(), 1).await?;
-    let linked_b_peer_window = raw_window(harness.socket_path(), linked_b_peer.clone(), 1).await?;
-    assert_eq!(linked_a_window.window_id, window_id.to_string());
-    assert_eq!(linked_b_window.window_id, window_id.to_string());
-    assert_eq!(linked_b_peer_window.window_id, window_id.to_string());
-    assert_eq!(linked_a_window.pane_count, 2);
-    assert_eq!(linked_b_window.pane_count, 2);
-    assert_eq!(linked_b_peer_window.pane_count, 2);
-
-    let info = linked_target.info().await?;
-    assert_eq!(info.sessions.len(), 1);
-    assert_eq!(info.windows.len(), 1);
-    assert_eq!(info.windows[0].id, window_id);
-    assert_eq!(info.windows[0].index, 1);
-    assert_eq!(info.panes.len(), 2);
-
-    harness.finish().await
-}
-
 fn session_name(value: &str) -> SessionName {
     SessionName::new(value).expect("valid session name")
 }
@@ -549,49 +388,6 @@ async fn raw_new_window(socket_path: &Path, target: SessionName, index: u32) -> 
         }
         response => Err(format!("unexpected new-window response: {response:?}").into()),
     }
-}
-
-async fn raw_link_window(
-    socket_path: &Path,
-    source_session: SessionName,
-    source_index: u32,
-    target_session: SessionName,
-    target_index: u32,
-) -> TestResult {
-    match framed_request(
-        socket_path,
-        Request::LinkWindow(LinkWindowRequest {
-            source: WindowTarget::with_window(source_session, source_index),
-            target: WindowTarget::with_window(target_session.clone(), target_index),
-            after: false,
-            before: false,
-            kill_destination: false,
-            detached: true,
-        }),
-    )
-    .await?
-    {
-        Response::LinkWindow(response) => {
-            assert_eq!(
-                response.target,
-                WindowTarget::with_window(target_session, target_index)
-            );
-            Ok(())
-        }
-        response => Err(format!("unexpected link-window response: {response:?}").into()),
-    }
-}
-
-async fn raw_window(
-    socket_path: &Path,
-    target: SessionName,
-    index: u32,
-) -> TestResult<WindowListEntry> {
-    raw_list_windows(socket_path, target)
-        .await?
-        .into_iter()
-        .find(|entry| entry.target.window_index() == index)
-        .ok_or_else(|| format!("window {index} was not listed").into())
 }
 
 async fn raw_list_window_indices(socket_path: &Path, target: SessionName) -> TestResult<Vec<u32>> {
@@ -807,7 +603,7 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
             .arg("--bin")
             .arg("berth-termd")
             .arg("--package")
-            .arg("berth-termd")
+            .arg("berth-terminald")
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace_root().join("Cargo.toml"))

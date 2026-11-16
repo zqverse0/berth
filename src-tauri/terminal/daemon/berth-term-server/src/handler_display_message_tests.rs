@@ -1,13 +1,13 @@
 use super::RequestHandler;
 use crate::pane_io::AttachControl;
-#[cfg(windows)]
-use std::path::Path;
 use berth_term_proto::{
     DisplayMessageExtRequest, DisplayMessageRequest, NewSessionRequest, NewWindowRequest,
     OptionName, OptionScopeSelector, PaneTarget, Request, Response, ScopeSelector,
     SelectPaneMarkRequest, SelectWindowRequest, SessionName, SetOptionMode, SetOptionRequest,
     SplitDirection, SplitWindowRequest, SplitWindowTarget, Target, TerminalSize, WindowTarget,
 };
+#[cfg(windows)]
+use std::path::Path;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 

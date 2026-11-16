@@ -1,4 +1,3 @@
-use regex::RegexBuilder;
 use berth_term_engine::formats::{is_known_format_variable_name, FormatVariable, FormatVariables};
 use berth_term_engine::input::mode;
 use berth_term_engine::{
@@ -6,6 +5,7 @@ use berth_term_engine::{
 };
 use berth_term_engine::{Session, Window, WINLINK_ACTIVITY, WINLINK_BELL, WINLINK_SILENCE};
 use berth_term_proto::OptionName;
+use regex::RegexBuilder;
 
 use crate::hook_runtime::current_hook_format_value;
 
@@ -25,12 +25,9 @@ impl RuntimeFormatContext<'_> {
     }
 
     fn pane_pipe(&self) -> Option<String> {
-        let session = self.session?;
-        let pane = self.pane?;
-        let window_index = self.window_index?;
-        Some(bool_string(self.state.is_some_and(|state| {
-            state.pane_has_pipe(session.name(), window_index, pane.id())
-        })))
+        // pipe-pane 已移除，pane 永远没有管道
+        self.pane?;
+        Some(bool_string(false))
     }
 
     fn pane_synchronized(&self) -> Option<String> {

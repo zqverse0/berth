@@ -1,16 +1,10 @@
 use std::io;
-#[cfg(unix)]
-use std::os::unix::process::ExitStatusExt;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
 use berth_term_engine::input::InputParser;
 use berth_term_engine::{GridRenderOptions, Screen, ScreenCaptureRange};
 use berth_term_proto::{TerminalError, TerminalSize};
 use berth_term_pty::{PtyChild, PtyIo, Signal, TerminalSize as PtyTerminalSize};
-#[cfg(unix)]
-use tokio::io::unix::AsyncFd;
-use tokio::time::sleep;
 
 use crate::terminal::{parse_environment_assignments, TerminalProfile};
 
@@ -133,140 +127,4 @@ pub(super) fn spawn_popup_job(
     ))
 }
 
-impl RequestHandler {
-    pub(super) fn spawn_popup_reader(
-        &self,
-        attach_pid: u32,
-        popup_id: u64,
-        surface: Arc<StdMutex<PopupSurface>>,
-        job: PopupJob,
-    ) -> Result<(), TerminalError> {
-        let reader_fd = {
-            let writer = job.writer.lock().expect("popup writer");
-            writer.try_clone().map_err(|error| {
-                TerminalError::Server(format!("failed to clone popup pty fd: {error}"))
-            })?
-        };
-        spawn_popup_reader_task(self.clone(), attach_pid, popup_id, surface, reader_fd)
-    }
-
-    pub(super) fn spawn_popup_waiter(&self, attach_pid: u32, popup_id: u64, job: PopupJob) {
-        let handler = self.clone();
-        tokio::spawn(async move {
-            loop {
-                let status = {
-                    let mut child_guard = job.child.lock().expect("popup child");
-                    let Some(child) = child_guard.as_mut() else {
-                        return;
-                    };
-                    match child.try_wait() {
-                        Ok(Some(status)) => {
-                            let _ = child_guard.take();
-                            status_to_code(status)
-                        }
-                        Ok(None) => None,
-                        Err(_) => None,
-                    }
-                };
-                if let Some(status) = status {
-                    let _ = handler
-                        .popup_job_finished(attach_pid, popup_id, status)
-                        .await;
-                    return;
-                }
-                sleep(Duration::from_millis(50)).await;
-            }
-        });
-    }
-}
-
-fn status_to_code(status: std::process::ExitStatus) -> Option<i32> {
-    status.code().or_else(|| exit_signal(status))
-}
-
-#[cfg(unix)]
-fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
-    status.signal()
-}
-
-#[cfg(windows)]
-fn exit_signal(_status: std::process::ExitStatus) -> Option<i32> {
-    None
-}
-
-#[cfg(unix)]
-fn spawn_popup_reader_task(
-    handler: RequestHandler,
-    attach_pid: u32,
-    popup_id: u64,
-    surface: Arc<StdMutex<PopupSurface>>,
-    reader_fd: PtyIo,
-) -> Result<(), TerminalError> {
-    reader_fd.set_nonblocking().map_err(|error| {
-        TerminalError::Server(format!("failed to make popup pty nonblocking: {error}"))
-    })?;
-    let reader = AsyncFd::new(reader_fd)
-        .map_err(|error| TerminalError::Server(format!("failed to watch popup pty: {error}")))?;
-    tokio::spawn(async move {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            let bytes_read = match read_async_fd(&reader, &mut buffer).await {
-                Ok(bytes_read) => bytes_read,
-                Err(_) => break,
-            };
-            if bytes_read == 0 {
-                break;
-            }
-            surface
-                .lock()
-                .expect("popup surface")
-                .append(&buffer[..bytes_read]);
-            let _ = handler.popup_reader_tick(attach_pid, popup_id).await;
-        }
-    });
-    Ok(())
-}
-
-#[cfg(windows)]
-fn spawn_popup_reader_task(
-    handler: RequestHandler,
-    attach_pid: u32,
-    popup_id: u64,
-    surface: Arc<StdMutex<PopupSurface>>,
-    reader: PtyIo,
-) -> Result<(), TerminalError> {
-    let runtime = tokio::runtime::Handle::current();
-    tokio::task::spawn_blocking(move || {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            let bytes_read = match reader.read(&mut buffer) {
-                Ok(bytes_read) => bytes_read,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            };
-            if bytes_read == 0 {
-                break;
-            }
-            surface
-                .lock()
-                .expect("popup surface")
-                .append(&buffer[..bytes_read]);
-            let handler = handler.clone();
-            runtime.block_on(async move {
-                let _ = handler.popup_reader_tick(attach_pid, popup_id).await;
-            });
-        }
-    });
-    Ok(())
-}
-
-#[cfg(unix)]
-async fn read_async_fd(fd: &AsyncFd<PtyIo>, buffer: &mut [u8]) -> io::Result<usize> {
-    loop {
-        let mut ready = fd.readable().await?;
-        match ready.try_io(|inner| inner.get_ref().read(&mut *buffer)) {
-            Ok(result) => return result,
-            Err(_would_block) => continue,
-        }
-    }
-}
+impl RequestHandler {}

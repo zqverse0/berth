@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use berth_term_proto::{
     encode_frame, ClearHistoryRequest, FrameDecoder, HasSessionRequest, KillPaneRequest,
-    LinkWindowRequest, ListPanesRequest, NewWindowRequest, PaneTarget, Request,
-    ResizeWindowRequest, Response, SendKeysRequest, WindowTarget,
+    ListPanesRequest, NewWindowRequest, PaneTarget, Request, ResizeWindowRequest, Response,
+    SendKeysRequest, WindowTarget,
 };
 use berth_term_sdk::{
     EnsureSession, PaneProcessState, PaneRef, PaneSnapshot, SessionName, TerminalClientBuilder,
@@ -205,55 +205,6 @@ async fn pane_snapshot_revision_changes_after_output_resize_clear_and_exit() -> 
     assert_ne!(
         revived_snapshot.revision, after_exit.revision,
         "a freshly revived pane must not collide with the prior unlisted-revision sentinel"
-    );
-
-    harness.finish().await
-}
-
-#[tokio::test]
-async fn pane_id_resolves_to_same_identity_through_linked_window_views() -> TestResult {
-    let _lock = LIVE_DAEMON_LOCK.lock().await;
-    let harness = Harness::start("pane-linked").await?;
-    let terminal = harness.terminal();
-
-    let owner = session_name("sdkpanelinkown");
-    let viewer = session_name("sdkpanelinkview");
-    let owner_session = EnsureSession::named(owner.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    EnsureSession::named(viewer.clone())
-        .create_only()
-        .ensure(&terminal)
-        .await?;
-    raw_link_window(harness.socket_path(), owner.clone(), 0, viewer.clone(), 1).await?;
-
-    let owner_pane = owner_session.pane(0, 0);
-    let owner_id = owner_pane.id().await?.expect("owner pane is listed");
-
-    let viewer_pane = terminal.pane(PaneRef::new(viewer.clone(), 1, 0)).await?;
-    let viewer_id = viewer_pane
-        .id()
-        .await?
-        .expect("linked viewer pane is listed");
-
-    assert_eq!(
-        owner_id, viewer_id,
-        "linked windows must expose the same %N pane identity through every session"
-    );
-
-    let owner_info = owner_pane.info().await?;
-    let viewer_info = viewer_pane.info().await?;
-    assert_eq!(owner_info.panes.len(), 1);
-    assert_eq!(viewer_info.panes.len(), 1);
-    assert_eq!(owner_info.panes[0].id, viewer_info.panes[0].id);
-    assert_eq!(
-        owner_info.panes[0].window_id,
-        viewer_info.panes[0].window_id
-    );
-    assert_ne!(
-        owner_info.panes[0].session_id, viewer_info.panes[0].session_id,
-        "the two views are owned by distinct sessions"
     );
 
     harness.finish().await
@@ -494,37 +445,6 @@ async fn raw_new_window(socket_path: &Path, target: SessionName, index: u32) -> 
     }
 }
 
-async fn raw_link_window(
-    socket_path: &Path,
-    source_session: SessionName,
-    source_index: u32,
-    target_session: SessionName,
-    target_index: u32,
-) -> TestResult {
-    match framed_request(
-        socket_path,
-        Request::LinkWindow(LinkWindowRequest {
-            source: WindowTarget::with_window(source_session, source_index),
-            target: WindowTarget::with_window(target_session.clone(), target_index),
-            after: false,
-            before: false,
-            kill_destination: false,
-            detached: true,
-        }),
-    )
-    .await?
-    {
-        Response::LinkWindow(response) => {
-            assert_eq!(
-                response.target,
-                WindowTarget::with_window(target_session, target_index)
-            );
-            Ok(())
-        }
-        response => Err(format!("unexpected link-window response: {response:?}").into()),
-    }
-}
-
 async fn framed_request(socket_path: &Path, request: Request) -> TestResult<Response> {
     let mut stream = UnixStream::connect(socket_path).await?;
     let frame = encode_frame(&request)?;
@@ -689,7 +609,7 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
             .arg("--bin")
             .arg("berth-termd")
             .arg("--package")
-            .arg("berth-termd")
+            .arg("berth-terminald")
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace_root().join("Cargo.toml"))

@@ -513,7 +513,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "berth-agent"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "futures",
  "genai",
@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "berth-cli"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-control-proto",
  "berth-group",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "berth-control-proto"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "berth-group"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-project-core",
  "berth-tool-core",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "berth-gui"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -616,7 +616,6 @@ dependencies = [
  "libc",
  "mac-notification-sys",
  "notify",
- "pulldown-cmark",
  "rand 0.8.8",
  "reqwest",
  "rusqlite",
@@ -624,7 +623,6 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
  "sysinfo",
  "tar",
@@ -658,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "berth-node"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -670,14 +668,13 @@ dependencies = [
 
 [[package]]
 name = "berth-plugin-api"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "base64 0.22.1",
  "berth-tool-core",
  "libc",
  "reqwest",
  "rquickjs",
- "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -687,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "berth-project-core"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "async-trait",
  "berth-tool-core",
@@ -711,7 +708,7 @@ dependencies = [
 
 [[package]]
 name = "berth-provider-proxy"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "bytes",
  "http",
@@ -728,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-engine"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-proto",
  "chrono",
@@ -739,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-ipc"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-os",
  "libc",
@@ -751,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-os"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-types",
  "libc",
@@ -761,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-proto"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-types",
  "bincode",
@@ -772,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-pty"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-os",
  "berth-term-types",
@@ -785,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-sdk"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-ipc",
  "berth-term-os",
@@ -803,10 +800,9 @@ dependencies = [
 
 [[package]]
 name = "berth-term-server"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "async-recursion",
- "base64 0.22.1",
  "berth-control-proto",
  "berth-term-engine",
  "berth-term-ipc",
@@ -814,34 +810,23 @@ dependencies = [
  "berth-term-proto",
  "berth-term-pty",
  "chrono",
- "getrandom 0.3.4",
- "glob",
- "hkdf",
- "httparse",
  "regex",
  "rustix 1.1.4",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
  "static_assertions",
- "subtle",
  "tokio",
- "toml 0.8.2",
  "tracing",
- "zeroize",
 ]
 
 [[package]]
 name = "berth-term-types"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "berth-terminald"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "berth-term-os",
  "berth-term-server",
@@ -850,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "berth-tool-core"
-version = "0.38.3"
+version = "0.38.4"
 dependencies = [
  "dirs",
  "rusqlite",

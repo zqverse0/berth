@@ -41,7 +41,6 @@ use crate::unix_socket::{
 
 #[cfg(all(test, unix))]
 const FALLBACK_SOCKET_ROOT: &str = "/tmp";
-const DEFAULT_WEB_PORT: u16 = 9777;
 
 /// Computes the default Berth terminal daemon socket path.
 ///
@@ -75,12 +74,7 @@ fn socket_root_from_env(tmpdir: Option<&std::ffi::OsStr>) -> io::Result<PathBuf>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonConfig {
     socket_path: PathBuf,
-    config_load: ConfigLoadOptions,
     subscription_limits: SubscriptionLimits,
-    web_frontend: Option<String>,
-    web_port: u16,
-    web_port_explicit: bool,
-    web_required: bool,
     startup_ready_fd: Option<i32>,
     #[cfg(windows)]
     startup_ready_event: Option<OsString>,
@@ -92,12 +86,7 @@ impl DaemonConfig {
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
             socket_path,
-            config_load: ConfigLoadOptions::disabled(),
             subscription_limits: SubscriptionLimits::default(),
-            web_frontend: None,
-            web_port: DEFAULT_WEB_PORT,
-            web_port_explicit: false,
-            web_required: false,
             startup_ready_fd: None,
             #[cfg(windows)]
             startup_ready_event: None,
@@ -115,90 +104,16 @@ impl DaemonConfig {
         &self.socket_path
     }
 
-    /// Returns the startup config loading policy.
-    #[must_use]
-    pub const fn config_load(&self) -> &ConfigLoadOptions {
-        &self.config_load
-    }
-
     /// Returns the pane-output subscription limits.
     #[must_use]
     pub fn subscription_limits(&self) -> SubscriptionLimits {
         self.subscription_limits
     }
 
-    /// Returns the configured web-share listener port.
-    #[must_use]
-    pub const fn web_port(&self) -> u16 {
-        self.web_port
-    }
-
-    /// Returns whether the web-share listener port was explicitly configured.
-    #[must_use]
-    pub const fn web_port_explicit(&self) -> bool {
-        self.web_port_explicit
-    }
-
-    /// Returns whether this daemon startup requires the web listener to bind.
-    #[must_use]
-    pub const fn web_required(&self) -> bool {
-        self.web_required
-    }
-
-    /// Returns the optional external web-share frontend origin.
-    #[must_use]
-    pub fn web_frontend(&self) -> Option<&str> {
-        self.web_frontend.as_deref()
-    }
-
-    /// Enables Berth terminal default startup config loading.
-    #[must_use]
-    pub fn with_default_config_load(mut self, quiet: bool, cwd: Option<PathBuf>) -> Self {
-        self.config_load = ConfigLoadOptions {
-            selection: ConfigFileSelection::Default,
-            quiet,
-            cwd,
-        };
-        self
-    }
-
     /// Overrides pane-output subscription limits for this daemon.
     #[must_use]
     pub fn with_subscription_limits(mut self, subscription_limits: SubscriptionLimits) -> Self {
         self.subscription_limits = subscription_limits;
-        self
-    }
-
-    /// Overrides the web-share listener port.
-    #[must_use]
-    pub const fn with_web_port(mut self, port: u16) -> Self {
-        self.web_port = port;
-        self.web_port_explicit = true;
-        self.web_required = true;
-        self
-    }
-
-    /// Overrides the frontend origin used in generated web-share URLs.
-    #[must_use]
-    pub fn with_web_frontend(mut self, frontend: String) -> Self {
-        self.web_frontend = Some(frontend);
-        self.web_required = true;
-        self
-    }
-
-    /// Enables explicit `-f` startup config loading.
-    #[must_use]
-    pub fn with_config_files(
-        mut self,
-        files: Vec<PathBuf>,
-        quiet: bool,
-        cwd: Option<PathBuf>,
-    ) -> Self {
-        self.config_load = ConfigLoadOptions {
-            selection: ConfigFileSelection::Files(files),
-            quiet,
-            cwd,
-        };
         self
     }
 
@@ -227,55 +142,6 @@ impl DaemonConfig {
     fn startup_ready_event(&self) -> Option<&OsStr> {
         self.startup_ready_event.as_deref()
     }
-}
-
-/// Startup config loading policy for a daemon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConfigLoadOptions {
-    selection: ConfigFileSelection,
-    quiet: bool,
-    cwd: Option<PathBuf>,
-}
-
-impl ConfigLoadOptions {
-    /// Builds a config policy that performs no startup config loading.
-    #[must_use]
-    pub const fn disabled() -> Self {
-        Self {
-            selection: ConfigFileSelection::Disabled,
-            quiet: true,
-            cwd: None,
-        }
-    }
-
-    /// Returns the selected config files mode.
-    #[must_use]
-    pub const fn selection(&self) -> &ConfigFileSelection {
-        &self.selection
-    }
-
-    /// Returns whether missing files should be suppressed.
-    #[must_use]
-    pub const fn quiet(&self) -> bool {
-        self.quiet
-    }
-
-    /// Returns the startup client's current working directory.
-    #[must_use]
-    pub fn cwd(&self) -> Option<&Path> {
-        self.cwd.as_deref()
-    }
-}
-
-/// Config file selection mode for daemon startup.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfigFileSelection {
-    /// Do not load config files.
-    Disabled,
-    /// Load Berth terminal default config files, with a filtered tmux config fallback.
-    Default,
-    /// Load the explicit `-f` files in order.
-    Files(Vec<PathBuf>),
 }
 
 /// Berth terminal daemon launcher — call [`bind`](Self::bind) to start listening.
@@ -323,19 +189,9 @@ impl ServerDaemon {
             let signal_watcher = crate::signals::SignalWatcher::install()?;
             let socket_path = self.config.socket_path().to_path_buf();
             let owner_uid = real_user_id()?;
-            let serve_options = ServeOptions::new(
-                self.config.config_load().clone(),
-                self.config.subscription_limits(),
-                owner_uid,
-            )
-            .with_web_options(
-                self.config.web_port(),
-                self.config.web_frontend().map(str::to_owned),
-                self.config.web_required(),
-                self.config.web_port_explicit(),
-            )
-            .with_socket_identity(bound_listener.identity)
-            .with_server_signals(signal_watcher);
+            let serve_options = ServeOptions::new(self.config.subscription_limits(), owner_uid)
+                .with_socket_identity(bound_listener.identity)
+                .with_server_signals(signal_watcher);
 
             let task = tokio::spawn(listener::serve(
                 bound_listener.listener,
@@ -362,17 +218,7 @@ impl ServerDaemon {
             let (shutdown_handle, shutdown_receiver) = ShutdownHandle::new();
             let socket_path = self.config.socket_path().to_path_buf();
             let owner_uid = current_owner_uid();
-            let serve_options = ServeOptions::new(
-                self.config.config_load().clone(),
-                self.config.subscription_limits(),
-                owner_uid,
-            )
-            .with_web_options(
-                self.config.web_port(),
-                self.config.web_frontend().map(str::to_owned),
-                self.config.web_required(),
-                self.config.web_port_explicit(),
-            );
+            let serve_options = ServeOptions::new(self.config.subscription_limits(), owner_uid);
 
             let task = tokio::spawn(listener::serve(
                 listener,

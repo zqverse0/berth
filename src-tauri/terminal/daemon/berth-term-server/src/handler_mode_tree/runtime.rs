@@ -1,8 +1,8 @@
-use std::collections::BTreeSet;
 use berth_term_engine::{
     LifecycleEvent, TargetFindContext, TargetFindFlags, TargetFindType, UnresolvedTarget, Window,
 };
 use berth_term_proto::{OptionName, PaneTarget, SessionName, Target, TerminalError};
+use std::collections::BTreeSet;
 
 use super::super::scripting_support::{QueueCommandAction, QueueExecutionContext};
 use super::super::RequestHandler;
@@ -89,26 +89,6 @@ impl RequestHandler {
         };
 
         self.seed_mode_tree_defaults(&mut mode).await?;
-        if matches!(mode.kind, ModeTreeKind::Buffer) && self.mode_tree_buffer_empty().await {
-            if let Some(attach_pid) = attach_pid {
-                self.dismiss_mode_tree_with_refresh(attach_pid).await?;
-            }
-            return Ok(QueueCommandAction::Normal {
-                output: None,
-                error: None,
-                exit_status: None,
-            });
-        }
-        if matches!(mode.kind, ModeTreeKind::Client) && self.mode_tree_client_empty().await {
-            if let Some(attach_pid) = attach_pid {
-                self.dismiss_mode_tree_with_refresh(attach_pid).await?;
-            }
-            return Ok(QueueCommandAction::Normal {
-                output: None,
-                error: None,
-                exit_status: None,
-            });
-        }
 
         if attach_pid.is_some() {
             self.activate_mode_tree_for_session(&session_name, &mode)
@@ -134,7 +114,6 @@ impl RequestHandler {
         Ok(QueueCommandAction::Normal {
             output: None,
             error: None,
-            exit_status: None,
         })
     }
 
@@ -275,7 +254,6 @@ impl RequestHandler {
                     .is_ok()
             });
         }
-        self.refresh_control_session(&session_name).await;
         Ok(())
     }
 
@@ -439,22 +417,6 @@ impl RequestHandler {
             .send_attached_overlay(&session_name, overlay_frame, clear_frame, duration)
             .await;
         Ok(())
-    }
-
-    pub(super) async fn mode_tree_active_pane(
-        &self,
-        session_name: &SessionName,
-    ) -> Result<PaneTarget, TerminalError> {
-        let state = self.state.lock().await;
-        let session = state
-            .sessions
-            .session(session_name)
-            .ok_or_else(|| session_not_found(session_name))?;
-        Ok(PaneTarget::with_window(
-            session_name.clone(),
-            session.active_window_index(),
-            session.active_pane_index(),
-        ))
     }
 
     async fn enter_mode_tree_for_target(

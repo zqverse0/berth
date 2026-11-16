@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use berth_term_engine::{BoxLines, PaneGeometry, Style};
 use berth_term_proto::TerminalSize;
 

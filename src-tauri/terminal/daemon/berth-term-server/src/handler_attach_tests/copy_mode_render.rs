@@ -196,26 +196,21 @@ async fn attached_copy_mode_unhandled_key_falls_back_to_prefix_table() {
     let _control_rx = create_attached_session(&handler, requester_pid, &alpha).await;
     assert!(matches!(
         handler
-            .handle(Request::SplitWindow(SplitWindowRequest {
-                target: SplitWindowTarget::Session(alpha.clone()),
-                direction: berth_term_proto::SplitDirection::Horizontal,
-                before: false,
-                environment: None,
-            }))
+            .handle(Request::NewWindow(Box::new(
+                berth_term_proto::NewWindowRequest {
+                    target: alpha.clone(),
+                    name: None,
+                    detached: true,
+                    start_directory: None,
+                    environment: None,
+                    command: None,
+                    process_command: None,
+                    target_window_index: None,
+                    insert_at_target: false,
+                }
+            )))
             .await,
-        Response::SplitWindow(_)
-    ));
-    assert!(matches!(
-        handler
-            .handle(Request::SelectPane(Box::new(SelectPaneRequest {
-                target: PaneTarget::new(alpha.clone(), 0),
-                title: None,
-                style: None,
-                input_disabled: None,
-                preserve_zoom: false,
-            })))
-            .await,
-        Response::SelectPane(_)
+        Response::NewWindow(_)
     ));
     assert!(matches!(
         handler
@@ -234,10 +229,17 @@ async fn attached_copy_mode_unhandled_key_falls_back_to_prefix_table() {
         Response::CopyMode(_)
     ));
 
+    // 回看时 copy-mode 表不处理 C-b n，回落到 prefix 表切到下一个窗口
     handler
-        .handle_attached_live_input_for_test(requester_pid, b"\x02o")
+        .handle_attached_live_input_for_test(requester_pid, b"\x02n")
         .await
         .expect("copy-mode declined unhandled prefix navigation");
 
-    assert_eq!(active_panes(&handler, &alpha).await, "0:0\n1:1\n");
+    let state = handler.state.lock().await;
+    let active = state
+        .sessions
+        .session(&alpha)
+        .expect("session exists")
+        .active_window_index();
+    assert_eq!(active, 1);
 }

@@ -1,6 +1,5 @@
 use super::{
     lookup_command, parse_command_arguments, CommandArgument, CommandParser, COMMAND_TABLE,
-    SOURCE_FILE_MAX_COMMAND_BYTES,
 };
 
 fn command_names(input: &str) -> Vec<String> {
@@ -74,19 +73,6 @@ fn large_comments_do_not_count_as_command_bytes() {
 
     assert_eq!(commands.commands().len(), 1);
     assert_eq!(commands.commands()[0].name(), "display-message");
-}
-
-#[test]
-fn source_file_parser_accepts_long_commands_without_relaxing_argv_limit() {
-    let long_argument = "x".repeat(20 * 1024);
-    let commands = CommandParser::new()
-        .with_max_command_bytes(SOURCE_FILE_MAX_COMMAND_BYTES)
-        .parse(&format!("set-buffer -b big {long_argument}"))
-        .unwrap();
-
-    assert_eq!(commands.commands().len(), 1);
-    assert_eq!(commands.commands()[0].name(), "set-buffer");
-    assert!(parse_command_arguments(["set-buffer", "-b", "big", long_argument.as_str()]).is_err());
 }
 
 #[test]
@@ -231,18 +217,6 @@ fn parses_semicolon_separated_commands_and_trailing_separator() {
     assert_eq!(
         command_names("new-session -d ; list-sessions ;"),
         ["new-session", "list-sessions"]
-    );
-}
-
-#[test]
-fn serializes_embedded_command_lists_with_escaped_separators() {
-    let commands = CommandParser::new()
-        .parse(r#"run-shell "echo one" ; run-shell "echo two""#)
-        .expect("command list parses");
-
-    assert_eq!(
-        commands.to_tmux_binding_string(),
-        r#"run-shell "echo one" \; run-shell "echo two""#
     );
 }
 

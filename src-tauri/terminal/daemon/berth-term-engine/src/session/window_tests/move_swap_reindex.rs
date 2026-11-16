@@ -77,61 +77,6 @@ fn move_window_clears_last_tracking_when_the_last_window_becomes_active() {
 }
 
 #[test]
-fn swap_windows_keeps_active_and_last_tracking_with_the_same_windows() {
-    let mut session = Session::new(
-        session_name("alpha"),
-        TerminalSize {
-            cols: 120,
-            rows: 40,
-        },
-    );
-    session
-        .insert_window_with_initial_pane(2, TerminalSize { cols: 90, rows: 30 })
-        .expect("window 2 insert succeeds");
-    session
-        .insert_window_with_initial_pane(5, TerminalSize { cols: 90, rows: 30 })
-        .expect("window 5 insert succeeds");
-    session.select_window(5).expect("window 5 select succeeds");
-    session.select_window(2).expect("window 2 select succeeds");
-
-    session.swap_windows(2, 5).expect("swap succeeds");
-
-    assert_eq!(session.active_window_index(), 2);
-    assert_eq!(session.last_window_index(), Some(5));
-}
-
-#[test]
-fn reindex_windows_compacts_sparse_slots_and_remaps_last_tracking() {
-    let mut session = Session::new(
-        session_name("alpha"),
-        TerminalSize {
-            cols: 120,
-            rows: 40,
-        },
-    );
-    session
-        .move_window(0, 3, false, false)
-        .expect("move succeeds");
-    session
-        .insert_window_with_initial_pane(7, TerminalSize { cols: 90, rows: 30 })
-        .expect("window 7 insert succeeds");
-    session.select_window(7).expect("window 7 select succeeds");
-
-    let mapping = session.reindex_windows().expect("reindex succeeds");
-
-    assert_eq!(
-        mapping.into_iter().collect::<Vec<_>>(),
-        vec![(3, 0), (7, 1)]
-    );
-    assert_eq!(
-        session.windows().keys().copied().collect::<Vec<_>>(),
-        vec![0, 1]
-    );
-    assert_eq!(session.active_window_index(), 1);
-    assert_eq!(session.last_window_index(), Some(0));
-}
-
-#[test]
 fn reindex_windows_overflow_preserves_existing_windows() {
     let mut session = Session::new(
         session_name("alpha"),

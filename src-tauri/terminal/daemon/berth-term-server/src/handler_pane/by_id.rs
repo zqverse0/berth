@@ -2,7 +2,7 @@ use berth_term_engine::LifecycleEvent;
 use berth_term_proto::{
     ErrorResponse, HookName, OptionName, PaneBindingFailure, PaneTarget, PaneTargetRef,
     ResizePaneAdjustment, ResizePaneResponse, Response, ScopeSelector, SelectPaneResponse,
-    SessionId, SetOptionMode, Target, TerminalError, WindowTarget,
+    SetOptionMode, Target, TerminalError, WindowTarget,
 };
 
 use super::super::{prepare_lifecycle_event, RequestHandler};
@@ -106,7 +106,6 @@ impl RequestHandler {
             queued_pane_exited,
             queued_session_closed,
             session_destroyed,
-            removed_session,
             removed_subscription_keys,
             removed_pane_ids,
             layout_window,
@@ -159,9 +158,6 @@ impl RequestHandler {
                         Some(queued_pane),
                         queued_session,
                         result.session_destroyed,
-                        result
-                            .removed_session_id
-                            .map(|session_id| (session_name.clone(), SessionId::new(session_id))),
                         removed_subscription_keys,
                         result.removed_pane_ids,
                         layout_window,
@@ -172,15 +168,12 @@ impl RequestHandler {
                     None,
                     None,
                     false,
-                    None,
                     Vec::new(),
                     Vec::new(),
                     layout_window,
                 ),
             }
         };
-
-        self.prune_web_session(removed_session);
 
         if !removed_pane_ids.is_empty() {
             self.forget_pane_snapshot_coalescers(&removed_pane_ids);
@@ -198,7 +191,6 @@ impl RequestHandler {
                 self.remove_session_leases(std::slice::from_ref(&session_name));
                 self.exit_attached_session(&session_name).await;
                 self.cancel_session_silence_timers(&session_name).await;
-                self.refresh_control_session(&session_name).await;
                 let _ = self.queue_shutdown_if_server_empty().await;
             } else {
                 self.sync_session_silence_timers(&session_name).await;

@@ -29,30 +29,9 @@ pub struct SelectCustomLayoutRequest {
     pub layout: String,
 }
 
-/// Request payload for `select-layout -o`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SelectOldLayoutRequest {
-    /// The exact layout target.
-    pub target: SelectLayoutTarget,
-}
-
 /// Request payload for `select-layout -E`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpreadLayoutRequest {
     /// The exact layout target.
     pub target: SelectLayoutTarget,
-}
-
-/// Request payload for `next-layout`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NextLayoutRequest {
-    /// The exact window target.
-    pub target: WindowTarget,
-}
-
-/// Request payload for `previous-layout`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PreviousLayoutRequest {
-    /// The exact window target.
-    pub target: WindowTarget,
 }

@@ -1,6 +1,3 @@
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use berth_term_engine::events::{
     OutputCursor, OutputCursorItem, OutputEvent, OutputRing, DEFAULT_OUTPUT_RING_CAPACITY,
     DEFAULT_RECENT_LIVE_BUFFER_CAPACITY,
@@ -8,12 +5,14 @@ use berth_term_engine::events::{
 use berth_term_engine::{PaneGeometry, PaneId, TerminalPassthrough};
 use berth_term_proto::{AttachShellCommand, PaneTarget, TerminalSize};
 use berth_term_pty::PtyMaster;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{mpsc, Notify};
 use tokio::time::Instant;
 
 use crate::client_flags::ClientFlags;
-use crate::control_mode::ControlModeUpgrade;
 #[cfg(any(unix, windows))]
 use crate::handler::RequestHandler;
 use crate::outer_terminal::OuterTerminal;
@@ -32,8 +31,6 @@ pub(crate) enum AttachControl {
     AdvancePersistentOverlayState(u64),
     Overlay(OverlayFrame),
     Write(Vec<u8>),
-    LockShellCommand(AttachShellCommand),
-    Suspend,
 }
 
 impl AttachControl {
@@ -190,7 +187,6 @@ pub(crate) struct LiveAttachInputContext {
 pub(crate) struct HandleOutcome {
     pub(crate) response: berth_term_proto::Response,
     pub(crate) attach: Option<AttachSessionUpgrade>,
-    pub(crate) control: Option<ControlModeUpgrade>,
 }
 
 impl HandleOutcome {
@@ -198,7 +194,6 @@ impl HandleOutcome {
         Self {
             response,
             attach: None,
-            control: None,
         }
     }
 
@@ -225,18 +220,6 @@ impl HandleOutcome {
                 client_size,
                 render_stream,
             }),
-            control: None,
-        }
-    }
-
-    pub(crate) fn control(
-        response: berth_term_proto::Response,
-        upgrade: ControlModeUpgrade,
-    ) -> Self {
-        Self {
-            response,
-            attach: None,
-            control: Some(upgrade),
         }
     }
 }
@@ -570,7 +553,6 @@ impl PaneOutputSender {
         )
     }
 
-    #[cfg_attr(not(all(any(unix, windows), feature = "web")), allow(dead_code))]
     pub(crate) fn capture_with_next_sequence<T>(&self, capture: impl FnOnce() -> T) -> (u64, T) {
         let state = self
             .inner

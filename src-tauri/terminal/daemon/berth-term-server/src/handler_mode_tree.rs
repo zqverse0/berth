@@ -7,8 +7,6 @@ use super::RequestHandler;
 mod mode_tree_actions;
 #[path = "handler_mode_tree/build.rs"]
 mod mode_tree_build;
-#[path = "handler_mode_tree/customize_build.rs"]
-mod mode_tree_customize_build;
 #[path = "handler_mode_tree/filter.rs"]
 mod mode_tree_filter;
 #[path = "handler_mode_tree/input.rs"]
@@ -36,15 +34,13 @@ mod mode_tree_tree_build;
 
 use self::mode_tree_model::ModeTreeKind;
 pub(super) use self::mode_tree_model::{ModeTreeClientState, ParsedModeTreeCommand};
-use self::mode_tree_preview::{mode_tree_preview_lines, preview_lines_for_target};
+use self::mode_tree_preview::mode_tree_preview_lines;
 
 const MODE_TREE_HELP: &str =
     "mode-tree: Enter accept  q close  f filter  C-s/C-r search  t tag  C-t tag-all  v preview";
 const DEFAULT_KEY_FORMAT: &str =
     "#{?#{e|<:#{line},10},#{line},#{?#{e|<:#{line},36},M-#{a:#{e|+:97,#{e|-:#{line},10}}},}}";
 const CHOOSE_TREE_DEFAULT_TEMPLATE: &str = "switch-client -Zt '%%'";
-const CHOOSE_BUFFER_DEFAULT_TEMPLATE: &str = "paste-buffer -p -b '%%'";
-const CHOOSE_CLIENT_DEFAULT_TEMPLATE: &str = "detach-client -t '%%'";
 const SAFE_PROMPT_TEMPLATE: &str = "display-message -p -- '%%'";
 
 impl RequestHandler {
@@ -58,9 +54,6 @@ impl RequestHandler {
 fn default_template(kind: ModeTreeKind) -> Option<String> {
     match kind {
         ModeTreeKind::Tree => Some(CHOOSE_TREE_DEFAULT_TEMPLATE.to_owned()),
-        ModeTreeKind::Buffer => Some(CHOOSE_BUFFER_DEFAULT_TEMPLATE.to_owned()),
-        ModeTreeKind::Client => Some(CHOOSE_CLIENT_DEFAULT_TEMPLATE.to_owned()),
-        ModeTreeKind::Customize => None,
     }
 }
 

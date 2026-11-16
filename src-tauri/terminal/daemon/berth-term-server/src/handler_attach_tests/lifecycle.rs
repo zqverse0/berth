@@ -285,59 +285,6 @@ async fn attached_control_space_prefix_p_selects_window() {
 }
 
 #[tokio::test]
-async fn attached_prefix_prefix_dispatches_send_prefix_once_and_returns_to_root() {
-    let handler = RequestHandler::new();
-    let requester_pid = std::process::id();
-    let alpha = session_name("alpha");
-    let _control_rx = create_attached_session(&handler, requester_pid, &alpha).await;
-    let capture = RawPaneInputProbe::start(&handler, &alpha, "attached-prefix-default", 2).await;
-
-    handler
-        .handle_attached_live_input_for_test(requester_pid, b"\x02\x02x")
-        .await
-        .expect("prefix send-prefix input");
-
-    capture.finish(&handler, &alpha).await;
-    capture.assert_contents(&handler, b"\x02x").await;
-    let active_attach = handler.active_attach.lock().await;
-    assert_eq!(
-        active_attach
-            .by_pid
-            .get(&requester_pid)
-            .and_then(|active| active.key_table_name.as_deref()),
-        None
-    );
-}
-
-#[tokio::test]
-async fn attached_send_prefix_emits_the_configured_prefix_byte() {
-    let handler = RequestHandler::new();
-    let requester_pid = std::process::id();
-    let alpha = session_name("alpha");
-    let _control_rx = create_attached_session(&handler, requester_pid, &alpha).await;
-    assert!(matches!(
-        handler
-            .handle(Request::SetOption(SetOptionRequest {
-                scope: ScopeSelector::Session(alpha.clone()),
-                option: OptionName::Prefix,
-                value: "C-a".to_owned(),
-                mode: SetOptionMode::Replace,
-            }))
-            .await,
-        Response::SetOption(_)
-    ));
-    let capture = RawPaneInputProbe::start(&handler, &alpha, "attached-prefix-configured", 1).await;
-
-    handler
-        .handle_attached_live_input_for_test(requester_pid, b"\x01\x02")
-        .await
-        .expect("configured prefix send-prefix input");
-
-    capture.finish(&handler, &alpha).await;
-    capture.assert_contents(&handler, b"\x01").await;
-}
-
-#[tokio::test]
 async fn attached_live_input_preserves_split_utf8_sequences() {
     let handler = RequestHandler::new();
     let requester_pid = std::process::id();

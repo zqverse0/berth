@@ -13,7 +13,6 @@ base64 = "0.22"
 berth-tool-core = { path = "../berth-tool-core" }
 # 插件脚本引擎（ES2023）；loader 让包内模块互相 import。
 rquickjs = { version = "0.14", features = ["loader"] }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 启动清单里提示词快照的哈希；工作区已有的同一版本。
 sha2 = "0.10"

@@ -8,26 +8,24 @@ use std::time::Duration;
 
 mod common;
 
-use common::{send_request, session_name, start_server, wait_for_socket_removal, TestHarness};
 use berth_term_proto::{
-    CapturePaneRequest, DeleteBufferRequest, DisplayMessageRequest, HasSessionRequest,
-    IfShellRequest, KillServerRequest, ListBuffersRequest, ListPanesRequest, ListSessionsRequest,
-    LoadBufferRequest, NewSessionRequest, NewWindowRequest, PaneTarget, PasteBufferRequest,
-    RenameSessionRequest, Request, Response, RunShellRequest, SaveBufferRequest, SendKeysRequest,
-    SetBufferRequest, ShowBufferRequest, SplitDirection, SplitWindowRequest, SplitWindowTarget,
-    Target, TerminalSize, WaitForMode, WaitForRequest,
+    CapturePaneRequest, DisplayMessageRequest, HasSessionRequest, IfShellRequest,
+    KillServerRequest, ListPanesRequest, ListSessionsRequest, NewSessionRequest, NewWindowRequest,
+    PaneTarget, PasteBufferRequest, RenameSessionRequest, Request, Response, RunShellRequest,
+    SendKeysRequest, SetBufferRequest, ShowBufferRequest, SplitDirection, SplitWindowRequest,
+    SplitWindowTarget, Target, TerminalSize, WaitForMode, WaitForRequest,
 };
+use common::{send_request, session_name, start_server, wait_for_socket_removal, TestHarness};
 use tokio::time::sleep;
 
-const COMMAND_SURFACE_COUNT: usize = 79;
-const INTERNAL_REQUEST_COMMANDS: [&str; 43] = [
+const COMMAND_SURFACE_COUNT: usize = 40;
+const INTERNAL_REQUEST_COMMANDS: [&str; 37] = [
     "attach-session-ext",
     "attach-session-ext2",
     "attach-session-ext3",
     "cancel-sdk-wait",
+    "capture-pane-ref",
     "capture-pane-target-action",
-    "control-mode",
-    "daemon-status",
     "detach-client-ext",
     "display-message-ext",
     "handshake",
@@ -36,104 +34,61 @@ const INTERNAL_REQUEST_COMMANDS: [&str; 43] = [
     "pane-broadcast-input",
     "pane-input",
     "pane-kill",
+    "pane-output-cursor-wait",
     "pane-resize",
     "pane-respawn",
     "pane-select",
     "pane-snapshot",
     "pane-snapshot-ref",
+    "pane-window",
     "resolve-target",
     "release-session-lease",
     "renew-session-lease",
     "resize-pane-target-action",
-    "select-custom-layout",
     "select-pane-mark",
     "select-pane-adjacent",
-    "select-old-layout",
     "send-keys-ext",
     "send-keys-ext2",
     "spread-layout",
-    "shutdown-if-idle",
     "sdk-wait-output",
     "sdk-wait-for-output-ref",
     "sdk-wait-for-output",
     "subscribe-pane-output-ref",
-    "set-hook-mutation",
     "set-option-by-name",
     "split-window-ext",
     "split-window-target-action",
-    "switch-client-ext",
-    "switch-client-ext2",
-    "switch-client-ext3",
 ];
 const COMMAND_SURFACE: [&str; COMMAND_SURFACE_COUNT] = [
     "new-session",
     "kill-server",
     "has-session",
     "kill-session",
-    "server-access",
-    "lock-server",
-    "lock-session",
-    "lock-client",
     "new-window",
     "kill-window",
     "select-window",
     "rename-window",
     "next-window",
     "previous-window",
-    "last-window",
     "list-windows",
-    "link-window",
-    "move-window",
-    "swap-window",
-    "rotate-window",
     "resize-window",
     "respawn-window",
     "split-window",
-    "swap-pane",
-    "last-pane",
-    "join-pane",
-    "move-pane",
-    "break-pane",
-    "pipe-pane",
     "respawn-pane",
     "kill-pane",
     "select-layout",
-    "next-layout",
-    "previous-layout",
     "resize-pane",
-    "display-panes",
     "select-pane",
     "send-keys",
-    "bind-key",
-    "unbind-key",
-    "list-keys",
-    "send-prefix",
     "attach-session",
-    "refresh-client",
-    "list-clients",
-    "switch-client",
     "detach-client",
-    "suspend-client",
     "set-option",
-    "set-environment",
     "show-options",
-    "show-environment",
-    "show-hooks",
-    "show-messages",
-    "source-file",
-    "unlink-window",
-    "set-hook",
     "set-buffer",
     "show-buffer",
     "paste-buffer",
-    "list-buffers",
-    "delete-buffer",
-    "load-buffer",
-    "save-buffer",
     "capture-pane",
     "clear-history",
     "copy-mode",
-    "clock-mode",
     "display-message",
     "run-shell",
     "if-shell",
@@ -144,7 +99,6 @@ const COMMAND_SURFACE: [&str; COMMAND_SURFACE_COUNT] = [
     "rename-session",
     "list-sessions",
     "list-panes",
-    "web-share",
 ];
 
 #[test]
@@ -178,16 +132,6 @@ async fn buffer_capture_and_scripting_requests_round_trip_over_real_socket(
     let harness = TestHarness::new("request-buffer-capture-scripting");
     let handle = start_server(&harness).await?;
     let pane = PaneTarget::with_window(session_name("alpha"), 0, 0);
-    let save_path = harness
-        .socket_path()
-        .parent()
-        .expect("socket path should have a parent")
-        .join("saved-buffer.txt");
-    let load_path = harness
-        .socket_path()
-        .parent()
-        .expect("socket path should have a parent")
-        .join("loaded-buffer.txt");
     let paste_marker = "server_request_pasted_marker";
     let paste_command = format!("printf {paste_marker}");
 
@@ -261,65 +205,6 @@ async fn buffer_capture_and_scripting_requests_round_trip_over_real_socket(
         Response::SetBuffer(_)
     ));
 
-    let listed = send_request(
-        harness.socket_path(),
-        &Request::ListBuffers(ListBuffersRequest::default()),
-    )
-    .await?;
-    let listed_stdout = std::str::from_utf8(
-        listed
-            .command_output()
-            .expect("list-buffers returns command output")
-            .stdout(),
-    )?;
-    assert!(!listed_stdout.contains("empty:"));
-    assert!(listed_stdout.contains("delete-me:"));
-    assert!(listed_stdout.contains("pastecmd:"));
-
-    assert!(matches!(
-        send_request(
-            harness.socket_path(),
-            &Request::SaveBuffer(SaveBufferRequest {
-                path: save_path.to_string_lossy().into_owned(),
-                cwd: None,
-                name: Some("pastecmd".to_owned()),
-                append: false,
-            }),
-        )
-        .await?,
-        Response::SaveBuffer(_)
-    ));
-    assert_eq!(fs::read_to_string(&save_path)?, paste_command);
-
-    fs::write(&load_path, "loaded-over-socket")?;
-    assert!(matches!(
-        send_request(
-            harness.socket_path(),
-            &Request::LoadBuffer(LoadBufferRequest {
-                path: load_path.to_string_lossy().into_owned(),
-                cwd: None,
-                name: Some("loaded".to_owned()),
-                set_clipboard: false,
-            }),
-        )
-        .await?,
-        Response::LoadBuffer(_)
-    ));
-    let loaded = send_request(
-        harness.socket_path(),
-        &Request::ShowBuffer(ShowBufferRequest {
-            name: Some("loaded".to_owned()),
-        }),
-    )
-    .await?;
-    assert_eq!(
-        loaded
-            .command_output()
-            .expect("show-buffer returns output")
-            .stdout(),
-        b"loaded-over-socket"
-    );
-
     assert!(matches!(
         send_request(
             harness.socket_path(),
@@ -387,29 +272,6 @@ async fn buffer_capture_and_scripting_requests_round_trip_over_real_socket(
             .stdout(),
     )?
     .contains(paste_marker));
-
-    assert!(matches!(
-        send_request(
-            harness.socket_path(),
-            &Request::DeleteBuffer(DeleteBufferRequest {
-                name: Some("delete-me".to_owned()),
-            }),
-        )
-        .await?,
-        Response::DeleteBuffer(_)
-    ));
-    let listed_after_delete = send_request(
-        harness.socket_path(),
-        &Request::ListBuffers(ListBuffersRequest::default()),
-    )
-    .await?;
-    assert!(!std::str::from_utf8(
-        listed_after_delete
-            .command_output()
-            .expect("list-buffers returns command output")
-            .stdout(),
-    )?
-    .contains("delete-me:"));
 
     let display = send_request(
         harness.socket_path(),
@@ -791,6 +653,8 @@ fn filter_internal_commands(commands: BTreeSet<String>) -> BTreeSet<String> {
     commands
         .into_iter()
         .filter(|command| !INTERNAL_REQUEST_COMMANDS.contains(&command.as_str()))
+        // 已删除命令的占位变体（`Reserved<标签>`）只占 bincode 标签，不是命令
+        .filter(|command| !command.starts_with("reserved"))
         .collect()
 }
 

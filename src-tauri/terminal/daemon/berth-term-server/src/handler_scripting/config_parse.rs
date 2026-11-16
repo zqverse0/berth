@@ -2,19 +2,13 @@ use berth_term_engine::{SessionStore, TargetFindContext};
 use berth_term_proto::request::Request;
 use berth_term_proto::types::OptionScopeSelector;
 use berth_term_proto::{
-    ScopeSelector, SessionName, SetEnvironmentMode, SetEnvironmentRequest, SetOptionByNameRequest,
-    SetOptionMode, ShowEnvironmentRequest, ShowOptionsRequest, Target, TerminalError, WindowTarget,
+    SetOptionByNameRequest, SetOptionMode, ShowOptionsRequest, Target, TerminalError, WindowTarget,
 };
 
+use super::parse_target_arg;
 use super::targets::{implicit_pane_target, implicit_session_name, implicit_window_target};
 use super::tokens::CommandTokens;
 use super::values::unsupported_flag;
-use super::{parse_session_name, parse_target_arg};
-
-#[path = "config_parse/hooks.rs"]
-mod hooks;
-
-pub(super) use hooks::{parse_set_hook, parse_show_hooks};
 
 pub(super) enum ParsedSetOptionCommand {
     Request(Box<Request>),
@@ -242,74 +236,6 @@ fn is_set_option_flag_cluster(token: &str, force_window: bool) -> bool {
         })
 }
 
-pub(super) fn parse_set_environment(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut global = false;
-    let mut format = false;
-    let mut hidden = false;
-    let mut mode = Some(SetEnvironmentMode::Set);
-    let mut target = None;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-F" => {
-                let _ = args.optional();
-                format = true;
-            }
-            "-g" => {
-                let _ = args.optional();
-                global = true;
-            }
-            "-h" => {
-                let _ = args.optional();
-                hidden = true;
-            }
-            "-r" => {
-                let _ = args.optional();
-                mode = Some(SetEnvironmentMode::Clear);
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_session_name(args.required("-t target")?)?);
-            }
-            "-u" => {
-                let _ = args.optional();
-                mode = Some(SetEnvironmentMode::Unset);
-            }
-            _ => break,
-        }
-    }
-
-    let scope =
-        build_global_or_session_scope("set-environment", global, target, sessions, find_context)?;
-    let name = args.required("set-environment name")?;
-    let value = match mode.unwrap_or(SetEnvironmentMode::Set) {
-        SetEnvironmentMode::Set => args
-            .optional()
-            .ok_or_else(|| TerminalError::Server("no value specified".to_owned()))?,
-        SetEnvironmentMode::Clear | SetEnvironmentMode::Unset => {
-            args.optional().unwrap_or_default()
-        }
-    };
-    args.no_extra("set-environment")?;
-
-    Ok(Request::SetEnvironment(Box::new(SetEnvironmentRequest {
-        scope,
-        name,
-        value,
-        mode,
-        hidden,
-        format,
-    })))
-}
-
 pub(super) fn parse_show_options(
     mut args: CommandTokens,
     force_window: bool,
@@ -434,58 +360,6 @@ pub(super) fn parse_show_options(
     }))
 }
 
-pub(super) fn parse_show_environment(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut global = false;
-    let mut hidden = false;
-    let mut shell_format = false;
-    let mut target = None;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-g" => {
-                let _ = args.optional();
-                global = true;
-            }
-            "-h" => {
-                let _ = args.optional();
-                hidden = true;
-            }
-            "-s" => {
-                let _ = args.optional();
-                shell_format = true;
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_session_name(args.required("-t target")?)?);
-            }
-            flag if flag.starts_with('-') => {
-                return Err(unsupported_flag("show-environment", flag));
-            }
-            _ => break,
-        }
-    }
-
-    let scope =
-        build_global_or_session_scope("show-environment", global, target, sessions, find_context)?;
-    let name = args.optional();
-    args.no_extra("show-environment")?;
-
-    Ok(Request::ShowEnvironment(ShowEnvironmentRequest {
-        scope,
-        name,
-        hidden,
-        shell_format,
-    }))
-}
-
 fn is_show_options_flag_cluster(token: &str) -> bool {
     token.starts_with('-')
         && !token.starts_with("--")
@@ -493,27 +367,6 @@ fn is_show_options_flag_cluster(token: &str) -> bool {
         && token[1..]
             .chars()
             .all(|flag| matches!(flag, 'A' | 'g' | 's' | 'w' | 'p' | 'v' | 'q'))
-}
-
-fn build_global_or_session_scope(
-    command: &str,
-    global: bool,
-    target: Option<SessionName>,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<ScopeSelector, TerminalError> {
-    match (global, target) {
-        (true, None) => Ok(ScopeSelector::Global),
-        (false, Some(session_name)) => Ok(ScopeSelector::Session(session_name)),
-        (false, None) => Ok(ScopeSelector::Session(implicit_session_name(
-            sessions,
-            find_context,
-            command,
-        )?)),
-        _ => Err(TerminalError::Server(format!(
-            "{command} accepts at most one of -g or -t target"
-        ))),
-    }
 }
 
 fn resolve_set_option_scope(

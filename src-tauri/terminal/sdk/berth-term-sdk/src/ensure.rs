@@ -14,8 +14,8 @@ use crate::transport::TransportClient;
 use crate::{
     ProcessCommandSpec, ProcessSpec, Result, SessionName, TerminalError, TerminalSizeSpec,
 };
-use redaction::redact_environment_error;
 use berth_term_proto::{CreatedPane, NewSessionExtRequest, NewSessionResponse, Request, Response};
+use redaction::redact_environment_error;
 
 #[cfg(windows)]
 const BERTH_CLIENT_SHELL_ENV: &str = "BERTH_CLIENT_SHELL";

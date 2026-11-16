@@ -17,7 +17,6 @@ tokio::task_local! {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingInlineHookFormat {
-    HookOnly,
     AfterCommand,
 }
 

@@ -3,17 +3,15 @@ use super::session_name;
 use crate::copy_mode::CopyPosition;
 use crate::input_keys::{encode_key, encode_mouse_event, ExtendedKeyFormat, MouseForwardEvent};
 use crate::mouse::{AttachedMouseEvent, MouseLocation};
-use std::time::Duration;
 use berth_term_engine::{input::mode, key_string_lookup_string};
 use berth_term_proto::{
-    BindKeyRequest, CopyModeRequest, ErrorResponse, ListKeysRequest, ListPanesRequest,
-    NewSessionRequest, OptionName, PaneBroadcastInputRequest, PaneId, PaneTarget, PaneTargetRef,
-    Request, Response, ScopeSelector, SelectPaneRequest, SendKeysExtRequest, SendKeysRequest,
-    SendKeysResponse, SendPrefixRequest, SendPrefixResponse, SetOptionMode, SetOptionRequest,
-    ShowBufferRequest, SplitDirection, SplitWindowRequest, SplitWindowTarget,
-    SwitchClientExtRequest, TerminalError, TerminalSize, UnbindKeyRequest, WindowTarget,
-    DEFAULT_MAX_FRAME_LENGTH,
+    CopyModeRequest, ErrorResponse, ListPanesRequest, NewSessionRequest, OptionName,
+    PaneBroadcastInputRequest, PaneId, PaneTarget, PaneTargetRef, Request, Response, ScopeSelector,
+    SelectPaneRequest, SendKeysExtRequest, SendKeysRequest, SendKeysResponse, SetOptionMode,
+    SetOptionRequest, ShowBufferRequest, SplitDirection, SplitWindowRequest, SplitWindowTarget,
+    TerminalError, TerminalSize, WindowTarget, DEFAULT_MAX_FRAME_LENGTH,
 };
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
@@ -51,10 +49,6 @@ mod mouse_copy_mode;
 
 #[path = "handler_send_keys_tests/copy_mode_vi.rs"]
 mod copy_mode_vi;
-
-async fn handle_boxed(handler: &RequestHandler, request: Request) -> Response {
-    Box::pin(handler.handle(request)).await
-}
 
 async fn create_send_keys_test_session(
     handler: &RequestHandler,

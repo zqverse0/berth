@@ -1,5 +1,9 @@
 use std::io;
 
+use berth_term_engine::PaneId;
+#[cfg(windows)]
+use berth_term_pty::PtyChild;
+use berth_term_pty::{PtyIo, PtyMaster};
 #[cfg(windows)]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -11,10 +15,6 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
-use berth_term_engine::PaneId;
-#[cfg(windows)]
-use berth_term_pty::PtyChild;
-use berth_term_pty::{PtyIo, PtyMaster};
 use tracing::warn;
 
 #[cfg(unix)]

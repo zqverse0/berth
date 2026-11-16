@@ -595,9 +595,6 @@ impl HandlerState {
         #[cfg(windows)]
         let exit_watcher = clone_terminal_for_exit_watcher(&terminal, &session_name, pane_id)?;
 
-        if let Some(pipe) = self.remove_pane_pipe(&runtime_session_name, pane_id) {
-            pipe.stop();
-        }
         if let Some(mut terminal) = self.terminals.remove_pane(&runtime_session_name, pane_id) {
             terminal.terminate_with_bounded_grace();
             if pane_was_alive {

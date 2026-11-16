@@ -54,7 +54,6 @@ fn tree_kill_prompt_for_item(item: &ModeTreeItem) -> Option<String> {
             pane_index: Some(pane_index),
             ..
         } => Some(format!("Kill pane {pane_index}? ")),
-        _ => None,
     }
 }
 
@@ -73,7 +72,6 @@ pub(super) fn tree_kill_sort_key(action: &ModeTreeAction) -> u8 {
         ModeTreeAction::TreeTarget {
             window_index: None, ..
         } => 2,
-        _ => 3,
     }
 }
 

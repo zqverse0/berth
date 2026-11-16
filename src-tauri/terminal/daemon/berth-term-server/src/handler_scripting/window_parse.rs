@@ -2,16 +2,15 @@ use std::path::PathBuf;
 
 use berth_term_engine::{SessionStore, TargetFindContext};
 use berth_term_proto::{
-    KillWindowRequest, LastPaneRequest, LastWindowRequest, NewWindowRequest, NextLayoutRequest,
-    NextWindowRequest, PreviousLayoutRequest, PreviousWindowRequest, RenameWindowRequest, Request,
-    ResizeWindowAdjustment, ResizeWindowRequest, RespawnWindowRequest, RotateWindowDirection,
-    RotateWindowRequest, SelectWindowRequest, TerminalError, WindowTarget,
+    KillWindowRequest, NewWindowRequest, NextWindowRequest, PreviousWindowRequest,
+    RenameWindowRequest, Request, ResizeWindowAdjustment, ResizeWindowRequest,
+    RespawnWindowRequest, SelectWindowRequest, TerminalError, WindowTarget,
 };
 
 use crate::pane_terminals::session_not_found;
 
 use super::tokens::{parse_compact_flag_cluster, CommandTokens, CompactFlag};
-use super::values::{missing_argument, unsupported_flag};
+use super::values::{missing_argument, removed_option, unsupported_flag};
 use super::{
     implicit_session_name, implicit_window_target, parse_new_window_target_argument,
     parse_window_target,
@@ -19,10 +18,6 @@ use super::{
 
 #[path = "window_parse/links.rs"]
 mod links;
-
-pub(super) use self::links::{
-    parse_link_window, parse_move_window, parse_swap_window, parse_unlink_window,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SelectWindowMode {
@@ -40,9 +35,6 @@ pub(super) fn parse_window_request(
 ) -> Result<Request, TerminalError> {
     let mut target = None;
     let mut select_window_mode = SelectWindowMode::Select;
-    let mut toggle_last = false;
-    let mut preserve_zoom = false;
-    let mut input_disabled = None;
 
     while let Some(token) = args.peek() {
         match token {
@@ -62,21 +54,9 @@ pub(super) fn parse_window_request(
                 let _ = args.optional();
                 set_select_window_mode(&mut select_window_mode, SelectWindowMode::Previous)?;
             }
+            // -T（选中当前窗口时切回上一个）随 last-window 移除，按普通选择处理
             "-T" if command == "select-window" => {
                 let _ = args.optional();
-                toggle_last = true;
-            }
-            "-Z" if command == "last-pane" => {
-                let _ = args.optional();
-                preserve_zoom = true;
-            }
-            "-d" if command == "last-pane" => {
-                let _ = args.optional();
-                set_last_pane_input(&mut input_disabled, true)?;
-            }
-            "-e" if command == "last-pane" => {
-                let _ = args.optional();
-                set_last_pane_input(&mut input_disabled, false)?;
             }
             "-t" => {
                 let _ = args.optional();
@@ -90,34 +70,11 @@ pub(super) fn parse_window_request(
 
     let target = target.unwrap_or(implicit_window_target(sessions, find_context, command)?);
     match command {
-        "select-window" => select_window_request(
-            select_window_mode,
-            toggle_last,
-            target,
-            sessions,
-            find_context,
-        ),
-        "last-pane" => Ok(Request::LastPane(LastPaneRequest {
-            target,
-            preserve_zoom,
-            input_disabled,
-        })),
-        "next-layout" => Ok(Request::NextLayout(NextLayoutRequest { target })),
-        "previous-layout" => Ok(Request::PreviousLayout(PreviousLayoutRequest { target })),
+        "select-window" => select_window_request(select_window_mode, target),
         _ => Err(TerminalError::Server(format!(
             "unsupported window request parser command: {command}"
         ))),
     }
-}
-
-fn set_last_pane_input(current: &mut Option<bool>, disabled: bool) -> Result<(), TerminalError> {
-    if current.is_some() {
-        return Err(TerminalError::Server(
-            "last-pane accepts only one of -d or -e".to_owned(),
-        ));
-    }
-    *current = Some(disabled);
-    Ok(())
 }
 
 fn set_select_window_mode(
@@ -135,16 +92,11 @@ fn set_select_window_mode(
 
 fn select_window_request(
     mode: SelectWindowMode,
-    toggle_last: bool,
     target: WindowTarget,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
 ) -> Result<Request, TerminalError> {
     let session_name = target.session_name().clone();
     match mode {
-        SelectWindowMode::Last => Ok(Request::LastWindow(LastWindowRequest {
-            target: session_name,
-        })),
+        SelectWindowMode::Last => Err(removed_option("select-window -l")),
         SelectWindowMode::Next => Ok(Request::NextWindow(NextWindowRequest {
             target: session_name,
             alerts_only: false,
@@ -153,16 +105,7 @@ fn select_window_request(
             target: session_name,
             alerts_only: false,
         })),
-        SelectWindowMode::Select => {
-            if toggle_last
-                && target == implicit_window_target(sessions, find_context, "select-window")?
-            {
-                return Ok(Request::LastWindow(LastWindowRequest {
-                    target: session_name,
-                }));
-            }
-            Ok(Request::SelectWindow(SelectWindowRequest { target }))
-        }
+        SelectWindowMode::Select => Ok(Request::SelectWindow(SelectWindowRequest { target })),
     }
 }
 
@@ -433,69 +376,6 @@ pub(super) fn parse_kill_window(
             "kill-window",
         )?),
         kill_all_others,
-    }))
-}
-
-pub(super) fn parse_rotate_window(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut direction = RotateWindowDirection::Up;
-    let mut direction_set = false;
-    let mut target = None;
-    let mut restore_zoom = false;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-D" => {
-                let _ = args.optional();
-                if direction_set {
-                    return Err(TerminalError::Server(
-                        "rotate-window accepts only one of -D or -U".to_owned(),
-                    ));
-                }
-                direction = RotateWindowDirection::Down;
-                direction_set = true;
-            }
-            "-U" => {
-                let _ = args.optional();
-                if direction_set {
-                    return Err(TerminalError::Server(
-                        "rotate-window accepts only one of -D or -U".to_owned(),
-                    ));
-                }
-                direction = RotateWindowDirection::Up;
-                direction_set = true;
-            }
-            "-Z" => {
-                let _ = args.optional();
-                restore_zoom = true;
-            }
-            "-t" => {
-                let _ = args.optional();
-                target = Some(parse_window_target(
-                    "rotate-window",
-                    args.required("-t target")?,
-                )?);
-            }
-            _ => break,
-        }
-    }
-    args.no_extra("rotate-window")?;
-
-    Ok(Request::RotateWindow(RotateWindowRequest {
-        target: target.unwrap_or(implicit_window_target(
-            sessions,
-            find_context,
-            "rotate-window",
-        )?),
-        direction,
-        restore_zoom,
     }))
 }
 

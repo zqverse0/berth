@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use berth_term_engine::{LifecycleEvent, PaneId};
 use berth_term_proto::{
     ErrorResponse, HookName, KillSessionResponse, PaneTarget, PaneWindowOperation,
-    PaneWindowRequest, ResizeWindowRequest, Response, ScopeSelector, SessionId, SessionName,
-    Target, TerminalError, WindowTarget,
+    PaneWindowRequest, ResizeWindowRequest, Response, ScopeSelector, SessionName, Target,
+    TerminalError, WindowTarget,
 };
 
 #[cfg(windows)]
@@ -16,22 +16,13 @@ use super::{
 };
 use crate::hook_runtime::PendingInlineHookFormat;
 use crate::pane_terminals::{
-    HandlerState, KilledWindowResult, NewWindowOptions, RespawnWindowOptions, WindowSpawnOptions,
+    KilledWindowResult, NewWindowOptions, RespawnWindowOptions, WindowSpawnOptions,
 };
-
-#[derive(Debug, Clone)]
-struct UnlinkedWindowSnapshot {
-    target: berth_term_proto::WindowTarget,
-    window_id: u32,
-    window_name: String,
-    pane_ids: Vec<PaneId>,
-    link_count: usize,
-}
 
 enum PaneWindowOutcome {
     Resized(WindowTarget, Vec<SessionName>),
     Killed(SessionName, KilledWindowResult),
-    ClosedSession(SessionName, SessionId, Vec<PaneId>, QueuedLifecycleEvent),
+    ClosedSession(SessionName, Vec<PaneId>, QueuedLifecycleEvent),
 }
 
 impl RequestHandler {
@@ -171,11 +162,10 @@ impl RequestHandler {
                                     session_name
                                 )));
                             }
-                            let (pane_ids, session_id, event) =
+                            let (pane_ids, event) =
                                 remove_session_locked(&mut state, &session_name)?;
                             Ok(PaneWindowOutcome::ClosedSession(
                                 session_name,
-                                session_id,
                                 pane_ids,
                                 event,
                             ))
@@ -212,10 +202,9 @@ impl RequestHandler {
             Ok(PaneWindowOutcome::Killed(session_name, killed)) => {
                 self.finish_kill_window(session_name, killed).await
             }
-            Ok(PaneWindowOutcome::ClosedSession(session_name, session_id, pane_ids, event)) => {
+            Ok(PaneWindowOutcome::ClosedSession(session_name, pane_ids, event)) => {
                 self.exit_attached_session(&session_name).await;
                 self.cancel_session_silence_timers(&session_name).await;
-                self.prune_web_session(Some((session_name.clone(), session_id)));
                 self.forget_pane_snapshot_coalescers(&pane_ids);
                 self.emit_prepared(event);
                 self.remove_session_leases(std::slice::from_ref(&session_name));
@@ -390,38 +379,6 @@ impl RequestHandler {
         response
     }
 
-    pub(super) async fn handle_last_window(
-        &self,
-        request: berth_term_proto::LastWindowRequest,
-    ) -> Response {
-        let session_name = request.target;
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.last_window(&session_name) {
-                Ok(response) => Response::LastWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::LastWindow(_)) {
-            self.emit(LifecycleEvent::SessionWindowChanged {
-                session_name: session_name.clone(),
-            })
-            .await;
-            if let Response::LastWindow(success) = &response {
-                self.queue_inline_hook(
-                    HookName::AfterSelectWindow,
-                    ScopeSelector::Session(session_name.clone()),
-                    Some(Target::Window(success.target.clone())),
-                    PendingInlineHookFormat::AfterCommand,
-                );
-            }
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
     pub(super) async fn handle_list_windows(
         &self,
         request: berth_term_proto::ListWindowsRequest,
@@ -439,175 +396,6 @@ impl RequestHandler {
             Ok(response) => Response::ListWindows(response),
             Err(error) => Response::Error(ErrorResponse { error }),
         }
-    }
-
-    pub(super) async fn handle_link_window(
-        &self,
-        request: berth_term_proto::LinkWindowRequest,
-    ) -> Response {
-        let refresh_sessions =
-            unique_sessions(request.source.session_name(), request.target.session_name());
-        let removed_destination_pane_ids = {
-            let state = self.state.lock().await;
-            link_window_replaced_destination_pane_ids(&state, &request)
-        };
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.link_window(request.clone()) {
-                Ok(response) => Response::LinkWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if let Response::LinkWindow(success) = &response {
-            self.forget_pane_snapshot_coalescers(&removed_destination_pane_ids);
-            self.emit(LifecycleEvent::WindowLinked {
-                session_name: success.target.session_name().clone(),
-                target: Some(success.target.clone()),
-            })
-            .await;
-            for session_name in refresh_sessions {
-                self.sync_session_silence_timers(&session_name).await;
-                self.refresh_attached_session(&session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(super) async fn handle_move_window(
-        &self,
-        request: berth_term_proto::MoveWindowRequest,
-    ) -> Response {
-        let refresh_sessions = move_window_refresh_sessions(&request);
-        let unlinked_window = {
-            let state = self.state.lock().await;
-            move_window_unlinked_window_snapshot(&state, &request)
-        };
-        let removed_destination_pane_ids = {
-            let state = self.state.lock().await;
-            move_window_replaced_destination_pane_ids(&state, &request)
-        };
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.move_window(request.clone()) {
-                Ok(response) => Response::MoveWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::MoveWindow(_)) {
-            self.forget_pane_snapshot_coalescers(&removed_destination_pane_ids);
-            let lifecycle_events =
-                move_window_lifecycle_events(&response, &request, unlinked_window.as_ref());
-            for event in lifecycle_events {
-                self.emit(event).await;
-            }
-            for session_name in refresh_sessions {
-                self.sync_session_silence_timers(&session_name).await;
-                self.refresh_attached_session(&session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(super) async fn handle_unlink_window(
-        &self,
-        request: berth_term_proto::UnlinkWindowRequest,
-    ) -> Response {
-        let kill_if_last = request.kill_if_last;
-        let removed_window = {
-            let state = self.state.lock().await;
-            state
-                .sessions
-                .session(request.target.session_name())
-                .and_then(|session| session.window_at(request.target.window_index()))
-                .map(|window| UnlinkedWindowSnapshot {
-                    target: request.target.clone(),
-                    window_id: window.id().as_u32(),
-                    window_name: window.name().unwrap_or_default().to_owned(),
-                    pane_ids: window_pane_ids(window),
-                    link_count: state.window_link_count(
-                        request.target.session_name(),
-                        request.target.window_index(),
-                    ),
-                })
-        };
-        let session_name = request.target.session_name().clone();
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.unlink_window(request.target, request.kill_if_last) {
-                Ok(response) => Response::UnlinkWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::UnlinkWindow(_)) {
-            if let Some(removed_window) = removed_window {
-                if kill_if_last && removed_window.link_count == 1 {
-                    self.forget_pane_snapshot_coalescers(&removed_window.pane_ids);
-                }
-                self.emit(LifecycleEvent::WindowUnlinked {
-                    session_name: session_name.clone(),
-                    target: Some(removed_window.target),
-                    window_id: Some(removed_window.window_id),
-                    window_name: Some(removed_window.window_name),
-                })
-                .await;
-            }
-            self.sync_session_silence_timers(&session_name).await;
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
-    pub(super) async fn handle_swap_window(
-        &self,
-        request: berth_term_proto::SwapWindowRequest,
-    ) -> Response {
-        let refresh_sessions =
-            unique_sessions(request.source.session_name(), request.target.session_name());
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.swap_window(request.source, request.target, request.detached) {
-                Ok(response) => Response::SwapWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::SwapWindow(_)) {
-            for session_name in refresh_sessions {
-                self.sync_session_silence_timers(&session_name).await;
-                self.refresh_attached_session(&session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(super) async fn handle_rotate_window(
-        &self,
-        request: berth_term_proto::RotateWindowRequest,
-    ) -> Response {
-        let session_name = request.target.session_name().clone();
-        let target = request.target;
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.rotate_window(target.clone(), request.direction, request.restore_zoom) {
-                Ok(response) => Response::RotateWindow(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::RotateWindow(_)) {
-            self.emit(LifecycleEvent::WindowLayoutChanged { target })
-                .await;
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
     }
 
     pub(super) async fn handle_resize_window(
@@ -777,140 +565,4 @@ fn resize_window_size_rank(size: &berth_term_proto::TerminalSize) -> (u32, u16, 
         size.cols,
         size.rows,
     )
-}
-
-fn move_window_refresh_sessions(
-    request: &berth_term_proto::MoveWindowRequest,
-) -> Vec<berth_term_proto::SessionName> {
-    if request.renumber {
-        return match &request.target {
-            berth_term_proto::MoveWindowTarget::Session(session_name) => vec![session_name.clone()],
-            berth_term_proto::MoveWindowTarget::Window(target) => {
-                vec![target.session_name().clone()]
-            }
-        };
-    }
-
-    let Some(source) = &request.source else {
-        return Vec::new();
-    };
-    let berth_term_proto::MoveWindowTarget::Window(target) = &request.target else {
-        return vec![source.session_name().clone()];
-    };
-    unique_sessions(source.session_name(), target.session_name())
-}
-
-fn move_window_lifecycle_events(
-    response: &Response,
-    request: &berth_term_proto::MoveWindowRequest,
-    unlinked_window: Option<&UnlinkedWindowSnapshot>,
-) -> Vec<LifecycleEvent> {
-    if request.renumber {
-        return Vec::new();
-    }
-
-    let Some(source) = &request.source else {
-        return Vec::new();
-    };
-
-    let Response::MoveWindow(success) = response else {
-        return Vec::new();
-    };
-    let destination_session = success.session_name.clone();
-    let destination_window_index = success.target.as_ref().map(|target| target.window_index());
-    if source.session_name() == &destination_session
-        && Some(source.window_index()) == destination_window_index
-    {
-        return Vec::new();
-    }
-
-    vec![
-        LifecycleEvent::WindowUnlinked {
-            session_name: source.session_name().clone(),
-            target: unlinked_window.as_ref().map(|window| window.target.clone()),
-            window_id: unlinked_window.map(|window| window.window_id),
-            window_name: unlinked_window.map(|window| window.window_name.clone()),
-        },
-        LifecycleEvent::WindowLinked {
-            session_name: destination_session.clone(),
-            target: success.target.clone(),
-        },
-    ]
-}
-
-fn move_window_unlinked_window_snapshot(
-    state: &HandlerState,
-    request: &berth_term_proto::MoveWindowRequest,
-) -> Option<UnlinkedWindowSnapshot> {
-    let source = request.source.as_ref()?;
-    let window = state
-        .sessions
-        .session(source.session_name())?
-        .window_at(source.window_index())?;
-    Some(UnlinkedWindowSnapshot {
-        target: source.clone(),
-        window_id: window.id().as_u32(),
-        window_name: window.name().unwrap_or_default().to_owned(),
-        pane_ids: window_pane_ids(window),
-        link_count: state.window_link_count(source.session_name(), source.window_index()),
-    })
-}
-
-fn link_window_replaced_destination_pane_ids(
-    state: &HandlerState,
-    request: &berth_term_proto::LinkWindowRequest,
-) -> Vec<PaneId> {
-    if !request.kill_destination || request.after || request.before {
-        return Vec::new();
-    }
-    if state.window_link_count(request.target.session_name(), request.target.window_index()) > 1 {
-        return Vec::new();
-    }
-    state
-        .sessions
-        .session(request.target.session_name())
-        .and_then(|session| session.window_at(request.target.window_index()))
-        .map(window_pane_ids)
-        .unwrap_or_default()
-}
-
-fn move_window_replaced_destination_pane_ids(
-    state: &HandlerState,
-    request: &berth_term_proto::MoveWindowRequest,
-) -> Vec<PaneId> {
-    if request.renumber || !request.kill_destination || request.after || request.before {
-        return Vec::new();
-    }
-    let Some(source) = request.source.as_ref() else {
-        return Vec::new();
-    };
-    let berth_term_proto::MoveWindowTarget::Window(target) = &request.target else {
-        return Vec::new();
-    };
-    if source.session_name() == target.session_name()
-        && source.window_index() == target.window_index()
-    {
-        return Vec::new();
-    }
-    state
-        .sessions
-        .session(target.session_name())
-        .and_then(|session| session.window_at(target.window_index()))
-        .map(window_pane_ids)
-        .unwrap_or_default()
-}
-
-fn window_pane_ids(window: &berth_term_engine::Window) -> Vec<PaneId> {
-    window.panes().iter().map(|pane| pane.id()).collect()
-}
-
-fn unique_sessions(
-    source_session: &berth_term_proto::SessionName,
-    target_session: &berth_term_proto::SessionName,
-) -> Vec<berth_term_proto::SessionName> {
-    if source_session == target_session {
-        vec![source_session.clone()]
-    } else {
-        vec![source_session.clone(), target_session.clone()]
-    }
 }

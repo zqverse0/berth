@@ -1,30 +1,16 @@
 use berth_term_engine::LifecycleEvent;
-use berth_term_proto::{
-    CommandOutput, ErrorResponse, HookName, Response, ScopeSelector, SessionId, SessionName,
-    Target, WindowTarget,
-};
+use berth_term_proto::{ErrorResponse, HookName, Response, ScopeSelector, Target, WindowTarget};
 
 use super::super::{
     client_environment_snapshot, client_spawn_environment, prepare_lifecycle_event,
-    scripting_support::{format_context_for_target, render_start_directory_template},
-    RequestHandler,
+    scripting_support::render_start_directory_template, RequestHandler,
 };
-use crate::format_runtime::render_runtime_template;
 use crate::hook_runtime::PendingInlineHookFormat;
 use crate::pane_io::AttachControl;
 use crate::pane_terminals::HandlerState;
 use crate::terminal::validate_process_command;
 
 use super::pane_split_effects::{apply_split_window_effects, split_window_effects};
-
-const DEFAULT_BREAK_PANE_FORMAT: &str = "#{session_name}:#{window_index}.#{pane_index}";
-
-#[derive(Debug, Clone)]
-struct UnlinkedWindowSnapshot {
-    target: WindowTarget,
-    window_id: u32,
-    window_name: String,
-}
 
 pub(in crate::handler) struct SplitWindowParts {
     pub(in crate::handler) target: berth_term_proto::SplitWindowTarget,
@@ -43,264 +29,6 @@ pub(in crate::handler) struct SplitWindowParts {
 }
 
 impl RequestHandler {
-    pub(in crate::handler) async fn handle_swap_pane(
-        &self,
-        request: berth_term_proto::SwapPaneRequest,
-    ) -> Response {
-        let source_session_name = request.source.session_name().clone();
-        let target_session_name = request.target.session_name().clone();
-        let source_window =
-            WindowTarget::with_window(source_session_name.clone(), request.source.window_index());
-        let target_window =
-            WindowTarget::with_window(target_session_name.clone(), request.target.window_index());
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.swap_pane(request) {
-                Ok(response) => Response::SwapPane(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::SwapPane(_)) {
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: source_window.clone(),
-            })
-            .await;
-            if source_window != target_window {
-                self.emit(LifecycleEvent::WindowLayoutChanged {
-                    target: target_window,
-                })
-                .await;
-            }
-            self.refresh_attached_session(&source_session_name).await;
-            if source_session_name != target_session_name {
-                self.refresh_attached_session(&target_session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_join_pane(
-        &self,
-        request: berth_term_proto::JoinPaneRequest,
-    ) -> Response {
-        let source_session_name = request.source.session_name().clone();
-        let target_session_name = request.target.session_name().clone();
-        let source_window =
-            WindowTarget::with_window(source_session_name.clone(), request.source.window_index());
-        let target_window =
-            WindowTarget::with_window(target_session_name.clone(), request.target.window_index());
-        let (response, source_window_unlinked, removed_source_sessions) = {
-            let mut state = self.state.lock().await;
-            let source_group_members = state.sessions.session_group_members(&source_session_name);
-            let source_window_unlinked = join_pane_unlinked_window_snapshot(&state, &request);
-            let response = match state.join_pane(request) {
-                Ok(response) => Response::JoinPane(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            };
-            let removed_source_sessions =
-                removed_sessions_after_pane_transfer(&state, &response, source_group_members);
-            (response, source_window_unlinked, removed_source_sessions)
-        };
-
-        if matches!(response, Response::JoinPane(_)) {
-            self.sync_session_silence_timers(&source_session_name).await;
-            if source_session_name != target_session_name {
-                self.sync_session_silence_timers(&target_session_name).await;
-            }
-            if let Some(window) = source_window_unlinked {
-                self.emit(LifecycleEvent::WindowUnlinked {
-                    session_name: source_session_name.clone(),
-                    target: Some(window.target),
-                    window_id: Some(window.window_id),
-                    window_name: Some(window.window_name),
-                })
-                .await;
-            }
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: source_window.clone(),
-            })
-            .await;
-            if source_window != target_window {
-                self.emit(LifecycleEvent::WindowLayoutChanged {
-                    target: target_window,
-                })
-                .await;
-            }
-            self.exit_removed_source_sessions(&removed_source_sessions)
-                .await;
-            if !removed_source_sessions.contains(&source_session_name) {
-                self.refresh_attached_session(&source_session_name).await;
-            }
-            if source_session_name != target_session_name {
-                self.refresh_attached_session(&target_session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_move_pane(
-        &self,
-        request: berth_term_proto::MovePaneRequest,
-    ) -> Response {
-        let source_session_name = request.source.session_name().clone();
-        let target_session_name = request.target.session_name().clone();
-        let source_window =
-            WindowTarget::with_window(source_session_name.clone(), request.source.window_index());
-        let target_window =
-            WindowTarget::with_window(target_session_name.clone(), request.target.window_index());
-        let (response, source_window_unlinked) = {
-            let mut state = self.state.lock().await;
-            let source_window_unlinked = join_pane_unlinked_window_snapshot(
-                &state,
-                &berth_term_proto::JoinPaneRequest {
-                    source: request.source.clone(),
-                    target: request.target.clone(),
-                    direction: request.direction,
-                    detached: request.detached,
-                    before: request.before,
-                    full_size: request.full_size,
-                    size: request.size,
-                },
-            );
-            match state.move_pane(request) {
-                Ok(response) => (Response::MovePane(response), source_window_unlinked),
-                Err(error) => (Response::Error(ErrorResponse { error }), None),
-            }
-        };
-
-        if matches!(response, Response::MovePane(_)) {
-            self.sync_session_silence_timers(&source_session_name).await;
-            if source_session_name != target_session_name {
-                self.sync_session_silence_timers(&target_session_name).await;
-            }
-            if let Some(window) = source_window_unlinked {
-                self.emit(LifecycleEvent::WindowUnlinked {
-                    session_name: source_session_name.clone(),
-                    target: Some(window.target),
-                    window_id: Some(window.window_id),
-                    window_name: Some(window.window_name),
-                })
-                .await;
-            }
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: source_window.clone(),
-            })
-            .await;
-            if source_window != target_window {
-                self.emit(LifecycleEvent::WindowLayoutChanged {
-                    target: target_window,
-                })
-                .await;
-            }
-            self.refresh_attached_session(&source_session_name).await;
-            if source_session_name != target_session_name {
-                self.refresh_attached_session(&target_session_name).await;
-            }
-        }
-
-        response
-    }
-
-    pub(in crate::handler) async fn handle_break_pane(
-        &self,
-        request: berth_term_proto::BreakPaneRequest,
-    ) -> Response {
-        let source_session_name = request.source.session_name().clone();
-        let source_window =
-            WindowTarget::with_window(source_session_name.clone(), request.source.window_index());
-        let target_session_name = request.target.as_ref().map_or_else(
-            || source_session_name.clone(),
-            |target| target.session_name().clone(),
-        );
-        let print_target = request.print_target;
-        let print_format = request.format.clone();
-        let (response, removed_source_sessions) = {
-            let mut state = self.state.lock().await;
-            let source_group_members = state.sessions.session_group_members(&source_session_name);
-            let response = match state.break_pane(request) {
-                Ok(response) => Response::BreakPane(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            };
-            let removed_source_sessions =
-                removed_sessions_after_pane_transfer(&state, &response, source_group_members);
-            (response, removed_source_sessions)
-        };
-
-        if matches!(response, Response::BreakPane(_)) {
-            self.sync_session_silence_timers(&source_session_name).await;
-            if source_session_name != target_session_name {
-                self.sync_session_silence_timers(&target_session_name).await;
-            }
-            self.emit(LifecycleEvent::WindowLayoutChanged {
-                target: source_window.clone(),
-            })
-            .await;
-            if let Response::BreakPane(success) = &response {
-                let target_window = WindowTarget::with_window(
-                    success.target.session_name().clone(),
-                    success.target.window_index(),
-                );
-                self.emit(LifecycleEvent::WindowLinked {
-                    session_name: target_session_name.clone(),
-                    target: Some(target_window.clone()),
-                })
-                .await;
-                if source_window != target_window {
-                    self.emit(LifecycleEvent::WindowLayoutChanged {
-                        target: target_window,
-                    })
-                    .await;
-                }
-            }
-            self.exit_removed_source_sessions(&removed_source_sessions)
-                .await;
-            if !removed_source_sessions.contains(&source_session_name) {
-                self.refresh_attached_session(&source_session_name).await;
-            }
-            if source_session_name != target_session_name {
-                self.refresh_attached_session(&target_session_name).await;
-            }
-        }
-
-        if print_target {
-            let template = print_format.as_deref().unwrap_or(DEFAULT_BREAK_PANE_FORMAT);
-            if let Response::BreakPane(success) = &response {
-                let attached_count = self.attached_count(success.target.session_name()).await;
-                let output = {
-                    let state = self.state.lock().await;
-                    let runtime = format_context_for_target(
-                        &state,
-                        &Target::Pane(success.target.clone()),
-                        attached_count,
-                    )
-                    .map_err(|error| ErrorResponse { error });
-                    match runtime {
-                        Ok(runtime) => Some(CommandOutput::from_stdout(
-                            format!("{}\n", render_runtime_template(template, &runtime, false))
-                                .into_bytes(),
-                        )),
-                        Err(error) => return Response::Error(error),
-                    }
-                };
-                return Response::BreakPane(berth_term_proto::BreakPaneResponse {
-                    target: success.target.clone(),
-                    output,
-                });
-            }
-        }
-
-        response
-    }
-
-    async fn exit_removed_source_sessions(&self, removed_sessions: &[SessionName]) {
-        for session_name in removed_sessions {
-            self.exit_attached_session(session_name).await;
-        }
-    }
-
     pub(in crate::handler) async fn handle_split_window(
         &self,
         requester_pid: u32,
@@ -495,7 +223,6 @@ impl RequestHandler {
             queued_pane_exited,
             queued_session_closed,
             session_destroyed,
-            removed_session,
             removed_subscription_keys,
             removed_pane_ids,
         ) = {
@@ -540,9 +267,6 @@ impl RequestHandler {
                         Some(queued_pane),
                         queued_session,
                         result.session_destroyed,
-                        result
-                            .removed_session_id
-                            .map(|session_id| (session_name.clone(), SessionId::new(session_id))),
                         removed_subscription_keys,
                         result.removed_pane_ids,
                     )
@@ -552,14 +276,11 @@ impl RequestHandler {
                     None,
                     None,
                     false,
-                    None,
                     Vec::new(),
                     Vec::new(),
                 ),
             }
         };
-
-        self.prune_web_session(removed_session);
 
         if !removed_pane_ids.is_empty() {
             self.forget_pane_snapshot_coalescers(&removed_pane_ids);
@@ -577,7 +298,6 @@ impl RequestHandler {
                 self.remove_session_leases(std::slice::from_ref(&session_name));
                 self.exit_attached_session(&session_name).await;
                 self.cancel_session_silence_timers(&session_name).await;
-                self.refresh_control_session(&session_name).await;
                 let _ = self.queue_shutdown_if_server_empty().await;
             } else {
                 self.sync_session_silence_timers(&session_name).await;
@@ -627,20 +347,6 @@ impl RequestHandler {
                 ));
         }
     }
-}
-
-fn removed_sessions_after_pane_transfer(
-    state: &HandlerState,
-    response: &Response,
-    source_group_members: Vec<SessionName>,
-) -> Vec<SessionName> {
-    if !matches!(response, Response::JoinPane(_) | Response::BreakPane(_)) {
-        return Vec::new();
-    }
-    source_group_members
-        .into_iter()
-        .filter(|session_name| state.sessions.session(session_name).is_none())
-        .collect()
 }
 
 fn inject_split_window_stdin_output(
@@ -698,30 +404,4 @@ fn is_split_window_stdin_dead_pane(
     keep_alive_on_exit == Some(true)
         && stdin_payload.is_some()
         && process_command.is_some_and(berth_term_proto::ProcessCommand::is_empty)
-}
-
-fn join_pane_unlinked_window_snapshot(
-    state: &HandlerState,
-    request: &berth_term_proto::JoinPaneRequest,
-) -> Option<UnlinkedWindowSnapshot> {
-    if request.source.session_name() == request.target.session_name()
-        && request.source.window_index() == request.target.window_index()
-    {
-        return None;
-    }
-
-    let window = state
-        .sessions
-        .session(request.source.session_name())
-        .and_then(|session| session.window_at(request.source.window_index()))
-        .filter(|window| window.pane_count() == 1)?;
-
-    Some(UnlinkedWindowSnapshot {
-        target: WindowTarget::with_window(
-            request.source.session_name().clone(),
-            request.source.window_index(),
-        ),
-        window_id: window.id().as_u32(),
-        window_name: window.name().unwrap_or_default().to_owned(),
-    })
 }

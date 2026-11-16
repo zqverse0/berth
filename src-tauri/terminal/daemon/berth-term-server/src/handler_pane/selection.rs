@@ -9,45 +9,6 @@ use crate::hook_runtime::PendingInlineHookFormat;
 use crate::pane_terminals::session_not_found;
 
 impl RequestHandler {
-    pub(in crate::handler) async fn handle_last_pane(
-        &self,
-        request: berth_term_proto::LastPaneRequest,
-    ) -> Response {
-        let session_name = request.target.session_name().clone();
-        let response = {
-            let mut state = self.state.lock().await;
-            match state.last_pane(
-                request.target,
-                request.preserve_zoom,
-                request.input_disabled,
-            ) {
-                Ok(response) => Response::LastPane(response),
-                Err(error) => Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        if matches!(response, Response::LastPane(_)) {
-            if let Response::LastPane(success) = &response {
-                self.emit(LifecycleEvent::WindowPaneChanged {
-                    target: WindowTarget::with_window(
-                        session_name.clone(),
-                        success.target.window_index(),
-                    ),
-                })
-                .await;
-                self.queue_inline_hook(
-                    HookName::AfterSelectPane,
-                    ScopeSelector::Session(session_name.clone()),
-                    Some(Target::Pane(success.target.clone())),
-                    PendingInlineHookFormat::AfterCommand,
-                );
-            }
-            self.refresh_attached_session(&session_name).await;
-        }
-
-        response
-    }
-
     pub(in crate::handler) async fn handle_select_pane(
         &self,
         request: berth_term_proto::SelectPaneRequest,
@@ -247,7 +208,6 @@ impl RequestHandler {
 
         if matches!(response, Response::SelectPane(_)) {
             self.refresh_attached_session(&session_name).await;
-            self.refresh_control_session(&session_name).await;
         }
 
         response

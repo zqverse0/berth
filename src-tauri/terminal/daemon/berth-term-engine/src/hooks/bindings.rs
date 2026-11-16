@@ -2,8 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use berth_term_proto::{HookLifecycle, HookName};
 
-use super::rules::hook_inventory;
-use super::types::{HookBindingView, HookDispatch, HookSetOptions};
+use super::types::{HookDispatch, HookSetOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct HookBindings {
@@ -39,26 +38,6 @@ impl HookBindings {
         }
     }
 
-    pub(super) fn command(&self, hook: HookName) -> Option<&str> {
-        self.hooks.get(&hook).and_then(HookArray::command)
-    }
-
-    pub(super) fn command_at(&self, hook: HookName, index: u32) -> Option<&str> {
-        self.hooks
-            .get(&hook)
-            .and_then(|array| array.command_at(index))
-    }
-
-    pub(super) fn lifecycle(&self, hook: HookName) -> Option<HookLifecycle> {
-        self.hooks.get(&hook).and_then(HookArray::lifecycle)
-    }
-
-    pub(super) fn lifecycle_at(&self, hook: HookName, index: u32) -> Option<HookLifecycle> {
-        self.hooks
-            .get(&hook)
-            .and_then(|array| array.lifecycle_at(index))
-    }
-
     pub(super) fn dispatch(&mut self, hook: HookName) -> Vec<HookDispatch> {
         let (dispatches, remove_hook) = if let Some(array) = self.hooks.get_mut(&hook) {
             let dispatches = array.dispatch();
@@ -71,19 +50,6 @@ impl HookBindings {
             self.hooks.remove(&hook);
         }
         dispatches
-    }
-
-    pub(super) fn views(&self, filter: Option<HookName>) -> Vec<HookBindingView> {
-        hook_inventory()
-            .into_iter()
-            .filter(|hook| filter.map(|expected| *hook == expected).unwrap_or(true))
-            .flat_map(|hook| {
-                self.hooks
-                    .get(&hook)
-                    .into_iter()
-                    .flat_map(move |array| array.views(hook))
-            })
-            .collect()
     }
 }
 
@@ -125,32 +91,6 @@ impl HookArray {
         }
     }
 
-    fn command(&self) -> Option<&str> {
-        self.entries
-            .values()
-            .next()
-            .map(|registered| registered.command.as_str())
-    }
-
-    fn command_at(&self, index: u32) -> Option<&str> {
-        self.entries
-            .get(&index)
-            .map(|registered| registered.command.as_str())
-    }
-
-    fn lifecycle(&self) -> Option<HookLifecycle> {
-        self.entries
-            .values()
-            .next()
-            .map(|registered| registered.lifecycle)
-    }
-
-    fn lifecycle_at(&self, index: u32) -> Option<HookLifecycle> {
-        self.entries
-            .get(&index)
-            .map(|registered| registered.lifecycle)
-    }
-
     fn dispatch(&mut self) -> Vec<HookDispatch> {
         let mut dispatches = Vec::with_capacity(self.entries.len());
         let mut one_shots = Vec::new();
@@ -185,18 +125,6 @@ impl HookArray {
                     .unwrap_or(u32::MAX)
             }
         }
-    }
-
-    fn views(&self, hook: HookName) -> Vec<HookBindingView> {
-        self.entries
-            .iter()
-            .map(|(index, registered)| HookBindingView {
-                hook,
-                index: *index,
-                command: registered.command.clone(),
-                lifecycle: registered.lifecycle,
-            })
-            .collect()
     }
 }
 

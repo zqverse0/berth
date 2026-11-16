@@ -1,25 +1,22 @@
 use super::{
     after_hook_format_values, AccessMode, RequestHandler, ServerAccessStore, DEFAULT_SESSION_SIZE,
 };
-use crate::control::ControlModeUpgrade;
 use crate::daemon::ShutdownHandle;
 use crate::pane_io::AttachControl;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::time::Duration;
 use berth_term_engine::{
     command_parser::parse_command_string, PaneGeometry, WINDOW_ALERTFLAGS, WINLINK_ALERTFLAGS,
 };
 use berth_term_ipc::PeerIdentity;
 use berth_term_os::identity::UserIdentity;
 use berth_term_proto::{
-    ControlMode, DisplayMessageRequest, ErrorResponse, HasSessionRequest, HookName,
-    KillPaneRequest, KillSessionRequest, LayoutName, ListPanesRequest, ListSessionsRequest,
-    NewSessionExtRequest, NewSessionRequest, OptionName, PaneTarget, RenameSessionRequest, Request,
-    ResizePaneAdjustment, ResizePaneTargetActionRequest, Response, ScopeSelector,
-    SelectPaneRequest, SessionName, SetOptionMode, SetOptionRequest, SplitWindowRequest,
-    SplitWindowTarget, SplitWindowTargetActionRequest, Target, TerminalError, TerminalSize,
+    DisplayMessageRequest, ErrorResponse, HasSessionRequest, HookName, KillPaneRequest,
+    KillSessionRequest, LayoutName, ListPanesRequest, ListSessionsRequest, NewSessionExtRequest,
+    NewSessionRequest, OptionName, PaneTarget, RenameSessionRequest, Request, ResizePaneAdjustment,
+    ResizePaneTargetActionRequest, Response, ScopeSelector, SelectPaneRequest, SessionName,
+    SetOptionMode, SetOptionRequest, SplitWindowRequest, SplitWindowTarget,
+    SplitWindowTargetActionRequest, Target, TerminalError, TerminalSize,
 };
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 fn session_name(value: &str) -> SessionName {
@@ -56,9 +53,6 @@ mod send_keys_tests;
 #[path = "handler_copy_mode_tests.rs"]
 mod copy_mode_tests;
 
-#[path = "handler_overlay_tests.rs"]
-mod overlay_tests;
-
 #[tokio::test]
 async fn handshake_advertises_a_distinct_daemon_instance_epoch_per_handler() {
     let first = RequestHandler::new();
@@ -93,7 +87,6 @@ async fn handshake_epoch(handler: &RequestHandler) -> String {
         response => panic!("expected handshake response, got {response:?}"),
     }
 }
-
 
 #[test]
 fn access_mode_for_peer_uses_user_identity_not_pid() {

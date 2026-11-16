@@ -37,7 +37,6 @@ impl RequestHandler {
                     && active.prompt.is_none()
                     && active.mode_tree.is_none()
                     && active.overlay.is_none()
-                    && active.display_panes.is_none()
                     && active.key_table_name.is_none();
                 if coalescible_web_refresh {
                     if !active.render_refresh_pending {
@@ -123,14 +122,12 @@ impl RequestHandler {
             active_attach.by_pid.remove(&pid);
         }
         drop(active_attach);
-        self.refresh_clock_overlays_for_session(session_name).await;
         for attach_pid in mode_tree_pids {
             let _ = self.refresh_mode_tree_overlay_if_active(attach_pid).await;
         }
         for attach_pid in overlay_pids {
             let _ = self.refresh_interactive_overlay_if_active(attach_pid).await;
         }
-        self.refresh_control_session(session_name).await;
     }
 
     pub(crate) async fn clear_attached_render_refresh_pending(&self, attach_pid: u32) {
@@ -239,7 +236,6 @@ impl RequestHandler {
             active_attach.by_pid.remove(&attach_pid);
         }
         drop(active_attach);
-        self.refresh_clock_overlays_for_session(session_name).await;
         let _ = self.refresh_mode_tree_overlay_if_active(attach_pid).await;
         let _ = self.refresh_interactive_overlay_if_active(attach_pid).await;
     }
@@ -322,7 +318,6 @@ impl RequestHandler {
             active_attach.by_pid.remove(&attach_pid);
         }
         drop(active_attach);
-        self.refresh_clock_overlays_for_session(session_name).await;
     }
 
     pub(in crate::handler) async fn refresh_all_attached_sessions(&self) {
@@ -341,7 +336,6 @@ impl RequestHandler {
         for session_name in session_names {
             self.refresh_attached_session(&session_name).await;
         }
-        self.refresh_all_control_sessions().await;
     }
 
     pub(in crate::handler) async fn refresh_persistent_overlays_for_session(

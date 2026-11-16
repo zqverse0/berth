@@ -32,7 +32,6 @@ impl RequestHandler {
                 return Ok(QueueCommandAction::Normal {
                     output: None,
                     error: None,
-                    exit_status: None,
                 });
             }
             PromptStartOutcome::Waiting(receiver) => {
@@ -155,7 +154,6 @@ impl RequestHandler {
                 return Ok(QueueCommandAction::Normal {
                     output: None,
                     error: None,
-                    exit_status: None,
                 });
             }
             PromptStartOutcome::Waiting(receiver) => {

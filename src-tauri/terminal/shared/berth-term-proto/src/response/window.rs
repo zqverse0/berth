@@ -2,7 +2,7 @@ use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{compat_next_response_element, CommandOutput, CreatedPane};
-use crate::{LayoutName, SessionName, TerminalSize, WindowTarget};
+use crate::{LayoutName, TerminalSize, WindowTarget};
 
 /// Response payload for `new-window`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -108,13 +108,6 @@ pub struct PreviousWindowResponse {
     pub target: WindowTarget,
 }
 
-/// Response payload for `last-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LastWindowResponse {
-    /// The window that became active.
-    pub target: WindowTarget,
-}
-
 /// Structured list-windows entry data paired with rendered stdout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowListEntry {
@@ -155,38 +148,6 @@ impl ListWindowsResponse {
     }
 }
 
-/// Response payload for `link-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LinkWindowResponse {
-    /// The linked destination slot.
-    pub target: WindowTarget,
-}
-
-/// Response payload for `move-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MoveWindowResponse {
-    /// The session affected by the operation.
-    pub session_name: SessionName,
-    /// The moved window target when one specific window was relocated.
-    pub target: Option<WindowTarget>,
-}
-
-/// Response payload for `swap-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwapWindowResponse {
-    /// The source slot involved in the swap.
-    pub source: WindowTarget,
-    /// The target slot involved in the swap.
-    pub target: WindowTarget,
-}
-
-/// Response payload for `rotate-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RotateWindowResponse {
-    /// The window whose pane positions were rotated.
-    pub target: WindowTarget,
-}
-
 /// Response payload for `resize-window`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResizeWindowResponse {
@@ -198,12 +159,5 @@ pub struct ResizeWindowResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RespawnWindowResponse {
     /// The respawned window target.
-    pub target: WindowTarget,
-}
-
-/// Response payload for `unlink-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnlinkWindowResponse {
-    /// The surviving active window after the unlink completes.
     pub target: WindowTarget,
 }

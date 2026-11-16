@@ -14,7 +14,7 @@ fn toggle_tag_does_not_tag_no_tag_items() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: true,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     items.insert(
@@ -28,7 +28,7 @@ fn toggle_tag_does_not_tag_no_tag_items() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     let build = ModeTreeBuild {
@@ -58,7 +58,7 @@ fn toggle_tag_untags_ancestors_and_descendants() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     items.insert(
@@ -72,7 +72,7 @@ fn toggle_tag_untags_ancestors_and_descendants() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     items.insert(
@@ -86,7 +86,7 @@ fn toggle_tag_untags_ancestors_and_descendants() {
             search_text: String::new(),
             preview: Vec::new(),
             no_tag: false,
-            action: ModeTreeAction::None,
+            action: test_action(),
         },
     );
     let build = ModeTreeBuild {
@@ -214,21 +214,9 @@ fn parse_choose_tree_rejects_unknown_flag() {
 }
 
 #[test]
-fn parse_customize_mode_ignores_template_argument() {
-    let parsed = CommandParser::new()
-        .parse_one_group("customize-mode")
-        .expect("parses");
-    let mode = RequestHandler::parse_mode_tree_queue_command(parsed.commands()[0].clone())
-        .expect("ok")
-        .expect("recognized");
-    assert!(mode.template.is_none());
-    assert_eq!(mode.kind, ModeTreeKind::Customize);
-}
-
-#[test]
 fn n_flag_single_disables_preview() {
     let parsed = CommandParser::new()
-        .parse_one_group("choose-buffer -N")
+        .parse_one_group("choose-tree -N")
         .expect("parses");
     let mode = RequestHandler::parse_mode_tree_queue_command(parsed.commands()[0].clone())
         .expect("ok")
@@ -239,7 +227,7 @@ fn n_flag_single_disables_preview() {
 #[test]
 fn n_flag_double_enables_big_preview() {
     let parsed = CommandParser::new()
-        .parse_one_group("choose-buffer -NN")
+        .parse_one_group("choose-tree -NN")
         .expect("parses");
     let mode = RequestHandler::parse_mode_tree_queue_command(parsed.commands()[0].clone())
         .expect("ok")

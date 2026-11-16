@@ -391,20 +391,6 @@ impl SessionStore {
         }
     }
 
-    /// Returns the next available grouped-session name using tmux's `group-N` prefix shape.
-    #[must_use]
-    pub fn next_grouped_session_name(&self, group_name: &SessionName) -> SessionName {
-        for suffix in 1_u32.. {
-            let candidate = SessionName::new(format!("{group_name}-{suffix}"))
-                .expect("generated grouped session name must be valid");
-            if !self.contains_session(&candidate) {
-                return candidate;
-            }
-        }
-
-        unreachable!("u32 loop must eventually yield an unused grouped session name")
-    }
-
     fn next_automatic_session_identity(
         &self,
         prefix: Option<&SessionName>,
@@ -435,41 +421,6 @@ impl SessionStore {
             .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_string()))?;
         self.repair_group_runtime_owner(removed.group_name().cloned());
         Ok(removed)
-    }
-
-    /// Inserts an existing session back into the store without rewriting it.
-    pub fn insert_existing_session(&mut self, session: Session) -> Result<(), TerminalError> {
-        let mut session = session;
-        let session_name = session.name().clone();
-        if self.sessions.contains_key(&session_name) {
-            return Err(TerminalError::DuplicateSession(session_name.to_string()));
-        }
-
-        if self
-            .sessions
-            .values()
-            .any(|existing| existing.id() == session.id())
-        {
-            session.set_id(self.allocate_session_id());
-        }
-        session.rebind_window_id_allocator(self.next_window_id.clone());
-        self.next_session_id = self
-            .next_session_id
-            .max(session.id().as_u32().saturating_add(1));
-        self.bump_next_pane_id_from_session(&session);
-        if let Some(group_name) = session.group_name().cloned() {
-            match self.group_runtime_owners.get(&group_name) {
-                Some(owner) if self.sessions.contains_key(owner) || owner == &session_name => {}
-                _ => {
-                    self.group_runtime_owners
-                        .insert(group_name, session_name.clone());
-                }
-            }
-        }
-
-        let replaced = self.sessions.insert(session_name, session);
-        debug_assert!(replaced.is_none());
-        Ok(())
     }
 
     /// Returns a mutable reference to the named session.
@@ -545,17 +496,6 @@ impl SessionStore {
 
     fn allocate_window_id(&mut self) -> crate::WindowId {
         self.next_window_id.allocate()
-    }
-
-    fn bump_next_pane_id_from_session(&mut self, session: &Session) {
-        let next_after_session = session
-            .windows()
-            .values()
-            .flat_map(|window| window.panes().iter())
-            .map(|pane| pane.id().as_u32().saturating_add(1))
-            .max()
-            .unwrap_or(self.next_pane_id);
-        self.next_pane_id = self.next_pane_id.max(next_after_session);
     }
 
     fn repair_group_runtime_owner(&mut self, group_name: Option<SessionName>) {

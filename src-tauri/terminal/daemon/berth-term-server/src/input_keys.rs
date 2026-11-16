@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use berth_term_engine::{
     input::mode, key_code_to_bytes, key_string_lookup_string, KeyCode, KEYC_BSPACE, KEYC_CTRL,
     KEYC_CURSOR, KEYC_IMPLIED_META, KEYC_KEYPAD, KEYC_MASK_KEY, KEYC_MASK_MODIFIERS,

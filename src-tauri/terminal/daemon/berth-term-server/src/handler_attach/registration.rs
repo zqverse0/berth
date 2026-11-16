@@ -115,9 +115,6 @@ impl RequestHandler {
                 session_name,
                 last_session: None,
                 flags: registration.flags,
-                pan_window: None,
-                pan_ox: 0,
-                pan_oy: 0,
                 control_tx: registration.control_tx,
                 control_backlog: registration.control_backlog,
                 render_stream: registration.render_stream,
@@ -134,7 +131,6 @@ impl RequestHandler {
                 render_generation: 0,
                 overlay_generation: 0,
                 overlay_state_id: 0,
-                display_panes_state_id: 0,
                 key_table_name: None,
                 key_table_set_at: None,
                 repeat_deadline: None,
@@ -149,7 +145,6 @@ impl RequestHandler {
                 mode_tree: None,
                 mode_tree_frame: None,
                 overlay: None,
-                display_panes: None,
             },
         ) {
             replaced_key_table = previous.key_table_name.clone();
@@ -169,8 +164,6 @@ impl RequestHandler {
             session.touch_attached();
         }
         drop(state);
-        self.refresh_clock_overlays_for_session(&attached_session_name)
-            .await;
         attach_id
     }
 

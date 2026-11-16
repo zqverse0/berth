@@ -3,7 +3,6 @@ use std::io;
 use berth_term_proto::TerminalError;
 
 use super::super::prompt_support::PromptInputEvent;
-use super::super::scripting_support::QueueExecutionContext;
 use super::super::RequestHandler;
 use super::layout::{menu_option_styles, menu_width, target_window_index};
 use super::menu::{
@@ -30,7 +29,6 @@ impl RequestHandler {
                 .get_mut(&attach_pid)
                 .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
             match active.overlay.as_mut() {
-                Some(ClientOverlayState::Menu(menu)) => menu_handle_event(menu, event),
                 Some(ClientOverlayState::Popup(popup)) => {
                     let Some(menu) = popup.nested_menu.as_mut() else {
                         return Ok(false);
@@ -57,7 +55,6 @@ impl RequestHandler {
                 .get_mut(&attach_pid)
                 .ok_or_else(|| TerminalError::Server("attached client disappeared".to_owned()))?;
             match active.overlay.as_mut() {
-                Some(ClientOverlayState::Menu(menu)) => menu_handle_mouse(menu, raw),
                 Some(ClientOverlayState::Popup(popup)) => {
                     let Some(menu) = popup.nested_menu.as_mut() else {
                         return Ok(());
@@ -83,14 +80,13 @@ impl RequestHandler {
                     .await?;
             }
             MenuOutcome::Close => {
-                let mut clear_root = false;
+                let clear_root = false;
                 {
                     let mut active_attach = self.active_attach.lock().await;
                     let active = active_attach.by_pid.get_mut(&attach_pid).ok_or_else(|| {
                         TerminalError::Server("attached client disappeared".to_owned())
                     })?;
                     match active.overlay.as_mut() {
-                        Some(ClientOverlayState::Menu(_)) => clear_root = true,
                         Some(ClientOverlayState::Popup(popup)) => popup.nested_menu = None,
                         None => {}
                     }
@@ -103,18 +99,12 @@ impl RequestHandler {
                 }
             }
             MenuOutcome::Execute(action) => {
-                let (requester_pid, target) = {
+                let (_requester_pid, _target) = {
                     let mut active_attach = self.active_attach.lock().await;
                     let active = active_attach.by_pid.get_mut(&attach_pid).ok_or_else(|| {
                         TerminalError::Server("attached client disappeared".to_owned())
                     })?;
                     match active.overlay.as_mut() {
-                        Some(ClientOverlayState::Menu(menu)) => {
-                            let target = menu.current_target.clone();
-                            let requester_pid = menu.requester_pid;
-                            active.overlay = None;
-                            (requester_pid, target)
-                        }
                         Some(ClientOverlayState::Popup(popup)) => {
                             let requester_pid = popup.requester_pid;
                             let target = popup.current_target.clone();
@@ -125,20 +115,6 @@ impl RequestHandler {
                     }
                 };
                 match action {
-                    OverlayMenuAction::Command(command) => {
-                        self.refresh_interactive_overlay_if_active(attach_pid)
-                            .await
-                            .ok();
-                        let parsed = self.parse_command_string_one_group(&command).await?;
-                        let _ = self
-                            .execute_parsed_commands(
-                                requester_pid,
-                                parsed,
-                                QueueExecutionContext::without_caller_cwd()
-                                    .with_current_target(Some(target)),
-                            )
-                            .await?;
-                    }
                     OverlayMenuAction::Popup(action) => {
                         self.apply_popup_menu_action(attach_pid, action).await?;
                     }
@@ -363,7 +339,7 @@ impl RequestHandler {
         x: u16,
         y: u16,
     ) -> Result<(), TerminalError> {
-        let (client_size, popup_target, popup_requester_pid) = {
+        let (client_size, popup_target) = {
             let active_attach = self.active_attach.lock().await;
             let active = active_attach
                 .by_pid
@@ -372,11 +348,7 @@ impl RequestHandler {
             let Some(ClientOverlayState::Popup(popup)) = active.overlay.as_ref() else {
                 return Ok(());
             };
-            (
-                active.client_size,
-                popup.current_target.clone(),
-                popup.requester_pid,
-            )
+            (active.client_size, popup.current_target.clone())
         };
         let state = self.state.lock().await;
         let items = popup_menu_items(&state);
@@ -411,9 +383,6 @@ impl RequestHandler {
                 .ok_or_else(|| attached_client_required("display-menu"))?;
             if let Some(ClientOverlayState::Popup(popup)) = active.overlay.as_mut() {
                 popup.nested_menu = Some(MenuOverlayState {
-                    id: popup.id,
-                    requester_pid: popup_requester_pid,
-                    current_target: popup_target,
                     rect,
                     title,
                     style: options.style,

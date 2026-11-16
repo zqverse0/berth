@@ -111,28 +111,6 @@ impl RequestHandler {
                     .await?;
                 return Ok(true);
             }
-            PromptInputEvent::Char('p') | PromptInputEvent::Char('P')
-                if matches!(mode.kind, ModeTreeKind::Buffer) =>
-            {
-                let delete_after = matches!(event, PromptInputEvent::Char('P'));
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.perform_buffer_paste(attach_pid, delete_after).await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('d') | PromptInputEvent::Char('D')
-                if matches!(mode.kind, ModeTreeKind::Buffer) =>
-            {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.perform_buffer_delete(attach_pid).await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('d') | PromptInputEvent::Char('D')
-                if matches!(mode.kind, ModeTreeKind::Client) =>
-            {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.perform_client_detach(attach_pid).await?;
-                return Ok(true);
-            }
             PromptInputEvent::Char('x') | PromptInputEvent::Char('X')
                 if matches!(mode.kind, ModeTreeKind::Tree) =>
             {
@@ -152,45 +130,6 @@ impl RequestHandler {
                 self.store_mode_tree_state(attach_pid, mode).await?;
                 self.confirm_mode_tree_action(attach_pid, prompt, action)
                     .await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('x') | PromptInputEvent::Char('X')
-                if matches!(mode.kind, ModeTreeKind::Buffer) =>
-            {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.confirm_mode_tree_action(
-                    attach_pid,
-                    "delete selected buffers?".to_owned(),
-                    ModeTreeDeferredAction::DeleteBuffers,
-                )
-                .await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('x') | PromptInputEvent::Char('X')
-                if matches!(mode.kind, ModeTreeKind::Client) =>
-            {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.confirm_mode_tree_action(
-                    attach_pid,
-                    "detach selected clients?".to_owned(),
-                    ModeTreeDeferredAction::DetachClients,
-                )
-                .await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('s') if matches!(mode.kind, ModeTreeKind::Customize) => {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.start_customize_set_prompt(attach_pid).await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Char('u') if matches!(mode.kind, ModeTreeKind::Customize) => {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.perform_customize_unset(attach_pid).await?;
-                return Ok(true);
-            }
-            PromptInputEvent::Ctrl('x') if matches!(mode.kind, ModeTreeKind::Customize) => {
-                self.store_mode_tree_state(attach_pid, mode).await?;
-                self.perform_customize_reset(attach_pid).await?;
                 return Ok(true);
             }
             PromptInputEvent::KeyName(name) if name == "F1" => {

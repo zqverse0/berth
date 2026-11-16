@@ -111,9 +111,6 @@ impl RequestHandler {
     }
 
     pub(in crate::handler) async fn dispatch_lifecycle_hook(&self, event: QueuedLifecycleEvent) {
-        self.dispatch_control_notifications(&event.event).await;
-        self.refresh_control_sessions_for_event(&event.event).await;
-
         if event.hooks.is_empty() {
             return;
         }
@@ -152,7 +149,6 @@ impl RequestHandler {
     ) {
         for pending in inline_hooks {
             let formats = match pending.format_mode {
-                PendingInlineHookFormat::HookOnly => hook_only_format_values(pending.hook),
                 PendingInlineHookFormat::AfterCommand => {
                     after_hook_format_values(pending.hook, parsed_command)
                 }

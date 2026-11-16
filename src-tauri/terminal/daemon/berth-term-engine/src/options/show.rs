@@ -13,40 +13,6 @@ use super::storage::{OptionEntry, OptionNode};
 use super::{OptionQuery, OptionStore, ShowOptionsMode};
 
 impl OptionStore {
-    /// Returns rendered `show-options` lines for the selected scope.
-    pub fn show_options_lines(
-        &self,
-        scope: &OptionScopeSelector,
-        value_only: bool,
-    ) -> Result<Vec<String>, TerminalError> {
-        self.show_options_lines_filtered(scope, None, value_only)
-    }
-
-    /// Returns rendered `show-options` lines for the selected scope, optionally filtered by name.
-    pub fn show_options_lines_filtered(
-        &self,
-        scope: &OptionScopeSelector,
-        name: Option<&str>,
-        value_only: bool,
-    ) -> Result<Vec<String>, TerminalError> {
-        self.show_options_lines_with_mode_filtered(
-            scope,
-            name,
-            value_only,
-            ShowOptionsMode::Resolved,
-        )
-    }
-
-    /// Returns rendered `show-options` lines for the selected scope and mode.
-    pub fn show_options_lines_with_mode(
-        &self,
-        scope: &OptionScopeSelector,
-        value_only: bool,
-        mode: ShowOptionsMode,
-    ) -> Result<Vec<String>, TerminalError> {
-        self.show_options_lines_with_mode_filtered(scope, None, value_only, mode)
-    }
-
     /// Returns rendered `show-options` lines for the selected scope, mode, and optional name.
     pub fn show_options_lines_with_mode_filtered(
         &self,

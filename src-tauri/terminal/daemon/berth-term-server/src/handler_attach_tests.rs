@@ -8,19 +8,17 @@ use crate::server_access::current_owner_uid;
 use berth_term_engine::{input::InputParser, Screen};
 use berth_term_proto::request::{
     AttachSessionExt2Request, AttachSessionExt3Request, AttachSessionExtRequest,
-    NewSessionExtRequest, SplitWindowExtRequest, SwitchClientExt2Request,
+    NewSessionExtRequest, SplitWindowExtRequest,
 };
 use berth_term_proto::{
     AttachSessionResponse, AttachedKeystroke, CapturePaneRequest, CopyModeRequest,
-    DetachClientRequest, ErrorResponse, KeyDispatched, KillSessionRequest, LayoutName,
-    ListPanesRequest, ListWindowsRequest, NewSessionRequest, NewWindowRequest, OptionName,
-    PaneTarget, RenameSessionRequest, Request, ResizePaneAdjustment, Response, ScopeSelector,
+    DetachClientRequest, ErrorResponse, KeyDispatched, LayoutName, ListPanesRequest,
+    ListWindowsRequest, NewSessionRequest, NewWindowRequest, OptionName, PaneTarget,
+    RenameSessionRequest, Request, ResizePaneAdjustment, Response, ScopeSelector,
     SelectLayoutRequest, SelectLayoutTarget, SelectPaneRequest, SendKeysRequest, SessionName,
-    SetOptionMode, SetOptionRequest, SplitWindowRequest, SplitWindowTarget, SwitchClientRequest,
-    TerminalError, TerminalSize, WindowTarget, CAPABILITY_ATTACH_RENDER, DEFAULT_MAX_FRAME_LENGTH,
+    SetOptionMode, SetOptionRequest, SplitWindowRequest, SplitWindowTarget, TerminalError,
+    TerminalSize, WindowTarget, CAPABILITY_ATTACH_RENDER, DEFAULT_MAX_FRAME_LENGTH,
 };
-#[cfg(unix)]
-use berth_term_pty::{ChildCommand, TerminalSize as PtyTerminalSize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -69,9 +67,7 @@ fn take_render_frame(control: AttachControl) -> String {
         AttachControl::Refresh => panic!("expected a switch refresh"),
         AttachControl::Overlay(_) => panic!("expected a switch refresh"),
         AttachControl::Write(_) => panic!("expected a switch refresh"),
-        AttachControl::LockShellCommand(_) => panic!("expected a switch refresh"),
         AttachControl::AdvancePersistentOverlayState(_) => panic!("expected a switch refresh"),
-        AttachControl::Suspend => panic!("expected a switch refresh"),
     }
 }
 
@@ -482,20 +478,6 @@ fn quiet_attached_command() -> Vec<String> {
     ]
 }
 
-async fn active_panes(handler: &RequestHandler, session: &SessionName) -> String {
-    let response = handler
-        .handle(Request::ListPanes(ListPanesRequest {
-            target: session.clone(),
-            format: Some("#{pane_index}:#{pane_active}".to_owned()),
-            target_window_index: None,
-        }))
-        .await;
-    let Response::ListPanes(response) = response else {
-        panic!("expected list-panes response, got {response:?}");
-    };
-    String::from_utf8(response.output.stdout().to_vec()).expect("list-panes stdout is utf-8")
-}
-
 async fn pane_terminal_size(
     handler: &RequestHandler,
     session_name: &SessionName,
@@ -798,8 +780,6 @@ async fn wait_for_session_removed(handler: &RequestHandler, session_name: &Sessi
         sleep(Duration::from_millis(25)).await;
     }
 }
-
-use super::input_capture::RawPaneInputProbe;
 
 async fn replace_transcript_contents(
     handler: &RequestHandler,

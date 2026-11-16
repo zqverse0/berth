@@ -5,16 +5,10 @@ use berth_term_engine::{
     Session,
 };
 use berth_term_proto::{
-    CommandOutput, CreatedPane, KillWindowResponse, LastWindowResponse, ListWindowsResponse,
-    NewWindowResponse, NextWindowResponse, OptionName, PreviousWindowResponse,
-    RenameWindowResponse, ScopeSelector, SelectWindowResponse, SessionName, SetOptionMode,
-    TerminalError, WindowListEntry, WindowTarget,
+    CommandOutput, CreatedPane, KillWindowResponse, ListWindowsResponse, NewWindowResponse,
+    NextWindowResponse, OptionName, PreviousWindowResponse, RenameWindowResponse, ScopeSelector,
+    SelectWindowResponse, SessionName, SetOptionMode, TerminalError, WindowListEntry, WindowTarget,
 };
-
-#[path = "pane_terminals/window_link_commands.rs"]
-mod window_link_commands;
-#[path = "pane_terminals/window_movement.rs"]
-mod window_movement;
 
 use super::{
     session_not_found, HandlerState, KilledWindowResult, NewWindowOptions,
@@ -26,7 +20,6 @@ use crate::format_runtime::RuntimeFormatContext;
 mod window_removal;
 
 use window_removal::build_window_removal_plan;
-pub(super) use window_removal::window_pane_ids;
 
 impl HandlerState {
     pub(crate) fn create_window(
@@ -327,21 +320,6 @@ impl HandlerState {
         })
     }
 
-    pub(crate) fn last_window(
-        &mut self,
-        session_name: &SessionName,
-    ) -> Result<LastWindowResponse, TerminalError> {
-        let session = self
-            .sessions
-            .session_mut(session_name)
-            .ok_or_else(|| session_not_found(session_name))?;
-        let window_index = session.last_window()?;
-
-        Ok(LastWindowResponse {
-            target: WindowTarget::with_window(session_name.clone(), window_index),
-        })
-    }
-
     pub(crate) fn resize_window(
         &mut self,
         request: berth_term_proto::ResizeWindowRequest,
@@ -456,9 +434,6 @@ impl HandlerState {
         for removed_pane_id in pane_ids.iter().copied().filter(|id| *id != pane_id) {
             self.remove_pane_terminal_from_runtime(&runtime_session_name, removed_pane_id);
         }
-        if let Some(pipe) = self.remove_pane_pipe(&runtime_session_name, pane_id) {
-            pipe.stop();
-        }
         let _ = self.terminals.remove_pane(&runtime_session_name, pane_id);
 
         // tmux respawns a window by retaining the first pane's identity and
@@ -568,42 +543,6 @@ fn build_command_output(windows: &[WindowListEntry]) -> CommandOutput {
     };
 
     CommandOutput::from_stdout(stdout)
-}
-
-fn link_window_destination_index(
-    session: &Session,
-    target_window_index: u32,
-    after: bool,
-    before: bool,
-) -> Result<u32, TerminalError> {
-    if !(after || before) {
-        return Ok(target_window_index);
-    }
-
-    if session.window_at(target_window_index).is_none() {
-        return Err(TerminalError::invalid_target(
-            format!("{}:{target_window_index}", session.name()),
-            "window index does not exist in session",
-        ));
-    }
-
-    if before {
-        Ok(target_window_index)
-    } else {
-        target_window_index.checked_add(1).ok_or_else(|| {
-            TerminalError::Server(format!(
-                "window index space exhausted for session {}",
-                session.name()
-            ))
-        })
-    }
-}
-
-fn request_target_string(target: &berth_term_proto::MoveWindowTarget) -> String {
-    match target {
-        berth_term_proto::MoveWindowTarget::Session(session_name) => session_name.to_string(),
-        berth_term_proto::MoveWindowTarget::Window(target) => target.to_string(),
-    }
 }
 
 fn ensure_session_panes_exist(

@@ -6,10 +6,10 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[cfg(unix)]
-use rustix::process::getuid;
 use berth_term_engine::OptionStore;
 use berth_term_proto::{OptionName, SessionName};
+#[cfg(unix)]
+use rustix::process::getuid;
 
 #[cfg(windows)]
 pub(super) const CLIENT_SHELL_ENV: &str = "BERTH_CLIENT_SHELL";

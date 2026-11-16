@@ -13,9 +13,8 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinError, JoinSet};
 use tracing::{debug, warn};
 
-use crate::control::{self, ControlLifecycle, ControlServerEvent};
 use crate::daemon::ShutdownHandle;
-use crate::handler::{attach_support::AttachRegistration, ControlRegistration, RequestHandler};
+use crate::handler::{attach_support::AttachRegistration, RequestHandler};
 use crate::listener_options::ServeOptions;
 use crate::listener_signals::handle_server_signal;
 use crate::listener_signals::poll_server_signal;
@@ -37,43 +36,12 @@ pub(crate) async fn serve(
     #[cfg(windows)]
     let mut cleanup_on_drop = SocketCleanup::new(socket_path.clone());
     let server_signals = options.server_signals;
-    #[cfg(all(any(unix, windows), feature = "web"))]
-    let web_required = options.web_required;
-    #[cfg(all(any(unix, windows), feature = "web"))]
-    let handler = Arc::new(
-        RequestHandler::with_owner_uid_subscription_limits_and_web_settings(
-            options.owner_uid,
-            options.subscription_limits,
-            crate::web::WebShareSettings::from_options_with_port_explicit(
-                options.web_port,
-                options.web_frontend,
-                options.web_port_explicit,
-            )
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?,
-        ),
-    );
-    #[cfg(not(all(any(unix, windows), feature = "web")))]
     let handler = Arc::new(RequestHandler::with_owner_uid_and_subscription_limits(
         options.owner_uid,
         options.subscription_limits,
     ));
     handler.install_shutdown_handle(shutdown_handle.clone());
     handler.set_socket_path(&socket_path);
-    #[cfg(all(any(unix, windows), feature = "web"))]
-    if web_required {
-        handler
-            .ensure_web_share_listener_running()
-            .await
-            .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error.to_string()))?;
-    }
-    let startup_guard = handler.start_config_loading();
-    let startup_handler = Arc::clone(&handler);
-    let startup_config = options.config_load;
-    let startup_task = tokio::spawn(async move {
-        startup_handler
-            .load_startup_config_with_guard(startup_config, startup_guard)
-            .await;
-    });
     let (connection_shutdown, connection_shutdown_rx) = watch::channel(());
     let mut connection_tasks = JoinSet::new();
     let hook_handler = Arc::clone(&handler);
@@ -139,12 +107,6 @@ pub(crate) async fn serve(
     }
 
     drop(connection_shutdown);
-    startup_task.abort();
-    match startup_task.await {
-        Ok(()) => {}
-        Err(error) if error.is_cancelled() => {}
-        Err(error) => warn!("startup config task failed: {error}"),
-    }
 
     while let Some(result) = connection_tasks.join_next().await {
         log_connection_task_result(result);
@@ -163,7 +125,7 @@ async fn serve_connection(
     handler: Arc<RequestHandler>,
     connection_id: u64,
     mut shutdown: watch::Receiver<()>,
-    shutdown_handle: ShutdownHandle,
+    _shutdown_handle: ShutdownHandle,
 ) -> io::Result<()> {
     let Some(_) = handler.access_mode_for_peer(&requester) else {
         let mut conn = Connection::new(stream);
@@ -311,41 +273,6 @@ async fn serve_connection(
                     handler.finish_attach(requester.pid, attach_id).await;
                     return result;
                 }
-                if let Some(control_upgrade) = outcome.control {
-                    let (server_event_tx, server_event_rx) = tokio::sync::mpsc::unbounded_channel::<ControlServerEvent>();
-                    let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                    let control_id = handler
-                        .register_control_with_access(
-                            requester.pid,
-                            control_upgrade,
-                            ControlRegistration {
-                                event_tx: server_event_tx,
-                                closing: closing.clone(),
-                                uid: requester.uid,
-                                user: requester.user.clone(),
-                                can_write,
-                            },
-                        )
-                        .await;
-                    drop(detached_connection_guard);
-                    drop(detached_request_guard.take());
-                    let (stream, buffered_bytes) = conn.into_raw_parts();
-                    let result = control::forward_control(
-                        stream,
-                        Arc::clone(&handler),
-                        requester.pid,
-                        buffered_bytes,
-                        shutdown,
-                        server_event_rx,
-                        ControlLifecycle {
-                            closing,
-                            shutdown_handle: shutdown_handle.clone(),
-                        },
-                    )
-                    .await;
-                    handler.finish_control(requester.pid, control_id).await;
-                    return result;
-                }
 
                 drop(detached_request_guard.take());
                 if handler
@@ -431,10 +358,7 @@ fn request_cancels_on_peer_disconnect(request: &Request) -> bool {
 }
 
 fn request_counts_as_detached_activity(request: &Request) -> bool {
-    !matches!(
-        request,
-        Request::Handshake(_) | Request::DaemonStatus(_) | Request::ShutdownIfIdle(_)
-    )
+    !matches!(request, Request::Handshake(_))
 }
 
 fn drain_finished_connection_tasks(tasks: &mut JoinSet<io::Result<()>>) {
@@ -501,11 +425,10 @@ impl Connection {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::server_access::AccessMode;
+
     use berth_term_proto::{
-        DaemonStatusRequest, ErrorResponse, HandshakeRequest, ListSessionsRequest,
-        RenameSessionRequest, SessionName, ShutdownIfIdleRequest, ShutdownIfIdleResponse,
-        TerminalError, WaitForMode, WaitForRequest, WaitForResponse, BERTH_TERM_WIRE_VERSION,
+        ErrorResponse, HandshakeRequest, SessionName, TerminalError, WaitForMode, WaitForRequest,
+        WaitForResponse, BERTH_TERM_WIRE_VERSION,
     };
 
     #[tokio::test]
@@ -555,135 +478,6 @@ mod tests {
                 error: TerminalError::Message(_),
             })
         ));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn shutdown_if_idle_counts_other_open_detached_connections() -> io::Result<()> {
-        let handler = Arc::new(RequestHandler::new());
-        let (mut idle_client, _idle_shutdown_tx, idle_task) = spawn_test_connection(&handler)?;
-        let (mut upgrade_client, _upgrade_shutdown_tx, upgrade_task) =
-            spawn_test_connection(&handler)?;
-
-        write_test_request(
-            &mut idle_client,
-            Request::Handshake(HandshakeRequest::current()),
-        )
-        .await?;
-        assert!(matches!(
-            read_test_response(&mut idle_client).await?,
-            Response::Handshake(_)
-        ));
-
-        write_test_request(
-            &mut upgrade_client,
-            Request::DaemonStatus(DaemonStatusRequest),
-        )
-        .await?;
-        let Response::DaemonStatus(status) = read_test_response(&mut upgrade_client).await? else {
-            panic!("expected daemon status response");
-        };
-        assert_eq!(status.session_count, 0);
-        assert_eq!(
-            status.client_count, 1,
-            "daemon-status must exclude its own detached connection but count another idle SDK connection"
-        );
-
-        write_test_request(
-            &mut upgrade_client,
-            Request::ShutdownIfIdle(ShutdownIfIdleRequest),
-        )
-        .await?;
-        assert_eq!(
-            read_test_response(&mut upgrade_client).await?,
-            Response::ShutdownIfIdle(ShutdownIfIdleResponse {
-                shutdown: false,
-                session_count: 0,
-                client_count: 1,
-            })
-        );
-
-        drop(idle_client);
-        idle_task.await.expect("idle connection task")?;
-
-        write_test_request(
-            &mut upgrade_client,
-            Request::ShutdownIfIdle(ShutdownIfIdleRequest),
-        )
-        .await?;
-        assert_eq!(
-            read_test_response(&mut upgrade_client).await?,
-            Response::ShutdownIfIdle(ShutdownIfIdleResponse {
-                shutdown: true,
-                session_count: 0,
-                client_count: 0,
-            })
-        );
-        upgrade_task.await.expect("upgrade connection task")?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn persistent_connection_reevaluates_server_access_per_request() -> io::Result<()> {
-        let peer_uid = berth_term_os::identity::real_user_id().saturating_add(10_000);
-        let peer = PeerIdentity {
-            pid: std::process::id(),
-            uid: peer_uid,
-            user: berth_term_os::identity::UserIdentity::Uid(peer_uid),
-        };
-        let handler = Arc::new(RequestHandler::new());
-        handler
-            .set_test_access_mode_for_uid(peer_uid, AccessMode::ReadWrite)
-            .expect("test peer starts read-write");
-        let (mut client, _shutdown_tx, connection_task) =
-            spawn_test_connection_with_peer(&handler, peer)?;
-
-        write_test_request(&mut client, rename_missing_session_request()).await?;
-        let response = read_test_response(&mut client).await?;
-        match response {
-            Response::Error(ErrorResponse {
-                error: TerminalError::Server(message),
-            }) => {
-                assert_ne!(message, "client is read-only");
-                assert_ne!(message, "access not allowed");
-            }
-            Response::Error(_) => {}
-            response => panic!("expected rename-session to reach the handler, got {response:?}"),
-        }
-
-        handler
-            .set_test_access_mode_for_uid(peer_uid, AccessMode::ReadOnly)
-            .expect("test peer downgrades to read-only");
-        write_test_request(&mut client, rename_missing_session_request()).await?;
-        assert_eq!(
-            read_test_response(&mut client).await?,
-            Response::Error(ErrorResponse {
-                error: TerminalError::Server("client is read-only".to_owned())
-            })
-        );
-
-        handler
-            .remove_test_access_for_uid(peer_uid)
-            .expect("test peer access can be revoked");
-        write_test_request(
-            &mut client,
-            Request::ListSessions(ListSessionsRequest {
-                format: None,
-                filter: None,
-                sort_order: None,
-                reversed: false,
-            }),
-        )
-        .await?;
-        assert_eq!(
-            read_test_response(&mut client).await?,
-            Response::Error(ErrorResponse {
-                error: TerminalError::Server("access not allowed".to_owned())
-            })
-        );
-
-        drop(client);
-        connection_task.await.expect("connection task")?;
         Ok(())
     }
 
@@ -825,8 +619,6 @@ mod tests {
         Ok(())
     }
 
-
-
     fn spawn_test_connection(
         handler: &Arc<RequestHandler>,
     ) -> io::Result<(
@@ -937,7 +729,16 @@ mod tests {
         let (mut client, _shutdown_tx, _task, _sender) = spawn_parked_cursor_wait(&handler).await?;
 
         let started = std::time::Instant::now();
-        write_test_request(&mut client, Request::DaemonStatus(DaemonStatusRequest)).await?;
+        write_test_request(
+            &mut client,
+            Request::ListSessions(berth_term_proto::ListSessionsRequest {
+                format: None,
+                filter: None,
+                sort_order: None,
+                reversed: false,
+            }),
+        )
+        .await?;
         // 两个响应常在同一次 read 里到达，必须用同一个解码器读。
         let mut decoder = FrameDecoder::new();
         let mut buffer = [0_u8; 4096];
@@ -968,7 +769,7 @@ mod tests {
         };
         assert!(cursor.events.is_empty());
         assert!(
-            matches!(responses[1], Response::DaemonStatus(_)),
+            matches!(responses[1], Response::ListSessions(_)),
             "{responses:?}"
         );
         assert!(started.elapsed() < Duration::from_secs(2));
@@ -986,13 +787,6 @@ mod tests {
             .map_err(|_| io::Error::other("disconnect must end the parked wait"))?
             .expect("connection task")?;
         Ok(())
-    }
-
-    fn rename_missing_session_request() -> Request {
-        Request::RenameSession(RenameSessionRequest {
-            target: SessionName::new("missing").expect("valid source session"),
-            new_name: SessionName::new("renamed").expect("valid destination session"),
-        })
     }
 
     fn wait_for(channel: &str, mode: WaitForMode) -> Request {

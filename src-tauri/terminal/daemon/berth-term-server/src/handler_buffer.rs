@@ -1,15 +1,9 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use berth_term_engine::{
     encode_paste_bytes, GridRenderOptions, LifecycleEvent, ScreenCaptureRange,
 };
 use berth_term_proto::{
-    CapturePaneResponse, ClearHistoryResponse, CommandOutput, DeleteBufferResponse, ErrorResponse,
-    ListBuffersResponse, LoadBufferResponse, OptionName, PasteBufferResponse, Response,
-    SaveBufferResponse, SetBufferResponse, ShowBufferResponse, TerminalError,
+    CapturePaneResponse, ClearHistoryResponse, CommandOutput, ErrorResponse, OptionName,
+    PasteBufferResponse, Response, SetBufferResponse, ShowBufferResponse, TerminalError,
 };
 
 use super::pane_support::resolve_pane_target_ref;
@@ -19,14 +13,6 @@ use crate::outer_terminal::OuterTerminal;
 use crate::pane_io::AttachControl;
 use crate::pane_terminals::{session_not_found, PaneCaptureRequest};
 
-#[path = "handler_buffer/list.rs"]
-mod list;
-
-use list::{
-    command_output_from_lines, render_list_buffer_line, sort_buffer_entries, BufferSortOrder,
-};
-
-static SAVE_BUFFER_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 impl RequestHandler {
     pub(super) async fn handle_set_buffer(
         &self,
@@ -170,117 +156,6 @@ impl RequestHandler {
         }
 
         Response::PasteBuffer(PasteBufferResponse { buffer_name })
-    }
-
-    pub(super) async fn handle_list_buffers(
-        &self,
-        request: berth_term_proto::ListBuffersRequest,
-    ) -> Response {
-        let state = self.state.lock().await;
-        let sort_order = match BufferSortOrder::parse(request.sort_order.as_deref()) {
-            Some(order) => order,
-            None => {
-                let value = request.sort_order.unwrap_or_default();
-                return Response::Error(ErrorResponse {
-                    error: TerminalError::Server(format!("invalid sort order: {value}")),
-                });
-            }
-        };
-
-        let mut entries = state.buffers.entries();
-        sort_buffer_entries(&mut entries, sort_order, request.reversed);
-        let lines = entries
-            .into_iter()
-            .filter_map(|entry| render_list_buffer_line(&state, &request, entry))
-            .collect::<Vec<_>>();
-
-        Response::ListBuffers(ListBuffersResponse {
-            output: command_output_from_lines(&lines),
-        })
-    }
-
-    pub(super) async fn handle_delete_buffer(
-        &self,
-        request: berth_term_proto::DeleteBufferRequest,
-    ) -> Response {
-        let mut state = self.state.lock().await;
-
-        match state.buffers.delete(request.name.as_deref()) {
-            Ok(buffer_name) => {
-                drop(state);
-                self.emit(LifecycleEvent::PasteBufferDeleted {
-                    buffer_name: buffer_name.clone(),
-                })
-                .await;
-                Response::DeleteBuffer(DeleteBufferResponse { buffer_name })
-            }
-            Err(error) => Response::Error(ErrorResponse { error }),
-        }
-    }
-
-    pub(super) async fn handle_load_buffer(
-        &self,
-        requester_pid: u32,
-        request: berth_term_proto::LoadBufferRequest,
-    ) -> Response {
-        let resolved_path = resolve_buffer_path(&request.path, request.cwd.as_deref());
-        let content = match fs::read(&resolved_path) {
-            Ok(content) => content,
-            Err(error) => {
-                return Response::Error(ErrorResponse {
-                    error: TerminalError::Server(format!(
-                        "failed to read buffer file '{}': {error}",
-                        request.path
-                    )),
-                });
-            }
-        };
-        if content.is_empty() {
-            return Response::LoadBuffer(LoadBufferResponse {
-                buffer_name: String::new(),
-            });
-        }
-
-        let clipboard_bytes = request.set_clipboard.then_some(content.clone());
-        match self.store_buffer(request.name, content).await {
-            Ok(buffer_name) => {
-                if let Some(bytes) = clipboard_bytes.as_deref() {
-                    self.copy_bytes_to_attached_clipboard(requester_pid, "load-buffer", bytes)
-                        .await;
-                }
-                Response::LoadBuffer(LoadBufferResponse { buffer_name })
-            }
-            Err(error) => Response::Error(ErrorResponse { error }),
-        }
-    }
-
-    pub(super) async fn handle_save_buffer(
-        &self,
-        request: berth_term_proto::SaveBufferRequest,
-    ) -> Response {
-        let (buffer_name, content) = {
-            let state = self.state.lock().await;
-            match state.buffers.show(request.name.as_deref()) {
-                Ok((name, content)) => (name.to_owned(), content.to_vec()),
-                Err(error) => return Response::Error(ErrorResponse { error }),
-            }
-        };
-
-        let resolved_path = resolve_buffer_path(&request.path, request.cwd.as_deref());
-        let save_result = if request.append {
-            append_buffer_to_path(&resolved_path, &content)
-        } else {
-            save_buffer_atomically(&resolved_path, &content)
-        };
-        match save_result {
-            Ok(()) => Response::SaveBuffer(SaveBufferResponse { buffer_name }),
-            Err(error) => Response::Error(ErrorResponse {
-                error: TerminalError::Server(format!(
-                    "failed to write buffer file '{}': {error}",
-                    request.path
-                )),
-            }),
-        }
     }
 
     pub(super) async fn handle_capture_pane(
@@ -499,83 +374,6 @@ fn parse_buffer_limit(state: &crate::pane_terminals::HandlerState) -> usize {
         .resolve(None, OptionName::BufferLimit)
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(50)
-}
-
-fn resolve_buffer_path(path: &str, cwd: Option<&Path>) -> PathBuf {
-    let candidate = Path::new(path);
-    if candidate.is_absolute() {
-        candidate.to_path_buf()
-    } else if let Some(cwd) = cwd {
-        cwd.join(candidate)
-    } else {
-        candidate.to_path_buf()
-    }
-}
-
-fn save_buffer_atomically(destination: &Path, content: &[u8]) -> io::Result<()> {
-    let parent = destination
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let (mut temp_file, temp_path) = create_save_buffer_temp_file(parent, destination)?;
-
-    let write_result = (|| {
-        temp_file.write_all(content)?;
-        temp_file.sync_all()
-    })();
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error);
-    }
-
-    if let Err(error) = fs::rename(&temp_path, destination) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error);
-    }
-
-    Ok(())
-}
-
-fn append_buffer_to_path(destination: &Path, content: &[u8]) -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(destination)?;
-    file.write_all(content)
-}
-
-fn create_save_buffer_temp_file(
-    parent: &Path,
-    destination: &Path,
-) -> io::Result<(std::fs::File, PathBuf)> {
-    let destination_name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "buffer".to_owned());
-
-    for _ in 0..128 {
-        let temp_id = SAVE_BUFFER_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = parent.join(format!(
-            ".{destination_name}.rmux-save-buffer-{temp_id:016x}.tmp"
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-        {
-            Ok(file) => return Ok((file, temp_path)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        }
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        format!(
-            "failed to allocate a temporary file alongside '{}'",
-            destination.display()
-        ),
-    ))
 }
 
 fn render_paste_payload(content: &[u8], request: &berth_term_proto::PasteBufferRequest) -> Vec<u8> {

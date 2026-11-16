@@ -103,13 +103,6 @@ pub struct PreviousWindowRequest {
     pub alerts_only: bool,
 }
 
-/// Request payload for `last-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LastWindowRequest {
-    /// The exact target session name.
-    pub target: SessionName,
-}
-
 /// Request payload for `list-windows`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListWindowsRequest {
@@ -168,17 +161,6 @@ pub struct MoveWindowRequest {
     /// Whether to insert before the target slot (`-b`).
     #[serde(default)]
     pub before: bool,
-}
-
-/// Request payload for `swap-window`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwapWindowRequest {
-    /// The source window slot.
-    pub source: WindowTarget,
-    /// The destination window slot.
-    pub target: WindowTarget,
-    /// Whether the swapped destination slots should become active after the swap.
-    pub detached: bool,
 }
 
 /// The supported pane rotation directions for `rotate-window`.

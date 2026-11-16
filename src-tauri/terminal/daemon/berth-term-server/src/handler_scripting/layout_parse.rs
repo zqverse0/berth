@@ -1,75 +1,15 @@
 use berth_term_engine::{SessionStore, TargetFindContext};
 use berth_term_proto::{
-    DisplayPanesRequest, Request, ResizePaneAdjustment, ResizePaneRequest,
-    SelectCustomLayoutRequest, SelectLayoutRequest, SelectLayoutTarget, SelectOldLayoutRequest,
+    Request, ResizePaneAdjustment, ResizePaneRequest, SelectLayoutRequest, SelectLayoutTarget,
     SpreadLayoutRequest, TerminalError,
 };
 
 use super::tokens::CommandTokens;
-use super::values::{parse_u16, parse_u64};
+use super::values::{parse_u16, removed_option};
 use super::{
-    implicit_pane_target, implicit_session_name, implicit_window_target,
-    is_unsupported_named_layout, parse_layout_name, parse_pane_target, parse_select_layout_target,
+    implicit_pane_target, implicit_window_target, is_unsupported_named_layout, parse_layout_name,
+    parse_pane_target, parse_select_layout_target,
 };
-
-pub(super) fn parse_display_panes(
-    mut args: CommandTokens,
-    sessions: &SessionStore,
-    find_context: &TargetFindContext,
-) -> Result<Request, TerminalError> {
-    let mut duration_ms = None;
-    let mut non_blocking = false;
-    let mut no_command = false;
-
-    while let Some(token) = args.peek() {
-        match token {
-            "--" => {
-                let _ = args.optional();
-                break;
-            }
-            "-b" => {
-                let _ = args.optional();
-                non_blocking = true;
-            }
-            "-d" => {
-                let _ = args.optional();
-                duration_ms = Some(parse_u64(
-                    "display-panes",
-                    "-d",
-                    &args.required("-d duration")?,
-                )?);
-            }
-            "-N" => {
-                let _ = args.optional();
-                no_command = true;
-            }
-            "-t" => {
-                let _ = args.optional();
-                return Err(display_panes_client_target_not_found(
-                    &args.required("-t target-client")?,
-                ));
-            }
-            _ => break,
-        }
-    }
-
-    let template = (!args.is_empty()).then(|| args.remaining_joined());
-
-    Ok(Request::DisplayPanes(DisplayPanesRequest {
-        target: implicit_session_name(sessions, find_context, "display-panes")?,
-        duration_ms,
-        non_blocking,
-        no_command,
-        template,
-    }))
-}
-
-fn display_panes_client_target_not_found(raw_target: &str) -> TerminalError {
-    TerminalError::Message(format!(
-        "can't find client: {}",
-        raw_target.strip_suffix(':').unwrap_or(raw_target)
-    ))
-}
 
 pub(super) fn parse_select_layout(
     mut args: CommandTokens,
@@ -118,7 +58,7 @@ pub(super) fn parse_select_layout(
     }
     if old_layout {
         args.no_extra("select-layout")?;
-        return Ok(Request::SelectOldLayout(SelectOldLayoutRequest { target }));
+        return Err(removed_option("select-layout -o"));
     }
 
     let layout = args.required("select-layout layout")?;
@@ -132,10 +72,7 @@ pub(super) fn parse_select_layout(
             target,
             layout,
         })),
-        Err(_) => Ok(Request::SelectCustomLayout(SelectCustomLayoutRequest {
-            target,
-            layout,
-        })),
+        Err(_) => Err(TerminalError::Server(format!("invalid layout: {layout}"))),
     }
 }
 

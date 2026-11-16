@@ -349,12 +349,6 @@ pub(crate) fn resolve_exact_option_name(name: &str) -> Result<OptionQuery, Termi
     )))
 }
 
-/// Resolves a known option by name when the caller only accepts registered options.
-#[must_use]
-pub fn option_name_by_name(name: &str) -> Option<OptionName> {
-    resolve_option_name(name).ok()?.known_option()
-}
-
 /// Returns whether a known option change may affect attached rendering.
 #[must_use]
 pub fn option_affects_rendering(option: OptionName) -> bool {

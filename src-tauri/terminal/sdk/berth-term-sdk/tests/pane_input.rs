@@ -10,8 +10,8 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use berth_term_proto::{
-    encode_frame, ClientTerminalContext, ControlMode, ControlModeRequest, FrameDecoder,
-    HasSessionRequest, KillPaneRequest, NewWindowRequest, PaneTarget, Request, Response,
+    encode_frame, FrameDecoder, HasSessionRequest, KillPaneRequest, NewWindowRequest, PaneTarget,
+    Request, Response,
 };
 use berth_term_sdk::{
     EnsureSession, Input, PaneId, PaneRef, PaneSnapshot, SessionName, SplitDirection,
@@ -96,7 +96,7 @@ async fn send_text_is_literal_and_send_key_interprets_key_tokens() -> TestResult
 }
 
 #[tokio::test]
-async fn resize_updates_geometry_and_emits_window_layout_change() -> TestResult {
+async fn resize_updates_pane_geometry() -> TestResult {
     let _lock = LIVE_DAEMON_LOCK.lock().await;
     let harness = Harness::start("pane-input-resize").await?;
     let terminal = harness.terminal();
@@ -109,7 +109,7 @@ async fn resize_updates_geometry_and_emits_window_layout_change() -> TestResult 
     let pane = session.pane(0, 0);
     let baseline = pane.snapshot().await?;
     let pane_info = pane.info().await?;
-    let expected_window_id = pane_info
+    let _expected_window_id = pane_info
         .windows
         .first()
         .expect("resized pane has a listed window")
@@ -120,8 +120,6 @@ async fn resize_updates_geometry_and_emits_window_layout_change() -> TestResult 
         "split pane is too narrow for resize test"
     );
 
-    let mut control = ControlClient::open(harness.socket_path(), &alpha).await?;
-    control.drain_pending_lines().await?;
     let expected_cols = baseline.cols - 3;
     pane.resize(TerminalSizeSpec::new(expected_cols, baseline.rows))
         .await?;
@@ -131,23 +129,6 @@ async fn resize_updates_geometry_and_emits_window_layout_change() -> TestResult 
         (baseline.cols, baseline.rows)
     );
     assert_ne!(after_resize.revision, baseline.revision);
-
-    let layout_line = control
-        .wait_for_line(|line| {
-            line.starts_with("%layout-change ")
-                && layout_change_window_id(line) == Some(expected_window_id.as_str())
-        })
-        .await?;
-    assert_eq!(
-        layout_change_window_id(&layout_line),
-        Some(expected_window_id.as_str()),
-        "layout notification did not target the resized window: {layout_line}"
-    );
-    assert!(
-        layout_line.split_whitespace().count() >= 5,
-        "unexpected layout notification: {layout_line}"
-    );
-    drop(control);
 
     harness.finish().await
 }
@@ -518,10 +499,6 @@ fn compact_hex(snapshot: &PaneSnapshot) -> String {
         .collect()
 }
 
-fn layout_change_window_id(line: &str) -> Option<&str> {
-    line.split_whitespace().nth(1)
-}
-
 fn session_name(value: &str) -> SessionName {
     SessionName::new(value).expect("valid session name")
 }
@@ -590,116 +567,6 @@ async fn read_response(stream: &mut UnixStream) -> TestResult<Response> {
             return Err("connection closed before response frame".into());
         }
         decoder.push_bytes(&read_buffer[..bytes_read]);
-    }
-}
-
-struct ControlClient {
-    stream: UnixStream,
-    buffer: Vec<u8>,
-}
-
-impl ControlClient {
-    async fn open(socket_path: &Path, target: &SessionName) -> TestResult<Self> {
-        let mut stream = UnixStream::connect(socket_path).await?;
-        let frame = encode_frame(&Request::ControlMode(ControlModeRequest {
-            mode: ControlMode::Plain,
-            client_terminal: ClientTerminalContext {
-                terminal_features: Vec::new(),
-                utf8: true,
-            },
-        }))?;
-        stream.write_all(&frame).await?;
-        match read_response(&mut stream).await? {
-            Response::ControlMode(_) => {}
-            response => {
-                return Err(format!("unexpected control-mode response: {response:?}").into())
-            }
-        }
-
-        let mut client = Self {
-            stream,
-            buffer: Vec::new(),
-        };
-        client
-            .write_line(&format!("attach-session -t {target}"))
-            .await?;
-        client.wait_for_command_end().await?;
-        Ok(client)
-    }
-
-    async fn write_line(&mut self, line: &str) -> TestResult {
-        self.stream.write_all(line.as_bytes()).await?;
-        self.stream.write_all(b"\n").await?;
-        Ok(())
-    }
-
-    async fn wait_for_command_end(&mut self) -> TestResult {
-        let line = self
-            .wait_for_line(|line| line.starts_with("%end ") || line.starts_with("%error "))
-            .await?;
-        if line.starts_with("%error ") {
-            return Err(format!("control command failed: {line}").into());
-        }
-        Ok(())
-    }
-
-    async fn drain_pending_lines(&mut self) -> TestResult {
-        loop {
-            while self.pop_line().is_some() {}
-
-            let mut read_buffer = [0_u8; 1024];
-            match tokio::time::timeout(
-                Duration::from_millis(25),
-                self.stream.read(&mut read_buffer),
-            )
-            .await
-            {
-                Ok(Ok(0)) => return Err("control connection closed while draining lines".into()),
-                Ok(Ok(bytes_read)) => self.buffer.extend_from_slice(&read_buffer[..bytes_read]),
-                Ok(Err(error)) => return Err(error.into()),
-                Err(_) => return Ok(()),
-            }
-        }
-    }
-
-    async fn wait_for_line(
-        &mut self,
-        mut matches_line: impl FnMut(&str) -> bool,
-    ) -> TestResult<String> {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            while let Some(line) = self.pop_line() {
-                if matches_line(&line) {
-                    return Ok(line);
-                }
-            }
-            if Instant::now() >= deadline {
-                return Err("control line did not arrive within deadline".into());
-            }
-
-            let mut read_buffer = [0_u8; 1024];
-            match tokio::time::timeout(
-                Duration::from_millis(50),
-                self.stream.read(&mut read_buffer),
-            )
-            .await
-            {
-                Ok(Ok(0)) => return Err("control connection closed before line arrived".into()),
-                Ok(Ok(bytes_read)) => self.buffer.extend_from_slice(&read_buffer[..bytes_read]),
-                Ok(Err(error)) => return Err(error.into()),
-                Err(_) => {}
-            }
-        }
-    }
-
-    fn pop_line(&mut self) -> Option<String> {
-        let line_end = self.buffer.iter().position(|byte| *byte == b'\n')?;
-        let line = self.buffer.drain(..=line_end).collect::<Vec<_>>();
-        Some(
-            String::from_utf8_lossy(&line)
-                .trim_end_matches(['\r', '\n'])
-                .to_owned(),
-        )
     }
 }
 
@@ -843,7 +710,7 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
             .arg("--bin")
             .arg("berth-termd")
             .arg("--package")
-            .arg("berth-termd")
+            .arg("berth-terminald")
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace_root().join("Cargo.toml"))

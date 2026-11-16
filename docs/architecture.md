@@ -242,6 +242,8 @@ TerminalView / terminal-runtime-store
 Daemon 拥有 session/window/pane/PTY。GUI manager 只维护 live handle/index 和 Tauri channel
 adapter。高频输出通过 `terminal_attach_channel` 二进制 packet 进入前端；CLI 也直接使用
 SDK，因此 GUI 与 CLI 能发现同一个 daemon 会话。
+命令面只留 GUI / SDK / CLI 与 attach 帮助所列按键实际用到的部分（2026-11 lean-berth 收缩）；
+退役命令在协议里原位占位为 `Reserved`，台账永不复用，清单见 `docs/REMOVED.md`。
 
 ### 7.6 会话历史读取
 

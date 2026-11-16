@@ -84,48 +84,6 @@ fn user_option_set_and_resolve_at_session_global_scope() {
 }
 
 #[test]
-fn show_options_named_user_option_rejects_missing_scope_value() {
-    let mut store = OptionStore::new();
-    let alpha = session_name("alpha");
-    let window = WindowTarget::with_window(alpha, 0);
-
-    store
-        .set_by_name(
-            OptionScopeSelector::Window(window.clone()),
-            "@wfoo",
-            Some("win".to_owned()),
-            SetOptionMode::Replace,
-            false,
-            false,
-            false,
-        )
-        .expect("window user option set succeeds");
-
-    assert_eq!(
-        store
-            .show_options_lines_filtered(&OptionScopeSelector::Window(window), Some("@wfoo"), true,)
-            .expect("window user option is visible"),
-        vec!["win".to_owned()]
-    );
-    assert_eq!(
-        store
-            .show_options_lines_filtered(&OptionScopeSelector::WindowGlobal, Some("@wfoo"), true)
-            .expect_err("window-local user option is not global"),
-        TerminalError::Message("invalid option: @wfoo".to_owned())
-    );
-    assert_eq!(
-        store
-            .show_options_lines_filtered(
-                &OptionScopeSelector::SessionGlobal,
-                Some("@missing"),
-                true,
-            )
-            .expect_err("missing user option is invalid"),
-        TerminalError::Message("invalid option: @missing".to_owned())
-    );
-}
-
-#[test]
 fn user_option_session_local_overrides_global() {
     let mut store = OptionStore::new();
     let alpha = session_name("alpha");

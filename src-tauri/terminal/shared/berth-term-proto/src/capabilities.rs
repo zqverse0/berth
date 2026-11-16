@@ -48,11 +48,6 @@ pub const CAPABILITY_TARGET_CLIENT_COMMANDS: &str = "commands.target_client";
 pub const CAPABILITY_CLI_TARGET_ACTIONS: &str = "commands.cli_target_actions";
 /// Stable feature id for `capture-pane` with daemon-side target resolution.
 pub const CAPABILITY_CLI_CAPTURE_TARGET_ACTION: &str = "commands.cli_capture_target_action";
-/// Stable feature id for browser-visible pane sharing.
-///
-/// This optional capability is advertised by daemons compiled with their web
-/// listener enabled rather than by the protocol baseline capability list.
-pub const CAPABILITY_WEB_SHARE: &str = "web.share";
 
 /// Reserved capability prefix for the daemon instance identity.
 ///

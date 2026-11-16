@@ -3,7 +3,7 @@
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{ControlModeResponse, HandshakeResponse, LayoutName, SdkWaitId, TerminalError};
+use crate::{HandshakeResponse, LayoutName, SdkWaitId, TerminalError};
 
 #[path = "response/session.rs"]
 mod session;
@@ -15,10 +15,7 @@ pub use session::{
 
 #[path = "response/server.rs"]
 mod server;
-pub use server::{
-    DaemonStatusResponse, KillServerResponse, LockClientResponse, LockServerResponse,
-    LockSessionResponse, ServerAccessResponse, ShutdownIfIdleResponse,
-};
+pub use server::KillServerResponse;
 
 #[path = "response/target.rs"]
 mod target;
@@ -27,52 +24,33 @@ pub use target::ResolveTargetResponse;
 #[path = "response/window.rs"]
 mod window;
 pub use window::{
-    KillWindowResponse, LastWindowResponse, LinkWindowResponse, ListWindowsResponse,
-    MoveWindowResponse, NewWindowResponse, NextWindowResponse, PreviousWindowResponse,
-    RenameWindowResponse, ResizeWindowResponse, RespawnWindowResponse, RotateWindowResponse,
-    SelectWindowResponse, SwapWindowResponse, UnlinkWindowResponse, WindowListEntry,
+    KillWindowResponse, ListWindowsResponse, NewWindowResponse, NextWindowResponse,
+    PreviousWindowResponse, RenameWindowResponse, ResizeWindowResponse, RespawnWindowResponse,
+    SelectWindowResponse, WindowListEntry,
 };
 
 #[path = "response/pane.rs"]
 mod pane;
 pub use pane::{
-    BreakPaneResponse, DisplayPanesResponse, JoinPaneResponse, KillPaneResponse, LastPaneResponse,
-    ListPanesResponse, MovePaneResponse, PaneBroadcastInputFailure, PaneBroadcastInputResponse,
+    KillPaneResponse, ListPanesResponse, PaneBroadcastInputFailure, PaneBroadcastInputResponse,
     PaneBroadcastInputSuccess, PaneOutputCursor, PaneOutputCursorResponse, PaneOutputEvent,
     PaneOutputLagNotice, PaneOutputLagResponse, PaneRecentOutput, PaneSnapshotCell,
-    PaneSnapshotCursor, PaneSnapshotResponse, PipePaneResponse, ResizePaneResponse,
-    RespawnPaneResponse, SelectPaneResponse, SendKeysResponse, SplitWindowResponse,
-    SubscribePaneOutputResponse, SwapPaneResponse, UnsubscribePaneOutputResponse,
+    PaneSnapshotCursor, PaneSnapshotResponse, ResizePaneResponse, RespawnPaneResponse,
+    SelectPaneResponse, SendKeysResponse, SplitWindowResponse, SubscribePaneOutputResponse,
+    UnsubscribePaneOutputResponse,
 };
 
 #[path = "response/client.rs"]
 mod client;
-pub use client::{
-    AttachSessionResponse, DetachClientResponse, ListClientsResponse, RefreshClientResponse,
-    SuspendClientResponse, SwitchClientResponse,
-};
+pub use client::{AttachSessionResponse, DetachClientResponse, SwitchClientResponse};
 
 #[path = "response/keys.rs"]
 mod keys;
-pub use keys::{
-    BindKeyResponse, ClockModeResponse, CopyModeResponse, ListKeysResponse, SendPrefixResponse,
-    UnbindKeyResponse,
-};
+pub use keys::CopyModeResponse;
 
 #[path = "response/options.rs"]
 mod options;
-pub use options::{
-    SetEnvironmentResponse, SetHookResponse, SetOptionByNameResponse, SetOptionResponse,
-    ShowEnvironmentResponse, ShowHooksResponse, ShowOptionsResponse,
-};
-
-#[path = "response/web.rs"]
-mod web;
-pub use web::{
-    WebShareConfigResponse, WebShareCreatedResponse, WebShareListResponse, WebShareListener,
-    WebShareLookupResponse, WebShareResponse, WebShareStoppedAllResponse, WebShareStoppedResponse,
-    WebShareSummary,
-};
+pub use options::{SetOptionByNameResponse, SetOptionResponse, ShowOptionsResponse};
 
 /// 在创建所持 state 锁内捕获的本次新 pane 身份，不从后续活动槽位推断。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,34 +86,34 @@ pub enum Response {
     NextWindow(NextWindowResponse),
     /// Success payload for `previous-window`.
     PreviousWindow(PreviousWindowResponse),
-    /// Success payload for `last-window`.
-    LastWindow(LastWindowResponse),
+    /// 已删除（原 `last-window`）。只占住 bincode 标签 9，永不复用。
+    Reserved9,
     /// Success payload for `list-windows`.
     ListWindows(ListWindowsResponse),
-    /// Success payload for `move-window`.
-    MoveWindow(MoveWindowResponse),
-    /// Success payload for `swap-window`.
-    SwapWindow(SwapWindowResponse),
-    /// Success payload for `rotate-window`.
-    RotateWindow(RotateWindowResponse),
+    /// 已删除（原 `move-window`）。只占住 bincode 标签 11，永不复用。
+    Reserved11,
+    /// 已删除（原 `swap-window`）。只占住 bincode 标签 12，永不复用。
+    Reserved12,
+    /// 已删除（原 `rotate-window`）。只占住 bincode 标签 13，永不复用。
+    Reserved13,
     /// Success payload for `split-window`.
     SplitWindow(SplitWindowResponse),
-    /// Success payload for `swap-pane`.
-    SwapPane(SwapPaneResponse),
-    /// Success payload for `last-pane`.
-    LastPane(LastPaneResponse),
-    /// Success payload for `join-pane`.
-    JoinPane(JoinPaneResponse),
-    /// Success payload for `break-pane`.
-    BreakPane(BreakPaneResponse),
+    /// 已删除（原 `swap-pane`）。只占住 bincode 标签 15，永不复用。
+    Reserved15,
+    /// 已删除（原 `last-pane`）。只占住 bincode 标签 16，永不复用。
+    Reserved16,
+    /// 已删除（原 `join-pane`）。只占住 bincode 标签 17，永不复用。
+    Reserved17,
+    /// 已删除（原 `break-pane`）。只占住 bincode 标签 18，永不复用。
+    Reserved18,
     /// Success payload for `kill-pane`.
     KillPane(KillPaneResponse),
     /// Success payload for `select-layout`.
     SelectLayout(SelectLayoutResponse),
     /// Success payload for `resize-pane`.
     ResizePane(ResizePaneResponse),
-    /// Success payload for `display-panes`.
-    DisplayPanes(DisplayPanesResponse),
+    /// 已删除（原 `display-panes`）。只占住 bincode 标签 22，永不复用。
+    Reserved22,
     /// Success payload for `select-pane`.
     SelectPane(SelectPaneResponse),
     /// Success payload for `send-keys`.
@@ -148,34 +126,34 @@ pub enum Response {
     DetachClient(DetachClientResponse),
     /// Success payload for `set-option`.
     SetOption(SetOptionResponse),
-    /// Success payload for `set-environment`.
-    SetEnvironment(SetEnvironmentResponse),
-    /// Success payload for `set-hook`.
-    SetHook(SetHookResponse),
+    /// 已删除（原 `set-environment`）。只占住 bincode 标签 29，永不复用。
+    Reserved29,
+    /// 已删除（原 `set-hook`）。只占住 bincode 标签 30，永不复用。
+    Reserved30,
     /// Error payload surfaced as exit code `1` and stderr by clients.
     Error(ErrorResponse),
-    /// Success payload for `next-layout`.
-    NextLayout(NextLayoutResponse),
-    /// Success payload for `previous-layout`.
-    PreviousLayout(PreviousLayoutResponse),
+    /// 已删除（原 `next-layout`）。只占住 bincode 标签 32，永不复用。
+    Reserved32,
+    /// 已删除（原 `previous-layout`）。只占住 bincode 标签 33，永不复用。
+    Reserved33,
     /// Success payload for `show-options`.
     ShowOptions(ShowOptionsResponse),
-    /// Success payload for `show-environment`.
-    ShowEnvironment(ShowEnvironmentResponse),
+    /// 已删除（原 `show-environment`）。只占住 bincode 标签 35，永不复用。
+    Reserved35,
     /// Success payload for `set-buffer`.
     SetBuffer(SetBufferResponse),
     /// Success payload for `show-buffer`.
     ShowBuffer(ShowBufferResponse),
     /// Success payload for `paste-buffer`.
     PasteBuffer(PasteBufferResponse),
-    /// Success payload for `list-buffers`.
-    ListBuffers(ListBuffersResponse),
-    /// Success payload for `delete-buffer`.
-    DeleteBuffer(DeleteBufferResponse),
-    /// Success payload for `load-buffer`.
-    LoadBuffer(LoadBufferResponse),
-    /// Success payload for `save-buffer`.
-    SaveBuffer(SaveBufferResponse),
+    /// 已删除（原 `list-buffers`）。只占住 bincode 标签 39，永不复用。
+    Reserved39,
+    /// 已删除（原 `delete-buffer`）。只占住 bincode 标签 40，永不复用。
+    Reserved40,
+    /// 已删除（原 `load-buffer`）。只占住 bincode 标签 41，永不复用。
+    Reserved41,
+    /// 已删除（原 `save-buffer`）。只占住 bincode 标签 42，永不复用。
+    Reserved42,
     /// Success payload for `capture-pane`.
     CapturePane(CapturePaneResponse),
     /// Success payload for `display-message`.
@@ -192,60 +170,60 @@ pub enum Response {
     ListSessions(ListSessionsResponse),
     /// Success payload for `list-panes`.
     ListPanes(ListPanesResponse),
-    /// Success payload for `source-file`.
-    SourceFile(SourceFileResponse),
+    /// 已删除（原 `source-file`）。只占住 bincode 标签 51，永不复用。
+    Reserved51,
     /// Success payload for string-based `set-option`.
     SetOptionByName(SetOptionByNameResponse),
-    /// Success payload for `show-hooks`.
-    ShowHooks(ShowHooksResponse),
-    /// Success payload for `bind-key`.
-    BindKey(BindKeyResponse),
-    /// Success payload for `unbind-key`.
-    UnbindKey(UnbindKeyResponse),
-    /// Success payload for `list-keys`.
-    ListKeys(ListKeysResponse),
-    /// Success payload for `send-prefix`.
-    SendPrefix(SendPrefixResponse),
+    /// 已删除（原 `show-hooks`）。只占住 bincode 标签 53，永不复用。
+    Reserved53,
+    /// 已删除（原 `bind-key`）。只占住 bincode 标签 54，永不复用。
+    Reserved54,
+    /// 已删除（原 `unbind-key`）。只占住 bincode 标签 55，永不复用。
+    Reserved55,
+    /// 已删除（原 `list-keys`）。只占住 bincode 标签 56，永不复用。
+    Reserved56,
+    /// 已删除（原 `send-prefix`）。只占住 bincode 标签 57，永不复用。
+    Reserved57,
     /// Success payload for `clear-history`.
     ClearHistory(ClearHistoryResponse),
     /// Success payload for `copy-mode`.
     CopyMode(CopyModeResponse),
-    /// Success payload for detached control-mode upgrade.
-    ControlMode(ControlModeResponse),
-    /// Success payload for `clock-mode`.
-    ClockMode(ClockModeResponse),
-    /// Success payload for `show-messages`.
-    ShowMessages(ShowMessagesResponse),
+    /// 已删除（原 `control-mode`）。只占住 bincode 标签 60，永不复用。
+    Reserved60,
+    /// 已删除（原 `clock-mode`）。只占住 bincode 标签 61，永不复用。
+    Reserved61,
+    /// 已删除（原 `show-messages`）。只占住 bincode 标签 62，永不复用。
+    Reserved62,
     /// Success payload for `kill-server`.
     KillServer(KillServerResponse),
-    /// Success payload for `lock-server`.
-    LockServer(LockServerResponse),
-    /// Success payload for `lock-session`.
-    LockSession(LockSessionResponse),
-    /// Success payload for `lock-client`.
-    LockClient(LockClientResponse),
-    /// Success payload for `server-access`.
-    ServerAccess(ServerAccessResponse),
-    /// Success payload for `refresh-client`.
-    RefreshClient(RefreshClientResponse),
-    /// Success payload for `list-clients`.
-    ListClients(ListClientsResponse),
-    /// Success payload for `suspend-client`.
-    SuspendClient(SuspendClientResponse),
+    /// 已删除（原 `lock-server`）。只占住 bincode 标签 64，永不复用。
+    Reserved64,
+    /// 已删除（原 `lock-session`）。只占住 bincode 标签 65，永不复用。
+    Reserved65,
+    /// 已删除（原 `lock-client`）。只占住 bincode 标签 66，永不复用。
+    Reserved66,
+    /// 已删除（原 `server-access`）。只占住 bincode 标签 67，永不复用。
+    Reserved67,
+    /// 已删除（原 `refresh-client`）。只占住 bincode 标签 68，永不复用。
+    Reserved68,
+    /// 已删除（原 `list-clients`）。只占住 bincode 标签 69，永不复用。
+    Reserved69,
+    /// 已删除（原 `suspend-client`）。只占住 bincode 标签 70，永不复用。
+    Reserved70,
     /// Success payload for `resize-window`.
     ResizeWindow(ResizeWindowResponse),
     /// Success payload for `respawn-window`.
     RespawnWindow(RespawnWindowResponse),
-    /// Success payload for `move-pane`.
-    MovePane(MovePaneResponse),
-    /// Success payload for `pipe-pane`.
-    PipePane(PipePaneResponse),
+    /// 已删除（原 `move-pane`）。只占住 bincode 标签 73，永不复用。
+    Reserved73,
+    /// 已删除（原 `pipe-pane`）。只占住 bincode 标签 74，永不复用。
+    Reserved74,
     /// Success payload for `respawn-pane`.
     RespawnPane(RespawnPaneResponse),
-    /// Success payload for `link-window`.
-    LinkWindow(LinkWindowResponse),
-    /// Success payload for `unlink-window`.
-    UnlinkWindow(UnlinkWindowResponse),
+    /// 已删除（原 `link-window`）。只占住 bincode 标签 76，永不复用。
+    Reserved76,
+    /// 已删除（原 `unlink-window`）。只占住 bincode 标签 77，永不复用。
+    Reserved77,
     /// Success payload for internal detached target resolution.
     ResolveTarget(ResolveTargetResponse),
     /// Success payload for SDK/daemon version and capability negotiation.
@@ -272,12 +250,10 @@ pub enum Response {
     RenewSessionLease(RenewSessionLeaseResponse),
     /// Success payload for releasing an app-owned session lease.
     ReleaseSessionLease(ReleaseSessionLeaseResponse),
-    /// Success payload for internal daemon version and activity status.
-    DaemonStatus(DaemonStatusResponse),
-    /// Success payload for internal idle-only daemon shutdown.
-    ShutdownIfIdle(ShutdownIfIdleResponse),
-    /// Success payload for browser-visible pane sharing.
-    WebShare(Box<WebShareResponse>),
+    /// 已删除（原 `daemon-status`）。只占住 bincode 标签 91，永不复用。
+    Reserved91,
+    /// 已删除（原 `shutdown-if-idle`）。只占住 bincode 标签 92，永不复用。
+    Reserved92,
 }
 
 impl Response {
@@ -297,40 +273,21 @@ impl Response {
             Self::RenameWindow(_) => "rename-window",
             Self::NextWindow(_) => "next-window",
             Self::PreviousWindow(_) => "previous-window",
-            Self::LastWindow(_) => "last-window",
             Self::ListWindows(_) => "list-windows",
-            Self::MoveWindow(_) => "move-window",
-            Self::SwapWindow(_) => "swap-window",
-            Self::RotateWindow(_) => "rotate-window",
             Self::SplitWindow(_) => "split-window",
-            Self::SwapPane(_) => "swap-pane",
-            Self::LastPane(_) => "last-pane",
-            Self::JoinPane(_) => "join-pane",
-            Self::BreakPane(_) => "break-pane",
             Self::KillPane(_) => "kill-pane",
             Self::SelectLayout(_) => "select-layout",
             Self::ResizePane(_) => "resize-pane",
-            Self::DisplayPanes(_) => "display-panes",
             Self::SelectPane(_) => "select-pane",
             Self::SendKeys(_) => "send-keys",
             Self::AttachSession(_) => "attach-session",
             Self::SwitchClient(_) => "switch-client",
             Self::DetachClient(_) => "detach-client",
             Self::SetOption(_) | Self::SetOptionByName(_) => "set-option",
-            Self::SetEnvironment(_) => "set-environment",
-            Self::SetHook(_) => "set-hook",
             Self::Error(_) => "error",
-            Self::NextLayout(_) => "next-layout",
-            Self::PreviousLayout(_) => "previous-layout",
             Self::ShowOptions(_) => "show-options",
-            Self::ShowEnvironment(_) => "show-environment",
             Self::SetBuffer(_) => "set-buffer",
-            Self::ShowBuffer(_) => "show-buffer",
             Self::PasteBuffer(_) => "paste-buffer",
-            Self::ListBuffers(_) => "list-buffers",
-            Self::DeleteBuffer(_) => "delete-buffer",
-            Self::LoadBuffer(_) => "load-buffer",
-            Self::SaveBuffer(_) => "save-buffer",
             Self::CapturePane(_) => "capture-pane",
             Self::DisplayMessage(_) => "display-message",
             Self::RunShell(_) => "run-shell",
@@ -339,29 +296,11 @@ impl Response {
             Self::RenameSession(_) => "rename-session",
             Self::ListSessions(_) => "list-sessions",
             Self::ListPanes(_) => "list-panes",
-            Self::SourceFile(_) => "source-file",
-            Self::ShowHooks(_) => "show-hooks",
-            Self::BindKey(_) => "bind-key",
-            Self::UnbindKey(_) => "unbind-key",
-            Self::ListKeys(_) => "list-keys",
-            Self::SendPrefix(_) => "send-prefix",
             Self::ClearHistory(_) => "clear-history",
             Self::CopyMode(_) => "copy-mode",
-            Self::ControlMode(_) => "control-mode",
-            Self::ClockMode(_) => "clock-mode",
-            Self::ShowMessages(_) => "show-messages",
             Self::KillServer(_) => "kill-server",
-            Self::LockServer(_) => "lock-server",
-            Self::LockSession(_) => "lock-session",
-            Self::LockClient(_) => "lock-client",
-            Self::ServerAccess(_) => "server-access",
-            Self::RefreshClient(_) => "refresh-client",
-            Self::ListClients(_) => "list-clients",
-            Self::SuspendClient(_) => "suspend-client",
             Self::ResizeWindow(_) => "resize-window",
             Self::RespawnWindow(_) => "respawn-window",
-            Self::MovePane(_) => "move-pane",
-            Self::PipePane(_) => "pipe-pane",
             Self::RespawnPane(_) => "respawn-pane",
             Self::PaneSnapshot(_) => "pane-snapshot",
             Self::SubscribePaneOutput(_) => "subscribe-pane-output",
@@ -374,13 +313,49 @@ impl Response {
             Self::CreateSessionLease(_) => "create-session-lease",
             Self::RenewSessionLease(_) => "renew-session-lease",
             Self::ReleaseSessionLease(_) => "release-session-lease",
-            Self::LinkWindow(_) => "link-window",
-            Self::UnlinkWindow(_) => "unlink-window",
             Self::ResolveTarget(_) => "resolve-target",
             Self::Handshake(_) => "handshake",
-            Self::DaemonStatus(_) => "daemon-status",
-            Self::ShutdownIfIdle(_) => "shutdown-if-idle",
-            Self::WebShare(_) => "web-share",
+            Self::ShowBuffer(_) => "show-buffer",
+            Self::Reserved9
+            | Self::Reserved11
+            | Self::Reserved12
+            | Self::Reserved13
+            | Self::Reserved15
+            | Self::Reserved16
+            | Self::Reserved17
+            | Self::Reserved18
+            | Self::Reserved22
+            | Self::Reserved29
+            | Self::Reserved30
+            | Self::Reserved32
+            | Self::Reserved33
+            | Self::Reserved35
+            | Self::Reserved39
+            | Self::Reserved40
+            | Self::Reserved41
+            | Self::Reserved42
+            | Self::Reserved51
+            | Self::Reserved53
+            | Self::Reserved54
+            | Self::Reserved55
+            | Self::Reserved56
+            | Self::Reserved57
+            | Self::Reserved60
+            | Self::Reserved61
+            | Self::Reserved62
+            | Self::Reserved64
+            | Self::Reserved65
+            | Self::Reserved66
+            | Self::Reserved67
+            | Self::Reserved68
+            | Self::Reserved69
+            | Self::Reserved70
+            | Self::Reserved73
+            | Self::Reserved74
+            | Self::Reserved76
+            | Self::Reserved77
+            | Self::Reserved91
+            | Self::Reserved92 => "reserved",
         }
     }
 
@@ -397,10 +372,7 @@ impl Response {
             Self::NewSession(response) => response.command_output(),
             Self::ListWindows(response) => Some(response.command_output()),
             Self::ShowOptions(response) => Some(response.command_output()),
-            Self::ShowEnvironment(response) => Some(response.command_output()),
-            Self::ShowHooks(response) => Some(response.command_output()),
             Self::ShowBuffer(response) => Some(response.command_output()),
-            Self::ListBuffers(response) => Some(response.command_output()),
             Self::CapturePane(response) => response.command_output(),
             Self::DisplayMessage(response) => response.command_output(),
             Self::ResolveTarget(_) => None,
@@ -408,17 +380,8 @@ impl Response {
             Self::IfShell(response) => response.command_output(),
             Self::ListSessions(response) => Some(response.command_output()),
             Self::ListPanes(response) => Some(response.command_output()),
-            Self::SourceFile(response) => response.command_output(),
             Self::SetOptionByName(_) => None,
-            Self::ListKeys(response) => Some(response.command_output()),
-            Self::ControlMode(_) => None,
-            Self::ClockMode(_) => None,
-            Self::ShowMessages(response) => Some(response.command_output()),
-            Self::ServerAccess(response) => Some(response.command_output()),
-            Self::ListClients(response) => Some(response.command_output()),
-            Self::BreakPane(response) => response.command_output(),
             Self::Handshake(_) => None,
-            Self::WebShare(response) => response.command_output(),
             Self::SubscribePaneOutput(_)
             | Self::UnsubscribePaneOutput(_)
             | Self::PaneOutputCursor(_)
@@ -428,9 +391,7 @@ impl Response {
             | Self::PaneBroadcastInput(_)
             | Self::CreateSessionLease(_)
             | Self::RenewSessionLease(_)
-            | Self::ReleaseSessionLease(_)
-            | Self::DaemonStatus(_)
-            | Self::ShutdownIfIdle(_) => None,
+            | Self::ReleaseSessionLease(_) => None,
             _ => None,
         }
     }
@@ -466,20 +427,6 @@ pub struct SelectLayoutResponse {
     pub layout: LayoutName,
 }
 
-/// Response payload for `next-layout`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NextLayoutResponse {
-    /// The applied layout.
-    pub layout: LayoutName,
-}
-
-/// Response payload for `previous-layout`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PreviousLayoutResponse {
-    /// The applied layout.
-    pub layout: LayoutName,
-}
-
 /// Response payload for `set-buffer`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetBufferResponse {
@@ -506,42 +453,6 @@ impl ShowBufferResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasteBufferResponse {
     /// The buffer name that was pasted.
-    pub buffer_name: String,
-}
-
-/// Response payload for `list-buffers`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ListBuffersResponse {
-    /// The pre-rendered stdout bytes for the CLI.
-    pub output: CommandOutput,
-}
-
-impl ListBuffersResponse {
-    /// Returns the reusable stdout payload.
-    #[must_use]
-    pub fn command_output(&self) -> &CommandOutput {
-        &self.output
-    }
-}
-
-/// Response payload for `delete-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeleteBufferResponse {
-    /// The name of the deleted buffer.
-    pub buffer_name: String,
-}
-
-/// Response payload for `load-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoadBufferResponse {
-    /// The name of the created or replaced buffer.
-    pub buffer_name: String,
-}
-
-/// Response payload for `save-buffer`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SaveBufferResponse {
-    /// The name of the saved buffer.
     pub buffer_name: String,
 }
 
@@ -599,27 +510,6 @@ impl CapturePaneResponse {
 /// Response payload for `clear-history`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClearHistoryResponse;
-
-/// Response payload for `show-messages`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShowMessagesResponse {
-    /// Expanded stdout for `show-messages`.
-    pub output: CommandOutput,
-}
-
-impl ShowMessagesResponse {
-    /// Builds a response from reusable command output bytes.
-    #[must_use]
-    pub const fn from_output(output: CommandOutput) -> Self {
-        Self { output }
-    }
-
-    /// Returns the stdout payload for `show-messages`.
-    #[must_use]
-    pub const fn command_output(&self) -> &CommandOutput {
-        &self.output
-    }
-}
 
 /// Response payload for `display-message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -822,55 +712,6 @@ impl IfShellResponse {
     }
 }
 
-/// Response payload for `source-file`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SourceFileResponse {
-    /// Verbose parsed-command output, when requested.
-    pub output: Option<CommandOutput>,
-    /// Exit status surfaced by a nested foreground command.
-    #[serde(default)]
-    pub exit_status: Option<i32>,
-}
-
-impl SourceFileResponse {
-    /// Builds a response without command output.
-    #[must_use]
-    pub const fn no_output() -> Self {
-        Self {
-            output: None,
-            exit_status: None,
-        }
-    }
-
-    /// Builds a response with command output.
-    #[must_use]
-    pub fn from_output(output: CommandOutput) -> Self {
-        Self {
-            output: Some(output),
-            exit_status: None,
-        }
-    }
-
-    /// Returns the reusable stdout payload when `source-file -v` printed output.
-    #[must_use]
-    pub fn command_output(&self) -> Option<&CommandOutput> {
-        self.output.as_ref()
-    }
-
-    /// Adds a command exit status to the response.
-    #[must_use]
-    pub const fn with_exit_status(mut self, exit_status: Option<i32>) -> Self {
-        self.exit_status = exit_status;
-        self
-    }
-
-    /// Returns the surfaced nested command exit status, if any.
-    #[must_use]
-    pub const fn exit_status(&self) -> Option<i32> {
-        self.exit_status
-    }
-}
-
 /// Response payload for `wait-for`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WaitForResponse;
@@ -988,16 +829,11 @@ mod tests {
 
     #[test]
     fn pr6g_response_boxing_keeps_response_size_bounded() {
-        assert_eq!(size_of::<Box<WebShareResponse>>(), 8);
         assert_eq!(size_of::<Box<PaneOutputLagResponse>>(), 8);
         assert_eq!(
             size_of::<Response>(),
             72,
             "Response should stay compact after boxing the two largest payload variants"
-        );
-        assert!(
-            size_of::<WebShareResponse>() > size_of::<Response>(),
-            "WebShareResponse must remain boxed while it is larger than Response"
         );
         assert!(
             size_of::<PaneOutputLagResponse>() > size_of::<Response>(),
@@ -1041,15 +877,5 @@ mod tests {
             },
         };
         assert_transparent(Response::PaneOutputLag(Box::new(lag.clone())), &lag);
-
-        let web_share = WebShareResponse::Config(WebShareConfigResponse {
-            listener: WebShareListener {
-                host: "127.0.0.1".to_owned(),
-                port: 9777,
-                frontend_origin: "https://share.rmux.io".to_owned(),
-            },
-            output: CommandOutput::from_stdout("127.0.0.1:9777 https://share.rmux.io\n"),
-        });
-        assert_transparent(Response::WebShare(Box::new(web_share.clone())), &web_share);
     }
 }

@@ -1,11 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use berth_term_engine::{
-    command_parser::CommandParser,
-    formats::{
-        FormatContext, FormatVariables, FORMAT_VARIABLES,
-        TMUX_FORMAT_TABLE_NAMES as BERTH_TERM_FORMAT_TABLE_NAMES,
-    },
+use berth_term_engine::formats::{
+    FormatContext, FormatVariables, FORMAT_VARIABLES,
+    TMUX_FORMAT_TABLE_NAMES as BERTH_TERM_FORMAT_TABLE_NAMES,
 };
 use berth_term_proto::{Target, TerminalError};
 
@@ -34,17 +31,6 @@ pub(super) fn collect_parse_time_values(
     }
 
     values
-}
-
-pub(super) fn parser_with_parse_time_context(
-    mut parser: CommandParser,
-    format_context: &dyn FormatVariables,
-) -> CommandParser {
-    for (name, value) in collect_parse_time_values(format_context) {
-        parser = parser.with_format_value(&name, value);
-    }
-
-    parser
 }
 
 pub(in super::super) fn format_context_for_target<'a>(

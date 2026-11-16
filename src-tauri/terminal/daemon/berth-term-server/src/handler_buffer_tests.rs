@@ -1,14 +1,13 @@
 use super::RequestHandler;
 use crate::outer_terminal::OuterTerminalContext;
 use crate::pane_io::AttachControl;
-use std::fs;
+use berth_term_proto::{
+    NewSessionRequest, OptionName, PaneTarget, PasteBufferRequest, Request, Response,
+    ScopeSelector, SetBufferRequest, SetOptionMode, SetOptionRequest, ShowBufferRequest,
+    TerminalSize,
+};
 use std::sync::Arc;
 use std::time::Duration;
-use berth_term_proto::{
-    DeleteBufferRequest, ErrorResponse, ListBuffersRequest, LoadBufferRequest, NewSessionRequest,
-    OptionName, PaneTarget, PasteBufferRequest, Request, Response, ScopeSelector, SetBufferRequest,
-    SetOptionMode, SetOptionRequest, ShowBufferRequest, TerminalError, TerminalSize,
-};
 
 fn session_name(value: &str) -> berth_term_proto::SessionName {
     berth_term_proto::SessionName::new(value).expect("valid session name")
@@ -20,15 +19,6 @@ fn set_buffer_request(name: Option<&str>, content: &[u8]) -> SetBufferRequest {
         content: content.to_vec(),
         append: false,
         new_name: None,
-        set_clipboard: false,
-    }
-}
-
-fn load_buffer_request(path: &str) -> LoadBufferRequest {
-    LoadBufferRequest {
-        path: path.to_owned(),
-        cwd: None,
-        name: None,
         set_clipboard: false,
     }
 }
@@ -224,96 +214,6 @@ async fn show_buffer_nonexistent_name_returns_error() {
         .await;
 
     assert!(matches!(response, Response::Error(_)));
-}
-
-#[tokio::test]
-async fn delete_buffer_removes_stack_head() {
-    let handler = RequestHandler::new();
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(None, b"a")))
-        .await;
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(None, b"b")))
-        .await;
-
-    let response = handler
-        .handle(Request::DeleteBuffer(DeleteBufferRequest { name: None }))
-        .await;
-
-    match response {
-        Response::DeleteBuffer(r) => assert_eq!(r.buffer_name, "buffer1"),
-        other => panic!("unexpected response: {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn delete_buffer_nonexistent_returns_error() {
-    let handler = RequestHandler::new();
-
-    let response = handler
-        .handle(Request::DeleteBuffer(DeleteBufferRequest {
-            name: Some("missing".to_owned()),
-        }))
-        .await;
-
-    assert!(matches!(
-        response,
-        Response::Error(ErrorResponse {
-            error: TerminalError::Server(_)
-        })
-    ));
-}
-
-#[tokio::test]
-async fn delete_buffer_empty_store_returns_error() {
-    let handler = RequestHandler::new();
-
-    let response = handler
-        .handle(Request::DeleteBuffer(DeleteBufferRequest { name: None }))
-        .await;
-
-    assert!(matches!(response, Response::Error(_)));
-}
-
-#[tokio::test]
-async fn list_buffers_returns_formatted_output() {
-    let handler = RequestHandler::new();
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(None, b"first")))
-        .await;
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            Some("named"),
-            b"second",
-        )))
-        .await;
-
-    let response = handler
-        .handle(Request::ListBuffers(ListBuffersRequest::default()))
-        .await;
-    let output = response
-        .command_output()
-        .expect("list-buffers returns output");
-    let stdout = std::str::from_utf8(output.stdout()).expect("utf8");
-    assert!(stdout.contains("named:"));
-    assert!(stdout.contains("buffer0:"));
-    // Most recent first
-    assert!(stdout.find("named:").unwrap() < stdout.find("buffer0:").unwrap());
-}
-
-#[tokio::test]
-async fn list_buffers_empty_returns_empty_output() {
-    let handler = RequestHandler::new();
-
-    let response = handler
-        .handle(Request::ListBuffers(ListBuffersRequest::default()))
-        .await;
-    let output = response
-        .command_output()
-        .expect("list-buffers returns output");
-    assert!(output.stdout().is_empty());
 }
 
 #[tokio::test]
@@ -571,43 +471,6 @@ async fn paste_buffer_with_delete_nonexistent_pane_preserves_buffer() {
 }
 
 #[tokio::test]
-async fn delete_buffer_by_explicit_name_works() {
-    let handler = RequestHandler::new();
-
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            Some("target"),
-            b"data",
-        )))
-        .await;
-    handler
-        .handle(Request::SetBuffer(set_buffer_request(
-            Some("other"),
-            b"keep",
-        )))
-        .await;
-
-    let response = handler
-        .handle(Request::DeleteBuffer(DeleteBufferRequest {
-            name: Some("target".to_owned()),
-        }))
-        .await;
-
-    match response {
-        Response::DeleteBuffer(r) => assert_eq!(r.buffer_name, "target"),
-        other => panic!("unexpected response: {other:?}"),
-    }
-
-    // other buffer should still exist
-    let show = handler
-        .handle(Request::ShowBuffer(ShowBufferRequest {
-            name: Some("other".to_owned()),
-        }))
-        .await;
-    assert!(matches!(show, Response::ShowBuffer(_)));
-}
-
-#[tokio::test]
 async fn set_buffer_empty_content_is_not_listed() {
     let handler = RequestHandler::new();
 
@@ -625,13 +488,6 @@ async fn set_buffer_empty_content_is_not_listed() {
         }))
         .await;
     assert!(matches!(show, Response::Error(_)));
-
-    // List should remain empty because zero-size content does not create a buffer.
-    let list = handler
-        .handle(Request::ListBuffers(ListBuffersRequest::default()))
-        .await;
-    let list_output = list.command_output().expect("list-buffers returns output");
-    assert!(list_output.stdout().is_empty());
 }
 
 #[tokio::test]
@@ -737,31 +593,6 @@ async fn clipboard_writes_require_explicit_buffer_command_flag() {
         control_rx.try_recv().is_err(),
         "set-buffer must not write OSC52 unless -w/set_clipboard is requested"
     );
-
-    let temp_path = std::env::temp_dir().join(format!(
-        "rmux-load-buffer-no-clipboard-{}-{}.txt",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("time after epoch")
-            .as_nanos()
-    ));
-    fs::write(&temp_path, b"loaded private").expect("write test buffer");
-    let response = handler
-        .dispatch(
-            41,
-            Request::LoadBuffer(load_buffer_request(
-                temp_path.to_str().expect("utf8 temp path"),
-            )),
-        )
-        .await
-        .response;
-    let _ = fs::remove_file(&temp_path);
-    assert!(matches!(response, Response::LoadBuffer(_)));
-    assert!(
-        control_rx.try_recv().is_err(),
-        "load-buffer must not write OSC52 unless -w/set_clipboard is requested"
-    );
 }
 
 #[tokio::test]
@@ -798,52 +629,4 @@ async fn set_buffer_clipboard_write_is_suppressed_without_unique_attached_client
     assert!(matches!(response, Response::SetBuffer(_)));
     assert!(first_rx.try_recv().is_err());
     assert!(second_rx.try_recv().is_err());
-}
-
-#[tokio::test]
-async fn load_buffer_clipboard_write_flag_overrides_set_clipboard_off() {
-    let handler = RequestHandler::new();
-    let session = session_name("alpha");
-    create_session(&handler, "alpha").await;
-
-    let set_option = handler
-        .handle(Request::SetOption(SetOptionRequest {
-            scope: ScopeSelector::Global,
-            option: OptionName::SetClipboard,
-            value: "off".to_owned(),
-            mode: SetOptionMode::Replace,
-        }))
-        .await;
-    assert!(matches!(set_option, Response::SetOption(_)));
-
-    let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
-    handler
-        .register_attach_with_terminal_context(
-            77,
-            session,
-            control_tx,
-            OuterTerminalContext::from_pairs(&[("TERM", "xterm-256color")]),
-        )
-        .await;
-
-    let temp_path = std::env::temp_dir().join(format!(
-        "rmux-load-buffer-{}-{}.txt",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("time after epoch")
-            .as_nanos()
-    ));
-    fs::write(&temp_path, b"loaded clipboard").expect("write test buffer");
-
-    let mut request = load_buffer_request(temp_path.to_str().expect("utf8 temp path"));
-    request.set_clipboard = true;
-    let response = handler
-        .dispatch(77, Request::LoadBuffer(request))
-        .await
-        .response;
-    let _ = fs::remove_file(&temp_path);
-    assert!(matches!(response, Response::LoadBuffer(_)));
-    let bytes = take_write(control_rx.try_recv().expect("forced clipboard write"));
-    assert_eq!(bytes, b"\x1b]52;;bG9hZGVkIGNsaXBib2FyZA==\x07");
 }

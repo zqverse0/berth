@@ -10,21 +10,18 @@ use super::popup_job::{PopupDragMode, PopupJob, PopupSurface};
 
 #[derive(Debug, Clone)]
 pub(in crate::handler) enum ClientOverlayState {
-    Menu(Box<MenuOverlayState>),
     Popup(Box<PopupOverlayState>),
 }
 
 impl ClientOverlayState {
     pub(super) fn id(&self) -> u64 {
         match self {
-            Self::Menu(menu) => menu.id,
             Self::Popup(popup) => popup.id,
         }
     }
 
     pub(super) fn render(&self) -> Vec<u8> {
         match self {
-            Self::Menu(menu) => menu.render(),
             Self::Popup(popup) => popup.render(),
         }
     }

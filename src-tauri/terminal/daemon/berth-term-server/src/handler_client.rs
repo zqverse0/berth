@@ -1,34 +1,86 @@
 use std::path::PathBuf;
 
-use berth_term_engine::formats::{is_truthy, FormatContext};
-use berth_term_proto::request::{ListClientsRequest, SuspendClientRequest};
-use berth_term_proto::{
-    ErrorResponse, ListClientsResponse, Response, SuspendClientResponse, TerminalError,
-    TerminalGeometry, TerminalSize,
-};
+use berth_term_engine::formats::FormatContext;
+use berth_term_proto::{TerminalError, TerminalGeometry, TerminalSize};
 
 use crate::format_runtime::{render_runtime_template, RuntimeFormatContext};
-use crate::handler_support::attached_client_required;
-use crate::pane_io::AttachControl;
+use crate::handler_support::{ambiguous_attached_client, attached_client_required};
 use crate::pane_terminals::session_not_found;
 
 use super::{
-    attach_support::ClientFlags, attached_client_matches_target, command_output_from_lines,
-    control_support::ManagedClient, format_client_uid, format_client_user, format_requester_uid,
-    normalize_target_client, session_selection_prefers_live_process, sort_list_clients,
-    RequestHandler, LIST_CLIENTS_TEMPLATE,
+    attach_support::ClientFlags, attached_client_matches_target, normalize_target_client,
+    session_selection_prefers_live_process, RequestHandler,
 };
 
 #[path = "handler_client/attach.rs"]
 mod attach;
 #[path = "handler_client/detach.rs"]
 mod detach;
-#[path = "handler_client/refresh.rs"]
-mod refresh;
 #[path = "handler_client/switching.rs"]
 mod switching;
 
+/// 命令作用的客户端：只有 attach 客户端（控制模式已移除）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ManagedClient {
+    Attach(u32),
+}
+
 impl RequestHandler {
+    /// 会话当前接入的客户端数（只有 attach 客户端）。
+    pub(super) async fn attached_count(
+        &self,
+        session_name: &berth_term_proto::SessionName,
+    ) -> usize {
+        self.active_attach.lock().await.attached_count(session_name)
+    }
+
+    /// 客户端切到 `session_name` 后该会话的接入数。
+    pub(super) async fn attached_count_after_switch(
+        &self,
+        session_name: &berth_term_proto::SessionName,
+        client: ManagedClient,
+    ) -> usize {
+        let attached_count = self.attached_count(session_name).await;
+        let ManagedClient::Attach(attach_pid) = client;
+        let active_attach = self.active_attach.lock().await;
+        if active_attach
+            .by_pid
+            .get(&attach_pid)
+            .is_some_and(|active| &active.session_name == session_name)
+        {
+            attached_count
+        } else {
+            attached_count.saturating_add(1)
+        }
+    }
+
+    pub(super) async fn current_session_candidate(
+        &self,
+        requester_pid: u32,
+    ) -> Option<berth_term_proto::SessionName> {
+        self.active_attach
+            .lock()
+            .await
+            .current_session_candidate(requester_pid)
+    }
+
+    pub(super) async fn resolve_managed_client(
+        &self,
+        requester_pid: u32,
+        command_name: &str,
+    ) -> Result<ManagedClient, berth_term_proto::TerminalError> {
+        let active_attach = self.active_attach.lock().await;
+        if active_attach.by_pid.contains_key(&requester_pid) {
+            return Ok(ManagedClient::Attach(requester_pid));
+        }
+        let mut candidates = active_attach.by_pid.keys().copied();
+        match (candidates.next(), candidates.next()) {
+            (None, _) => Err(attached_client_required(command_name)),
+            (Some(pid), None) => Ok(ManagedClient::Attach(pid)),
+            _ => Err(ambiguous_attached_client(command_name)),
+        }
+    }
+
     async fn managed_client_for_pid(&self, requester_pid: u32) -> Option<ManagedClient> {
         {
             let active_attach = self.active_attach.lock().await;
@@ -36,11 +88,7 @@ impl RequestHandler {
                 return Some(ManagedClient::Attach(requester_pid));
             }
         }
-        let active_control = self.active_control.lock().await;
-        active_control
-            .by_pid
-            .contains_key(&requester_pid)
-            .then_some(ManagedClient::Control(requester_pid))
+        None
     }
 
     async fn set_attached_client_flags(
@@ -92,13 +140,6 @@ impl RequestHandler {
             }
         }
 
-        let active_control = self.active_control.lock().await;
-        if let Ok(pid) = target_client.parse::<u32>() {
-            if active_control.by_pid.contains_key(&pid) {
-                return Ok(ManagedClient::Control(pid));
-            }
-        }
-
         Err(TerminalError::Server(format!(
             "can't find client: {target_client}"
         )))
@@ -133,15 +174,6 @@ impl RequestHandler {
             }
         }
 
-        let active_control = self.active_control.lock().await;
-        if let Ok(pid) = target_client.parse::<u32>() {
-            if active_control.by_pid.contains_key(&pid) {
-                return Err(TerminalError::Server(format!(
-                    "{command_name} requires an attached client"
-                )));
-            }
-        }
-
         Ok(None)
     }
 
@@ -156,9 +188,6 @@ impl RequestHandler {
             .await?
         {
             ManagedClient::Attach(attach_pid) => Ok(attach_pid),
-            ManagedClient::Control(_) => Err(TerminalError::Server(format!(
-                "{command_name} requires an attached client"
-            ))),
         }
     }
 
@@ -306,115 +335,6 @@ impl RequestHandler {
             session.touch_attached();
             session.resize_terminal(client_size);
             Ok(())
-        })
-    }
-
-    pub(in crate::handler) async fn handle_list_clients(
-        &self,
-        requester_pid: u32,
-        request: ListClientsRequest,
-    ) -> Response {
-        let requester_uid = self.requester_uid(requester_pid).await;
-        let mut clients = self.list_clients_snapshot().await;
-        if let Some(target_session) = request.target_session.as_ref() {
-            clients.retain(|client| client.session_name.as_ref() == Some(target_session));
-        }
-        sort_list_clients(
-            &mut clients,
-            request.sort_order.as_deref(),
-            request.reversed,
-        );
-
-        let lines = clients
-            .iter()
-            .filter_map(|client| {
-                let context = RuntimeFormatContext::new(FormatContext::new())
-                    .with_named_value("client_name", client.name.clone())
-                    .with_named_value("client_pid", client.pid.to_string())
-                    .with_named_value("client_tty", client.tty.clone())
-                    .with_named_value(
-                        "session_name",
-                        client
-                            .session_name
-                            .as_ref()
-                            .map(ToString::to_string)
-                            .unwrap_or_default(),
-                    )
-                    .with_named_value(
-                        "client_session",
-                        client
-                            .session_name
-                            .as_ref()
-                            .map(ToString::to_string)
-                            .unwrap_or_default(),
-                    )
-                    .with_named_value("client_width", client.width.to_string())
-                    .with_named_value("client_height", client.height.to_string())
-                    .with_named_value("client_termfeatures", client.termfeatures.clone())
-                    .with_named_value("client_termname", client.termname.clone())
-                    .with_named_value("client_termtype", client.termtype.clone())
-                    .with_named_value("client_key_table", client.key_table_name())
-                    .with_named_value("client_prefix", client.prefix_value())
-                    .with_named_value("client_uid", format_client_uid(client.uid))
-                    .with_named_value("client_user", format_client_user(client.uid, &client.user))
-                    .with_named_value("client_utf8", if client.utf8 { "1" } else { "0" })
-                    .with_named_value(
-                        "client_control_mode",
-                        if client.control { "1" } else { "0" },
-                    )
-                    .with_named_value("client_flags", client.flags.clone())
-                    .with_named_value("uid", format_requester_uid(requester_uid));
-                if let Some(filter) = request.filter.as_deref() {
-                    let expanded = render_runtime_template(filter, &context, false);
-                    if !is_truthy(&expanded) {
-                        return None;
-                    }
-                }
-
-                Some(render_runtime_template(
-                    request.format.as_deref().unwrap_or(LIST_CLIENTS_TEMPLATE),
-                    &context,
-                    false,
-                ))
-            })
-            .collect::<Vec<_>>();
-
-        Response::ListClients(ListClientsResponse {
-            match_count: lines.len(),
-            output: command_output_from_lines(&lines),
-        })
-    }
-
-    pub(in crate::handler) async fn handle_suspend_client(
-        &self,
-        requester_pid: u32,
-        request: SuspendClientRequest,
-    ) -> Response {
-        let attach_pid = match self
-            .resolve_target_attach_client_pid(
-                requester_pid,
-                request.target_client.as_deref(),
-                "suspend-client",
-            )
-            .await
-        {
-            Ok(attach_pid) => attach_pid,
-            Err(error) => return Response::Error(ErrorResponse { error }),
-        };
-
-        let mut active_attach = self.active_attach.lock().await;
-        let Some(active) = active_attach.by_pid.get_mut(&attach_pid) else {
-            return Response::Error(ErrorResponse {
-                error: attached_client_required("suspend-client"),
-            });
-        };
-        active.suspended = true;
-        if active.control_tx.send(AttachControl::Suspend).is_err() {
-            active_attach.by_pid.remove(&attach_pid);
-        }
-
-        Response::SuspendClient(SuspendClientResponse {
-            target_client: attach_pid.to_string(),
         })
     }
 }
