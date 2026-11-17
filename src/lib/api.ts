@@ -4,7 +4,12 @@ import { getCurrentEffectiveAppLocale } from "./i18n"
 import type {
   AgentType,
   AppLocale,
+  ContextSource,
+  ConversationToc,
   DbConversationDetail,
+  PartTurn,
+  RawTurn,
+  ReadTurns,
   FolderDetail,
   CreateChatConversationResult,
   CreateChatDirResult,
@@ -409,6 +414,51 @@ export async function getFolderConversation(
   conversationId: number
 ): Promise<DbConversationDetail> {
   return getTransport().call("get_folder_conversation", { conversationId })
+}
+
+/** 阅读器的目录；带上手上的 `generation` 与 `from` 时只回第 `from` 段起的变化。 */
+export async function getConversationToc(
+  conversationId: number,
+  known?: { generation: number; from: number }
+): Promise<ConversationToc> {
+  return getTransport().call("get_folder_conversation", {
+    conversationId,
+    read: { op: "toc", ...known },
+  })
+}
+
+/** 这几轮（轮序号）的 Part。 */
+export async function getConversationParts(
+  conversationId: number,
+  generation: number,
+  turns: number[]
+): Promise<ReadTurns<PartTurn>> {
+  return getTransport().call("get_folder_conversation", {
+    conversationId,
+    read: { op: "parts", generation, turns },
+  })
+}
+
+/** 这几轮的原文（工具参数与结果不截断），工具卡片展开时取。 */
+export async function getConversationRawTurns(
+  conversationId: number,
+  generation: number,
+  turns: number[]
+): Promise<ReadTurns<RawTurn>> {
+  return getTransport().call("get_folder_conversation", {
+    conversationId,
+    read: { op: "raw", generation, turns },
+  })
+}
+
+/** 启动上下文全文。 */
+export async function getConversationContext(
+  conversationId: number
+): Promise<ContextSource[]> {
+  return getTransport().call("get_folder_conversation", {
+    conversationId,
+    read: { op: "context" },
+  })
 }
 
 /** 会话源文件的变化标记（只 stat 不解析），用于低成本判断是否需要重读详情。 */

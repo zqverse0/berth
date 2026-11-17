@@ -2,8 +2,8 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "excalidraw",
-  "version": "1.0.0",
-  "permissions": ["project.files", "fs", "agent"],
+  "version": "1.6.0",
+  "permissions": ["project.files", "fs", "agent", "network"],
   "knowledge": {
     "drawing": {
       "kind": "guide",
@@ -52,7 +52,7 @@
         },
         "icon": "icon.svg",
         "location": "sidebar",
-        "page": "gallery/index.html"
+        "page": "page/sidebar.html"
       }
     ]
   }

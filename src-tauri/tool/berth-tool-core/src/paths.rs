@@ -278,11 +278,6 @@ pub fn launch_expert(tool_dir: &Path, inputs: &serde_json::Value) -> Option<Stri
         .map(str::to_owned)
 }
 
-/// pane 启动命令（`… tools launch launch.js --berth-launch-inputs <json>`）里选中的专家；群成员名就是它。
-pub fn launch_command_expert(command: &[String]) -> Option<String> {
-    launch_expert(launch_script_arg(command)?.parent()?, &launch_inputs(command)?)
-}
-
 /// 启动栏「专家」项的输入键（`optionsFrom: "experts"`）；`spawn --expert` 据此填启动输入。
 pub fn expert_input(tool_dir: &Path) -> Option<String> {
     let config: serde_json::Value =
@@ -355,20 +350,6 @@ mod tests {
         assert_eq!(expert(serde_json::json!({"expert": "dev-expert"})), None);
         assert_eq!(expert_input(tmp.path()).as_deref(), Some("persona"));
 
-        // 从 pane 的启动命令读：工具目录取自 launch.js 所在目录。
-        let launch = |script: &str, payload: &str| {
-            vec!["berth-cli".into(), "tools".into(), "launch".into(), script.to_owned(), "--berth-launch-inputs".into(), payload.into()]
-        };
-        let script = tmp.path().join("launch.js").to_string_lossy().into_owned();
-        let command = |payload: &str| launch(&script, payload);
-        assert_eq!(launch_command_expert(&command(r#"{"persona":"dev-expert"}"#)), None, "不在 tools/ 下不算 launch.js 启动");
-        let tools = tmp.path().join("tools/demo");
-        std::fs::create_dir_all(&tools).unwrap();
-        std::fs::copy(tmp.path().join("launchbar.json"), tools.join("launchbar.json")).unwrap();
-        let script = tools.join("launch.js").to_string_lossy().into_owned();
-        let command = |payload: &str| launch(&script, payload);
-        assert_eq!(launch_command_expert(&command(r#"{"persona":"dev-expert"}"#)).as_deref(), Some("dev-expert"));
-        assert_eq!(launch_command_expert(&command(r#"{"persona":""}"#)), None);
     }
 
     #[test]

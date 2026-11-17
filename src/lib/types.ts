@@ -620,6 +620,88 @@ export interface ConversationsBulkChanged {
 
 export const CONVERSATIONS_BULK_CHANGED_EVENT = "conversations://bulk-changed"
 
+/**
+ * 阅读器的目录（`get_folder_conversation` 带 `read: {op: "toc"}`）：每段的位置、提问摘要与统计，
+ * 不带正文。`segments` 从第 `from` 段起；`generation` 变了说明会话被整份重建，要重取目录。
+ */
+export interface ConversationToc {
+  summary: DbConversationSummary
+  source_revision?: string | null
+  group_link?: DbConversationDetail["group_link"]
+  generation: number
+  from: number
+  /** 整个会话的轮数。 */
+  turns: number
+  segments: TocSegment[]
+  /** 首次请求的输入 token：启动输入的精确总量。 */
+  startup_tokens: number | null
+  session_stats: SessionStats | null
+}
+
+/** 一段（一问一答）：`[start, end)` 是轮序号。 */
+export interface TocSegment {
+  /** 第一轮的 id（跳转用）。 */
+  id: string
+  /** 第几个提问，从 1 开始；0 是开场内容。 */
+  index: number
+  start: number
+  end: number
+  prompt: boolean
+  /** 提问首行。 */
+  title: string | null
+  /** 回答所在的轮：它最后一段正文是回答。 */
+  answer: number | null
+  /** 除提问与回答外有内容的块数。 */
+  steps: number
+  stats: {
+    tools: Record<string, number>
+    toolTokens: Record<string, number>
+    skills: Record<string, number>
+    toolCalls: number
+    errors: number
+    thinking: number
+    contextTokens: number | null
+    model: string | null
+    startedAt: string | null
+    endedAt: string | null
+  }
+}
+
+/** 宿主按 `sessions.json` 讲清楚的一段内容（Rust `tool_parts::Part`）。 */
+export interface SessionPart {
+  role: string
+  /** text / thinking / image / result / error / tool，或工具声明的种类（command、edit…）。 */
+  kind: string
+  tool?: string
+  call?: string
+  title?: string
+  text?: string
+  /** `text` 截掉的字数。 */
+  cut?: number
+  paths?: string[]
+  added?: number
+  removed?: number
+  plan?: { text: string; status?: string }[]
+  background?: boolean
+  skills?: string[]
+}
+
+export interface PartTurn {
+  /** 轮序号。 */
+  entry: number
+  id: string
+  role: TurnRole
+  parts: SessionPart[]
+}
+
+export type RawTurn = MessageTurn & { entry: number }
+
+/** 按轮读取的结果；`generation` 与请求的不同时 `turns` 为空，要重取目录。 */
+export interface ReadTurns<T> {
+  generation: number
+  turns: T[]
+}
+
 export interface DbConversationDetail {
   summary: DbConversationSummary
   turns: MessageTurn[]

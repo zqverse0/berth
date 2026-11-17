@@ -1,0 +1,214 @@
+.berth-panel button {
+  padding: 2px 10px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--berth-border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  cursor: pointer;
+}
+.berth-panel button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.berth-panel .berth-primary {
+  color: var(--berth-primary-foreground, white);
+  background: var(--berth-primary, #4c6ef5);
+  border-color: transparent;
+}
+.berth-panel .berth-quiet {
+  border-color: transparent;
+}
+.berth-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  overflow-y: auto;
+  font: 13px/1.5 var(--berth-font-sans, sans-serif);
+  color: var(--berth-foreground);
+  background: var(--berth-background, white);
+}
+.berth-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.berth-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--berth-border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  resize: vertical;
+}
+.berth-panel p {
+  margin: 0;
+}
+.berth-muted,
+.berth-meta {
+  font-size: 12px;
+  color: var(--berth-muted-foreground, gray);
+}
+.berth-error-text {
+  color: var(--berth-destructive, #c00);
+  white-space: pre-wrap;
+}
+.berth-pending {
+  padding: 4px 6px;
+  background: var(--berth-accent, rgba(127, 127, 127, 0.15));
+  border-radius: 6px;
+}
+.berth-versions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.berth-versions li {
+  margin-top: 8px;
+  padding: 6px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--berth-border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+}
+.berth-versions li.current {
+  border-color: var(--berth-primary, #4c6ef5);
+}
+.berth-thumb {
+  height: 120px;
+}
+.berth-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.berth-actions,
+.berth-compare-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.berth-compare {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-content: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--berth-background, white);
+}
+.berth-compare figure {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  max-height: 80vh;
+  margin: 0;
+}
+.berth-compare img {
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
+  border: 1px solid var(--berth-border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+}
+.berth-compare-actions {
+  flex-basis: 100%;
+  justify-content: center;
+}
+
+.berth-drawing-name {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+[hidden] {
+  display: none !important;
+}
+
+body {
+  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+  overflow-y: auto;
+}
+.berth-compare {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.berth-compare figure {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.berth-compare-actions {
+  flex-basis: auto;
+  flex-shrink: 0;
+}
+
+.berth-library-tools {
+  flex-wrap: wrap;
+}
+.berth-shapes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0;
+  margin: 8px 0;
+  list-style: none;
+}
+.berth-shapes li {
+  min-width: 0;
+}
+.berth-shapes .berth-shape-insert {
+  width: 100%;
+  padding: 4px;
+  overflow-wrap: anywhere;
+}
+.berth-shapes .berth-thumb {
+  height: 88px;
+}
+
+.berth-public-libraries input[type="search"] {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 8px 0;
+  padding: 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--berth-border);
+  border-radius: 6px;
+}
+.berth-public-list {
+  padding: 0;
+  list-style: none;
+}
+.berth-public-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--berth-border);
+  overflow-wrap: anywhere;
+}
+.berth-library-selection {
+  margin-top: 8px;
+}
+.berth-shape-check {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+}
+.berth-shapes li.picked {
+  outline: 1px solid var(--berth-primary);
+  border-radius: 6px;
+}

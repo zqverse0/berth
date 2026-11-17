@@ -120,7 +120,7 @@
 | `env` | 两者 | 无 | 平台、Berth 版本、当前项目、调用方 Agent（`agent()`） |
 | `data` | 脚本 | 无 | TOML 解析 / 生成（JSON 用内置 `JSON`） |
 | `http` | 脚本 | `network` | 发 HTTP 请求（`fetch`、并发 `fetchAll`，可选宿主退避重试 `retry`），拿状态、响应头与文本 |
-| `editor` | 脚本 | 无（`render` 要 `fs`） | `render`：请 Berth 窗口用本插件 `embed` 编辑器页面把文件渲染成图片写盘（只在 `tools run/call`，要求窗口开着） |
+| `editor` | 两者 | 无（`render` 要 `fs`） | `render`：请 Berth 窗口用本插件 `embed` 编辑器页面把文件渲染成图片写盘（只在 `tools run/call`，要求窗口开着） |
 
 ## 4. 接入点（`contributes`）
 
@@ -193,6 +193,15 @@
 
 每个动作还有 `title`，可选 `icon`、`inline`。脚本抛错时宿主显示错误与重试；渲染期间显示加载态；视图标题栏带刷新按钮。
 未知的视图 `type` / 动作 `type` 宿主忽略并在 `tools check` 报出。
+
+### 侧栏与当前编辑器联动
+
+页面用 `berth.ui.setHeaderTabs(tabs, value)` 将页签交给宿主侧栏顶栏，`onHeaderTab` 收切换。
+侧栏通过 `berth.editor.active()` 获取同插件、同项目的当前可编辑文件，再以
+`berth.editor.request(path, method, input)` 调画板 `context.onRequest`。方法与数据由插件定义，
+宿主只转发；只读、隐藏 embed、不同插件或项目不参与，文件切换后旧请求拒绝，30 秒无回复超时。
+画板 `context.notify()`、切换当前文件及页面挂卸触发 `berth.editor.onChange`，侧栏重读状态。
+编辑内容、保存、撤销仍归画板，不以磁盘文件绕过当前编辑缓冲。
 
 ### 4.2 编辑器（`editor`）
 

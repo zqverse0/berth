@@ -44,6 +44,9 @@ pub struct AgentProfile {
     /// 未声明时由消费方取缺省 `Escape`。
     #[serde(default)]
     pub interrupt_key: Option<String>,
+    /// `org.berth.agent.acp`：能进群当 ACP 成员（`launch.js` 导出 `acp`）。
+    #[serde(default)]
+    pub acp: bool,
 }
 
 /// tool.json Agent extension 声明的能力落点：Berth 读取真实状态的唯一依据。所有
@@ -164,6 +167,8 @@ pub struct AgentProfileSummary {
     pub capability_stores: Option<CapabilityStores>,
     /// `org.berth.agent.interruptKey` 投影；`None` 表示使用缺省 `Escape`。
     pub interrupt_key: Option<String>,
+    /// `org.berth.agent.acp` 投影：群页「加成员」只列这些。
+    pub acp: bool,
 }
 
 /// 列出启用的 agent 身份工具目录（tool.json 经 agent_projection 投影）。
@@ -197,6 +202,7 @@ pub fn list_agent_profiles() -> Vec<AgentProfileSummary> {
                     .and_then(|injection| injection.apis.clone()),
                 capability_stores: profile.capability_stores,
                 interrupt_key: profile.interrupt_key,
+                acp: profile.acp,
             });
         }
     }

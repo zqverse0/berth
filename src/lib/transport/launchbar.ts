@@ -23,6 +23,8 @@ export type AgentProfileSummary = {
   providerApis?: string[] | null
   /** `org.berth.agent.interruptKey`；null = 使用缺省 `Escape`。 */
   interruptKey?: string | null
+  /** `org.berth.agent.acp`：能进群当 ACP 成员。 */
+  acp?: boolean
 }
 
 export type LaunchbarRequest =

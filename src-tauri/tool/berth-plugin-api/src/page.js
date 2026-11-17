@@ -132,12 +132,14 @@
   }
 
   // 宿主调页面的钩子（`editor.render`）
-  const hooks = { "editor.render": "render" }
+  const hooks = { "editor.render": "render", "editor.request": "editorRequest" }
   const events = {
     "ui.theme": "theme",
     "editor.externalChange": "externalChange",
     "editor.drop": "drop",
     "view.drop": "drop",
+    "view.editorChange": "editorChange",
+    "ui.headerTab": "headerTab",
   }
 
   window.addEventListener("message", (event) => {
@@ -202,6 +204,9 @@
       },
       onDrop: (listener) => on("drop", listener),
       onRender: (handler) => handle("render", handler),
+      onRequest: (handler) =>
+        handle("editorRequest", ({ method, input }) => handler(method, input)),
+      notify: () => notify("editor.notify", {}),
     }
   }
 
@@ -223,7 +228,8 @@
       // signal abort：本地立即 reject `cancelled`，并请宿主中断那次运行（迟到的回复丢弃）。
       run: (script, input, options) => {
         const signal = options?.signal
-        if (!signal) return call("scripts.run", { script, input: input ?? null })
+        if (!signal)
+          return call("scripts.run", { script, input: input ?? null })
         const cancelled = () =>
           Object.assign(new Error("cancelled"), { reason: "cancelled" })
         if (signal.aborted) return Promise.reject(cancelled())
@@ -240,12 +246,20 @@
         })
       },
     },
+    editor: {
+      active: () => call("editor.active"),
+      request: (path, method, input) =>
+        call("editor.request", { path, method, input }),
+      onChange: (listener) => on("editorChange", listener),
+    },
     agent: {
       attach: (item) => call("agent.attach", item),
     },
     ui: {
       theme: () => Promise.resolve(theme),
       onTheme: (listener) => on("theme", listener),
+      setHeaderTabs: (tabs, value) => call("ui.setHeaderTabs", { tabs, value }),
+      onHeaderTab: (listener) => on("headerTab", ({ id }) => listener(id)),
       notify: (message, kind = "info") => call("ui.notify", { message, kind }),
       openUrl: (url) => call("ui.openUrl", { url }),
       get locale() {

@@ -135,3 +135,8 @@ export default {
 - 放进一个 git 仓库：对方 `berth tools install <仓库地址>`（一个仓库放多个插件时写 `<仓库地址>#<子目录>`），
   之后 `berth tools update <id>` 跟进。
 - 密钥不进包。
+
+侧栏页签用 `berth.ui.setHeaderTabs(tabs, value)` / `onHeaderTab`，由宿主顶栏渲染。
+侧栏用 `berth.editor.active()` / `request(path, method, input)` 调同插件、同项目的当前可编辑画板；
+画板用 `context.onRequest` 响应、`context.notify()` 通知侧栏 `berth.editor.onChange` 重读。
+只读 / embed / 已关闭的画板不可调用；切换文件后旧路径请求拒绝。具体方法由插件定义。

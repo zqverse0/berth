@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   builtinMember,
+  pendingPermissions,
   type GroupEvent,
   type GroupMember,
 } from "@/lib/agent/berth-group"
@@ -74,43 +75,36 @@ describe("memberRows", () => {
     expect(status(false)).toBe("idle")
   })
 
-  it("joins members to their panes, marks unread attention and sorts by urgency", () => {
+  it("lists members in the group by urgency and drops removed ones", () => {
     const rows = memberRows(
       [
-        member("claude-1", { joined_seq: 1 }),
-        member("claude-2", { joined_seq: 2 }),
-        member("claude-3", { joined_seq: 3 }),
-        member("codex-1", { joined_seq: 4, leftAt: 9_000 }),
+        member("pi", { joined_seq: 1 }),
+        member("pi-2", { joined_seq: 2, busy: true }),
+        member("pi-3", { joined_seq: 3, leftAt: 9_000 }),
       ],
-      [message(7, "claude-1")],
-      [
-        pane("ref-claude-1", "idle", 2_000),
-        pane("ref-claude-2", "attention", 6_000),
-      ],
+      [message(7, "pi")],
+      [],
       {}
     )
     expect(rows.map((row) => [row.member.name, row.status])).toEqual([
-      ["claude-2", "attention"],
-      ["claude-1", "idle"],
-      ["claude-3", "offline"],
-      ["codex-1", "left"],
+      ["pi-2", "working"],
+      ["pi", "idle"],
     ])
-    expect(rows[0].unread).toBe(true)
     expect(rows[1].lastActivity).toBe(7_000)
-    expect(rows[3].pane).toBeNull()
+    expect(rows[1].pane).toBeNull()
   })
 
   it("shows attention the user already saw as idle until the agent signals again", () => {
     const seen = { "t-ref-claude-1": 6_000 }
     const [row] = memberRows(
-      [member("claude-1")],
+      [member("claude-1", { handedTo: "t-ref-claude-1" })],
       [],
       [pane("ref-claude-1", "attention", 6_000)],
       seen
     )
     expect([row.status, row.unread]).toEqual(["idle", false])
     const [again] = memberRows(
-      [member("claude-1")],
+      [member("claude-1", { handedTo: "t-ref-claude-1" })],
       [],
       [pane("ref-claude-1", "attention", 9_000)],
       seen
@@ -246,5 +240,57 @@ describe("group activity", () => {
     expect(activeDelegations(events, progress).map((e) => e.seq)).toEqual([
       4, 2,
     ])
+  })
+})
+
+describe("pendingPermissions", () => {
+  const at = (seq: number, extra: Partial<GroupEvent>): GroupEvent => ({
+    schema_version: 1,
+    seq,
+    timestamp_ms: seq,
+    kind: "system",
+    ...extra,
+  })
+  const ask = (seq: number, turn: number) =>
+    at(seq, { event: "permission", author: "pi", reply_to: turn })
+
+  it("keeps requests until answered or their turn ends", () => {
+    const events = [
+      ask(2, 1),
+      ask(3, 1),
+      at(4, { event: "permission_reply", author: "user", reply_to: 2 }),
+      ask(6, 5),
+      at(7, { kind: "message", author: "pi", reply_to: 5, text: "done" }),
+      ask(9, 8),
+      at(10, {
+        kind: "message",
+        event: "turn_interrupted",
+        author: "pi",
+        reply_to: 8,
+      }),
+    ]
+    expect(pendingPermissions(events).map((event) => event.seq)).toEqual([3])
+  })
+
+  it("a member handed to a terminal follows that terminal", () => {
+    const pane = {
+      descriptor: { terminalId: "t1", targetRef: "x" },
+      state: "working",
+      since: 1,
+    } as unknown as AgentPaneRow
+    const rows = memberRows(
+      [
+        member("pi", { busy: false, handedTo: "t1", bodies: [] }),
+        member("pi-2", { busy: true, handedTo: "", bodies: [] }),
+      ],
+      [],
+      [pane],
+      {}
+    )
+    expect(rows.map((row) => [row.member.name, row.status])).toEqual([
+      ["pi", "working"],
+      ["pi-2", "idle"],
+    ])
+    expect(rows[0].pane).toBe(pane)
   })
 })

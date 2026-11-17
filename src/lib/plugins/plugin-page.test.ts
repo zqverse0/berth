@@ -194,4 +194,76 @@ describe("connectPluginPage", () => {
     await expect(pending).resolves.toBe("data:image/svg")
     connection.dispose()
   })
+  it("routes sidebar requests only to the current writable editor of the same plugin and project", async () => {
+    const editor = mount()
+    editor.fromPage({ method: "page.hello" })
+    await vi.waitFor(() => expect(editor.posted).toHaveLength(1))
+    let path: string | null = "/repo/a.excalidraw"
+    const viewHost = host({
+      context: { kind: "view", id: "gallery", params: {} },
+      activeEditorPath: () => path,
+    })
+    expect(await handlePageCall(viewHost, "editor.active", {})).toEqual({
+      path: "a.excalidraw",
+    })
+    expect(
+      await handlePageCall(
+        { ...viewHost, plugin: "other" },
+        "editor.active",
+        {}
+      )
+    ).toBeNull()
+    expect(
+      await handlePageCall({ ...viewHost, root: "/other" }, "editor.active", {})
+    ).toBeNull()
+    const pending = handlePageCall(viewHost, "editor.request", {
+      path: "a.excalidraw",
+      method: "snapshot",
+    })
+    const request = editor.posted[1] as { id: number; method: string }
+    expect(request.method).toBe("editor.request")
+    editor.fromPage({ id: request.id, result: { content: "latest unsaved" } })
+    await expect(pending).resolves.toEqual({ content: "latest unsaved" })
+    path = "/repo/b.excalidraw"
+    await expect(
+      handlePageCall(viewHost, "editor.request", {
+        path: "a.excalidraw",
+        method: "restore",
+      })
+    ).rejects.toMatchObject({ reason: "unavailable" })
+    path = "/repo/a.excalidraw"
+    const stale = handlePageCall(viewHost, "editor.request", {
+      path: "a.excalidraw",
+      method: "snapshot",
+    })
+    const staleRequest = editor.posted[2] as { id: number }
+    path = null
+    editor.fromPage({ id: staleRequest.id, result: "stale" })
+    await expect(stale).rejects.toMatchObject({ reason: "unavailable" })
+    editor.connection.update(
+      host({
+        context: { ...host().context, readOnly: true } as PageHost["context"],
+      })
+    )
+    path = "/repo/a.excalidraw"
+    expect(await handlePageCall(viewHost, "editor.active", {})).toBeNull()
+    editor.connection.dispose()
+    expect(await handlePageCall(viewHost, "editor.active", {})).toBeNull()
+  })
+
+  it("validates sidebar header tabs", async () => {
+    const setHeaderTabs = vi.fn()
+    const view = host({ setHeaderTabs })
+    await handlePageCall(view, "ui.setHeaderTabs", {
+      tabs: [{ id: "revise", label: "改图" }],
+      value: "revise",
+    })
+    expect(setHeaderTabs).toHaveBeenCalledWith(
+      [{ id: "revise", label: "改图" }],
+      "revise"
+    )
+    await expect(
+      handlePageCall(view, "ui.setHeaderTabs", { tabs: [{}], value: "revise" })
+    ).rejects.toMatchObject({ reason: "invalid-params" })
+  })
 })

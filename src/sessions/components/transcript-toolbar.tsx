@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { ExchangeDetail, ProcessFilter } from "@/sessions/exchanges"
+import { useTocStore } from "@/sessions/transcript-toc"
 import {
   useTranscriptView,
   useTranscriptViewStore,
@@ -24,10 +25,7 @@ export function TranscriptToolbar({
   const t = useTranslations("Folder.sessionViewer")
   const tSessions = useTranslations("Folder.sessionsView")
   const { level, filter, query } = useTranscriptView(conversationId)
-  const detail = useTranscriptViewStore(
-    (state) => state.details[conversationId]
-  )
-  const link = detail?.group_link
+  const link = useTocStore((state) => state.tocs[conversationId]?.group_link)
   const updateView = useTranscriptViewStore((state) => state.updateView)
   const setFilter = (patch: Partial<ProcessFilter>) =>
     updateView(conversationId, (view) => ({

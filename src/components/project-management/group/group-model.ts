@@ -3,25 +3,21 @@ import {
   GROUP_USER,
   sendBatchOf,
   type DeliveryState,
-  type GroupBody,
   type GroupMember,
 } from "@/lib/agent/berth-group"
 import type { AgentPaneRow, SeenAttention } from "@/lib/terminal/agent-panes"
 
-/** 成员栏状态：pane 的 Agent 状态；pane 已不在为 `offline`（后台进程随后让它离群）；离群为 `left`。 */
-export type MemberStatus = "attention" | "working" | "idle" | "offline" | "left"
+/** 成员状态：运行时报的忙闲；会话交给终端时跟着那个终端（含「需要关注」）。 */
+export type MemberStatus = "attention" | "working" | "idle"
 
 export interface MemberRow {
   member: GroupMember
-  /** 成员各终端及其 pane（pane 已不在为 null）。 */
-  bodies: { body: GroupBody; pane: AgentPaneRow | null }[]
-  /** 代表成员状态的终端：最需要你的那个（需要关注 > 工作中 > 空闲）。 */
-  body: GroupBody | null
+  /** 会话交给了终端时那个终端的 pane；否则为 null（成员没有终端）。 */
   pane: AgentPaneRow | null
   status: MemberStatus
   /** 需要关注且用户还没看过这一轮（与侧栏角标同一已读层）。 */
   unread: boolean
-  /** 最后活动：它最近的发言、pane 状态变化、入群，取最晚的。 */
+  /** 最后活动：它最近的发言、终端状态变化、入群，取最晚的。 */
   lastActivity: number | null
 }
 
@@ -29,10 +25,9 @@ const ORDER: Record<MemberStatus, number> = {
   attention: 0,
   working: 1,
   idle: 2,
-  offline: 3,
-  left: 4,
 }
 
+/** 在群的成员（内置 Berth 与 ACP 成员）；移出的不再列出，要用再「+」加回来，它的消息照旧留在时间线上。 */
 export function memberRows(
   members: readonly GroupMember[],
   events: readonly GroupEvent[],
@@ -45,78 +40,43 @@ export function memberRows(
       spoke.set(event.author, event.timestamp_ms)
     }
   }
-  const rows = members.map((member) => {
-    const bodies = member.bodies.map((body) => ({
-      body,
-      pane:
-        member.leftAt == null
+  const rows = members
+    .filter((member) => member.leftAt == null)
+    .map((member) => {
+      const found =
+        member.handedTo != null
           ? (panes.find(
-              (row) => row.descriptor.targetRef === body.target_ref
+              (row) => row.descriptor.terminalId === member.handedTo
             ) ?? null)
-          : null,
-    }))
-    const live = bodies.filter(
-      (entry) => entry.pane && entry.pane.state !== "exited"
-    )
-    const primary =
-      [...live].sort(
-        (a, b) =>
-          ORDER[a.pane?.state as MemberStatus] -
-          ORDER[b.pane?.state as MemberStatus]
-      )[0] ??
-      bodies[bodies.length - 1] ??
-      null
-    const pane = primary?.pane ?? null
-    // 看过的这一轮「需要关注」按空闲显示；Agent 再提醒（`since` 变了）才重新需要你。
-    const status: MemberStatus = member.builtin
-      ? member.busy
-        ? "working"
-        : "idle"
-      : member.leftAt != null
-        ? "left"
-        : !pane || pane.state === "exited"
-          ? "offline"
-          : pane.state === "attention" &&
-              seen[pane.descriptor.terminalId] === pane.since
-            ? "idle"
-            : pane.state
-    const unread = status === "attention"
-    const lastActivity = Math.max(
-      spoke.get(member.name) ?? 0,
-      member.leftAt ?? 0,
-      status === "left" || status === "offline" ? 0 : (pane?.since ?? 0),
-      member.joined_at ?? 0
-    )
-    return {
-      member,
-      bodies,
-      body: primary?.body ?? null,
-      pane,
-      status,
-      unread,
-      lastActivity: lastActivity || null,
-    }
-  })
+          : null
+      const pane = found && found.state !== "exited" ? found : null
+      // 看过的这一轮「需要关注」按空闲显示；Agent 再提醒（`since` 变了）才重新需要你。
+      const status: MemberStatus = pane
+        ? pane.state === "attention" &&
+          seen[pane.descriptor.terminalId] === pane.since
+          ? "idle"
+          : (pane.state as MemberStatus)
+        : member.busy && member.handedTo == null
+          ? "working"
+          : "idle"
+      const lastActivity = Math.max(
+        spoke.get(member.name) ?? 0,
+        pane?.since ?? 0,
+        member.joined_at ?? 0
+      )
+      return {
+        member,
+        pane,
+        status,
+        unread: status === "attention",
+        lastActivity: lastActivity || null,
+      }
+    })
   return rows.sort(
     (a, b) =>
       ORDER[a.status] - ORDER[b.status] ||
       a.member.joined_seq - b.member.joined_seq
   )
-}
-
-/**
- * 能发消息的成员：在线的，加上不在线的专家（消息存进群，启动后送达）；旧账本里按终端编号命名的离线成员不列。
- */
-export function addressable(rows: readonly MemberRow[]): {
-  present: MemberRow[]
-  offline: MemberRow[]
-} {
-  const away = (row: MemberRow) =>
-    row.status === "left" || row.status === "offline"
-  return {
-    present: rows.filter((row) => !away(row)),
-    offline: rows.filter((row) => away(row) && !/^\d+$/.test(row.member.name)),
-  }
 }
 
 /** Agent 之间的委托与结果（群主不在其中）：群聊里折成一行，单聊里不出现。 */
@@ -301,20 +261,4 @@ export function paneNumber(targetRef: string | undefined): number | null {
   } catch {
     return null
   }
-}
-
-/** 目录名（路径最后一段）。 */
-export function dirName(path: string | null | undefined): string {
-  return path?.split(/[\\/]/).filter(Boolean).pop() ?? ""
-}
-
-/** 成员在同一目录里有两个以上在跑的终端：这些目录（可能改到同一批文件）。 */
-export function sharedDirs(row: MemberRow): string[] {
-  const seen = new Map<string, number>()
-  for (const { body, pane } of row.bodies) {
-    const cwd = body.cwd
-    if (!cwd || !pane || pane.state === "exited") continue
-    seen.set(cwd, (seen.get(cwd) ?? 0) + 1)
-  }
-  return [...seen].filter(([, count]) => count > 1).map(([cwd]) => cwd)
 }

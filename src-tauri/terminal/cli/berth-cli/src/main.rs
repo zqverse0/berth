@@ -53,7 +53,7 @@ Berth 命令行：与 GUI 同一套功能。
 
 单个项目（<项目> 用 ID、名称、路径，`.` 是当前目录所在项目）：
   任务      berth project <项目> task create | list | show | start | assign | finish | reopen
-  群组      berth project <项目> group who | read | post | spawn | join
+  群组      berth project <项目> group who | read | post | spawn | join --acp
   会话      berth project <项目> session ls | show | last
   记忆      berth project <项目> knowledge search | for | show | lint | digest | root | inbox
 
@@ -1148,14 +1148,11 @@ fn run(cli: Cli) -> Result<(), CliError> {
             return Ok(());
         }
         Command::Guide { brief, .. } => {
-            // 在任务 worktree 里启动的 Agent 额外知道自己的任务，并自动入群。
-            let socket = resolve_endpoint(cli.socket_name.as_deref(), cli.socket_path.as_deref())
-                .ok()
-                .map(LocalEndpoint::into_path);
+            // 在任务 worktree 里启动的 Agent 额外知道自己的任务与项目群。
             let cwd = std::env::current_dir().ok();
             let task = cwd
                 .as_deref()
-                .and_then(|cwd| group::brief_lines(cwd, socket))
+                .and_then(group::brief_lines)
                 .unwrap_or_default();
             let expert = expert_brief().unwrap_or_default();
             let text = include_str!("brief.md")

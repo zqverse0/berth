@@ -55,6 +55,24 @@ declare module "berth" {
     isNativePlugin?(dir: string): boolean | Promise<boolean>
     /** 启动 Agent，返回退出码。 */
     launch(ctx: LaunchContext): number | Promise<number>
+    /**
+     * 群组 ACP 模式（`tool.json` 声明 `contributes.agent.acp: true`）：返回适配器怎么起，进程由群组运行时启动。
+     * `ctx.paths.tmp` 活到适配器进程退出。见 docs/agent-contracts.md「群组 ACP 模式」。
+     */
+    acp?(ctx: LaunchContext): AcpSpec | Promise<AcpSpec>
+  }
+
+  export interface AcpSpec {
+    /** 适配器命令（不经 shell）。 */
+    argv: string[]
+    /** 追加给适配器进程的环境。 */
+    env?: Record<string, string>
+    /** 每次 session/new、load、resume 原样放进 `_meta`。 */
+    sessionMeta?: Record<string, unknown>
+    /** 能否接收委托（运行时挂 Berth 的 MCP）；缺省 false。 */
+    delegation?: boolean
+    /** 每个工具调用都先经 session/request_permission；缺省 false。 */
+    approvesAllTools?: boolean
   }
 
   /** `contributes.command` 的脚本默认导出。 */
@@ -408,6 +426,7 @@ declare module "berth" {
       markdown: string
       meta?: Record<string, unknown>
     }): Promise<{ path: string }>
+  }
 
   /** agent@1 · 两者 · 权限 `agent`。放进当前 Agent 的输入框，用户确认后才发送。 */
   export interface AgentApi {
@@ -454,11 +473,21 @@ declare module "berth" {
   }
 
   /**
-   * editor@1 · 脚本 · 无需权限（`render` 写文件，要 `fs`）。本插件编辑器在 Berth 窗口里的能力：
+   * editor@1 · 两者 · 无需权限（`render` 写文件，要 `fs`）。本插件编辑器在 Berth 窗口里的能力：
    * `render` 请窗口用本插件 `embed` 编辑器的页面（`onRender`）把文件渲染成图片写到 `out`。
    * 只在 `berth tools run|call` 里可用，要求 Berth 开着；路径为绝对路径或 `~` 开头。
    */
   export interface EditorApi {
+    /** 仅页面：同插件、同项目当前可编辑文件；未打开则 null，path 相对项目根。 */
+    active(): Promise<{ path: string } | null>
+    /** 仅侧栏页面：调用当前编辑器的 onRequest；切换文件、只读或关闭后 reject。 */
+    request<T = unknown>(
+      path: string,
+      method: string,
+      input?: unknown
+    ): Promise<T>
+    /** 仅页面：当前文件或其插件状态变化；重新 active / request 取数据。 */
+    onChange(listener: () => void): Unsubscribe
     render(
       path: string,
       options: { out: string; format?: string }
@@ -480,6 +509,12 @@ declare module "berth" {
    * `--berth-foreground`、`--berth-primary`、`--berth-border`、`--berth-font-sans` …）；暗色时 `<html>` 带 `dark` 类。
    */
   export interface UiApi {
+    /** 侧栏页面把页签交给宿主顶栏渲染；value 必须属于 tabs。 */
+    setHeaderTabs(
+      tabs: { id: string; label: string }[],
+      value: string
+    ): Promise<void>
+    onHeaderTab(listener: (id: string) => void): Unsubscribe
     theme(): Promise<"light" | "dark">
     onTheme(listener: (theme: "light" | "dark") => void): Unsubscribe
     notify(message: string, kind?: "info" | "error"): Promise<void>
@@ -526,6 +561,12 @@ declare module "berth" {
     change(content: string): void
     onExternalChange(listener: (content: string) => void): Unsubscribe
     onFlush(flush: () => void): Unsubscribe
+    /** 响应本插件侧栏的语义请求；方法和数据由插件自己定义。 */
+    onRequest(
+      handler: (method: string, input: unknown) => unknown | Promise<unknown>
+    ): Unsubscribe
+    /** 通知本插件侧栏重读状态（例如选区、版本变化）。 */
+    notify(): void
     /** 从文件树拖进来：`path` 相对根（根外是绝对路径），`x` / `y` 是页面视口坐标。 */
     onDrop(
       listener: (item: {

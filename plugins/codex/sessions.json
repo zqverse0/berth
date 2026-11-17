@@ -87,5 +87,66 @@
         "<environment_context>"
       ]
     }
-  ]
+  ],
+  "tools": {
+    "exec_command": {
+      "kind": "command",
+      "command": "/cmd"
+    },
+    "shell": {
+      "kind": "command",
+      "command": "/command"
+    },
+    "shell_command": {
+      "kind": "command",
+      "command": "/command"
+    },
+    "exec": {
+      "kind": "command",
+      "command": ""
+    },
+    "write_stdin": {
+      "kind": "command",
+      "command": "/chars"
+    },
+    "apply_patch": {
+      "kind": "edit",
+      "patch": ""
+    },
+    "view_image": {
+      "kind": "read",
+      "path": "/path"
+    },
+    "update_plan": {
+      "kind": "plan",
+      "items": "/plan",
+      "text": "/step",
+      "status": "/status"
+    },
+    "request_user_input": {
+      "kind": "question",
+      "items": "/questions",
+      "text": "/question"
+    },
+    "request_user_input_async": {
+      "kind": "question",
+      "items": "/questions",
+      "text": "/question"
+    },
+    "spawn_agent": {
+      "kind": "delegate",
+      "title": "/task_name",
+      "text": "/message"
+    },
+    "send_message": {
+      "kind": "delegate",
+      "title": "/target",
+      "text": "/message"
+    },
+    "followup_task": {
+      "kind": "delegate",
+      "title": "/target",
+      "text": "/message"
+    }
+  }
 }

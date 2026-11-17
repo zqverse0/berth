@@ -1,4 +1,10 @@
-import type { ContentBlock, MessageTurn } from "@/lib/types"
+import type {
+  ContentBlock,
+  MessageTurn,
+  PartTurn,
+  SessionPart,
+  TocSegment,
+} from "@/lib/types"
 
 /**
  * 会话按“一问一答”分段：一个真实提问 + 到下一次提问前 Agent 做的所有事。
@@ -348,4 +354,76 @@ export function promptSummary(exchange: SessionExchange): string {
   const text = exchange.prompt?.blocks.find(hasText)
   if (!text || text.type !== "text") return ""
   return text.text.trim().split("\n")[0].slice(0, 120)
+}
+
+// ---------------------------------------------------------------------------
+// 阅读器：目录与 Part（宿主已分好段、讲清楚每一块）
+// ---------------------------------------------------------------------------
+
+/** 工具调用的 Part（有原始工具名）。 */
+export function isToolPart(part: SessionPart): boolean {
+  return part.tool != null
+}
+
+export function isResultPart(part: SessionPart): boolean {
+  return part.kind === "result" || part.kind === "error"
+}
+
+/** 与 `filterProcess` 同一规则，作用在 Part 上。 */
+export function filterParts(
+  parts: SessionPart[],
+  filter: ProcessFilter
+): SessionPart[] {
+  const narrowed = isNarrowed(filter)
+  const errorCalls = new Set(
+    parts
+      .filter((part) => part.kind === "error" && part.call)
+      .map((part) => part.call!)
+  )
+  const kept = new Set<string>()
+  return parts.filter((part) => {
+    if (isToolPart(part)) {
+      const keep =
+        filter.tools &&
+        (filter.toolName == null || part.tool === filter.toolName) &&
+        (filter.skill == null || (part.skills ?? []).includes(filter.skill)) &&
+        (!filter.errorsOnly || (part.call != null && errorCalls.has(part.call)))
+      if (keep && part.call) kept.add(part.call)
+      return keep
+    }
+    if (isResultPart(part)) {
+      return (
+        filter.tools && (part.call != null ? kept.has(part.call) : !narrowed)
+      )
+    }
+    if (part.kind === "thinking") return filter.thinking && !narrowed
+    return !narrowed
+  })
+}
+
+/** 段落是否命中筛选。关键词只在提问首行、工具名与已经取到的内容里找。 */
+// ponytail: 关键词只搜已取到的内容；全文搜索在会话读取任务 S4 交给宿主
+export function matchesSegment(
+  segment: TocSegment,
+  filter: Narrowing,
+  query: string,
+  loaded: PartTurn[]
+): boolean {
+  const { stats } = segment
+  if (filter.toolName && !stats.tools[filter.toolName]) return false
+  if (filter.skill && !stats.skills[filter.skill]) return false
+  if (filter.errorsOnly && stats.errors === 0) return false
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  const has = (text: string | null | undefined) =>
+    !!text && text.toLowerCase().includes(needle)
+  return (
+    has(segment.title) ||
+    Object.keys(stats.tools).some(has) ||
+    loaded.some((turn) =>
+      turn.parts.some(
+        (part) => !isResultPart(part) && (has(part.text) || has(part.title))
+      )
+    )
+  )
 }

@@ -16,6 +16,8 @@ import { refreshGroupUnread } from "@/lib/agent/group-unread"
 import { onAgentChanged } from "@/lib/terminal/agent-panes"
 
 const POLL_MS = 2_000
+/** 有成员正在回答（Berth / ACP 成员的过程在流式更新）时读得勤一些。 */
+const LIVE_POLL_MS = 400
 /** 后台进程空闲 10 分钟会退出；视图开着时隔一会儿确认一次。 */
 const WATCH_MS = 60_000
 
@@ -188,7 +190,14 @@ function start(feed: GroupFeed): () => void {
     if (document.visibilityState === "visible") void load(feed)
   }
   tick()
-  const poll = window.setInterval(tick, POLL_MS)
+  let last = 0
+  // 每 LIVE_POLL_MS 看一眼：有人在答就读，否则满 POLL_MS 才读。
+  const poll = window.setInterval(() => {
+    const live = feed.data.members.some((member) => member.busy)
+    if (!live && Date.now() - last < POLL_MS) return
+    last = Date.now()
+    tick()
+  }, LIVE_POLL_MS)
   // hook 贴回回答、送达后立即重读，不等下一轮轮询。
   const stopListening = onAgentChanged(tick)
   const watch = window.setInterval(() => {

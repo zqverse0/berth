@@ -44,6 +44,7 @@ pub const AGENT_KEYS: &[(&str, &str)] = &[
     ("capabilityStores", "agent.capabilityStores"),
     ("promptInput", "agent.promptInput"),
     ("interruptKey", "agent.interruptKey"),
+    ("acp", "agent.acp"),
 ];
 
 /// 宿主认识的 `extensions` 命名空间。

@@ -9,6 +9,10 @@ import { formatConversationTitle } from "@/lib/agent/conversation-title"
 import { buildTranscriptTabId } from "@/lib/files/file-workspace-tab"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import {
+  retainConversationDetail,
+  useConversationRuntimeStore,
+} from "@/stores/conversation-runtime-store"
+import {
   buildExchanges,
   type ExchangeDetail,
   type ProcessFilter,
@@ -71,8 +75,6 @@ interface JumpRequest {
 
 interface TranscriptViewStore {
   views: Record<number, TranscriptView>
-  // ponytail: 详情按会话 id 常驻到窗口关闭；会话很多时再加 LRU
-  details: Record<number, DbConversationDetail>
   errors: Record<number, string>
   jump: JumpRequest | null
   updateView: (
@@ -85,7 +87,6 @@ interface TranscriptViewStore {
 
 export const useTranscriptViewStore = create<TranscriptViewStore>((set) => ({
   views: {},
-  details: {},
   errors: {},
   jump: null,
   updateView: (conversationId, update) =>
@@ -109,11 +110,29 @@ export function useTranscriptView(conversationId: number): TranscriptView {
 const requests = new Map<number, Promise<void>>()
 const exchangeCache = new WeakMap<object, SessionExchange[]>()
 
+/** 会话 detail：与会话 tab 共用 conversation-runtime-store 的一份，不另存。 */
+export function transcriptDetailOf(id: number): DbConversationDetail | null {
+  return (
+    useConversationRuntimeStore.getState().byConversationId.get(id)?.detail ??
+    null
+  )
+}
+
+export function useTranscriptDetailValue(
+  id: number | null
+): DbConversationDetail | null {
+  return useConversationRuntimeStore((state) =>
+    id == null ? null : (state.byConversationId.get(id)?.detail ?? null)
+  )
+}
+
 function setDetail(id: number, detail: DbConversationDetail) {
+  useConversationRuntimeStore.getState().actions.storeDetail(id, detail)
   useTranscriptViewStore.setState((state) => {
+    if (!(id in state.errors)) return state
     const errors = { ...state.errors }
     delete errors[id]
-    return { details: { ...state.details, [id]: detail }, errors }
+    return { errors }
   })
   // 会话标签的标题打开时定下；读到更新后的会话标题（改名、自动标题回填）时跟上。
   const title = formatConversationTitle(detail.summary?.title)
@@ -138,7 +157,7 @@ function setError(id: number, error: string) {
 
 /** 加载详情；同一会话的并发请求合并。`force` 忽略已有缓存。 */
 export function loadTranscript(id: number, force = false): Promise<void> {
-  if (!force && useTranscriptViewStore.getState().details[id]) {
+  if (!force && transcriptDetailOf(id)) {
     return Promise.resolve()
   }
   const pending = requests.get(id)
@@ -166,16 +185,16 @@ export function exchangesOf(
 }
 
 export function useTranscriptDetail(conversationId: number) {
-  const detail = useTranscriptViewStore(
-    (state) => state.details[conversationId] ?? null
-  )
+  const detail = useTranscriptDetailValue(conversationId)
   const error = useTranscriptViewStore(
     (state) => state.errors[conversationId] ?? null
   )
 
+  useEffect(() => retainConversationDetail(conversationId), [conversationId])
+  // 被淘汰后（detail 变回 null）再显示时重拉
   useEffect(() => {
-    void loadTranscript(conversationId)
-  }, [conversationId])
+    if (!detail) void loadTranscript(conversationId)
+  }, [conversationId, detail])
 
   return {
     detail,
@@ -200,7 +219,7 @@ function startLivePoller(id: number): () => void {
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const tick = async () => {
-    const current = useTranscriptViewStore.getState().details[id]
+    const current = transcriptDetailOf(id)
     if (document.visibilityState === "visible" && current?.source_revision) {
       const revision = await getConversationSourceRevision(id).catch(() => null)
       if (!stopped && revision && revision !== current.source_revision) {

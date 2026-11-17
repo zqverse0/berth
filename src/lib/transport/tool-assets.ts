@@ -36,6 +36,8 @@ export type ToolCatalogEntry = {
   /** 包内 `icon.svg|icon.png` 的 data URL。 */
   icon?: string | null
   installed: boolean
+  /** 本机已装包的版本；与 `version` 不同即可更新。 */
+  installedVersion?: string | null
 }
 
 export type ToolAssetsRequest =
@@ -45,6 +47,7 @@ export type ToolAssetsRequest =
   | { type: "pack"; id: string; path: string }
   | { type: "catalog" }
   | { type: "install"; source: string }
+  | { type: "update"; id: string }
   | { type: "remove"; id: string }
 
 export type ToolAssetsResponse =

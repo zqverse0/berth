@@ -348,6 +348,41 @@ describe("ToolsSettingsPage", () => {
     ).toBeInTheDocument()
   })
 
+  it("updates an installed plugin whose repository version is newer", async () => {
+    toolAssets.mockImplementation((request: { type: string }) => {
+      if (request.type === "catalog") {
+        return Promise.resolve({
+          type: "catalog",
+          repository: "https://github.com/zqverse0/berth-plugins",
+          plugins: [
+            {
+              source: "https://github.com/zqverse0/berth-plugins#pi",
+              id: "pi",
+              name: "Pi",
+              description: "Pi coding agent",
+              version: "1.1.0",
+              installed: true,
+              installedVersion: "1.0.0",
+            },
+          ],
+        })
+      }
+      return Promise.resolve({ type: "list", directory: "/t", tools: [] })
+    })
+    const user = userEvent.setup()
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <ToolsSettingsPage />
+      </NextIntlClientProvider>
+    )
+
+    await user.click(await screen.findByRole("button", { name: "Update" }))
+    expect(toolAssets).toHaveBeenCalledWith({ type: "update", id: "pi" })
+    expect(
+      await screen.findByRole("button", { name: "Installed" })
+    ).toBeInTheDocument()
+  })
+
   it("removes a plugin only after confirming", async () => {
     const user = userEvent.setup()
     render(

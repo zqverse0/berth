@@ -1326,7 +1326,16 @@
       "filterTool": "工具：{name}",
       "clearFilter": "清除筛选 {name}",
       "openInReader": "在阅读区打开",
-      "noTerminalSession": "这个终端的 Agent 在本项目还没有会话记录。"
+      "noTerminalSession": "这个终端的 Agent 在本项目还没有会话记录。",
+      "partCut": "还有 {count} 字没显示",
+      "partShowAll": "显示全部",
+      "partLoading": "正在读取…",
+      "partLoadFailed": "读取失败：{error}",
+      "partImages": "{count} 张图片",
+      "partBackground": "后台",
+      "partFailed": "出错",
+      "partTool": "工具",
+      "partResult": "结果"
     },
     "conversationCard": {
       "untitledConversation": "未命名会话",
@@ -3541,6 +3550,7 @@
     "catalogLoading": "正在读取插件仓库…",
     "catalogAlreadyInstalled": "已安装",
     "catalogInstalled": "已安装 {name}",
+    "catalogUpdated": "已更新 {name}",
     "catalogDescription": "Berth 官方插件，点「安装」即可使用；需要本机已安装 git。",
     "remove": "移除",
     "removed": "已移除 {name}",
@@ -3935,7 +3945,7 @@
       "members": {
         "title": "成员（{count}）",
         "emptyPlanning": "开工后，在 worktree 里启动的 Agent 会自动入群。",
-        "emptyStarted": "还没有成员。在 worktree 里启动一个 Agent，它会自动入群：",
+        "emptyStarted": "还没有成员。在群组页点「+」加一个 Agent。",
         "jump": "跳到它的终端",
         "mention": "@ 它",
         "interrupt": "打断",
@@ -3960,47 +3970,14 @@
         "status": {
           "attention": "需要关注",
           "working": "工作中",
-          "idle": "空闲",
-          "offline": "终端已关闭",
-          "left": "已离开"
+          "idle": "空闲"
         },
         "rename": "改显示名",
         "renameHint": "Enter 保存，Esc 取消；留空改回原名。不能含空格或 @",
         "showMessages": "只看它的消息",
         "sectionMembers": "成员",
         "sectionDelegations": "进行中的委托",
-        "noDelegations": "没有进行中的委托",
-        "sharedDir": "同一目录里有两个终端：可能改到同一批文件",
-        "addBody": "再开一个终端",
-        "addExpert": "添加专家",
-        "loadingExperts": "正在读取专家…",
-        "noMoreExperts": "专家都已在群里",
-        "detail": {
-          "refresh": "刷新",
-          "jump": "跳到终端",
-          "loading": "加载中",
-          "open": "打开 {path}",
-          "terminal": "终端 #{number}",
-          "agent": "Agent",
-          "model": "模型",
-          "expert": "专家",
-          "noExpert": "未选专家",
-          "brief": "Berth 说明",
-          "briefInjected": "已注入（{count} 字）",
-          "briefNone": "未注入",
-          "cwd": "工作目录",
-          "session": "会话",
-          "noSession": "还没有会话（Agent 的 hook 尚未报告）",
-          "startedAt": "启动时间",
-          "noLaunch": "没有启动记录：这个终端在启动记录功能之前启动，重开后显示。",
-          "context": "当前上下文组成",
-          "contextEmpty": "会话里没有记下启动上下文",
-          "contextFailed": "读不到会话上下文：{error}",
-          "loaded": "启动时加载",
-          "expertSkills": "专家 skills",
-          "files": "改过的文件（{count}）",
-          "noFiles": "还没有汇报过改动的文件"
-        }
+        "noDelegations": "没有进行中的委托"
       },
       "sessions": {
         "title": "关联会话",
@@ -4054,9 +4031,6 @@
         "send": "发送",
         "placeholderAll": "发给全体成员，每位各收到一份…",
         "partialFailed": "没发给 {names}：{error}（输入已保留，可重发）",
-        "offlineQueued": "消息已存进群。{names} 不在线，启动后送达。",
-        "launchOffline": "启动 {name}",
-        "dismiss": "关闭",
         "keysHint": "Enter 发送 · Shift+Enter 换行",
         "attach": "插入文件路径",
         "attachTitle": "选择要发给成员的文件",
@@ -4104,9 +4078,30 @@
         "modified": "修改",
         "deleted": "删除"
       },
-      "memberView": {
-        "detail": "详情",
-        "messages": "消息"
+      "add": {
+        "title": "加成员（ACP）",
+        "empty": "没有可进群的 Agent：插件需在 tool.json 声明 agent.acp",
+        "join": "加入群组"
+      },
+      "permission": {
+        "title": "请求执行工具",
+        "cancel": "取消"
+      },
+      "acp": {
+        "stop": "停止",
+        "new": "新会话",
+        "newHint": "下一条消息从新会话开始，之前的上下文不再带上（正在回答会被中断）",
+        "newDone": "下一条消息将开始新会话",
+        "leave": "移出群",
+        "leaveHint": "停掉它的进程并移出群；会话保留，再加回来可以接着聊",
+        "handoff": "在终端打开",
+        "handoffHint": "把这个会话交给终端继续（群消息先留着）；终端关掉后自动交回群里",
+        "handoffFailed": "终端没有打开，会话已留在群里",
+        "handoffUnsupported": "这个 Agent 的启动栏没有「会话」项，不能在终端打开同一会话",
+        "inTerminal": "会话在终端中，群消息交回后再送达",
+        "jump": "打开终端",
+        "return": "交回群里",
+        "returnHint": "关掉那个终端，会话回到群里（含在终端里聊的）"
       }
     }
   },

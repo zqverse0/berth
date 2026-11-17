@@ -1,13 +1,34 @@
-// 素材库（插件数据目录 library/）。三层合在一起：
-// - 包里自带的起手模板（gallery/templates.js）；
-// - collect.py 收集的 index.json（重跑会整个重写）；
-// - 用户层 user.json：自己加的素材（文件在 library/user/）与移除名单。collect.py 不碰它，移除的不会被加回来。
+// 素材库（插件数据目录 library/）。两层合在一起：
+// - 包里自带的起手模板（private/templates.js）；
+// - 用户层 user.json：自己加的素材（文件在 library/user/）与移除名单。
 // 图库页面经 berth.scripts.run 调；Agent 也可以：
 //   berth tools call excalidraw private/library.js --input '{"action":"list"}'
 //   berth tools call excalidraw private/library.js --input '{"action":"add","path":"/abs/fig.png","title":"…"}'
 
-import { TEMPLATES } from "../gallery/templates.js"
+import { TEMPLATES } from "./templates.js"
 import { layout } from "./layout.js"
+
+const PUBLIC_ROOT =
+  "https://raw.githubusercontent.com/excalidraw/excalidraw-libraries/main/"
+const publicPath = (path) => {
+  if (
+    typeof path !== "string" ||
+    !path ||
+    /[\\:?#\x00-\x1f]/.test(path) ||
+    path.split("/").some((part) => !part || part === "." || part === "..")
+  )
+    throw new Error("invalid public library path")
+  return path.split("/").map(encodeURIComponent).join("/")
+}
+async function publicText(path) {
+  const response = await berth.http.fetch(`${PUBLIC_ROOT}${path}`, {
+    timeoutMs: 30000,
+    retry: { attempts: 3 },
+  })
+  if (response.status !== 200)
+    throw new Error(`Public libraries HTTP ${response.status}`)
+  return response.text
+}
 
 const IMAGE_MIME = {
   png: "image/png",
@@ -81,7 +102,7 @@ function drawingLabels(text) {
   }
 }
 
-/** 文字类素材的全文：index 里带了就用，否则读文件。 */
+/** 文字类素材的全文：条目里带了就用，否则读文件。 */
 async function fullText(item) {
   if (item.prompt) return item.prompt
   if (item.kind === "style" || item.kind === "prompt")
@@ -89,7 +110,7 @@ async function fullText(item) {
   return null
 }
 
-/** 模板条目：缩略图在页面目录（`gallery/templates/<id>.png`），页面按相对地址直接显示。 */
+/** 模板条目：缩略图在页面目录（`page/templates/<id>.png`），页面按相对地址直接显示。 */
 const templateItem = ({ id, title, tags }) => ({
   id,
   title,
@@ -117,17 +138,12 @@ async function listItem(item) {
   return { ...rest, hasPrompt: Boolean(text), excerpt: excerpt(text ?? "") }
 }
 
-/** 全部条目（模板 + 收集 + 用户），`removed` 名单里的分开放。 */
-async function allItems(bench) {
-  const index = await readJson(`${libraryDir()}/index.json`)
+/** 全部条目（模板 + 用户），`removed` 名单里的分开放。 */
+async function allItems() {
   const user = await readUser()
-  const collected = (index?.items ?? []).filter(
-    (item) => bench || item.kind !== "bench"
-  )
-  const items = [...TEMPLATES.map(templateItem), ...user.items, ...collected]
+  const items = [...TEMPLATES.map(templateItem), ...user.items]
   const removed = new Set(user.removed)
   return {
-    index,
     user,
     items: items.filter((item) => !removed.has(item.id)),
     removed: items.filter((item) => removed.has(item.id)),
@@ -138,10 +154,8 @@ async function findItem(id) {
   const template = TEMPLATES.find((entry) => entry.id === id)
   if (template)
     return { ...templateItem(template), structure: template.structure }
-  const { index, user } = await allItems(true)
-  const item = [...user.items, ...(index?.items ?? [])].find(
-    (entry) => entry.id === id
-  )
+  const { user } = await allItems()
+  const item = user.items.find((entry) => entry.id === id)
   if (!item) throw new Error(`no library item ${id}`)
   return item
 }
@@ -216,24 +230,54 @@ async function addFile(input) {
 }
 
 /**
- * - `list`（`bench?: true` 含 Bench）：`items` 不含提示词全文（`hasPrompt`、文字预览 `excerpt`），
- *   `removed` 是移除名单里的条目；库没收集时 `missing: true`（模板与自己加的照常列出）。
+ * - `list`：`items` 不含提示词全文（`hasPrompt`、文字预览 `excerpt`），`removed` 是移除名单里的条目。
  * - `get {id}`：完整条目，加绝对路径 `file`、缩略图 `thumbUrl`、文字素材的全文 `prompt`。
  * - `create {id}`：用模板在当前项目 `figures/` 下新建画板，返回绝对路径 `path`。
+ * - `publicCatalog` / `publicLibrary {source}`：只读官方公开目录和素材文件，需 network 权限。
+ * - `exportShapes {content}`：将原生图形素材库导出到项目 figures/，不覆盖同名文件。
  * - `add {path, title?, tags?}`：把文件加进素材库（复制进 library/user/），按后缀归类。
  * - `addText {title, text, tags?}`：新建一条提示词。
- * - `remove {id}` / `restore {id}`：移出图库 / 放回（文件不删，collect.py 重跑也不会加回来）。
+ * - `remove {id}` / `restore {id}`：移出图库 / 放回（文件不删）。
  */
 export default async function library(input) {
   const action = input?.action ?? "list"
+  if (action === "publicCatalog") {
+    const catalog = JSON.parse(await publicText("libraries.json"))
+    if (!Array.isArray(catalog))
+      throw new Error("invalid public library catalog")
+    return catalog
+      .filter(
+        (item) =>
+          item &&
+          typeof item.name === "string" &&
+          typeof item.source === "string" &&
+          item.source.endsWith(".excalidrawlib")
+      )
+      .map((item) => ({
+        id: String(item.id ?? item.source),
+        name: item.name,
+        source: item.source,
+        description:
+          typeof item.description === "string" ? item.description : "",
+        authors: Array.isArray(item.authors)
+          ? item.authors
+              .map((author) => author?.name)
+              .filter((name) => typeof name === "string")
+              .join(", ")
+          : "",
+      }))
+  }
+  if (action === "publicLibrary") {
+    const source = publicPath(input?.source)
+    if (!source.endsWith(".excalidrawlib"))
+      throw new Error("expected an .excalidrawlib file")
+    return { content: await publicText(`libraries/${source}`) }
+  }
   const dir = libraryDir()
   if (action === "list") {
-    const { index, items, removed } = await allItems(input?.bench === true)
+    const { items, removed } = await allItems()
     return {
       dir,
-      missing: !index,
-      generatedAt: index?.generatedAt ?? null,
-      sources: index?.sources ?? [],
       items: await Promise.all(items.map(listItem)),
       removed: removed.map(({ id, kind, title }) => ({ id, kind, title })),
     }
@@ -264,6 +308,17 @@ export default async function library(input) {
         JSON.stringify(layout(item.structure), null, 2) + "\n"
       )
     else await berth.fs.copy(`${dir}/${item.path}`, path)
+    return { path }
+  }
+  if (action === "exportShapes") {
+    const content = String(input?.content ?? "")
+    const data = JSON.parse(content)
+    if (data?.type !== "excalidrawlib" || !Array.isArray(data.libraryItems))
+      throw new Error("expected an Excalidraw library")
+    const root = await projectRoot()
+    await berth.fs.mkdir(`${root}/figures`)
+    const path = await freePath(`${root}/figures`, "library", "excalidrawlib")
+    await berth.fs.writeText(path, content)
     return { path }
   }
   if (action === "add") {

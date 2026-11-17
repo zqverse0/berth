@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use berth_control_proto::{excerpt_tail, ProjectScope, TargetBindingRef, WorkspaceExcerptParams};
-pub(crate) use berth_group::{Input, PaneProbe};
 use berth_project_core::instance::DataInstance;
 use berth_project_core::runtime::{classify_session, project_session_key, SessionOwnership};
 use berth_term_sdk::berth::{
@@ -21,6 +20,13 @@ use crate::{
     CliError, EXIT_DAEMON_UNAVAILABLE, EXIT_INCOMPATIBLE, EXIT_OPERATION_TIMEOUT, EXIT_REJECTED,
     EXIT_TARGET_NOT_FOUND, EXIT_USER_ERROR,
 };
+
+/// 写进 pane 的输入：文本或按键名。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Input {
+    Text(String),
+    Key(String),
+}
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -224,22 +230,6 @@ pub(crate) fn parse_binding(reference: &str, json_mode: bool) -> Result<RuntimeB
         PaneId::new(decoded.pane_id),
         decoded.generation,
     ))
-}
-
-/// 终端引用属于另一个 Berth 实例（如正式版与 dev 同开）：本实例的 termd 看不到它，不能据此判它已退出。
-/// 解析不了或读不到本实例身份时按本实例处理，交给 probe 判定。
-pub(crate) fn foreign_target(reference: &str) -> bool {
-    let Ok(binding) = parse_binding(reference, false) else {
-        return false;
-    };
-    let Some(key) = berth_project_core::runtime::parse_project_session_key(binding.session.as_str())
-    else {
-        return false;
-    };
-    crate::project::resolve_instance(false)
-        .ok()
-        .and_then(|instance| instance.namespace_key().ok())
-        .is_some_and(|namespace| namespace != key.data_instance_key)
 }
 
 /// 从终端引用的 session 持久身份解析项目，不读取前台 cwd、不按任务猜测。
@@ -517,7 +507,7 @@ pub(crate) async fn create(
     Ok(())
 }
 
-/// [`create`] 的核心：返回 `terminal` 对象（含 `target_ref`），不打印。`berth group spawn` 也用它。
+/// [`create`] 的核心：返回 `terminal` 对象（含 `target_ref`），不打印。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_terminal(
     socket: &Path,
@@ -770,100 +760,6 @@ fn launch_tmpdir() -> std::io::Result<PathBuf> {
                 .unwrap_or_else(std::env::temp_dir),
         )
     }
-}
-
-/// 观测一个已知 pane；stale 目标返回 `EXIT_TARGET_NOT_FOUND`。
-pub(crate) async fn probe(socket: &Path, reference: &str) -> Result<PaneProbe, CliError> {
-    let binding = resolve_target(socket, reference, false).await?;
-    let terminal = connect_existing(socket, false).await?;
-    probe_with(&terminal, binding).await
-}
-
-async fn probe_with(terminal: &Terminal, binding: RuntimeBinding) -> Result<PaneProbe, CliError> {
-    tokio::time::timeout(OPERATION_TIMEOUT, async {
-        let pane = bound_pane(terminal, binding.clone(), false).await?;
-        let info = pane
-            .info()
-            .await
-            .map_err(|error| sdk_failure(error, false, false))?;
-        let Some(pane) = info.pane(binding.pane_id) else {
-            return Err(failure(
-                EXIT_TARGET_NOT_FOUND,
-                "stale_target",
-                "pane is no longer listed",
-                false,
-                false,
-            ));
-        };
-        Ok(PaneProbe {
-            pane_id: binding.pane_id.as_u32(),
-            expert: pane
-                .command
-                .as_deref()
-                .and_then(berth_tool_core::paths::launch_command_expert),
-            session_id: pane
-                .command
-                .as_deref()
-                .and_then(berth_tool_core::paths::launch_session_id),
-            session_project_path: None,
-            agent_state: pane_agent_state(&pane.process, &pane.agent.state),
-            // 进度条状态名同 tmux `pane_pb_state`：hidden 是一轮已结束（或从没报告过）。
-            busy: !matches!(pane.agent.progress_state.as_str(), "" | "hidden"),
-            notification: Some(pane.agent.notification.clone()).filter(|text| !text.is_empty()),
-            launch_agent: pane
-                .command
-                .as_deref()
-                .and_then(berth_tool_core::paths::launch_tool_id),
-            foreground_command: pane.foreground_command.clone(),
-            cwd: pane
-                .foreground_path
-                .clone()
-                .or_else(|| pane.working_directory.clone()),
-        })
-    })
-    .await
-    .map_err(|_| {
-        failure(
-            EXIT_OPERATION_TIMEOUT,
-            "timeout",
-            "terminal probe timed out",
-            false,
-            false,
-        )
-    })?
-}
-
-/// 指定项目下全部 live pane 的观测（群组后台进程派生成员用）；单个 pane 观测失败就跳过它。
-pub(crate) async fn project_panes(
-    socket: &Path,
-    project_ids: &[i32],
-) -> Result<Vec<(String, PaneProbe)>, CliError> {
-    let instance = crate::project::resolve_instance(false)?;
-    let catalog = crate::project::catalog_entries(&instance, ProjectScope::All)
-        .await
-        .map_err(|state| CliError::from_instance(state, false))?;
-    let entries = list_entries(&instance, socket, None, false).await?;
-    let terminal = connect_existing(socket, false).await?;
-    let mut out = Vec::new();
-    for entry in entries {
-        if !entry.project_id.is_some_and(|id| project_ids.contains(&id)) {
-            continue;
-        }
-        let Some(target_ref) = entry.target_ref else {
-            continue;
-        };
-        let Ok(binding) = parse_binding(&target_ref, false) else {
-            continue;
-        };
-        if let Ok(mut probe) = probe_with(&terminal, binding).await {
-            probe.session_project_path = entry
-                .project_id
-                .and_then(|id| catalog.iter().find(|project| project.id == id))
-                .map(|project| project.path.clone());
-            out.push((target_ref, probe));
-        }
-    }
-    Ok(out)
 }
 
 pub(crate) async fn capture(

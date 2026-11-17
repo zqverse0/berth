@@ -436,6 +436,54 @@ describe("AgentLaunchForm", () => {
     })
   })
 
+  it.each([
+    ["gone", {}],
+    ["reviewer", { expert: "reviewer" }],
+  ])(
+    "drops a remembered expert that no longer exists (%s)",
+    async (saved, inputs) => {
+      localStorage.setItem(
+        "berth:launchbar-values:claude",
+        JSON.stringify({ expert: saved })
+      )
+      mocks.loadLaunchbar.mockImplementation((request: { type: string }) =>
+        Promise.resolve(
+          request.type === "list_agents"
+            ? { type: "agents", agents: [demoProfile], directory: "/tools" }
+            : {
+                type: "file",
+                file: {
+                  agent: "claude",
+                  config: {
+                    version: 1,
+                    items: [
+                      {
+                        id: "expert",
+                        component: "select",
+                        label: "Expert",
+                        optionsFrom: "experts",
+                        options: [{ value: "reviewer", label: "Reviewer" }],
+                      },
+                    ],
+                  },
+                  diagnostics: [],
+                },
+              }
+        )
+      )
+      const user = userEvent.setup()
+      renderShelf()
+
+      await user.click(await screen.findByRole("button", { name: /^Start / }))
+
+      await waitFor(() =>
+        expect(mocks.createTerminal).toHaveBeenCalledWith(
+          expect.objectContaining({ agentLaunchInputs: inputs })
+        )
+      )
+    }
+  )
+
   it("renders launchbar diagnostics with role='alert'", async () => {
     mocks.loadLaunchbar.mockImplementation((request: { type: string }) =>
       Promise.resolve(

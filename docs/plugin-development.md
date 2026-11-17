@@ -193,6 +193,28 @@ Berth 直接读 Agent **自己写的**会话文件，插件不转写、不复制
 还表达不了的存储形态，扩展声明格式（宿主改一次，所有插件可用），不要在插件里写同步脚本。
 写完用 `berth project <项目> session ls --agent <id>` 和 `session show <会话 id>` 核对。
 
+### 4.6 群组 ACP 模式 `acp(ctx)`
+
+要让 Agent 进群，`tool.json` 声明 `contributes.agent.acp: true`，`launch.js` 再导出 `acp(ctx)`，返回适配器怎么起（字段见 `docs/agent-contracts.md`「群组 ACP 模式」）。
+专家、服务商、`ctx.brief` 的装配与 `launch` 相同，差别只在不 `run`，而是把命令交给群组运行时：
+
+```js
+async acp(ctx) {
+  const bin = `${berth.storage.dir}/acp/node_modules/.bin/x-acp`   // install.sh 锁版本装进插件数据目录
+  if (!(await berth.fs.stat(bin))) throw new Error("x-acp 未安装，在设置 → 工具里重新安装")
+  // 适配器起目标 CLI 时不让加参数：写个包装脚本，经适配器认的环境变量指过去
+  const wrap = `${ctx.paths.tmp}/x-wrap`
+  await berth.fs.writeText(wrap, `#!/bin/sh\nexec x -e ${ctx.paths.package}/private/extensions/approve.ts "$@"\n`, { mode: 0o700 })
+  return { argv: [bin], env: { X_ACP_COMMAND: wrap }, delegation: false, approvesAllTools: true }
+}
+```
+
+- `ctx.paths.tmp` 活到 ACP 进程退出，包装脚本、会话配置都放这里。
+- 目标 CLI 自己没有审批机制时，可以用它的扩展 / hook 在每个工具调用前请求确认，适配器把确认转成
+  `session/request_permission`，这时才声明 `approvesAllTools: true`（pi：扩展里 `pi.on("tool_call", …)` 调 `ctx.ui.confirm`）。
+- `delegation` 只在实测适配器会把 `mcpServers` 交给 Agent 时才开（pi-acp 0.0.34 不会）。
+- 关掉适配器会推给客户端的启动横幅（pi 的 `quietStartup`），否则会混进第一轮回答。
+
 ## 5. 包内脚本：`berth tools run`
 
 状态栏、用量快照、登录模型列表这类「由宿主或 Agent 调起的小程序」写成包内脚本，默认导出一个函数：

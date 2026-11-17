@@ -452,20 +452,6 @@ pub(crate) fn project_add(
     Ok(())
 }
 
-/// `berth group spawn` 的 worker 目录还不是项目时经运行中的 GUI 注册；GUI 不在时调用方直接写库。
-pub(crate) fn project_ensure(
-    cli_override: Option<&OsString>,
-    path: String,
-) -> Result<ProjectEntry, GuiClientError> {
-    let mut session = open_session(
-        CAPABILITY_PROJECT,
-        cli_override,
-        LaunchPolicy::ProbeOnly,
-        None,
-    )?;
-    session.call(RpcRequest::project_add(2, path))
-}
-
 /// `berth open <path>[:line]` 的目标解析结果。
 #[derive(Debug)]
 pub(crate) struct OpenTarget {

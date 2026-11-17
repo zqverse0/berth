@@ -9,11 +9,51 @@ use serde_json::{json, Value};
 
 /// Agent 启动：GUI 与 `berth terminal create --agent` 在 pane 里执行的就是这条命令。
 pub(crate) fn launch(script: &Path, args: &[String]) -> ! {
+    let args = match with_provider(script, args) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("launch: {error}");
+            std::process::exit(2)
+        }
+    };
     let extras = berth_plugin_api::agent::LaunchExtras {
         brief,
         project: Box::new(current_project),
     };
-    std::process::exit(berth_plugin_api::agent::launch(script, args, extras))
+    std::process::exit(berth_plugin_api::agent::launch(script, &args, extras))
+}
+
+/// 群组 ACP 成员只记服务商 id（`--berth-provider-id <id> [--berth-provider-model <模型>]`）：
+/// 每次启动在这里按 id 写一次性启动档案，换成 `--berth-provider <文件>`（同 `terminal create --agent`）。
+fn with_provider(script: &Path, args: &[String]) -> Result<Vec<String>, String> {
+    let mut rest = Vec::new();
+    let (mut id, mut model) = (None, None);
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--berth-provider-id" => {
+                let value = iter.next().ok_or("--berth-provider-id requires a value")?;
+                id = Some(value.parse::<i32>().map_err(|_| format!("invalid provider id: {value}"))?);
+            }
+            "--berth-provider-model" => model = iter.next().cloned(),
+            _ => rest.push(arg.clone()),
+        }
+    }
+    if id.is_none() {
+        return Ok(rest);
+    }
+    let agent = script
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .ok_or("launch script has no tool directory")?;
+    let instance = crate::project::resolve_instance(false).map_err(|error| error.message)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    rest.extend(runtime.block_on(crate::provider_launch::resolve(&instance, agent, id, model.as_deref(), false))?);
+    Ok(rest)
 }
 
 /// `berth.editor.render` 的窗口通道：经 control 交给已开着的 Berth 窗口（只读连接，不拉起 GUI）。

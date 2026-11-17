@@ -10,7 +10,10 @@
     "time": "/timestamp"
   },
   "message": {
-    "record": ["user", "assistant"],
+    "record": [
+      "user",
+      "assistant"
+    ],
     "value": "/message",
     "role": "/role",
     "content": "/content",
@@ -81,5 +84,92 @@
       "kind": "/attachment/type",
       "text": "/attachment/context"
     }
-  ]
+  ],
+  "tools": {
+    "Bash": {
+      "kind": "command",
+      "command": "/command",
+      "title": "/description",
+      "background": "/run_in_background"
+    },
+    "Monitor": {
+      "kind": "command",
+      "command": "/command",
+      "title": "/description"
+    },
+    "Read": {
+      "kind": "read",
+      "path": "/file_path"
+    },
+    "Edit": {
+      "kind": "edit",
+      "path": "/file_path",
+      "old": "/old_string",
+      "new": "/new_string"
+    },
+    "MultiEdit": {
+      "kind": "edit",
+      "items": "/edits",
+      "path": "/file_path",
+      "old": "/old_string",
+      "new": "/new_string"
+    },
+    "Write": {
+      "kind": "edit",
+      "path": "/file_path",
+      "new": "/content"
+    },
+    "NotebookEdit": {
+      "kind": "edit",
+      "path": "/notebook_path",
+      "new": "/new_source"
+    },
+    "Grep": {
+      "kind": "search",
+      "title": "/pattern",
+      "path": "/path"
+    },
+    "Glob": {
+      "kind": "search",
+      "title": "/pattern",
+      "path": "/path"
+    },
+    "WebFetch": {
+      "kind": "fetch",
+      "title": "/url"
+    },
+    "WebSearch": {
+      "kind": "fetch",
+      "title": "/query"
+    },
+    "TodoWrite": {
+      "kind": "plan",
+      "items": "/todos",
+      "text": "/content",
+      "status": "/status"
+    },
+    "AskUserQuestion": {
+      "kind": "question",
+      "items": "/questions",
+      "text": "/question"
+    },
+    "Task": {
+      "kind": "delegate",
+      "title": "/description",
+      "text": "/prompt"
+    },
+    "Agent": {
+      "kind": "delegate",
+      "title": "/description",
+      "text": "/prompt"
+    },
+    "Skill": {
+      "kind": "skill",
+      "title": "/skill"
+    },
+    "ExitPlanMode": {
+      "kind": "think",
+      "text": "/plan"
+    }
+  }
 }

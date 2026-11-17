@@ -25,8 +25,8 @@ use crate::models::{
 use crate::sessions::{
     bounded_native_file_candidates, compute_session_stats, decode_native_page_cursor,
     encode_native_page_cursor, folder_name_from_path, native_page_matches_search,
-    path_eq_for_matching, title_from_user_text, truncate_str, AgentParser, NativeConversationPage,
-    NativeConversationPageRequest, NativeFilePageCursor, ParseError,
+    path_eq_for_matching, title_from_user_text, truncate_str, usage_stats, AgentParser,
+    NativeConversationPage, NativeConversationPageRequest, NativeFilePageCursor, ParseError,
 };
 // 声明类型与 selector 语义在 berth-tool-core，CLI `berth session last` 共用同一份。
 use berth_tool_core::sessions::*;
@@ -95,6 +95,9 @@ fn annotate_skills(turns: &mut [MessageTurn], spec: &SkillSpec) {
         }
     }
 }
+
+/// 会话索引：只记位置与一行摘要，续读正在写的会话。
+pub(crate) mod index;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Storage {
@@ -169,6 +172,11 @@ pub(crate) fn source_revision(agent_type: AgentType, id: &str) -> Option<String>
             (_, false) => return None,
         },
     };
+    path_revision(&path)
+}
+
+/// 一个源文件的变化标记（大小 + 修改时间，另含 `-wal`）。
+fn path_revision(path: &Path) -> Option<String> {
     let stamp = |path: &Path| {
         fs::metadata(path).ok().map(|meta| {
             let modified = meta
@@ -179,8 +187,8 @@ pub(crate) fn source_revision(agent_type: AgentType, id: &str) -> Option<String>
             format!("{}:{modified}", meta.len())
         })
     };
-    let mut revision = stamp(&path)?;
-    let mut wal = path.into_os_string();
+    let mut revision = stamp(path)?;
+    let mut wal = path.as_os_str().to_owned();
     wal.push("-wal");
     if let Some(wal) = stamp(Path::new(&wal)) {
         revision.push('+');
@@ -525,13 +533,7 @@ impl DeclarativeSessionParser {
             context: parsed
                 .context
                 .into_iter()
-                .map(|item| ContextSource {
-                    tokens: estimate_tokens(&item.text),
-                    source: item.source,
-                    name: item.name,
-                    path: item.path,
-                    text: item.text,
-                })
+                .map(context_source)
                 .collect(),
             session_stats: compute_session_stats(&turns),
             session_fields: parsed.session_fields,
@@ -927,6 +929,7 @@ impl DeclarativeSessionParser {
                 None,
                 fields,
                 true,
+                PREVIEW_CHARS,
             ) else {
                 row_index += 1;
                 continue;
@@ -1520,6 +1523,16 @@ fn parse_jsonl(
     spec: &SessionSpec,
     capture_messages: bool,
 ) -> Result<ParsedSession, ParseError> {
+    parse_records(path, spec, capture_messages, false)
+}
+
+/// `full` 为真时工具参数与结果不截断（算 Part 用）。
+fn parse_records(
+    path: &Path,
+    spec: &SessionSpec,
+    capture_messages: bool,
+    full: bool,
+) -> Result<ParsedSession, ParseError> {
     // （是会话记录，可作消息，记录）：JSONL 按 `session.record` 认会话记录；JSON 文档的第一条是会话记录，其余是消息。
     let records: Box<dyn Iterator<Item = Result<(bool, bool, Value), ParseError>>> =
         if spec.storage == "json" {
@@ -1549,14 +1562,56 @@ fn parse_jsonl(
                 Some(Ok((lines_have_session && record_matches(&value, &spec.session), true, value)))
             })))
         };
-    let mut result = ParsedSession::default();
-    let message_spec = spec.message.as_ref();
-    let mut observed_time = false;
+    let mut state = JsonlParse {
+        full,
+        ..JsonlParse::default()
+    };
+    for record in records {
+        let (session_record, message_candidate, value) = record?;
+        state.feed(
+            spec,
+            path,
+            session_record,
+            message_candidate,
+            value,
+            capture_messages,
+            capture_messages,
+        );
+    }
+    Ok(state.finish(path))
+}
+
+/// 逐条喂记录的 JSONL 解析状态。整份解析与会话索引的续读共用一份：跨行状态（会话字段先到先得、
+/// 标题、启动上下文分界、记录序号、是否见过时间）都在这里，续读时一起保存。
+#[derive(Debug, Clone, Default)]
+struct JsonlParse {
+    result: ParsedSession,
+    observed_time: bool,
     // 启动输入只算首次请求之前的记录；之后的注入（压缩后的 hook、增量列表）不属于启动。
     // 不记用量的会话找不到分界点，仍按整个文件收集。
-    let mut context_done = false;
-    for (index, record) in records.enumerate() {
-        let (session_record, message_candidate, value) = record?;
+    context_done: bool,
+    records: usize,
+    /// 工具参数与结果不截断（算 Part 时用完整参数）；整份 detail 仍截到 [`PREVIEW_CHARS`]。
+    full: bool,
+}
+
+impl JsonlParse {
+    /// 喂一条记录，返回它新增的消息下标。`capture_messages` 为假时只数消息不建内容；
+    /// `collect_context` 为假时不收启动上下文（索引不留正文）。
+    #[allow(clippy::too_many_arguments)]
+    fn feed(
+        &mut self,
+        spec: &SessionSpec,
+        path: &Path,
+        session_record: bool,
+        message_candidate: bool,
+        value: Value,
+        capture_messages: bool,
+        collect_context: bool,
+    ) -> Option<usize> {
+        let index = self.records;
+        self.records += 1;
+        let result = &mut self.result;
         if session_record {
             if result.id.is_none() {
                 result.id = select_json_with_path(
@@ -1591,8 +1646,8 @@ fn parse_jsonl(
                     .and_then(|selector| select_json_with_path(&value, selector, path))
                     .and_then(|value| value_string(&value));
             }
-            observed_time |= note_session_time(
-                &mut result,
+            self.observed_time |= note_session_time(
+                result,
                 spec.session
                     .time
                     .as_ref()
@@ -1603,16 +1658,14 @@ fn parse_jsonl(
                 result.session_fields.entry(name).or_insert(value);
             }
         }
-        if capture_messages && !context_done {
+        if collect_context && !self.context_done {
             for item in context_items(&spec.context, &value) {
                 push_context(&mut result.context, item);
             }
         }
-        let Some(message) = message_spec.filter(|_| message_candidate) else {
-            continue;
-        };
+        let message = spec.message.as_ref().filter(|_| message_candidate)?;
         if !record_matches(&value, message) {
-            continue;
+            return None;
         }
         let MessageRecord {
             nested,
@@ -1630,11 +1683,11 @@ fn parse_jsonl(
         };
         let model = select_relative(nested.as_ref(), &value, message.model.as_ref());
         let timestamp = select_relative(nested.as_ref(), &value, message.time.as_ref());
-        observed_time |= timestamp.as_ref().and_then(parse_time).is_some();
+        self.observed_time |= timestamp.as_ref().and_then(parse_time).is_some();
         let usage = capture_messages
             .then(|| select_relative(nested.as_ref(), &value, message.usage.as_ref()))
             .flatten();
-        context_done |= usage.as_ref().and_then(parse_usage).is_some();
+        self.context_done |= usage.as_ref().and_then(parse_usage).is_some();
         let tool_use_id = capture_messages
             .then(|| select_relative(nested.as_ref(), &value, message.tool_use_id.as_ref()))
             .flatten();
@@ -1653,8 +1706,8 @@ fn parse_jsonl(
         let tool_calls = capture_messages
             .then(|| select_relative(nested.as_ref(), &value, message.tool_calls.as_ref()))
             .flatten();
-        let _ = append_message_fields(
-            &mut result,
+        append_message_fields(
+            result,
             id,
             role,
             content,
@@ -1670,19 +1723,24 @@ fn parse_jsonl(
             tool_calls,
             fields,
             capture_messages,
-        );
+            if self.full { usize::MAX } else { PREVIEW_CHARS },
+        )
     }
-    if !observed_time {
-        if let Some(timestamp) = file_time(path) {
-            result.first_ts = Some(timestamp);
-            result.last_ts = Some(timestamp);
-            for message in &mut result.messages {
-                message.timestamp = timestamp;
-                message.completed_at = Some(timestamp);
+
+    /// 整个文件都没有时间时，用文件修改时间补上。
+    fn finish(mut self, path: &Path) -> ParsedSession {
+        if !self.observed_time {
+            if let Some(timestamp) = file_time(path) {
+                self.result.first_ts = Some(timestamp);
+                self.result.last_ts = Some(timestamp);
+                for message in &mut self.result.messages {
+                    message.timestamp = timestamp;
+                    message.completed_at = Some(timestamp);
+                }
             }
         }
+        self.result
     }
-    Ok(result)
 }
 
 fn note_session_time(result: &mut ParsedSession, value: Option<Value>) -> bool {
@@ -1711,6 +1769,7 @@ fn append_message_fields(
     tool_calls: Option<Value>,
     fields: BTreeMap<String, Value>,
     capture_messages: bool,
+    preview: usize,
 ) -> Option<usize> {
     let role = role
         .and_then(|value| value_string(&value))
@@ -1763,6 +1822,7 @@ fn append_message_fields(
         tool_input.as_ref(),
         tool_output.as_ref(),
         tool_calls.as_ref(),
+        preview,
     );
     let usage = usage.and_then(|value| turn_usage(&value));
     // 声明字段非空的行必须进入详情，即使抽不出统一 content block。
@@ -1829,6 +1889,7 @@ fn message_blocks(
     tool_input: Option<&Value>,
     tool_output: Option<&Value>,
     tool_calls: Option<&Value>,
+    preview: usize,
 ) -> Vec<ContentBlock> {
     match role {
         "assistant" => {
@@ -1839,7 +1900,10 @@ fn message_blocks(
                     .map(|text| vec![ContentBlock::Thinking { text }])
                     .unwrap_or_default()
             } else if let Some(items) = content.and_then(Value::as_array) {
-                let blocks: Vec<_> = items.iter().filter_map(content_block).collect();
+                let blocks: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| content_block(item, preview))
+                    .collect();
                 if blocks.is_empty() {
                     content
                         .and_then(value_text)
@@ -1857,14 +1921,14 @@ fn message_blocks(
                     .unwrap_or_default()
             };
             if let Some(tool_calls) = tool_calls {
-                blocks.extend(tool_call_blocks(tool_calls));
+                blocks.extend(tool_call_blocks(tool_calls, preview));
             }
             if blocks.is_empty() {
                 if let (Some(tool_name), Some(tool_input)) = (tool_name, tool_input) {
                     blocks.push(ContentBlock::ToolUse {
                         tool_use_id,
                         tool_name,
-                        input_preview: value_preview(tool_input),
+                        input_preview: value_preview(tool_input, preview),
                         meta: None,
                     });
                 }
@@ -1874,7 +1938,10 @@ fn message_blocks(
         "tool" | "toolResult" | "tool_result" => {
             // 纯文本数组是工具输出本身，仍须包成 ToolResult 才能与调用配对。
             if let Some(items) = content.and_then(Value::as_array) {
-                let blocks: Vec<_> = items.iter().filter_map(content_block).collect();
+                let blocks: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| content_block(item, preview))
+                    .collect();
                 if blocks
                     .iter()
                     .any(|block| !matches!(block, ContentBlock::Text { .. }))
@@ -1883,7 +1950,7 @@ fn message_blocks(
                 }
             }
             let (output_preview, output_tokens) =
-                preview_and_tokens(tool_output.or(content).and_then(value_text));
+                preview_and_tokens(tool_output.or(content).and_then(value_text), preview);
             vec![ContentBlock::ToolResult {
                 tool_use_id,
                 output_preview,
@@ -1895,7 +1962,10 @@ fn message_blocks(
         }
         "user" | "system" | "developer" => {
             if let Some(items) = content.and_then(Value::as_array) {
-                let blocks: Vec<_> = items.iter().filter_map(content_block).collect();
+                let blocks: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| content_block(item, preview))
+                    .collect();
                 if !blocks.is_empty() {
                     return blocks;
                 }
@@ -1923,16 +1993,19 @@ fn is_tool_result_content(value: Option<&Value>) -> bool {
         })
 }
 
-fn tool_call_blocks(value: &Value) -> Vec<ContentBlock> {
+fn tool_call_blocks(value: &Value, preview: usize) -> Vec<ContentBlock> {
     let values: Vec<&Value> = value
         .as_array()
         .map(|values| values.iter().collect())
         .unwrap_or_else(|| vec![value]);
-    values.into_iter().filter_map(tool_call_block).collect()
+    values
+        .into_iter()
+        .filter_map(|value| tool_call_block(value, preview))
+        .collect()
 }
 
-fn tool_call_block(value: &Value) -> Option<ContentBlock> {
-    content_block(value).or_else(|| {
+fn tool_call_block(value: &Value, preview: usize) -> Option<ContentBlock> {
+    content_block(value, preview).or_else(|| {
         let tool_name = value
             .get("name")
             .or_else(|| value.get("tool_name"))
@@ -1949,13 +2022,13 @@ fn tool_call_block(value: &Value) -> Option<ContentBlock> {
                 .get("arguments")
                 .or_else(|| value.get("input"))
                 .or_else(|| value.get("args"))
-                .and_then(value_preview),
+                .and_then(|value| value_preview(value, preview)),
             meta: None,
         })
     })
 }
 
-fn content_block(value: &Value) -> Option<ContentBlock> {
+fn content_block(value: &Value, preview: usize) -> Option<ContentBlock> {
     let kind = value.get("type").and_then(Value::as_str).unwrap_or("");
     match kind {
         "text" | "input_text" | "output_text" => value
@@ -1991,7 +2064,7 @@ fn content_block(value: &Value) -> Option<ContentBlock> {
             input_preview: value
                 .get("arguments")
                 .or_else(|| value.get("input"))
-                .and_then(value_preview),
+                .and_then(|value| value_preview(value, preview)),
             meta: None,
         }),
         "toolResult" | "tool_result" => {
@@ -2001,6 +2074,7 @@ fn content_block(value: &Value) -> Option<ContentBlock> {
                     .or_else(|| value.get("output"))
                     .or_else(|| value.get("tool_output"))
                     .and_then(value_text),
+                preview,
             );
             Some(ContentBlock::ToolResult {
                 tool_use_id: value
@@ -2046,19 +2120,22 @@ fn turn_usage(value: &Value) -> Option<TurnUsage> {
     })
 }
 
-/// 工具结果的预览（前 4000 字）与截断前整份的估算 token。
-fn preview_and_tokens(text: Option<String>) -> (Option<String>, Option<u64>) {
+/// 整份 detail 里工具参数与结果的预览字数。
+const PREVIEW_CHARS: usize = 4000;
+
+/// 工具结果的预览（前 `preview` 字）与截断前整份的估算 token。
+fn preview_and_tokens(text: Option<String>, preview: usize) -> (Option<String>, Option<u64>) {
     match text {
         Some(text) => {
             let tokens = estimate_tokens(&text);
-            (Some(truncate_str(&text, 4000)), Some(tokens))
+            (Some(truncate_str(&text, preview)), Some(tokens))
         }
         None => (None, None),
     }
 }
 
-fn value_preview(value: &Value) -> Option<String> {
-    value_text(value).map(|text| truncate_str(&text, 4000))
+fn value_preview(value: &Value, preview: usize) -> Option<String> {
+    value_text(value).map(|text| truncate_str(&text, preview))
 }
 
 pub(crate) fn parse_time(value: &Value) -> Option<DateTime<Utc>> {
@@ -2092,6 +2169,16 @@ fn remember_locator(agent_type: AgentType, id: &str, path: &Path) {
             cache.clear();
         }
         cache.insert((agent_type, id.to_owned()), path.to_path_buf());
+    }
+}
+
+fn context_source(item: ContextItem) -> ContextSource {
+    ContextSource {
+        tokens: estimate_tokens(&item.text),
+        source: item.source,
+        name: item.name,
+        path: item.path,
+        text: item.text,
     }
 }
 

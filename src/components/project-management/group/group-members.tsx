@@ -3,48 +3,29 @@
 import { useState, type KeyboardEvent } from "react"
 import { useFormatter, useNow, useTranslations } from "next-intl"
 import {
-  AlertTriangle,
   AtSign,
   ChevronRight,
   MessagesSquare,
   OctagonX,
   Pencil,
-  Plus,
   SquareTerminal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useSlowBlink } from "@/components/ui/status-dot"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { toErrorMessage } from "@/lib/app-error"
-import { runtimeBridgeOperation } from "@/lib/runtime-bridge"
-import {
   type GroupEvent,
   memberAgent,
   memberLabel,
 } from "@/lib/agent/berth-group"
 import { cn } from "@/lib/utils"
-import type { AgentPaneRow } from "@/lib/terminal/agent-panes"
-import {
-  dirName,
-  paneNumber,
-  sharedDirs,
-  type MemberRow,
-  type MemberStatus,
-} from "./group-model"
+import type { MemberRow, MemberStatus } from "./group-model"
 import { MemberAvatar } from "./group-timeline"
 
 const MEMBER_DOT: Record<MemberStatus, string> = {
   attention: "bg-amber-500",
   working: "bg-emerald-500 berth-slow-blink",
   idle: "bg-primary/70",
-  offline: "bg-muted-foreground/30",
-  left: "bg-muted-foreground/20",
 }
 
 /** 成员状态点；「工作中」用全局慢闪，不用 CSS 无限动画（见 status-dot.tsx）。 */
@@ -68,8 +49,6 @@ const STATUS_TEXT: Record<MemberStatus, string> = {
   attention: "text-amber-600 dark:text-amber-400",
   working: "text-emerald-600 dark:text-emerald-400",
   idle: "text-muted-foreground",
-  offline: "text-muted-foreground/70",
-  left: "text-muted-foreground/70",
 }
 
 /** 改显示名：Enter 保存（空为改回成员名）、Esc 取消；失败时留在编辑状态。 */
@@ -125,68 +104,10 @@ function LabelEditor({
   )
 }
 
-/** 成员的各个终端：Agent、忙闲、目录、编号；点一下跳到那个终端。 */
-function BodyChips({
-  row,
-  agentName,
-  onJumpPane,
-}: {
-  row: MemberRow
-  agentName: (agentId: string) => string
-  onJumpPane?: (pane: AgentPaneRow) => void
-}) {
-  const t = useTranslations("BerthTasks.group.members")
-  const shared = sharedDirs(row)
-  const live = row.bodies.filter(({ pane }) => pane && pane.state !== "exited")
-  if (live.length === 0) return null
-  return (
-    <span className="mt-0.5 flex flex-wrap items-center gap-1">
-      {live.map(({ body, pane }) => {
-        const state = pane!.state as MemberStatus
-        return (
-          <button
-            key={body.target_ref}
-            type="button"
-            data-member-body={paneNumber(body.target_ref) ?? undefined}
-            disabled={!onJumpPane}
-            title={`${t("jump")} · ${body.cwd ?? ""}`}
-            className="inline-flex max-w-full items-center gap-1 rounded border border-border/60 px-1 py-px text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none"
-            onClick={(event) => {
-              event.stopPropagation()
-              onJumpPane?.(pane!)
-            }}
-          >
-            <MemberDot status={state} className="size-1.5 shrink-0" />
-            <span className="truncate">
-              {body.agent ? agentName(body.agent) : "?"} · {dirName(body.cwd)}
-            </span>
-            <span className="shrink-0 font-mono">
-              #{paneNumber(body.target_ref) ?? "?"}
-            </span>
-          </button>
-        )
-      })}
-      {shared.length ? (
-        <span
-          role="img"
-          data-member-shared-dir
-          aria-label={t("sharedDir")}
-          title={t("sharedDir")}
-          className="text-amber-600 dark:text-amber-400"
-        >
-          <AlertTriangle aria-hidden="true" className="size-3" />
-        </span>
-      ) : null}
-    </span>
-  )
-}
-
 function MemberCard({
   row,
   agentName,
   onJump,
-  onJumpPane,
-  onAddBody,
   onMention,
   onInterrupt,
   onRename,
@@ -201,11 +122,8 @@ function MemberCard({
   /** 它正在做的委托（排队或处理中）；没有为 null。 */
   current?: GroupEvent | null
   agentName: (agentId: string) => string
+  /** 跳到它的会话所在的终端（交给了终端时）。 */
   onJump: (row: MemberRow) => void
-  /** 跳到它的某个终端（终端小标）；没有时不显示小标。 */
-  onJumpPane?: (pane: AgentPaneRow) => void
-  /** 给它再开一个终端。 */
-  onAddBody?: (row: MemberRow) => void
   onMention?: (name: string) => void
   onInterrupt: (row: MemberRow) => void
   onRename?: (name: string, label: string) => Promise<boolean>
@@ -218,7 +136,6 @@ function MemberCard({
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const { member, status, pane } = row
-  const live = status !== "left" && status !== "offline"
   const iconButton = "size-6 text-muted-foreground hover:text-foreground"
   return (
     <div
@@ -227,7 +144,6 @@ function MemberCard({
       className={cn(
         "group relative rounded-md border-l-2 border-transparent px-2 py-1.5 transition-colors hover:bg-accent/40",
         row.unread && "border-amber-500 bg-amber-500/5",
-        !live && "opacity-60",
         selected === member.name && "bg-primary/10"
       )}
     >
@@ -242,76 +158,64 @@ function MemberCard({
           />
         </div>
       ) : (
-        <>
-          <button
-            type="button"
-            disabled={!onSelect && !pane}
-            aria-pressed={onSelect ? selected === member.name : undefined}
-            title={onSelect ? t("showMessages") : pane ? t("jump") : undefined}
-            className="flex w-full min-w-0 items-center gap-2.5 text-left disabled:cursor-default"
-            onClick={() => (onSelect ?? onJump)(row)}
-          >
-            <span className="relative">
-              <MemberAvatar agent={memberAgent(member)} name={member.name} />
-              <MemberDot
-                status={status}
-                className="absolute -bottom-0.5 -right-0.5 size-2.5 ring-2 ring-background"
-              />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline gap-1.5">
-                <span className="truncate text-sm font-medium">
-                  {memberLabel(member)}
+        <button
+          type="button"
+          disabled={!onSelect && !pane}
+          aria-pressed={onSelect ? selected === member.name : undefined}
+          title={onSelect ? t("showMessages") : pane ? t("jump") : undefined}
+          className="flex w-full min-w-0 items-center gap-2.5 text-left disabled:cursor-default"
+          onClick={() => (onSelect ?? onJump)(row)}
+        >
+          <span className="relative">
+            <MemberAvatar agent={memberAgent(member)} name={member.name} />
+            <MemberDot
+              status={status}
+              className="absolute -bottom-0.5 -right-0.5 size-2.5 ring-2 ring-background"
+            />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-1.5">
+              <span className="truncate text-sm font-medium">
+                {memberLabel(member)}
+              </span>
+              {member.label ? (
+                <span className="shrink-0 font-mono text-[10px] text-muted-foreground/80">
+                  #{member.name}
                 </span>
-                {member.label ? (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground/80">
-                    #{member.name}
+              ) : null}
+              <span
+                className={cn(
+                  "ml-auto shrink-0 text-[11px]",
+                  STATUS_TEXT[status]
+                )}
+              >
+                {row.unread ? t("needsYou") : t(`status.${status}`)}
+                {row.lastActivity ? (
+                  <span className="text-muted-foreground/80">
+                    {" · "}
+                    {format.relativeTime(
+                      // termd 的状态时间可能比本机时钟快几秒：不显示「几秒后」。
+                      new Date(Math.min(row.lastActivity, now.getTime())),
+                      now
+                    )}
                   </span>
                 ) : null}
-                <span
-                  className={cn(
-                    "ml-auto shrink-0 text-[11px]",
-                    STATUS_TEXT[status]
-                  )}
-                >
-                  {row.unread ? t("needsYou") : t(`status.${status}`)}
-                  {row.lastActivity ? (
-                    <span className="text-muted-foreground/80">
-                      {" · "}
-                      {format.relativeTime(
-                        // termd 的状态时间可能比本机时钟快几秒：不显示「几秒后」。
-                        new Date(Math.min(row.lastActivity, now.getTime())),
-                        now
-                      )}
-                    </span>
-                  ) : null}
-                </span>
               </span>
-              {onJumpPane ? null : row.body?.agent ? (
-                <span className="block truncate text-[11px] text-muted-foreground/80">
-                  {agentName(row.body.agent)}
-                  {row.bodies.length > 1 ? ` ×${row.bodies.length}` : ""}
-                </span>
-              ) : null}
-              {current ? (
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  ↳ {current.text}
-                </span>
-              ) : null}
             </span>
-          </button>
-          {onJumpPane ? (
-            <div className="pl-[2.375rem]">
-              <BodyChips
-                row={row}
-                agentName={agentName}
-                onJumpPane={onJumpPane}
-              />
-            </div>
-          ) : null}
-        </>
+            {memberAgent(member) ? (
+              <span className="block truncate text-[11px] text-muted-foreground/80">
+                {agentName(memberAgent(member)!)}
+              </span>
+            ) : null}
+            {current ? (
+              <span className="block truncate text-[11px] text-muted-foreground">
+                ↳ {current.text}
+              </span>
+            ) : null}
+          </span>
+        </button>
       )}
-      {live && !editing ? (
+      {!editing ? (
         <div className="absolute right-1.5 top-1.5 hidden items-center gap-0.5 rounded-md bg-background/90 group-hover:flex group-focus-within:flex">
           {onMention ? (
             <Button
@@ -338,19 +242,6 @@ function MemberCard({
               <Pencil aria-hidden="true" className="size-3.5" />
             </Button>
           ) : null}
-          {onAddBody && !member.builtin ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={iconButton}
-              title={t("addBody")}
-              aria-label={t("addBody")}
-              data-member-add-body={member.name}
-              onClick={() => onAddBody(row)}
-            >
-              <Plus aria-hidden="true" className="size-3.5" />
-            </Button>
-          ) : null}
           {sessions ? (
             <Button
               variant="ghost"
@@ -365,8 +256,8 @@ function MemberCard({
               <MessagesSquare aria-hidden="true" className="size-3.5" />
             </Button>
           ) : null}
-          {/* 内置成员 Berth 没有终端。 */}
-          {member.builtin ? null : (
+          {/* 只有交给了终端的会话有终端可跳。 */}
+          {!pane ? null : (
             <Button
               variant="ghost"
               size="icon"
@@ -401,14 +292,12 @@ function MemberCard({
 /**
  * 成员栏：在群成员卡片（头像 + 状态灯、显示名、状态与最后活动、悬停操作：改名、@、展开会话、跳到终端、打断），
  * 需要关注且未读的高亮；传入 onSelect 时点击成员查看相关消息，终端入口保留为独立按钮。
- * 只显示运行中的成员，历史仍留在时间线。没有成员时显示 `empty`。没有 `onRename` 时不能改名。
+ * 离群的成员不在 `rows` 里，历史仍留在时间线。没有成员时显示 `empty`。没有 `onRename` 时不能改名。
  */
 export function GroupMembers({
   rows,
   agentName,
   onJump,
-  onJumpPane,
-  onAddBody,
   onMention,
   onInterrupt,
   onRename,
@@ -421,8 +310,6 @@ export function GroupMembers({
   rows: readonly MemberRow[]
   agentName: (agentId: string) => string
   onJump: (row: MemberRow) => void
-  onJumpPane?: (pane: AgentPaneRow) => void
-  onAddBody?: (row: MemberRow) => void
   onMention?: (name: string) => void
   onInterrupt: (row: MemberRow) => void
   /** 返回 false 表示失败，保持编辑。 */
@@ -433,9 +320,6 @@ export function GroupMembers({
   currentOf?: (name: string) => GroupEvent | null
   sessions?: (row: MemberRow) => React.ReactNode
 }) {
-  const present = rows.filter(
-    (row) => row.status !== "left" && row.status !== "offline"
-  )
   const card = (row: MemberRow) => (
     <MemberCard
       key={row.member.name}
@@ -443,8 +327,6 @@ export function GroupMembers({
       current={currentOf?.(row.member.name)}
       agentName={agentName}
       onJump={onJump}
-      onJumpPane={onJumpPane}
-      onAddBody={onAddBody}
       onMention={onMention}
       onInterrupt={onInterrupt}
       onRename={onRename}
@@ -455,7 +337,7 @@ export function GroupMembers({
   )
   return (
     <div className="space-y-0.5">
-      {present.length === 0 ? empty : present.map(card)}
+      {rows.length === 0 ? empty : rows.map(card)}
     </div>
   )
 }
@@ -508,75 +390,5 @@ export function GroupSection({
       </div>
       {open ? children : null}
     </section>
-  )
-}
-
-/** 「添加专家」：列出还不在群里的专家，选一个后由调用方打开启动栏。 */
-export function AddExpertMenu({
-  present,
-  onPick,
-}: {
-  /** 在群的成员名（专家 id），不再列出。 */
-  present: readonly string[]
-  onPick: (expert: string) => void
-}) {
-  const t = useTranslations("BerthTasks.group.members")
-  const [experts, setExperts] = useState<
-    { value: string; label: string }[] | null
-  >(null)
-  const [error, setError] = useState<string | null>(null)
-  const load = (open: boolean) => {
-    if (!open) return
-    setError(null)
-    void runtimeBridgeOperation<{ value: string; label: string }[]>({
-      method: "expert.options",
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(response.error.message)
-        setExperts(response.result)
-      })
-      .catch((cause: unknown) => setError(toErrorMessage(cause)))
-  }
-  const absent = (experts ?? []).filter(
-    (expert) => !present.includes(expert.value)
-  )
-  return (
-    <DropdownMenu onOpenChange={load}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          data-group-add-expert
-          className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
-        >
-          <Plus aria-hidden="true" className="size-3" />
-          {t("addExpert")}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
-        {error ? (
-          <DropdownMenuItem disabled>{error}</DropdownMenuItem>
-        ) : experts == null ? (
-          <DropdownMenuItem disabled>{t("loadingExperts")}</DropdownMenuItem>
-        ) : absent.length === 0 ? (
-          <DropdownMenuItem disabled>{t("noMoreExperts")}</DropdownMenuItem>
-        ) : (
-          absent.map((expert) => (
-            <DropdownMenuItem
-              key={expert.value}
-              data-group-expert-option={expert.value}
-              onSelect={() => onPick(expert.value)}
-            >
-              <span className="truncate">{expert.label}</span>
-              {expert.label !== expert.value ? (
-                <span className="ml-auto pl-2 font-mono text-[10px] text-muted-foreground">
-                  {expert.value}
-                </span>
-              ) : null}
-            </DropdownMenuItem>
-          ))
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }

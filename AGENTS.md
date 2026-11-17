@@ -8,7 +8,8 @@
 
 - **读**：按项目归位各 Agent 本地会话 → `src-tauri/src/sessions/`
 - **配**：给项目挑 Agent / 服务商 / 启动资产 → `~/.berth/tools/<id>/`
-- **跑**：在项目目录启动 Agent CLI → `src-tauri/terminal/`（termd）
+- **跑**：在项目目录启动 Agent CLI → `src-tauri/terminal/`（termd）；群成员的 ACP 进程只归群组运行时
+  （`berth group watch`），手开终端只归 termd
 - **收**：产出落回项目 → 知识库、任务、Git
 
 落点：有 UI 且服务主线 → 进代码库；无 UI 只供 agent 调用 → 做 MCP，不进代码库；

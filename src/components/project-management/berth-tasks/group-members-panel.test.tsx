@@ -185,7 +185,7 @@ describe("GroupMembersPanel", () => {
     renderPanel()
     expect(await screen.findByText("Frontend")).toBeVisible()
     expect(screen.getByText("#agent-1")).toBeVisible()
-    expect(screen.getByText(/^Test Agent ·/)).toBeVisible()
+    expect(screen.getByText("Test Agent")).toBeVisible()
     expect(screen.queryByText("other")).not.toBeInTheDocument()
     expect(mocks.listGroups).not.toHaveBeenCalled()
     // 点成员：切到辅助面板的群组并只看它的消息。
@@ -219,14 +219,8 @@ describe("GroupMembersPanel", () => {
     expect(screen.getByText("Frontend")).toBeVisible()
     expect(mocks.readGroup).toHaveBeenCalledWith(7, true)
   })
-  it("prefers the running terminal", async () => {
-    mocks.panes = [
-      {
-        descriptor: { terminalId: "t1", targetRef: "pane-ref" },
-        state: "working",
-        since: 0,
-      },
-    ]
+  it("jumps to the terminal its session was handed to", async () => {
+    mocks.members = [{ ...(mocks.members[0] as object), handedTo: "t1" }]
     renderPanel()
     await screen.findByText("Frontend")
     fireEvent.click(
@@ -235,23 +229,12 @@ describe("GroupMembersPanel", () => {
     expect(mocks.jump).toHaveBeenCalledTimes(1)
     expect(useGroupWorkspaceStore.getState().previewTabId).toBe("terminal:t1")
   })
-  it("hides offline members without deleting their linked history", () => {
-    mocks.panes = []
+  it("hides members that left without deleting their linked history", () => {
+    mocks.members = [{ ...(mocks.members[0] as object), leftAt: 5_000 }]
     mocks.events = [{ author: "agent-1", session_id: "native-1" }]
     renderPanel()
     expect(screen.queryByText("Frontend")).not.toBeInTheDocument()
     expect(mocks.events).toHaveLength(1)
-  })
-  it("hides exited members immediately, before the watcher records their departure", () => {
-    mocks.panes = [
-      {
-        descriptor: { terminalId: "t1", targetRef: "pane-ref" },
-        state: "exited",
-        since: 0,
-      },
-    ]
-    renderPanel()
-    expect(screen.queryByText("Frontend")).not.toBeInTheDocument()
   })
   it("searches existing members and clears the message filter with All messages", () => {
     // 在群成员多于 3 个才显示搜索框。

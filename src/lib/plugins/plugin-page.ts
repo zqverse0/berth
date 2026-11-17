@@ -36,6 +36,9 @@ export interface PageHost {
   project: Project
   locale: string
   context: PageContext
+  /** 侧栏当前文件的绝对路径；每次调用现取，避免切换文件后误操作。 */
+  activeEditorPath?: () => string | null
+  setHeaderTabs?: (tabs: { id: string; label: string }[], value: string) => void
   /** 编辑器页面交来新内容。 */
   onChange?: (content: string) => void
   /** `files.open`：在工作区打开（绝对路径）。 */
@@ -53,6 +56,38 @@ export interface PageConnection {
   /** 换掉宿主侧的回调与上下文（不重载页面）。 */
   update: (host: PageHost) => void
   dispose: () => void
+}
+
+// 同窗口内只转发给同插件、同项目的可编辑画板；隐藏的 embed 页面不能接请求。
+const pages = new Set<{ host: () => PageHost; connection: PageConnection }>()
+function activeEditor(host: PageHost) {
+  const path = host.activeEditorPath?.()
+  if (!path || host.context.kind !== "view") return null
+  return (
+    [...pages].find(({ host: getHost }) => {
+      const other = getHost()
+      const context = other.context
+      return (
+        other.plugin === host.plugin &&
+        other.root === host.root &&
+        context.kind === "editor" &&
+        context.mode === "edit" &&
+        !context.readOnly &&
+        `${other.root?.replace(/[\\/]+$/, "")}/${context.path}` === path
+      )
+    }) ?? null
+  )
+}
+function notifyEditorViews(source: PageHost) {
+  for (const page of pages) {
+    const host = page.host()
+    if (
+      host.context.kind === "view" &&
+      host.plugin === source.plugin &&
+      host.root === source.root
+    )
+      page.connection.send("view.editorChange", {})
+  }
 }
 
 /** 包内资源的地址：桌面走 `berth-plugin` 协议，远程浏览器走同源的 `/__berth/plugin/`。 */
@@ -246,6 +281,49 @@ export async function handlePageCall(
       host.sendToAgent(String(params.text ?? ""))
       return null
     }
+    case "ui.setHeaderTabs": {
+      if (
+        !host.setHeaderTabs ||
+        !Array.isArray(params.tabs) ||
+        params.tabs.some(
+          (tab) =>
+            !tab || typeof tab.id !== "string" || typeof tab.label !== "string"
+        ) ||
+        !params.tabs.some((tab) => tab.id === params.value)
+      ) {
+        throw new PageError("invalid-params", "invalid sidebar header tabs")
+      }
+      host.setHeaderTabs(params.tabs, String(params.value))
+      return null
+    }
+    case "editor.active": {
+      const context = activeEditor(host)?.host().context
+      return context?.kind === "editor" ? { path: context.path } : null
+    }
+    case "editor.request": {
+      const target = activeEditor(host)
+      const context = target?.host().context
+      if (
+        !target ||
+        context?.kind !== "editor" ||
+        context.path !== params.path
+      ) {
+        throw new PageError(
+          "unavailable",
+          "active editor changed or is unavailable"
+        )
+      }
+      if (typeof params.method !== "string" || !params.method) {
+        throw new PageError("invalid-params", "editor request needs a method")
+      }
+      const result = await target.connection.request("editor.request", {
+        method: params.method,
+        input: params.input ?? null,
+      })
+      if (activeEditor(host) !== target)
+        throw new PageError("unavailable", "active editor changed")
+      return result
+    }
     case "env.project":
       return host.project
     case "scripts.run":
@@ -377,6 +455,9 @@ export function connectPluginPage(
           setTimeout(settle, SETTLE_FALLBACK_MS)
         })
         break
+      case "editor.notify":
+        if (host.context.kind === "editor") notifyEditorViews(host)
+        break
       case "editor.change":
         if (host.context.kind === "editor" && !host.context.readOnly) {
           host.onChange?.(String(params.content ?? ""))
@@ -415,18 +496,42 @@ export function connectPluginPage(
     attributeFilter: ["class", "style"],
   })
 
-  return {
+  const connection: PageConnection = {
     send: (method, params) => post({ method, params }),
     request: (method, params) =>
       new Promise((resolve, reject) => {
         const id = ++seq
-        waiting.set(id, { resolve, reject })
+        const timer = setTimeout(() => {
+          waiting.delete(id)
+          reject(new Error("plugin page request timed out"))
+        }, 30_000)
+        waiting.set(id, {
+          resolve: (value) => {
+            clearTimeout(timer)
+            resolve(value)
+          },
+          reject: (error) => {
+            clearTimeout(timer)
+            reject(error)
+          },
+        })
         post({ id, method, params })
       }),
     update: (next) => {
+      const previous = host
       host = next
+      if (
+        previous.context.kind === "editor" &&
+        next.context.kind === "editor" &&
+        (previous.context.readOnly !== next.context.readOnly ||
+          previous.context.path !== next.context.path ||
+          previous.root !== next.root)
+      )
+        notifyEditorViews(host)
     },
     dispose: () => {
+      pages.delete(page)
+      notifyEditorViews(host)
       window.removeEventListener("message", onMessage)
       themeObserver.disconnect()
       for (const waiter of waiting.values())
@@ -434,4 +539,8 @@ export function connectPluginPage(
       waiting.clear()
     },
   }
+  const page = { host: () => host, connection }
+  pages.add(page)
+  notifyEditorViews(host)
+  return connection
 }

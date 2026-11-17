@@ -37,7 +37,7 @@ export function GroupLiveStatus({
             className="flex h-7 items-center gap-2 rounded-md bg-amber-500/10 px-1.5 text-xs"
           >
             <MemberAvatar
-              agent={row.body?.agent ?? memberAgent(row.member)}
+              agent={memberAgent(row.member)}
               name={name}
               className="size-5 rounded-full [&_svg]:size-3"
             />

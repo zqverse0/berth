@@ -68,5 +68,66 @@
         "This session is being continued from a previous conversation"
       ]
     }
-  ]
+  ],
+  "tools": {
+    "run_terminal_command": {
+      "kind": "command",
+      "command": "/command",
+      "title": "/description",
+      "background": "/background"
+    },
+    "monitor": {
+      "kind": "command",
+      "command": "/command",
+      "title": "/description"
+    },
+    "read_file": {
+      "kind": "read",
+      "path": "/target_file"
+    },
+    "search_replace": {
+      "kind": "edit",
+      "path": "/file_path",
+      "old": "/old_string",
+      "new": "/new_string"
+    },
+    "write": {
+      "kind": "edit",
+      "path": "/file_path",
+      "new": "/content"
+    },
+    "grep": {
+      "kind": "search",
+      "title": "/pattern",
+      "path": "/path"
+    },
+    "list_dir": {
+      "kind": "search",
+      "path": "/target_directory"
+    },
+    "search_tool": {
+      "kind": "search",
+      "title": "/query"
+    },
+    "web_fetch": {
+      "kind": "fetch",
+      "title": "/url"
+    },
+    "todo_write": {
+      "kind": "plan",
+      "items": "/todos",
+      "text": "/content",
+      "status": "/status"
+    },
+    "ask_user_question": {
+      "kind": "question",
+      "items": "/questions",
+      "text": "/question"
+    },
+    "spawn_subagent": {
+      "kind": "delegate",
+      "title": "/description",
+      "text": "/prompt"
+    }
+  }
 }

@@ -6,7 +6,7 @@ import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runt
 import { listProjectAgentSessions, resolveProjectAgentSession } from "@/lib/api"
 import type { AgentType } from "@/lib/types"
 import { TranscriptOutline } from "@/sessions/components/transcript-outline"
-import { useTranscriptLiveSync } from "@/sessions/transcript-view-store"
+import { useTocLiveSync } from "@/sessions/transcript-toc"
 
 // ponytail: 取该项目下此 Agent 最近更新的会话；同项目同时开多个同类 Agent 终端时
 // 可能指向另一个，需要精确时由 launch.js 预分配会话 id 并记到终端标签上
@@ -80,7 +80,7 @@ export function TerminalSessionOutline({
     }
   }, [folderId, agentType])
 
-  useTranscriptLiveSync(session?.conversationId ?? 0, session != null)
+  useTocLiveSync(session?.conversationId ?? 0, session != null)
 
   if (session === undefined) return null
   if (session === null) {

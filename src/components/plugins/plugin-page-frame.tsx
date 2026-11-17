@@ -1,6 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react"
 import { useLocale } from "next-intl"
 import { toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -22,6 +29,8 @@ import {
   isPathUnderRoot,
   openInPlaceOptions,
 } from "@/lib/files/file-open-target"
+import { SidebarHeaderTabs } from "@/components/layout/sidebar/sidebar-header"
+import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { cn } from "@/lib/utils"
 
 /**
@@ -36,9 +45,13 @@ export function PluginPageFrame({
   acceptFileDrop = false,
   deferReveal = false,
   title,
+  headerTab,
+  editorPath,
 }: {
   /** 包内 html 路径。 */
   page: string
+  headerTab?: string
+  editorPath?: string | null
   host: PageHost
   /** 编辑器：文件当前内容；不是页面自己交来的就推给页面。 */
   externalContent?: string
@@ -96,6 +109,14 @@ export function PluginPageFrame({
       content: externalContent,
     })
   }, [externalContent])
+
+  useEffect(() => {
+    if (headerTab) connection.current?.send("ui.headerTab", { id: headerTab })
+  }, [headerTab])
+
+  useEffect(() => {
+    connection.current?.send("view.editorChange", {})
+  }, [editorPath])
 
   // 文件树拖动期间才盖层，平时鼠标事件直达页面
   const [treeDragging, setTreeDragging] = useState(false)
@@ -170,6 +191,20 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
   const locale = useLocale()
   const { openFilePreview } = useWorkspaceRuntimeActions()
   const { send: sendToAgent } = useSendToAgent()
+  const [header, setHeader] = useState<{
+    tabs: { id: string; label: string }[]
+    value: string
+  }>({ tabs: [], value: "" })
+  const setHeaderTabs = useCallback(
+    (tabs: { id: string; label: string }[], value: string) =>
+      setHeader({ tabs, value }),
+    []
+  )
+  const activePath = useWorkspaceFileStore(
+    (state) =>
+      state.fileTabs.find((tab) => tab.id === state.activeFileTabId)?.path ??
+      null
+  )
   const host = useMemo<PageHost>(
     () => ({
       plugin: view.plugin,
@@ -184,6 +219,14 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
         : null,
       locale,
       context: { kind: "view", id: view.id, params: {} },
+      activeEditorPath: () => {
+        const state = useWorkspaceFileStore.getState()
+        return (
+          state.fileTabs.find((tab) => tab.id === state.activeFileTabId)
+            ?.path ?? null
+        )
+      },
+      setHeaderTabs,
       openFile: (path) =>
         void openFilePreview(
           path,
@@ -193,17 +236,28 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
         kind === "error" ? toast.error(message) : toast(message),
       sendToAgent: (text) => void sendToAgent(text),
     }),
-    [view, activeFolder, locale, openFilePreview, sendToAgent]
+    [view, activeFolder, locale, openFilePreview, sendToAgent, setHeaderTabs]
   )
   return (
-    // 页面只在载入时读项目：换项目要重新载入
-    <PluginPageFrame
-      key={activeFolder?.id ?? ""}
-      page={view.page ?? ""}
-      host={host}
-      acceptFileDrop
-      deferReveal
-      title={localizedTitle(view.title, locale)}
-    />
+    <>
+      {header.tabs.length ? (
+        <SidebarHeaderTabs
+          tabs={header.tabs}
+          value={header.value}
+          onChange={(value) => setHeader((current) => ({ ...current, value }))}
+        />
+      ) : null}
+      {/* 页面只在载入时读项目：换项目要重新载入 */}
+      <PluginPageFrame
+        key={activeFolder?.id ?? ""}
+        page={view.page ?? ""}
+        host={host}
+        acceptFileDrop
+        deferReveal
+        title={localizedTitle(view.title, locale)}
+        headerTab={header.value}
+        editorPath={activePath}
+      />
+    </>
   )
 }

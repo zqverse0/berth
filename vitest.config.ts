@@ -27,7 +27,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "plugins/**/src/test/*.test.{js,jsx}",
+    ],
     exclude: ["node_modules", "out", ".next", "src-tauri"],
     // 该包的 ESM 用无扩展名相对导入，Node 原生加载失败；交给 vite 转换
     server: { deps: { inline: ["@atomic-editor/editor"] } },

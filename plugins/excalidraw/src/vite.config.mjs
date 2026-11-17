@@ -28,6 +28,13 @@ const config = {
     "process.env.IS_PREACT": JSON.stringify("false"),
   },
   build: {
+    target: "esnext",
+    rollupOptions: {
+      input: {
+        editor: join(here, "index.html"),
+        sidebar: join(here, "sidebar.html"),
+      },
+    },
     outDir: "../page",
     emptyOutDir: true,
     chunkSizeWarningLimit: 4096,

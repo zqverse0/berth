@@ -1,4 +1,4 @@
-// 接入点 agent 的引导模块：宿主数据（__berth_launch）→ 插件钩子 args / isNativePlugin / launch。
+// 接入点 agent 的引导模块：宿主数据（__berth_launch）→ 插件钩子 args / isNativePlugin / launch / acp。
 // "__BERTH_PLUGIN__" 由宿主替换成插件 launch.js 的绝对路径。
 import plugin from "__BERTH_PLUGIN__"
 
@@ -30,7 +30,10 @@ if (data.mode === "inspect") {
 } else if (data.mode === "plugins") {
   globalThis.__berth_result = JSON.stringify(notes)
 } else {
-  if (typeof hooks.launch !== "function")
+  const acp = data.mode === "acp"
+  if (acp && typeof hooks.acp !== "function")
+    throw new Error("launch.js has no acp(ctx): this Agent cannot join a group")
+  if (!acp && typeof hooks.launch !== "function")
     throw new Error("launch.js must `export default { launch(ctx) }`")
   const extra =
     typeof hooks.args === "function"
@@ -158,8 +161,14 @@ if (data.mode === "inspect") {
   })
   record(null)
   writeManifest()
-  const code = await hooks.launch(ctx)
-  globalThis.__berth_result = JSON.stringify(
-    typeof code === "number" ? code : 0
-  )
+  if (acp) {
+    // 群组运行时据此起适配器；tmp 由它在进程退出后删除。
+    const spec = await hooks.acp(ctx)
+    globalThis.__berth_result = JSON.stringify({ ...spec, tmp: data.paths.tmp })
+  } else {
+    const code = await hooks.launch(ctx)
+    globalThis.__berth_result = JSON.stringify(
+      typeof code === "number" ? code : 0
+    )
+  }
 }

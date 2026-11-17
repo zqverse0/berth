@@ -4,22 +4,19 @@ import { memo } from "react"
 import { Loader2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { SessionAnalysisView } from "@/sessions/components/session-analysis-view"
-import {
-  useTranscriptDetail,
-  useTranscriptLiveSync,
-} from "@/sessions/transcript-view-store"
+import { TranscriptView } from "@/sessions/components/transcript-view"
+import { useConversationToc, useTocLiveSync } from "@/sessions/transcript-toc"
 import type { TranscriptWorkspaceTab } from "@/lib/files/file-workspace-tab"
 
-/** 持久化会话文件标签：读取详情后交给正文视图。 */
+/** 持久化会话文件标签：取目录后交给正文视图，正文按段取内容。 */
 export const TranscriptReader = memo(function TranscriptReader({
   tab,
 }: {
   tab: TranscriptWorkspaceTab
 }) {
   const t = useTranslations("Folder.chat.messageList")
-  const { detail, error, reload } = useTranscriptDetail(tab.conversationId)
-  useTranscriptLiveSync(tab.conversationId)
+  const { toc, error, reload } = useConversationToc(tab.conversationId)
+  useTocLiveSync(tab.conversationId)
 
   if (error) {
     return (
@@ -33,7 +30,7 @@ export const TranscriptReader = memo(function TranscriptReader({
     )
   }
 
-  if (!detail) {
+  if (!toc) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -43,10 +40,7 @@ export const TranscriptReader = memo(function TranscriptReader({
 
   return (
     <div className="h-full min-h-0 bg-background ws-transparent-bg">
-      <SessionAnalysisView
-        conversationId={tab.conversationId}
-        detail={detail}
-      />
+      <TranscriptView conversationId={tab.conversationId} toc={toc} />
     </div>
   )
 })

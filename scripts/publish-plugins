@@ -14,6 +14,22 @@ rev=$(git -C "$repo" rev-parse --short "$ref")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 git clone -q "$PLUGINS" "$work"
+# 源码相对上次发布有改动的插件，tool.json 的 version 必须跟着变（按源码比，构建产物每次都会变）。
+last=$(git -C "$work" log -1 --format=%s | sed -n 's/^Plugins from //p')
+if [ -n "$last" ] && git -C "$repo" cat-file -e "$last^{commit}" 2>/dev/null; then
+  stale=""
+  for id in $(git -C "$repo" diff --name-only "$last" "$ref" -- plugins | cut -d/ -f2 | sort -u); do
+    git -C "$repo" cat-file -e "$ref:plugins/$id/tool.json" 2>/dev/null || continue
+    git -C "$repo" cat-file -e "$last:plugins/$id/tool.json" 2>/dev/null || continue
+    version() { git -C "$repo" show "$1:plugins/$id/tool.json" | jq -r '.version // ""'; }
+    [ "$(version "$last")" = "$(version "$ref")" ] && stale+=" $id"
+  done
+  if [ -n "$stale" ]; then
+    echo "publish-plugins: 这些插件改了但 tool.json 的 version 没变，先升版本号：$stale" >&2
+    exit 1
+  fi
+fi
+
 find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 git -C "$repo" archive "$ref" plugins | tar -x -C "$work" --strip-components=1
 

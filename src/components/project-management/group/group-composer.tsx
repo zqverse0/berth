@@ -17,7 +17,7 @@ import { isLocalDesktop, openFileDialog } from "@/lib/platform"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { cn } from "@/lib/utils"
 import { BerthModelPicker } from "./berth-model-picker"
-import { addressable, type MemberRow } from "./group-model"
+import type { MemberRow } from "./group-model"
 
 /** 项目内的文件写相对路径（各成员在自己的工作目录里解析），项目外写绝对路径。 */
 function displayPath(path: string, root: string | undefined): string {
@@ -46,11 +46,8 @@ export function GroupComposer({
   disabled,
   reply,
   onReplyChange,
-  onLaunch,
 }: {
   rows: readonly MemberRow[]
-  /** 给离线的专家开一个终端（发给它的消息先存进群，入群后投给它）。 */
-  onLaunch?: (row: MemberRow) => void
   /** 收件人（成员名），由会话条与回复决定。 */
   targets: readonly string[]
   /** 每位收件人各发一条；返回没发出去的成员名（空为全部成功），全部失败时保留输入重发。 */
@@ -65,12 +62,8 @@ export function GroupComposer({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  // 离线的专家也能收消息（存进群，下次启动入群后投）。
-  const { present, offline } = addressable(rows)
-  const names = present.map((row) => row.member.name)
-  const reachable = [...names, ...offline.map((row) => row.member.name)]
-  // 刚发给离线专家的消息：问要不要启动它。
-  const [queuedFor, setQueuedFor] = useState<string[]>([])
+  const names = rows.map((row) => row.member.name)
+  const reachable = names
   useEffect(() => {
     if (reply) inputRef.current?.focus()
   }, [reply])
@@ -162,13 +155,6 @@ export function GroupComposer({
     setError(null)
     try {
       const failed = await onSend(to, body, reply?.seq)
-      setQueuedFor(
-        to.filter(
-          (name) =>
-            !failed.includes(name) &&
-            offline.some((row) => row.member.name === name)
-        )
-      )
       // 部分失败时不保留输入：重发会让已收到的成员再收一次（失败的成员已在提示里列出）。
       if (failed.length < to.length) {
         setText("")
@@ -227,44 +213,6 @@ export function GroupComposer({
         <p role="alert" className="mb-2 text-xs text-destructive">
           {error}
         </p>
-      ) : null}
-      {queuedFor.length ? (
-        <div
-          role="status"
-          data-composer-offline
-          className="mb-2 flex flex-wrap items-center gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-xs text-amber-700 dark:text-amber-400"
-        >
-          <span className="min-w-0 flex-1">
-            {t("offlineQueued", { names: queuedFor.map(labelOf).join(", ") })}
-          </span>
-          {onLaunch
-            ? queuedFor.map((name) => {
-                const row = offline.find((row) => row.member.name === name)
-                return row ? (
-                  <Button
-                    key={name}
-                    size="sm"
-                    variant="outline"
-                    className="h-6 px-2 text-xs"
-                    data-composer-launch={name}
-                    onClick={() => {
-                      onLaunch(row)
-                      setQueuedFor((names) => names.filter((n) => n !== name))
-                    }}
-                  >
-                    {t("launchOffline", { name: labelOf(name) })}
-                  </Button>
-                ) : null
-              })
-            : null}
-          <button
-            type="button"
-            aria-label={t("dismiss")}
-            onClick={() => setQueuedFor([])}
-          >
-            <X aria-hidden="true" className="size-3.5" />
-          </button>
-        </div>
       ) : null}
       {reachable.length === 0 ? (
         <p className="mb-1.5 text-xs text-muted-foreground/80">

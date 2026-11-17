@@ -2,11 +2,15 @@
 // 读写、自动保存、Ctrl+S、外部修改都归宿主；这里只把场景与文件文本互转（docs/plugin-architecture.md §4.2）。
 /// <reference path="../../berth-plugin.d.ts" />
 import "@excalidraw/excalidraw/index.css"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import {
   convertToExcalidrawElements,
   Excalidraw,
+  DefaultSidebar,
+  useHandleLibrary,
+  loadLibraryFromBlob,
+  serializeLibraryAsJSON,
   exportToBlob,
   exportToSvg,
   getSceneVersion,
@@ -15,6 +19,13 @@ import {
   viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw"
 import { parseExcalidrawFile, serializeExcalidrawFile } from "./format.js"
+import {
+  SHAPE_LIBRARY_KEY,
+  selectedLibraryElements,
+  insertLibraryItems,
+  pickLibraryItems,
+} from "./shape-library.js"
+import { describeSelection } from "./history-panel.jsx"
 
 const SAVE_DEBOUNCE_MS = 300
 
@@ -66,10 +77,70 @@ function parse(path, text) {
   }
 }
 
-function Editor({ context, initialContent, initialTheme }) {
+const libraryItemId = () =>
+  [...crypto.getRandomValues(new Uint32Array(4))].join("-")
+function assertLibraryElements(elements) {
+  if (
+    elements.some((element) =>
+      ["image", "embeddable", "iframe"].includes(element.type)
+    )
+  )
+    throw new Error(
+      berth.ui.locale.startsWith("zh")
+        ? "素材库不支持图片和嵌入内容，请将图片加入图库。"
+        : "The library does not support images or embeds. Add images to the gallery instead."
+    )
+}
+
+/** `historyPath`：画板绝对路径，改图记录按它存；不在项目里为 null。 */
+function Editor({ context, initialContent, initialTheme, historyPath }) {
   const [theme, setTheme] = useState(initialTheme)
   useEffect(() => berth.ui.onTheme(setTheme), [])
   const [api, setApi] = useState(null)
+  const library = useRef({
+    items: [],
+    revision: 0,
+    saving: false,
+    error: null,
+    loaded: false,
+  })
+  const libraryAdapter = useMemo(
+    () => ({
+      load: async ({ source } = { source: "load" }) => {
+        if (source === "load") library.current.loaded = false
+        try {
+          const data = await berth.storage.get(SHAPE_LIBRARY_KEY)
+          if (data && !Array.isArray(data.libraryItems))
+            throw new Error(
+              "Invalid stored shape library; existing data was not changed"
+            )
+          library.current.loaded = true
+          return data ?? null
+        } catch (error) {
+          library.current.error = error.message
+          context.notify()
+          if (source === "save") throw error
+          return null
+        }
+      },
+      save: async (data) => {
+        library.current.saving = true
+        context.notify()
+        try {
+          await berth.storage.set(SHAPE_LIBRARY_KEY, data)
+          library.current.error = null
+        } catch (error) {
+          library.current.error = error.message
+          throw error
+        } finally {
+          library.current.saving = false
+          context.notify()
+        }
+      },
+    }),
+    [context]
+  )
+  useHandleLibrary({ excalidrawAPI: api, adapter: libraryAdapter })
   // 文件当前文本（自己交出的或外部改写的），写回 `.excalidraw.md` 时据此保留外壳
   const written = useRef(initialContent)
   // 外部改写 → 换代重建画板；自己交出的不重建，保留撤销历史
@@ -80,26 +151,201 @@ function Editor({ context, initialContent, initialTheme }) {
   // 真有改动时，序列化 + 压缩攒到停手后再做，拖动中不碰
   const pending = useRef(null)
   const timer = useRef(undefined)
-  const flush = () => {
+  const flush = useCallback(() => {
     clearTimeout(timer.current)
     const run = pending.current
     pending.current = null
     run?.()
+  }, [])
+  useEffect(() => context.onFlush(flush), [context, flush])
+  /** 交出攒着的改动，返回文件当前文本（改图面板存档用）。 */
+  const flushed = useCallback(() => {
+    flush()
+    return written.current
+  }, [flush])
+  /** 整份换成 `next` 并重建画板。 */
+  const reload = (next) => {
+    written.current = next
+    clearTimeout(timer.current)
+    pending.current = null
+    lastVersion.current = null
+    setContent(next)
+    setGeneration((value) => value + 1)
   }
-  useEffect(() => context.onFlush(flush), [context])
+  // 改图记录变了（外部改写、Agent 经 history.js 写入）→ 面板重读
+  const [revision, setRevision] = useState(0)
   useEffect(
     () =>
       context.onExternalChange((next) => {
         if (next === written.current) return
-        written.current = next
-        clearTimeout(timer.current)
-        pending.current = null
-        lastVersion.current = null
-        setContent(next)
-        setGeneration((value) => value + 1)
+        reload(next)
+        if (!historyPath) return
+        // Agent 绕过 history.js 直接写画板时也留一版；经 apply 写入的内容已在记录里，不重复记
+        void berth.scripts
+          .run("private/history.js", {
+            action: "snapshot",
+            path: historyPath,
+            content: next,
+            by: "external",
+          })
+          .catch(() => {})
+          .then(() => setRevision((value) => value + 1))
       }),
-    [context]
+    [context, historyPath]
   )
+
+  // 侧栏只发语义请求；场景、选区、最新手改与恢复仍由这个画板拥有。
+  useEffect(() => {
+    const off = context.onRequest(async (method, input) => {
+      if (context.readOnly || !api) throw new Error("Editor is not ready")
+      if (method === "state")
+        return {
+          path: historyPath,
+          selected: describeSelection(api).length,
+          revision,
+          libraryRevision: library.current.revision,
+          librarySaving: library.current.saving,
+          libraryError: library.current.error,
+        }
+      if (method.startsWith("library.")) {
+        if (method === "library.retry") {
+          if (!library.current.loaded) {
+            const data = await libraryAdapter.load({ source: "save" })
+            library.current.error = null
+            await api.updateLibrary({ libraryItems: data?.libraryItems ?? [] })
+          } else
+            await libraryAdapter.save({ libraryItems: library.current.items })
+          return null
+        }
+        if (!library.current.loaded)
+          throw new Error(
+            berth.ui.locale.startsWith("zh")
+              ? "素材库尚未载入，暂不能修改。"
+              : "Library has not loaded; changes are disabled."
+          )
+        if (
+          library.current.error &&
+          !["library.list", "library.render", "library.export"].includes(method)
+        )
+          throw new Error(
+            berth.ui.locale.startsWith("zh")
+              ? "素材库尚未保存，请先重试保存或导出备份。"
+              : "The library is not saved. Retry saving or export a backup first."
+          )
+        const items = library.current.items
+        if (method === "library.list")
+          return items.map(({ id, name, status, elements }) => ({
+            id,
+            name,
+            status,
+            count: elements.length,
+          }))
+        if (method === "library.export")
+          return serializeLibraryAsJSON(
+            input?.ids ? pickLibraryItems(items, input.ids) : items
+          )
+        if (method === "library.import") {
+          const imported = await loadLibraryFromBlob(new Blob([input.content]))
+          for (const item of imported) assertLibraryElements(item.elements)
+          // 库条目 ID 仅供管理；换新 ID，避免不同版本素材共用 ID，元素 ID 仍交给原生合并去重。
+          await api.updateLibrary({
+            libraryItems: imported.map((item, index) => ({
+              ...item,
+              id: libraryItemId(),
+              status: input.published ? "published" : item.status,
+              name:
+                item.name ||
+                (typeof input.name === "string"
+                  ? `${input.name} ${index + 1}`
+                  : undefined),
+            })),
+            merge: true,
+          })
+          return null
+        }
+        if (method === "library.add") {
+          const elements = selectedLibraryElements(api)
+          if (!elements.length)
+            throw new Error(
+              berth.ui.locale.startsWith("zh")
+                ? "请先选中要收藏的元素。"
+                : "Select elements to save first."
+            )
+          assertLibraryElements(elements)
+          await api.updateLibrary({
+            libraryItems: [
+              {
+                id: libraryItemId(),
+                status: "unpublished",
+                created: Date.now(),
+                elements: structuredClone(elements),
+              },
+            ],
+            merge: true,
+          })
+          return null
+        }
+        if (method === "library.remove" || method === "library.insert") {
+          const chosen = pickLibraryItems(items, input?.ids ?? [input?.id])
+          if (method === "library.insert")
+            return insertLibraryItems(api, chosen)
+          const removed = new Set(chosen.map((item) => item.id))
+          await api.updateLibrary({
+            libraryItems: items.filter((item) => !removed.has(item.id)),
+          })
+          return null
+        }
+        const item = items.find((item) => item.id === input?.id)
+        if (!item) throw new Error("Library item not found")
+        if (method === "library.render")
+          return renderEmbed({
+            path: "library.excalidraw",
+            content: JSON.stringify({
+              type: "excalidraw",
+              elements: item.elements,
+            }),
+            theme,
+          })
+      }
+      if (method === "snapshot")
+        return { content: flushed(), selection: describeSelection(api) }
+      if (method === "render")
+        return renderEmbed({
+          path: context.path,
+          content: input.content,
+          theme,
+        })
+      if (method === "restore") {
+        if (flushed() !== input.expected)
+          throw new Error(
+            berth.ui.locale.startsWith("zh")
+              ? "画板又有新修改，请重新恢复，避免覆盖。"
+              : "The drawing changed again. Retry restoring to avoid overwriting edits."
+          )
+        reload(input.content)
+        context.change(input.content)
+        setRevision((value) => value + 1)
+        return null
+      }
+      throw new Error(`Unknown drawing request: ${method}`)
+    })
+    context.notify()
+    return off
+  }, [api, context, historyPath, revision, theme, flushed, libraryAdapter])
+
+  useEffect(() => {
+    if (!api) return
+    let last = ""
+    return api.onChange((_, state) => {
+      const next = Object.keys(state.selectedElementIds)
+        .filter((id) => state.selectedElementIds[id])
+        .sort()
+        .join(",")
+      if (next === last) return
+      last = next
+      context.notify()
+    })
+  }, [api, context])
 
   const parsed = useMemo(
     () => parse(context.path, content),
@@ -176,7 +422,7 @@ function Editor({ context, initialContent, initialTheme }) {
     )
   }
 
-  return (
+  const canvas = (
     <Excalidraw
       key={generation}
       excalidrawAPI={setApi}
@@ -185,6 +431,11 @@ function Editor({ context, initialContent, initialTheme }) {
       langCode={berth.ui.locale}
       viewModeEnabled={context.readOnly}
       onLinkOpen={handleLinkOpen}
+      onLibraryChange={(items) => {
+        library.current.items = items
+        library.current.revision++
+        context.notify()
+      }}
       onChange={(elements, appState, files) => {
         if (context.readOnly) return
         const version = `${getSceneVersion(elements)}:${Object.keys(files).join()}`
@@ -206,8 +457,18 @@ function Editor({ context, initialContent, initialTheme }) {
         clearTimeout(timer.current)
         timer.current = setTimeout(flush, SAVE_DEBOUNCE_MS)
       }}
-    />
+    >
+      <DefaultSidebar.Trigger style={{ display: "none" }} />
+      <DefaultSidebar
+        docked={false}
+        onDock={false}
+        className="berth-native-library-hidden"
+      >
+        <span />
+      </DefaultSidebar>
+    </Excalidraw>
   )
+  return canvas
 }
 
 // ponytail: 按 (主题, 路径, 文本) 缓存渲染结果、不限量；嵌入极多的文档再加 LRU
@@ -285,8 +546,20 @@ void (async () => {
     return
   }
   // 取最新内容：页面脚本运行前宿主可能已推过外部改写
-  const [theme, content] = await Promise.all([berth.ui.theme(), context.load()])
+  const [theme, content, project] = await Promise.all([
+    berth.ui.theme(),
+    context.load(),
+    berth.env.project().catch(() => null),
+  ])
+  const historyPath = project
+    ? `${project.root.replace(/\/+$/, "")}/${context.path}`
+    : null
   createRoot(document.getElementById("root")).render(
-    <Editor context={context} initialContent={content} initialTheme={theme} />
+    <Editor
+      context={context}
+      initialContent={content}
+      initialTheme={theme}
+      historyPath={historyPath}
+    />
   )
 })()

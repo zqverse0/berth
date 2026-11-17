@@ -14,8 +14,6 @@ import { tabFromDescriptor } from "@/lib/terminal/create-and-open-primary-termin
 import { isTerminalTab, type TerminalTab } from "@/lib/workspace/primary-tabs"
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 
 const TAIL_LINES = 200
 
@@ -84,28 +82,4 @@ export function usePaneActions() {
     row.descriptor.title
 
   return { jump, interrupt, readTail, agentName }
-}
-
-/**
- * 给专家开一个终端：打开侧栏启动栏，预选 Agent 与专家；`cwd` 是已打开的项目目录时在那里启动，
- * 否则在当前项目。启动后后台进程让它入群，排队的消息随后投给它。
- */
-export function launchExpert({
-  expert,
-  agent,
-  cwd,
-}: {
-  expert: string
-  agent: string | null
-  cwd?: string | null
-}) {
-  const folder = cwd
-    ? useAppWorkspaceStore
-        .getState()
-        .allFolders.find((folder) => folder.path === cwd)
-    : undefined
-  useStatusBarLaunchStore.getState().openLaunchShelf(agent, {
-    expert,
-    ...(folder ? { folderId: folder.id, workingDirectory: folder.path } : {}),
-  })
 }

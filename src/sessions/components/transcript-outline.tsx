@@ -9,15 +9,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { formatTokenCount } from "@/lib/agent/token-format"
 import { cn } from "@/lib/utils"
 import { STARTUP_CONTEXT_ID } from "@/sessions/components/startup-context"
+import { matchesSegment, type ProcessFilter } from "@/sessions/exchanges"
 import {
-  firstCallTokens,
-  matchesExchange,
-  promptSummary,
-  type ProcessFilter,
-} from "@/sessions/exchanges"
+  cachedParts,
+  useConversationToc,
+  useStartupContext,
+} from "@/sessions/transcript-toc"
 import {
-  exchangesOf,
-  useTranscriptDetail,
   useTranscriptView,
   useTranscriptViewStore,
 } from "@/sessions/transcript-view-store"
@@ -40,12 +38,13 @@ export function TranscriptOutline({
   onOpen?: () => void
 }) {
   const t = useTranslations("Folder.sessionViewer")
-  const { detail, error } = useTranscriptDetail(conversationId)
+  const { toc, error } = useConversationToc(conversationId)
+  const context = useStartupContext(conversationId)
   const { filter, query } = useTranscriptView(conversationId)
   const updateView = useTranscriptViewStore((state) => state.updateView)
   const requestJump = useTranscriptViewStore((state) => state.requestJump)
 
-  const exchanges = useMemo(() => (detail ? exchangesOf(detail) : []), [detail])
+  const segments = useMemo(() => toc?.segments ?? [], [toc])
   const summary = useMemo(() => {
     const tools: Record<string, number> = {}
     const toolTokens: Record<string, number> = {}
@@ -54,7 +53,7 @@ export function TranscriptOutline({
     let errors = 0
     let peak = 0
     let model: string | null = null
-    for (const { stats } of exchanges) {
+    for (const { stats } of segments) {
       for (const [name, count] of Object.entries(stats.tools)) {
         tools[name] = (tools[name] ?? 0) + count
       }
@@ -70,7 +69,7 @@ export function TranscriptOutline({
       model = stats.model ?? model
     }
     return {
-      prompts: exchanges.filter((ex) => ex.prompt).length,
+      prompts: segments.filter((segment) => segment.prompt).length,
       tools: topEntries(tools),
       toolTokens,
       skills: topEntries(skills),
@@ -79,15 +78,29 @@ export function TranscriptOutline({
       peak,
       model,
     }
-  }, [exchanges])
+  }, [segments])
   const visible = useMemo(
-    () => exchanges.filter((ex) => matchesExchange(ex, filter, query)),
-    [exchanges, filter, query]
+    () =>
+      segments.filter((segment) =>
+        matchesSegment(
+          segment,
+          filter,
+          query,
+          query && toc
+            ? cachedParts(
+                conversationId,
+                toc.generation,
+                Array.from(
+                  { length: segment.end - segment.start },
+                  (_, i) => segment.start + i
+                )
+              )
+            : []
+        )
+      ),
+    [segments, filter, query, toc, conversationId]
   )
-  const startupTokens = useMemo(
-    () => (detail ? firstCallTokens(detail.turns) : null),
-    [detail]
-  )
+  const startupTokens = toc?.startup_tokens ?? null
 
   const setFilter = (patch: Partial<ProcessFilter>) =>
     updateView(conversationId, (view) => ({
@@ -98,7 +111,7 @@ export function TranscriptOutline({
   if (error) {
     return <p className="p-4 text-sm text-destructive">{error}</p>
   }
-  if (!detail) {
+  if (!toc) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -166,9 +179,9 @@ export function TranscriptOutline({
           </Button>
         )}
         <SessionDetailsContent
-          summary={detail.summary}
-          stats={detail.session_stats ?? null}
-          model={summary.model ?? detail.summary.model ?? null}
+          summary={toc.summary}
+          stats={toc.session_stats ?? null}
+          model={summary.model ?? toc.summary.model ?? null}
         />
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>{t("summaryExchanges", { count: summary.prompts })}</span>
@@ -191,7 +204,7 @@ export function TranscriptOutline({
             </span>
           )}
         </div>
-        {detail.context && detail.context.length > 0 && (
+        {context && context.length > 0 && (
           <button
             type="button"
             onClick={() => {
@@ -204,7 +217,7 @@ export function TranscriptOutline({
               {t("contextTitle")}
             </span>
             <span>
-              {t("contextItems", { count: detail.context.length })}
+              {t("contextItems", { count: context.length })}
               {startupTokens != null &&
                 ` · ${t("startupTokens", { tokens: formatTokenCount(startupTokens) })}`}
             </span>
@@ -228,42 +241,40 @@ export function TranscriptOutline({
             <p className="text-xs text-muted-foreground">{t("noMatches")}</p>
           ) : (
             <ol className="-mx-3">
-              {visible.map((exchange) => (
-                <li key={exchange.id}>
+              {visible.map((segment) => (
+                <li key={segment.id}>
                   <button
                     type="button"
                     onClick={() => {
                       onOpen?.()
-                      requestJump(conversationId, exchange.id)
+                      requestJump(conversationId, segment.id)
                     }}
                     className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left hover:bg-muted"
                   >
                     <span className="line-clamp-2 text-xs">
                       <span className="mr-1 text-muted-foreground">
-                        #{exchange.index}
+                        #{segment.index}
                       </span>
-                      {exchange.prompt
-                        ? promptSummary(exchange)
-                        : t("preamble")}
+                      {segment.prompt ? (segment.title ?? "") : t("preamble")}
                     </span>
                     <span className="flex gap-2 text-[10px] text-muted-foreground">
-                      {exchange.stats.toolCalls > 0 && (
+                      {segment.stats.toolCalls > 0 && (
                         <span>
                           {t("processTools", {
-                            count: exchange.stats.toolCalls,
+                            count: segment.stats.toolCalls,
                           })}
                         </span>
                       )}
-                      {exchange.stats.errors > 0 && (
+                      {segment.stats.errors > 0 && (
                         <span className="text-destructive">
                           {t("processErrors", {
-                            count: exchange.stats.errors,
+                            count: segment.stats.errors,
                           })}
                         </span>
                       )}
-                      {exchange.stats.contextTokens != null && (
+                      {segment.stats.contextTokens != null && (
                         <span>
-                          {formatTokenCount(exchange.stats.contextTokens)}
+                          {formatTokenCount(segment.stats.contextTokens)}
                         </span>
                       )}
                     </span>

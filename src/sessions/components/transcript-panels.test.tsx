@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
-import type { DbConversationDetail } from "@/lib/types"
+import type { ConversationToc } from "@/lib/types"
 import { useTranscriptViewStore } from "@/sessions/transcript-view-store"
 import { TranscriptOutline } from "./transcript-outline"
 import { TranscriptToolbar } from "./transcript-toolbar"
@@ -16,60 +16,53 @@ vi.mock("@/components/conversations/session-details-content", () => ({
   SessionDetailsContent: () => <div>details</div>,
 }))
 
-const detail = {
+const toc = {
   summary: { id: 9, model: null },
   session_stats: null,
-  context: [
-    { source: "skills", tokens: 3, text: "abc" },
-    {
-      source: "instructions",
-      name: "/w/AGENTS.md",
-      path: "/w/AGENTS.md",
-      tokens: 12,
-      text: "rule one\nmore",
-    },
-  ],
-  turns: [
+  generation: 1,
+  from: 0,
+  turns: 3,
+  startup_tokens: null,
+  segments: [
     {
       id: "u1",
-      role: "user",
-      timestamp: "2026-09-29T00:00:00.000Z",
-      blocks: [{ type: "text", text: "Why is CI slow?" }],
-    },
-    {
-      id: "a1",
-      role: "assistant",
-      timestamp: "2026-09-29T00:00:01.000Z",
-      blocks: [
-        {
-          type: "tool_use",
-          tool_use_id: "c1",
-          tool_name: "Bash",
-          input_preview: "cat .agents/skills/diagnose/SKILL.md",
-          meta: { "berth.skills": ["diagnose"] },
-        },
-        { type: "text", text: "Cache is cold." },
-      ],
-    },
-    {
-      id: "r1",
-      role: "user",
-      timestamp: "2026-09-29T00:00:02.000Z",
-      blocks: [
-        {
-          type: "tool_result",
-          tool_use_id: "c1",
-          output_preview: "…",
-          output_tokens: 2500,
-          is_error: false,
-        },
-      ],
+      index: 1,
+      start: 0,
+      end: 3,
+      prompt: true,
+      title: "Why is CI slow?",
+      answer: 1,
+      steps: 2,
+      stats: {
+        tools: { Bash: 1 },
+        toolTokens: { Bash: 2500 },
+        skills: { diagnose: 1 },
+        toolCalls: 1,
+        errors: 0,
+        thinking: 0,
+        contextTokens: null,
+        model: null,
+        startedAt: "2026-09-29T00:00:00.000Z",
+        endedAt: "2026-09-29T00:00:02.000Z",
+      },
     },
   ],
-} as unknown as DbConversationDetail
+} as unknown as ConversationToc
+
+const context = [
+  { source: "skills", tokens: 3, text: "abc" },
+  {
+    source: "instructions",
+    name: "/w/AGENTS.md",
+    path: "/w/AGENTS.md",
+    tokens: 12,
+    text: "rule one\nmore",
+  },
+]
 
 vi.mock("@/lib/api", () => ({
-  getFolderConversation: () => Promise.resolve(detail),
+  getConversationToc: () => Promise.resolve(toc),
+  getConversationContext: () => Promise.resolve(context),
 }))
 
 function renderWithIntl(node: React.ReactNode) {

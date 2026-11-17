@@ -393,6 +393,8 @@ mod tauri_app {
                 tauri::async_runtime::spawn(crate::model_provider::proxy::host(db.conn.clone()));
                 // 远程访问页：按设置页填写的监听地址绑定；没填或没设密码不监听。
                 tauri::async_runtime::spawn(crate::remote::host(app.handle().clone()));
+                // 长时间运行后 glibc 留着的空闲页定期还给系统
+                crate::platform::memory::spawn_periodic_trim();
 
                 // Logging phase 2/3: override the default level from the
                 // persisted `logging.level` now that the DB is open, then wire

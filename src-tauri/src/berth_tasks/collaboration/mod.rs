@@ -27,7 +27,6 @@ pub async fn call(
         "task.save" => group::save(&root, &params),
         "task.finish" => group::finish(&root, &params),
         "group.read" => group::read(&root, &params),
-        "group.member" => group::member(&root, &params),
         "group.assign" => group::assign(&root, &params),
         "group.list" => group::list(&root, &params),
         "group.unread" => group::unread(&root, &params),
@@ -36,6 +35,9 @@ pub async fn call(
             group::ensure_watch(&root, &cli()?, &launch)
         }
         "group.post" => post(&root, &params, launch.as_ref()),
+        "group.join" => join(&root, &params, launch.as_ref()),
+        "group.approve" => approve(&root, &params, launch.as_ref()),
+        "group.member.control" => control(&root, &params, launch.as_ref()),
         "group.stopBerth" => berth_member::stop(&root),
         "group.berthSessions" => berth_member::sessions(&root),
         "group.berthRecord" => berth_member::record(&root, &params),
@@ -52,26 +54,76 @@ fn cli() -> Result<PathBuf, String> {
         .ok_or_else(|| "Berth CLI (berth group) is unavailable".to_owned())
 }
 
-/// 以群主身份发消息（`replyTo` 为引用回复）。GUI 不在终端里：发给成员的消息排队，
-/// 由后台进程在成员空闲时送达（发后确保它在跑）。
+/// 以群主身份发消息（`replyTo` 为引用回复）：发给 ACP 成员的消息由后台进程送达（发后确保它在跑）。
 fn post(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
-    let ctx = berth_group::Ctx::new(
-        root,
-        launch.map(|launch| launch.socket.clone()),
-        None,
-        cli()?,
-        None,
-    )
-    .map_err(|error| error.message)?;
+    let ctx = ctx(root, launch)?;
     let written = berth_group::post(
         &ctx,
-        None,
         required(params, "name")?,
         required(params, "author")?,
         required(params, "text")?,
         text(params, "to").map(str::to_owned),
         params.get("replyTo").and_then(Value::as_u64),
         text(params, "idempotencyKey").map(str::to_owned),
+    )
+    .map_err(|error| error.message)?;
+    if let Some(launch) = launch {
+        group::ensure_watch(root, &ctx.cli, launch)?;
+    }
+    Ok(written)
+}
+
+fn ctx(root: &Path, launch: Option<&CliLaunch>) -> Result<berth_group::Ctx, String> {
+    berth_group::Ctx::new(root, launch.map(|launch| launch.socket.clone()), None, cli()?, None)
+        .map_err(|error| error.message)
+}
+
+/// 群页「加成员」：声明了 `agent.acp` 的插件以 ACP 成员入群（`berth group join --acp` 同一实现）。
+/// `inputs` 是启动栏的选择，`provider` / `model` 同终端启动的服务商与模型。
+fn join(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+    let ctx = ctx(root, launch)?;
+    let inputs = params.get("inputs").and_then(Value::as_object).cloned().unwrap_or_default();
+    let provider = params
+        .get("provider")
+        .and_then(Value::as_i64)
+        .map(|id| (id, text(params, "model").map(str::to_owned)));
+    let joined = berth_group::join_acp(
+        &ctx,
+        required(params, "name")?,
+        required(params, "as")?,
+        required(params, "agent")?,
+        inputs,
+        provider,
+        None,
+    )
+    .map_err(|error| error.message)?;
+    if let Some(launch) = launch {
+        group::ensure_watch(root, &ctx.cli, launch)?;
+    }
+    Ok(joined)
+}
+
+/// 审批卡片的应答（`berth group approve` 同一实现）；不给 `option` 即取消。
+fn approve(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+    let ctx = ctx(root, launch)?;
+    let request = params.get("request").and_then(Value::as_u64).ok_or("request is required")?;
+    let written = berth_group::approve(&ctx, required(params, "name")?, request, text(params, "option").map(str::to_owned))
+        .map_err(|error| error.message)?;
+    if let Some(launch) = launch {
+        group::ensure_watch(root, &ctx.cli, launch)?;
+    }
+    Ok(written)
+}
+
+/// 成员条上的「停止 / 新会话 / 移出」（`berth group member` 同一实现）。
+fn control(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+    let ctx = ctx(root, launch)?;
+    let written = berth_group::control(
+        &ctx,
+        required(params, "name")?,
+        required(params, "member")?,
+        required(params, "action")?,
+        text(params, "terminal").map(str::to_owned),
     )
     .map_err(|error| error.message)?;
     if let Some(launch) = launch {

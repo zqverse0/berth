@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+agent-client-protocol = { version = "5.3", features = ["process"] }
+futures = "0.3"
 berth-project-core = { path = "../berth-project-core" }
 berth-tool-core = { path = "../../tool/berth-tool-core" }
 serde = { version = "1", features = ["derive"] }
@@ -15,4 +17,5 @@ serde_json = "1"
 sha2 = "0.10"
 
 [dev-dependencies]
+agent-client-protocol = { version = "5.3", features = ["process", "stdio"] }
 tempfile = "3"

@@ -20,8 +20,11 @@ import {
   exchangesOf,
   loadTranscript,
   retainLiveTranscript,
-  useTranscriptViewStore,
 } from "@/sessions/transcript-view-store"
+import {
+  retainConversationDetail,
+  useConversationRuntimeStore,
+} from "@/stores/conversation-runtime-store"
 
 const LANE_LIMIT = 6
 const TURN_LIMIT = 24
@@ -208,6 +211,7 @@ export function useTrajectory(
     const stops: (() => void)[] = []
     for (const lane of lanes) {
       if (lane.conversationId == null) continue
+      stops.push(retainConversationDetail(lane.conversationId))
       // 在跑的会话第一次也强制重读：缓存里可能是之前打开时的旧内容
       void loadTranscript(lane.conversationId, lane.live)
       if (lane.live) stops.push(retainLiveTranscript(lane.conversationId))
@@ -217,10 +221,10 @@ export function useTrajectory(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationIds.join(","), liveKey])
 
-  const details = useTranscriptViewStore(
+  const details = useConversationRuntimeStore(
     useShallow((state) =>
       conversationIds.map((id) =>
-        id == null ? null : (state.details[id] ?? null)
+        id == null ? null : (state.byConversationId.get(id)?.detail ?? null)
       )
     )
   )

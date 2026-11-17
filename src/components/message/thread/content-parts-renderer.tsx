@@ -1,4 +1,11 @@
-import { memo, useMemo, useState, type ReactNode } from "react"
+import {
+  createContext,
+  memo,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import {
   classifyToolKind,
@@ -1158,13 +1165,17 @@ const TextPart = memo(function TextPart({
   )
 })
 
+/** 阅读器里用户点开一张工具卡片后取原文渲染：卡片直接展开。 */
+export const ToolOpenByDefault = createContext(false)
+
 const ToolCallPart = memo(function ToolCallPart({
   part,
 }: {
   part: Extract<AdaptedContentPart, { type: "tool-call" }>
 }) {
   const t = useTranslations("Folder.chat.contentParts")
-  const [manualOpen, setManualOpen] = useState(false)
+  const openByDefault = useContext(ToolOpenByDefault)
+  const [manualOpen, setManualOpen] = useState(openByDefault)
   const normalizedToolName = useMemo(
     () => normalizeToolName(part.toolName),
     [part.toolName]

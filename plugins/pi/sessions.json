@@ -36,5 +36,27 @@
       "name": "/name",
       "text": ""
     }
-  ]
+  ],
+  "tools": {
+    "bash": {
+      "kind": "command",
+      "command": "/command"
+    },
+    "read": {
+      "kind": "read",
+      "path": "/path"
+    },
+    "edit": {
+      "kind": "edit",
+      "items": "/edits",
+      "path": "/path",
+      "old": "/oldText",
+      "new": "/newText"
+    },
+    "write": {
+      "kind": "edit",
+      "path": "/path",
+      "new": "/content"
+    }
+  }
 }

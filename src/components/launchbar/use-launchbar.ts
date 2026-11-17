@@ -207,6 +207,15 @@ export interface UseLaunchbarOptions {
   onLaunched?: () => void
   /** 启动前的前置步骤（如新建协作先建频道），返回追加的启动输入；抛错即中止启动。 */
   prepareLaunch?: () => Promise<Record<string, string | boolean>>
+  /** 不开终端，把启动选择交给调用方（群页加 ACP 成员）；抛错即提示启动失败。 */
+  launch?: (request: AgentLaunchChoice) => Promise<void>
+}
+
+/** 启动栏的一次选择：交给 launch.js 的输入与服务商注入（同终端启动）。 */
+export interface AgentLaunchChoice {
+  agentLaunchInputs: Record<string, string | boolean>
+  providerId: number | null
+  modelId: string | null
 }
 
 export function useLaunchbar({
@@ -217,6 +226,7 @@ export function useLaunchbar({
   expert,
   onLaunched,
   prepareLaunch,
+  launch,
 }: UseLaunchbarOptions) {
   const tTerminal = useTranslations("Folder.terminal")
   const tProviders = useTranslations("ModelProviderSettings")
@@ -567,9 +577,11 @@ export function useLaunchbar({
         if (savedVal !== undefined && item.optionsFrom !== "projectSessions") {
           if (item.component === "select") {
             const staticOptions = item.options ?? []
+            // 专家列表在加载时已填好（launchbar.rs），同静态选项一样核对：
+            // 记住的专家被删 / 改名后不再提交，否则启动报 `expert …: missing`。
             if (
               savedVal === "" ||
-              item.optionsFrom != null ||
+              (item.optionsFrom != null && item.optionsFrom !== "experts") ||
               staticOptions.some((opt) => opt.value === savedVal)
             ) {
               val = savedVal
@@ -729,6 +741,15 @@ export function useLaunchbar({
         // launch.js 只认模型 id；分组单独交给后端选 Key
         ...(modelItemId && model ? { [modelItemId]: model } : {}),
         ...(await prepareLaunch?.()),
+      }
+      if (launch) {
+        await launch({
+          agentLaunchInputs,
+          providerId: paneProviderId,
+          modelId: model || null,
+        })
+        onLaunched?.()
+        return
       }
       const result = await createAndOpenPrimaryTerminalDetailed({
         cwd: workingDirectory,

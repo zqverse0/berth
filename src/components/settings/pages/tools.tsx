@@ -817,13 +817,15 @@ function CatalogView({
 
   const install = useCallback(
     async (entry: ToolCatalogEntry) => {
+      const updating = entry.installed
       setInstalling(entry.id)
       setError(null)
       try {
-        const response = await toolAssets({
-          type: "install",
-          source: entry.source,
-        })
+        const response = await toolAssets(
+          updating
+            ? { type: "update", id: entry.id }
+            : { type: "install", source: entry.source }
+        )
         if (response.type !== "list") throw new Error(t("unexpectedResponse"))
         onInstalled(response.tools)
         setCatalog(
@@ -831,11 +833,17 @@ function CatalogView({
             current && {
               ...current,
               plugins: current.plugins.map((item) =>
-                item.id === entry.id ? { ...item, installed: true } : item
+                item.id === entry.id
+                  ? { ...item, installed: true, installedVersion: item.version }
+                  : item
               ),
             }
         )
-        toast.success(t("catalogInstalled", { name: entry.name }))
+        toast.success(
+          t(updating ? "catalogUpdated" : "catalogInstalled", {
+            name: entry.name,
+          })
+        )
       } catch (cause) {
         setError(toErrorMessage(cause))
       } finally {
@@ -912,7 +920,28 @@ function CatalogView({
                 {entry.description ?? ""}
               </p>
               <div className="mt-3 flex justify-end">
-                {entry.installed ? (
+                {entry.installed && entry.installedVersion !== entry.version ? (
+                  <Button
+                    size="sm"
+                    className="h-7"
+                    disabled={installing !== null}
+                    title={
+                      entry.installedVersion
+                        ? `v${entry.installedVersion} → v${entry.version ?? "?"}`
+                        : undefined
+                    }
+                    onClick={() => void install(entry)}
+                  >
+                    {installing === entry.id ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {installing === entry.id
+                      ? t("programUpdating")
+                      : t("programUpdate")}
+                  </Button>
+                ) : entry.installed ? (
                   <Button
                     size="sm"
                     variant="ghost"

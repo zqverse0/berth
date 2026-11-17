@@ -21,5 +21,46 @@
     "content": "/content",
     "model": "/modelInfo/id",
     "time": "/ts"
+  },
+  "tools": {
+    "run_commands": {
+      "kind": "command",
+      "items": "/commands",
+      "command": ""
+    },
+    "editor": {
+      "kind": "edit",
+      "path": "/path",
+      "old": "/old_text",
+      "new": "/new_text"
+    },
+    "edit_files": {
+      "kind": "edit",
+      "path": "/path",
+      "old": "/old_text",
+      "new": "/new_text"
+    },
+    "read_files": {
+      "kind": "read",
+      "items": "/files",
+      "path": "/path"
+    },
+    "search_codebase": {
+      "kind": "search",
+      "items": "/queries",
+      "text": ""
+    },
+    "ask_question": {
+      "kind": "question",
+      "text": "/question"
+    },
+    "spawn_agent": {
+      "kind": "delegate",
+      "text": "/task"
+    },
+    "skills": {
+      "kind": "skill",
+      "title": "/skill"
+    }
   }
 }

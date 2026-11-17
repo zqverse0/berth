@@ -1,26 +1,18 @@
 //! `berth group`：参数解析与输出；逻辑全在 `berth_group`（与 GUI 群组视图共用）。
-//! 这里只提供 termd 实现（[`Termd`]）与调用方身份（当前终端、CLI 自身路径）。
-
-mod termd;
+//! 这里只提供调用方身份（CLI 自身路径）。
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use berth_group::{Ctx, Hook, SessionFiles, SpawnRequest, Terminals};
-use berth_project_core::tasks::{TaskError, TaskResult};
+use berth_group::{Ctx, Hook, SpawnRequest};
+use berth_project_core::tasks::TaskResult;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
-pub(crate) use termd::Termd;
-
 /// 启动提示的群组段落（`berth guide --brief`）。
-pub(crate) fn brief_lines(cwd: &Path, socket: Option<PathBuf>) -> Option<String> {
-    berth_group::brief_lines(
-        cwd,
-        socket.filter(|_| std::env::var_os("BERTH").is_some()),
-        cli_path(),
-    )
+pub(crate) fn brief_lines(cwd: &Path) -> Option<String> {
+    berth_group::brief_lines(cwd)
 }
 
 /// 本 CLI 的可执行文件；拿不到时退回 PATH 上的 `berth`。
@@ -54,27 +46,40 @@ enum GroupCommand {
         #[arg(long)]
         to: Option<String>,
     },
-    /// 在群成员、pane 状态、是否在收集与绑定的会话 id。
+    /// 在群的 ACP 成员：Agent、目录、专家、会话 id、是否在答、是否交给了终端。
     Who { name: String },
-    /// 入群并登记当前 pane（`--target-ref` 代他人登记）；Agent 一轮结束由 Berth 收集回复贴回群。
+    /// 以 ACP 方式入群（不占终端）：`--acp` 为插件 id，须声明 `agent.acp`；`--as` 为成员名。
     Join {
         name: String,
         #[arg(long = "as", default_value = "")]
         as_name: String,
+        #[arg(long, value_name = "AGENT")]
+        acp: String,
+        /// 成员的专家。
         #[arg(long)]
-        target_ref: Option<String>,
-        /// 不收集这个成员的回复（只收消息）。
+        expert: Option<String>,
+        /// 成员的工作目录（本项目的目录之一，缺省主目录）。
         #[arg(long)]
-        no_collect: bool,
+        cwd: Option<PathBuf>,
     },
-    /// 离群（清掉登记的 pane）。
-    #[command(hide = true)]
-    Leave {
+    /// 应答 ACP 成员的审批请求：`<请求 seq> <选项 id>`，不给选项即取消。
+    Approve {
         name: String,
-        #[arg(long = "as", default_value = "")]
-        as_name: String,
+        request: u64,
+        option: Option<String>,
     },
-    /// 派发 worker：在主目录或指定 worktree（`<群>` 写目录名）启动 Agent，任务仅作为上下文；消息都在项目群。
+    /// 管理 ACP 成员：`stop` 停下这一轮，`new` 下一条消息开新会话，`leave` 移出群（会话保留），
+    /// `handoff` 把会话交给终端（输出里有会话 id，在终端里用它打开），`return` 交回群里。
+    Member {
+        name: String,
+        member: String,
+        #[arg(value_parser = ["stop", "new", "leave", "handoff", "return"])]
+        action: String,
+        /// `handoff`：打开会话的终端。
+        #[arg(long)]
+        terminal: Option<String>,
+    },
+    /// 派发 worker：以 ACP 成员在主目录或指定 worktree（`<群>` 写目录名）入群，任务作为第一条消息；消息都在项目群。
     Spawn {
         name: String,
         /// 派发者（缺省 lead）。
@@ -100,10 +105,9 @@ enum GroupCommand {
         #[arg(long)]
         text: String,
     },
-    /// 发消息；`--to` 指定成员时送达它的 pane（忙时排队）。
+    /// 发消息；`--to` 是 ACP 成员时由后台进程发给它（忙时排队）。
     Post {
         name: String,
-        /// 在本群成员的终端里可省：作者取该终端对应的成员。
         #[arg(long = "as", default_value = "")]
         as_name: String,
         #[arg(long)]
@@ -136,14 +140,14 @@ enum GroupCommand {
         #[arg(long)]
         text: String,
     },
-    /// 后台进程：成员派生、排队送达（由其他命令按需拉起）。
+    /// 后台进程：ACP 成员的进程与送达、git 记录（由其他命令按需拉起）。
     #[command(hide = true)]
     Watch,
     /// Agent 的 hook 调用：`session-start` / `turn-start` / `turn-end` / `attention` / `idle`，stdin 为 hook JSON。
     /// 不输出、总是成功退出（hook 的输出会进 Agent 上下文，失败可能拦住 Agent）。
     #[command(hide = true)]
     Hook { event: String },
-    /// 专家与它们在项目群里的终端（`berth project . expert`）。
+    /// 专家与它们在项目群里的成员数（`berth project . expert`）。
     #[command(hide = true)]
     Expert {
         #[command(subcommand)]
@@ -153,31 +157,27 @@ enum GroupCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExpertCommand {
-    /// 全部专家：id、名字、在群里的终端数。
+    /// 全部专家：id、名字、在群里的成员数。
     Ls,
-    /// 一个专家：它的各个终端（编号、Agent、目录、状态）。
+    /// 一个专家：它在群里的各个成员。
     Show { id: String },
 }
 
 fn execute(ctx: &Ctx, command: GroupCommand) -> TaskResult<Value> {
-    let term = ctx
-        .socket
-        .as_deref()
-        .and_then(|socket| Termd::new(socket, ctx.gui.clone()));
-    let term = term.as_ref().map(|term| term as &dyn Terminals);
     match command {
         GroupCommand::Presets => berth_group::presets(ctx),
         GroupCommand::Read { name, after, to } => {
             berth_group::read(ctx, &name, after, to.as_deref())
         }
-        GroupCommand::Who { name } => berth_group::who(ctx, term, &name),
-        GroupCommand::Join {
-            name,
-            as_name,
-            target_ref,
-            no_collect,
-        } => berth_group::join(ctx, term, &name, &as_name, target_ref, no_collect),
-        GroupCommand::Leave { name, as_name } => berth_group::leave(ctx, &name, &as_name),
+        GroupCommand::Who { name } => berth_group::who(ctx, &name),
+        GroupCommand::Join { name, as_name, acp, expert, cwd } => {
+            let inputs = expert.map(|expert| ("expert".to_owned(), json!(expert))).into_iter().collect();
+            berth_group::join_acp(ctx, &name, &as_name, &acp, inputs, None, cwd)
+        }
+        GroupCommand::Approve { name, request, option } => berth_group::approve(ctx, &name, request, option),
+        GroupCommand::Member { name, member, action, terminal } => {
+            berth_group::control(ctx, &name, &member, &action, terminal)
+        }
         GroupCommand::Spawn {
             name,
             as_name,
@@ -189,17 +189,8 @@ fn execute(ctx: &Ctx, command: GroupCommand) -> TaskResult<Value> {
             task,
             input,
             text,
-        } => {
-            let term = term.ok_or_else(|| {
-                // 只在 Berth 终端里派发，确保连的是本项目所在的 termd。
-                TaskError::new(
-                    "outside_berth_terminal",
-                    "spawn must run inside a Berth terminal",
-                )
-            })?;
-            berth_group::spawn(
+        } => berth_group::spawn(
                 ctx,
-                term,
                 SpawnRequest {
                     group: name,
                     lead: as_name.unwrap_or_default(),
@@ -212,36 +203,32 @@ fn execute(ctx: &Ctx, command: GroupCommand) -> TaskResult<Value> {
                     inputs: input,
                     text,
                 },
-            )
-        }
+            ),
         GroupCommand::Post {
             name,
             as_name,
             text,
             to,
             idempotency_key,
-        } => berth_group::post(ctx, term, &name, &as_name, &text, to, None, idempotency_key),
+        } => berth_group::post(ctx, &name, &as_name, &text, to, None, idempotency_key),
         GroupCommand::Spec {
             name,
             as_name,
             note,
             task,
-        } => berth_group::spec(ctx, term, &name, &as_name, &note, &task),
+        } => berth_group::spec(ctx, &name, &as_name, &note, &task),
         GroupCommand::Change {
             name,
             as_name,
             to,
             text,
-        } => berth_group::change(ctx, term, &name, &as_name, &to, &text),
+        } => berth_group::change(ctx, &name, &as_name, &to, &text),
         GroupCommand::Expert { command } => match command {
-            ExpertCommand::Ls => berth_group::experts(ctx, term, None),
-            ExpertCommand::Show { id } => berth_group::experts(ctx, term, Some(&id)),
+            ExpertCommand::Ls => berth_group::experts(ctx, None),
+            ExpertCommand::Show { id } => berth_group::experts(ctx, Some(&id)),
         },
         GroupCommand::Watch => {
-            let term = term.ok_or_else(|| {
-                TaskError::new("outside_berth_terminal", "watch needs the terminal daemon")
-            })?;
-            berth_group::watch(ctx, term);
+            berth_group::watch(ctx);
             Ok(json!({"stopped": true}))
         }
         GroupCommand::Hook { .. } => unreachable!("hook runs before execute"),
@@ -261,7 +248,7 @@ pub(crate) fn run(args: &[OsString], socket: Option<PathBuf>, gui: Option<&OsStr
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     if let GroupCommand::Hook { event } = &parsed.command {
-        hook(event, &workspace, socket, gui);
+        hook(event, gui);
         return 0;
     }
     let result = Ctx::new(
@@ -301,9 +288,9 @@ pub(crate) fn run(args: &[OsString], socket: Option<PathBuf>, gui: Option<&OsStr
 /// hook JSON 的上限：最终回答可能很长，但不该无界读。
 const HOOK_INPUT_MAX: u64 = 4 << 20;
 
-/// `berth group hook <事件>`：先把状态写回 Agent 所在终端（`BERTH_AGENT_TTY`，launch.js 导出），
-/// 再处理群组部分，最后唤醒 GUI 立即重读。不在 Berth 项目里也照写状态（GUI 状态点不依赖群组）。任何失败都静默。
-fn hook(event: &str, workspace: &Path, socket: Option<PathBuf>, gui: Option<&OsString>) {
+/// `berth group hook <事件>`：把状态写回 Agent 所在终端（`BERTH_AGENT_TTY`，launch.js 导出），
+/// 再唤醒 GUI 立即重读（终端状态点）。与群组无关，留在这里是因为插件的 hook 配置已指向它。任何失败都静默。
+fn hook(event: &str, gui: Option<&OsString>) {
     let Some(event) = Hook::parse(event) else {
         return;
     };
@@ -317,15 +304,6 @@ fn hook(event: &str, workspace: &Path, socket: Option<PathBuf>, gui: Option<&OsS
         if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open(tty) {
             let _ = tty.write_all(signal.as_bytes());
         }
-    }
-    let caller = std::env::var("BERTH_TARGET_REF").ok().filter(|caller| !caller.is_empty());
-    if let Ok(ctx) = Ctx::new(workspace, socket, gui.cloned(), cli_path(), caller) {
-        let term = ctx
-            .socket
-            .as_deref()
-            .and_then(|socket| Termd::new(socket, ctx.gui.clone()));
-        let term = term.as_ref().map(|term| term as &dyn Terminals);
-        berth_group::hook(&ctx, term, &SessionFiles, event, &payload);
     }
     let _ = crate::gui_client::agent_changed(gui);
 }

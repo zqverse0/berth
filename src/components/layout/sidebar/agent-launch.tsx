@@ -14,7 +14,10 @@ import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
 import { AgentProfileIcon } from "@/components/agents/profile/agent-profile-icon"
 import { LAUNCHBAR_COMPONENTS } from "@/components/launchbar/registry"
-import { useLaunchbar } from "@/components/launchbar/use-launchbar"
+import {
+  useLaunchbar,
+  type AgentLaunchChoice,
+} from "@/components/launchbar/use-launchbar"
 import { ColorTerminalIcon } from "@/components/layout/status-bar/status-bar-terminal"
 import { usageTextColorClass } from "@/components/layout/status-bar/status-bar-usage"
 import { Button } from "@/components/ui/button"
@@ -47,8 +50,9 @@ import {
 } from "@/stores/tools-settings-store"
 
 /**
- * 选中 Agent 的启动栏表单与启动按钮；新建协作对话框也复用它。
+ * 选中 Agent 的启动栏表单与启动按钮；新建协作对话框、群页加成员也复用它。
  * `defaultsOnly`：设置页的「默认启动选项」，只改记住的取值（与启动栏同一份），不启动、不选会话。
+ * `launch`：不开终端，把选择交给调用方（群组运行时自己管会话，不选会话）；`launchLabel` 换按钮文字。
  */
 export function AgentLaunchShelfContent({
   agentId,
@@ -57,6 +61,8 @@ export function AgentLaunchShelfContent({
   expert,
   onClose,
   prepareLaunch,
+  launch,
+  launchLabel,
   defaultsOnly = false,
 }: {
   agentId: string
@@ -65,6 +71,8 @@ export function AgentLaunchShelfContent({
   expert?: string | null
   onClose: () => void
   prepareLaunch?: () => Promise<Record<string, string | boolean>>
+  launch?: (choice: AgentLaunchChoice) => Promise<void>
+  launchLabel?: string
   defaultsOnly?: boolean
 }) {
   const tProjectSessions = useTranslations("Folder.projectSessions")
@@ -90,6 +98,7 @@ export function AgentLaunchShelfContent({
     expert,
     onLaunched: onClose,
     prepareLaunch,
+    launch,
   })
 
   // 按 Enter 键触发启动
@@ -126,7 +135,9 @@ export function AgentLaunchShelfContent({
       <div className="flex flex-col gap-3">
         {(renderedItems ?? [])
           .filter(
-            (item) => !defaultsOnly || item.optionsFrom !== "projectSessions"
+            (item) =>
+              !(defaultsOnly || launch) ||
+              item.optionsFrom !== "projectSessions"
           )
           .map((item) => {
             const Component = LAUNCHBAR_COMPONENTS[item.component]
@@ -193,9 +204,10 @@ export function AgentLaunchShelfContent({
             title={tProjectSessions("pressEnterToLaunch")}
           >
             {launchingCli ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {tProjectSessions("launchAgent", {
-              name: selectedName ?? agentId,
-            })}
+            {launchLabel ??
+              tProjectSessions("launchAgent", {
+                name: selectedName ?? agentId,
+              })}
             <kbd className="ml-1 inline-flex items-center rounded border border-primary-foreground/30 px-1 py-0.5 text-primary-foreground/80">
               <CornerDownLeft className="size-3" aria-hidden="true" />
             </kbd>

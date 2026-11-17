@@ -1,18 +1,16 @@
-//! 项目群组：消息收发、送达成员 pane、派发 worker、后台收集与送达（`berth group` 与 GUI 群组视图共用）。
+//! 项目群组：消息收发、ACP 成员、派发 worker（`berth group` 与 GUI 群组视图共用）。
 //!
 //! 账本在 `berth_project_core::tasks::group`（主项目 `.berth/local/groups/`）。一个项目一个群（`main`）：
-//! 主目录和各 worktree 的成员、消息都在这个群里，worktree 只是成员终端的工作目录。
-//! 终端与会话经 [`Terminals`] / [`Sessions`] 注入：CLI 连 termd，桌面宿主用自己的终端管理。
-//! Agent 的状态、会话与一轮结束都来自它自己的 hook（[`hook`]，`berth group hook`）。
-//! 成员不在一轮里时当场送达；一轮中排队的消息与成员派生由每个主项目一个的后台进程
-//! `berth group watch` 负责（[`watch`]），hook 一轮结束时叫醒它。
+//! 主目录和各 worktree 的成员、消息都在这个群里，worktree 只是成员的工作目录。
+//! 群成员是 ACP 成员：由每个主项目一个的后台进程 `berth group watch`（[`watch`]、[`acp`]）起适配器收发；
+//! 终端里的 Agent 不进群，`berth group hook` 只把它的状态写回终端（[`hook`]）。
 
+pub mod acp;
 pub mod builtin;
 mod deliver;
 mod hook;
 mod identity;
 mod spawn;
-mod term;
 mod watch;
 
 #[cfg(test)]
@@ -26,19 +24,16 @@ use serde_json::{json, Value};
 
 pub use hook::{signal as hook_signal, Hook};
 pub use spawn::SpawnRequest;
-pub use term::{
-    agent_of, state_name, CreateAgent, Fail, Input, PaneProbe, SessionFiles, Sessions, Terminals,
-};
 pub use watch::brief_lines;
 
 /// 一次调用的上下文。
 pub struct Ctx {
     /// 主项目（`berth project init` 标记的 checkout）：群与运行态都在这里。
     pub main: PathBuf,
-    /// termd 端点；只在显式指定或在 Berth 终端里（`BERTH` 已设）才可信，否则为 `None`，送达交给后台进程。
+    /// termd 端点：后台进程按它定实例（锁、叫醒 socket），拉起时也传给它。
     pub socket: Option<PathBuf>,
     pub gui: Option<OsString>,
-    /// berth CLI 可执行文件：拉起后台进程、写给 Agent 粘贴的命令都用它。
+    /// berth CLI 可执行文件：拉起后台进程、运行插件的 `acp(ctx)` 都用它。
     pub cli: PathBuf,
     /// 调用方所在终端（`BERTH_TARGET_REF`）；GUI 等不在终端里的调用方为 `None`。
     pub caller: Option<String>,
@@ -142,108 +137,149 @@ pub fn read(ctx: &Ctx, name: &str, after: u64, to: Option<&str>) -> TaskResult<V
     Ok(group::read(&events, after, to))
 }
 
-/// 群成员、pane 状态、hook 是否在工作与绑定的会话 id。
-pub fn who(ctx: &Ctx, term: Option<&dyn Terminals>, name: &str) -> TaskResult<Value> {
-    let (name, _, events) = project_existing(ctx, name)?;
-    Ok(who_rows(ctx, term, &name, &events))
+/// 群成员：Agent、目录、会话 id、是否正在回答、会话是否交给了终端。
+pub fn who(ctx: &Ctx, name: &str) -> TaskResult<Value> {
+    let (_, _, events) = project_existing(ctx, name)?;
+    Ok(who_rows(ctx, &events))
 }
 
-/// 入群并登记 pane（`target_ref` 缺省为调用方终端）；Agent 一轮结束由它的 hook 把回复贴回群。
-pub fn join(
+/// ACP 成员入群：不占终端，由群组运行时按插件的 `acp(ctx)` 起适配器收发（docs/agent-contracts.md「群组 ACP 模式」）。
+/// 插件须在 `tool.json` 声明 `contributes.agent.acp: true`；`cwd` 缺省为主目录，须是本项目的目录。
+/// `inputs` 是启动栏的选择（含 `expert`），`provider` 是服务商档案 id 与模型，每次起适配器都按它们启动。
+pub fn join_acp(
     ctx: &Ctx,
-    term: Option<&dyn Terminals>,
     name: &str,
     as_name: &str,
-    target_ref: Option<String>,
-    no_collect: bool,
+    agent: &str,
+    inputs: serde_json::Map<String, Value>,
+    provider: Option<(i64, Option<String>)>,
+    cwd: Option<PathBuf>,
 ) -> TaskResult<Value> {
-    let (name, _, _) = project_existing(ctx, name)?;
-    // 在终端里入群：成员名见 identity::name_for，`--as` 只作显示名；不在终端里才用 `--as` 起名（只能 read）。
-    let label = as_name.trim().to_owned();
-    let mut event = json!({"kind": "joined"});
-    // 登记 pane（缺省为当前 pane），`post --to` 据此送达；最近一次 join 为准。
-    let own = ctx.caller.clone().filter(|_| target_ref.is_none());
-    let author = if let Some(pane) = target_ref.or(own) {
-        event["target_ref"] = json!(pane);
-        let probe = term
-            .and_then(|term| term.probe(&pane).ok())
-            .ok_or_else(|| {
-                TaskError::new("invalid_input", "Cannot verify pane project ownership")
-            })?;
-        if probe.session_project_path.as_deref().is_none_or(|owner| !in_project(&ctx.main, Path::new(owner))) {
-            return Err(TaskError::new(
-                "invalid_input",
-                "Pane belongs to another project session",
-            ));
-        }
-        let agent = term::agent_of(&probe).ok_or_else(|| {
-            TaskError::new(
-                "invalid_input",
-                "Only an Agent pane can join as a group member",
-            )
-        })?;
-        event["agent"] = json!(agent);
-        event["cwd"] = json!(probe.session_project_path);
-        event["collect"] = json!(!no_collect);
-        let events = group::events(&ctx.main, &name)?;
-        identity::name_for(&events, &pane, &probe).ok_or_else(|| {
-            TaskError::new(
-                "invalid_input",
-                "Only an Agent pane can join as a group member",
-            )
-        })?
-    } else {
-        let author = required(&label, "--as")?;
-        if author == group::USER {
-            return Err(TaskError::new(
-                "invalid_input",
-                format!("{} is reserved for the user", group::USER),
-            ));
-        }
-        author
-    };
-    event["author"] = json!(author);
-    let written = group::append(&ctx.main, &name, event)?;
-    if !label.is_empty() && label != author {
-        identity::set_label(&ctx.main, &name, &author, &label);
+    let (name, _, events) = project_existing(ctx, name)?;
+    let author = required(as_name, "--as")?;
+    if author == group::USER {
+        return Err(TaskError::new("invalid_input", format!("{} is reserved for the user", group::USER)));
     }
-    if written.get("collect") == Some(&json!(true)) {
-        watch::ensure_running(ctx);
+    if group::members(&events).iter().any(|member| member.name == author) {
+        return Err(TaskError::new("conflict", format!("{author} is already a member")));
     }
+    berth_tool_core::plugins::ensure_enabled(agent).map_err(|error| TaskError::new("invalid_input", error.to_string()))?;
+    let manifest: Value = std::fs::read(berth_tool_core::paths::tools_root().join(agent).join("tool.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let declared = manifest["contributes"]["agent"]["acp"] == json!(true)
+        || manifest["extensions"]["org.berth.agent"]["acp"] == json!(true);
+    if !declared {
+        return Err(TaskError::new("invalid_input", format!("{agent} does not support groups (tool.json agent.acp)")));
+    }
+    let cwd = cwd.unwrap_or_else(|| ctx.main.clone());
+    if !in_project(&ctx.main, &cwd) {
+        return Err(TaskError::new("invalid_input", format!("{} is not a directory of this project", cwd.display())));
+    }
+    let written = group::append(
+        &ctx.main,
+        &name,
+        json!({
+            "kind": "joined", "author": author, "target_ref": format!("{}{author}", acp::PREFIX),
+            "agent": agent, "cwd": cwd.canonicalize().unwrap_or(cwd), "expert": inputs.get("expert"),
+            "inputs": inputs, "provider": provider.as_ref().map(|(id, _)| id),
+            "model": provider.as_ref().and_then(|(_, model)| model.as_ref()), "collect": true,
+        }),
+    )?;
+    watch::ensure_running(ctx);
     Ok(written)
 }
 
-/// 离群：在成员的终端里只走这个终端（专家的其他终端还在群），否则整个成员离群。
-pub fn leave(ctx: &Ctx, name: &str, as_name: &str) -> TaskResult<Value> {
+/// 管理 ACP 成员：`stop` 停下这一轮，`new` 之后从新会话开始（正在答就中断），`leave` 移出群
+/// （进程停掉、会话保留，同名再加回来接着用）。由后台进程执行。
+/// `handoff` 把会话交给终端：进程停掉，群里的消息留着；返回的事件带启动终端要的 Agent、目录、启动栏值、
+/// 服务商与会话 id。`terminal` 是打开它的终端，可先交接、开好终端后再带上（再交接一次）。
+/// `return` 交回群里，下一条消息起新进程接着同一会话（含终端里聊的）。同一会话同一时刻只在一处打开。
+pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Option<String>) -> TaskResult<Value> {
     let (name, _, events) = project_existing(ctx, name)?;
-    let author = identity::author(&events, ctx.caller.as_deref(), as_name)?;
-    let body = ctx
-        .caller
-        .as_deref()
-        .filter(|caller| identity::pane_member(&events, Some(caller)).as_deref() == Some(author.as_str()));
-    group::append(
+    let target_ref = format!("{}{member}", acp::PREFIX);
+    let Some(present) = group::members(&events).into_iter().find(|m| m.name == member && m.body(&target_ref).is_some())
+    else {
+        return Err(TaskError::new("not_found", format!("{member} is not an ACP member")));
+    };
+    let handed = acp::handed(&events, member).is_some();
+    let event = match action {
+        "handoff" => {
+            if acp::live(&ctx.main, member).is_some() {
+                return Err(TaskError::new("conflict", format!("{member} is answering; stop it first")));
+            }
+            let session = group::bound_session_in(&ctx.main, &name, &events, &target_ref)
+                .ok_or_else(|| TaskError::new("invalid_input", format!("{member} has no session yet")))?;
+            let joined = acp::joined(&events, &present)
+                .ok_or_else(|| TaskError::new("not_found", format!("{member} is not an ACP member")))?;
+            json!({
+                "kind": "system", "event": "acp_handoff", "author": group::USER, "to": member,
+                "session": session, "terminal": terminal, "agent": joined.agent, "cwd": joined.cwd,
+                "inputs": joined.inputs, "provider": joined.provider.as_ref().map(|(id, _)| id),
+                "model": joined.provider.as_ref().and_then(|(_, model)| model.as_ref()),
+            })
+        }
+        "return" if !handed => return Err(TaskError::new("invalid_input", format!("{member} is not in a terminal"))),
+        "return" => json!({"kind": "system", "event": "acp_return", "author": group::USER, "to": member}),
+        "stop" | "new" if handed => {
+            return Err(TaskError::new("conflict", format!("{member} is open in a terminal; return it first")))
+        }
+        "stop" => json!({"kind": "system", "event": "acp_stop", "author": group::USER, "to": member}),
+        "new" => {
+            acp::forget_session(&ctx.main, member);
+            json!({"kind": "system", "event": "acp_new", "author": group::USER, "to": member})
+        }
+        "leave" => json!({"kind": "left", "author": member, "target_ref": target_ref, "reason": "removed"}),
+        _ => {
+            return Err(TaskError::new(
+                "invalid_input",
+                format!("Unknown action {action}: stop | new | leave | handoff | return"),
+            ))
+        }
+    };
+    let written = group::append(&ctx.main, &name, event)?;
+    watch::kick_now(ctx);
+    Ok(written)
+}
+
+/// 应答 ACP 成员的审批请求（`permission` 事件的 seq）；`option` 为 None 即取消。
+pub fn approve(ctx: &Ctx, name: &str, request: u64, option: Option<String>) -> TaskResult<Value> {
+    let (name, _, events) = project_existing(ctx, name)?;
+    let asked = events
+        .iter()
+        .find(|event| group::seq(event) == request && text(event, "event") == Some("permission"))
+        .ok_or_else(|| TaskError::new("not_found", format!("No permission request #{request}")))?;
+    if let Some(option) = &option {
+        let known = asked["options"].as_array().into_iter().flatten().any(|item| item["id"] == json!(option));
+        if !known {
+            return Err(TaskError::new("invalid_input", format!("Unknown option {option}")));
+        }
+    }
+    let written = group::append(
         &ctx.main,
         &name,
-        json!({"kind": "left", "author": author, "target_ref": body}),
-    )
+        json!({"kind": "system", "event": "permission_reply", "author": group::USER, "reply_to": request, "option": option}),
+    )?;
+    watch::kick_now(ctx);
+    Ok(written)
 }
 
 /// 派发 worker：在目标项目群目录启动 Agent，任务仅作为上下文。
-pub fn spawn(ctx: &Ctx, term: &dyn Terminals, request: SpawnRequest) -> TaskResult<Value> {
-    spawn::spawn(ctx, term, request)
+pub fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
+    spawn::spawn(ctx, request)
 }
 
 /// 向主管申请变更契约。
 pub fn change(
     ctx: &Ctx,
-    term: Option<&dyn Terminals>,
     name: &str,
     as_name: &str,
     to: &str,
     text: &str,
 ) -> TaskResult<Value> {
     let (name, _, events) = project_existing(ctx, name)?;
-    let author = identity::author(&events, ctx.caller.as_deref(), as_name)?;
+    let author = identity::author(as_name)?;
     let to = required(to, "--to")?;
     let text = format!(
         "[变更申请 · 基于 rev {}] {}",
@@ -255,25 +291,18 @@ pub fn change(
         &name,
         json!({"kind": "message", "author": author, "to": to, "text": text, "intent": "change"}),
     )?;
-    written["doorbell"] = deliver::doorbell(ctx, term, &name, &to);
+    written["doorbell"] = deliver::doorbell(ctx, &name, &to);
     Ok(written)
 }
 
-/// 后台进程主循环：成员派生、排队送达。
-pub fn watch(ctx: &Ctx, term: &dyn Terminals) {
-    watch::run(ctx, term);
-}
-
-/// Agent 的 hook 事件（`berth group hook`）：记会话、贴回一轮的回答、叫醒后台进程。
-/// 终端状态由调用方按 [`hook_signal`] 写回 pane；这里只管群组。
-pub fn hook(ctx: &Ctx, term: Option<&dyn Terminals>, sessions: &dyn Sessions, event: Hook, payload: &Value) {
-    hook::handle(ctx, term, sessions, event, payload);
+/// 后台进程主循环：ACP 成员收发、记 git 动作。
+pub fn watch(ctx: &Ctx) {
+    watch::run(ctx);
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn post(
     ctx: &Ctx,
-    term: Option<&dyn term::Terminals>,
     name: &str,
     author: &str,
     text: &str,
@@ -281,8 +310,8 @@ pub fn post(
     reply_to: Option<u64>,
     idempotency_key: Option<String>,
 ) -> TaskResult<Value> {
-    let (name, _, events) = project_existing(ctx, name)?;
-    let author = identity::author(&events, ctx.caller.as_deref(), author)?;
+    let (name, _, _) = project_existing(ctx, name)?;
+    let author = identity::author(author)?;
     let text = required(text, "--text")?;
     let to = to.filter(|to| !to.trim().is_empty());
     let mut event = json!({
@@ -295,21 +324,20 @@ pub fn post(
     let (mut written, fresh) = group::append_new(&ctx.main, &name, event)?;
     // 幂等重放返回旧事件，不再送达。
     if let (Some(to), true) = (to, fresh) {
-        written["doorbell"] = deliver::doorbell(ctx, term, &name, &to);
+        written["doorbell"] = deliver::doorbell(ctx, &name, &to);
     }
     Ok(written)
 }
 
 pub fn spec(
     ctx: &Ctx,
-    term: Option<&dyn term::Terminals>,
     name: &str,
     author: &str,
     note: &str,
     task: &str,
 ) -> TaskResult<Value> {
     let (name, _, events) = project_existing(ctx, name)?;
-    let author = identity::author(&events, ctx.caller.as_deref(), author)?;
+    let author = identity::author(author)?;
     let note = required(note, "--note")?;
     let task = tasks::show(&ctx.main, Some(task))?.task_dir_name;
     let rev = group::spec_rev(&events) + 1;
@@ -334,76 +362,31 @@ pub fn spec(
             &name,
             json!({"kind": "message", "author": author, "to": member.name, "text": text}),
         )?;
-        notified.push(json!({"to": member.name, "doorbell": deliver::doorbell(ctx, term, &name, &member.name)}));
+        notified.push(json!({"to": member.name, "doorbell": deliver::doorbell(ctx, &name, &member.name)}));
     }
     written["notified"] = json!(notified);
     Ok(written)
 }
 
-/// 成员详情（群组视图的成员详情页）：各终端的会话文件与启动记录，以及它最近汇报里改过的文件（新的在前，去重）。
-pub fn member_detail(main: &Path, member: &str) -> TaskResult<Value> {
-    let name = group::MAIN_GROUP;
-    let events = group::events(main, name)?;
-    let (found, left_at) = group::roster(&events)
-        .into_iter()
-        .find(|(row, _)| row.name == member)
-        .ok_or_else(|| TaskError::new("not_found", format!("No member {member}")))?;
-    let bodies: Vec<Value> = found
-        .bodies
-        .iter()
-        .map(|body| {
-            let state = watch::member_state(main, name, member, &body.target_ref).unwrap_or_default();
-            json!({
-                "target_ref": body.target_ref,
-                "agent": body.agent,
-                "cwd": body.cwd,
-                "sessionId": state.session_id,
-                "sessionPath": state.session_path,
-                "launch": state.launch,
-            })
-        })
-        .collect();
-    let mut seen = std::collections::HashSet::new();
-    let mut files = Vec::new();
-    for event in events.iter().rev() {
-        if text(event, "kind") != Some("message") || text(event, "author") != Some(member) {
-            continue;
-        }
-        let root = text(event, "root").unwrap_or_default();
-        for file in event["files"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            if seen.insert((root.to_owned(), file.to_owned())) {
-                files.push(json!({ "root": root, "path": file, "seq": group::seq(event) }));
-            }
-        }
-    }
-    Ok(json!({ "name": member, "leftAt": left_at, "bodies": bodies, "files": files }))
-}
-
-/// 专家（`$BERTH_HOME/experts`）与它们在项目群里的终端；`id` 给定时只看它。
-pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> TaskResult<Value> {
+/// 专家（`$BERTH_HOME/experts`）与以它入群的成员；`id` 给定时只看它。
+pub fn experts(ctx: &Ctx, id: Option<&str>) -> TaskResult<Value> {
     let all = berth_tool_core::paths::experts(&berth_tool_core::paths::berth_home_dir())
         .map_err(|message| TaskError::new("invalid_input", message))?;
     let events = group::events(&ctx.main, group::MAIN_GROUP)?;
-    let who = who_rows(ctx, term, group::MAIN_GROUP, &events);
-    let bodies = |expert: &str| {
+    let who = who_rows(ctx, &events);
+    let members = |expert: &str| -> Vec<Value> {
         who["participants"]
             .as_array()
             .into_iter()
             .flatten()
-            .find(|row| row["name"] == expert)
-            .map(|row| row["bodies"].clone())
-            .unwrap_or_else(|| json!([]))
+            .filter(|row| row["expert"] == expert)
+            .cloned()
+            .collect()
     };
     let Some(id) = id else {
         let rows: Vec<Value> = all
             .iter()
-            .map(|(id, name)| {
-                let bodies = bodies(id);
-                json!({
-                    "id": id, "name": name,
-                    "terminals": bodies.as_array().map_or(0, Vec::len),
-                })
-            })
+            .map(|(id, name)| json!({ "id": id, "name": name, "members": members(id).len() }))
             .collect();
         return Ok(json!({ "experts": rows }));
     };
@@ -411,78 +394,28 @@ pub fn experts(ctx: &Ctx, term: Option<&dyn Terminals>, id: Option<&str>) -> Tas
         .iter()
         .find(|(expert, _)| expert == id)
         .ok_or_else(|| TaskError::new("not_found", format!("No expert {id} (see `expert ls`)")))?;
-    Ok(json!({
-        "id": id, "name": name,
-        "terminals": bodies(id),
-    }))
+    Ok(json!({ "id": id, "name": name, "members": members(id) }))
 }
 
-pub fn who_rows(ctx: &Ctx, term: Option<&dyn term::Terminals>, name: &str, events: &[Value]) -> Value {
+/// 在群的成员（`berth group who`、专家列表）。
+pub fn who_rows(ctx: &Ctx, events: &[Value]) -> Value {
     let rows: Vec<Value> = group::members(events)
         .into_iter()
-        .map(|member| {
-            let bodies: Vec<Value> = member
-                .bodies
-                .iter()
-                .map(|body| {
-                    let probe = term.map(|term| term.probe(&body.target_ref));
-                    let state = match &probe {
-                        None => "unknown",
-                        Some(Ok(probe)) => term::state_name(probe),
-                        Some(Err(term::Fail::Stale)) => "stale",
-                        Some(Err(_)) => "unknown",
-                    };
-                    let hooked = watch::member_state(&ctx.main, name, &member.name, &body.target_ref);
-                    json!({
-                        "terminal": probe.and_then(Result::ok).map(|probe| probe.pane_id),
-                        "target_ref": body.target_ref,
-                        "agent": body.agent,
-                        "state": state,
-                        // hook 报告过会话：Berth 知道它何时一轮结束（才送达、才贴结果）。
-                        "hooked": hooked.as_ref().is_some_and(|state| state.session_id.is_some()),
-                        "session_id": hooked.and_then(|state| state.session_id),
-                        "derived": body.derived,
-                    })
-                })
-                .collect();
-            json!({
+        .filter_map(|member| {
+            let joined = acp::joined(events, &member)?;
+            let target_ref = format!("{}{}", acp::PREFIX, member.name);
+            Some(json!({
                 "name": member.name,
                 "label": member.label,
                 "joined_at": member.joined_at,
-                "bodies": bodies,
-            })
+                "agent": joined.agent,
+                "cwd": joined.cwd,
+                "expert": joined.inputs.get("expert"),
+                "session_id": group::bound_session_in(&ctx.main, group::MAIN_GROUP, events, &target_ref),
+                "busy": acp::live(&ctx.main, &member.name).is_some(),
+                "handed": acp::handed(events, &member.name).map(|event| event["terminal"].clone()),
+            }))
         })
         .collect();
-    json!({ "participants": rows, "terminals": plain_terminals(ctx, term, events) })
+    json!({ "participants": rows })
 }
-
-/// 本项目目录下不是成员的终端（shell、没有 hook 的 Agent）：不收委托，Agent 用 `berth terminal send -t <target_ref>` / `berth terminal capture -t <target_ref>` 直接操作。
-fn plain_terminals(
-    ctx: &Ctx,
-    term: Option<&dyn term::Terminals>,
-    events: &[Value],
-) -> Vec<Value> {
-    let Some(term) = term else {
-        return Vec::new();
-    };
-    let members: Vec<String> = group::members(events)
-        .into_iter()
-        .flat_map(|member| member.bodies)
-        .map(|body| body.target_ref)
-        .collect();
-    term.panes_under(&project_dirs(&ctx.main))
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(target_ref, _)| !members.contains(target_ref))
-        .map(|(target_ref, probe)| {
-            json!({
-                "terminal": probe.pane_id,
-                "target_ref": target_ref,
-                "agent": term::agent_of(&probe),
-                "command": probe.foreground_command,
-                "cwd": probe.cwd,
-            })
-        })
-        .collect()
-}
-

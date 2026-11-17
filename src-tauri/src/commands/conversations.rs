@@ -21,10 +21,16 @@ use crate::sessions::build_agent_parser;
 use crate::sessions::{
     list_project_agent_sessions_core, project_session_overview, ProjectSessionOverview,
 };
+use crate::sessions::declarative::{
+    self,
+    index::{PartTurn, RawTurn, ReadTurns, Toc},
+    DeclarativeSessionParser,
+};
 use crate::sessions::{
     folder_name_from_path, normalize_path_for_matching, path_eq_for_matching, AgentParser,
     ParseError,
 };
+use serde::{Deserialize, Serialize};
 
 pub async fn list_all_conversations_core(
     conn: &sea_orm::DatabaseConnection,
@@ -1129,6 +1135,51 @@ fn inject_delegation_meta(
     }
 }
 
+type DelegationOutcomes =
+    HashMap<String, berth_project_core::entities::delegation_outcome::Model>;
+
+async fn delegation_children(
+    conn: &sea_orm::DatabaseConnection,
+    conversation_id: i32,
+) -> (Vec<DbConversationSummary>, DelegationOutcomes) {
+    let children = conversation_service::list_children(conn, conversation_id)
+        .await
+        .unwrap_or_default();
+    let mut outcomes = HashMap::new();
+    for call_id in children
+        .iter()
+        .filter_map(|child| child.delegation_call_id.as_deref())
+    {
+        if let Ok(Some(outcome)) =
+            crate::db::service::delegation_outcome_service::find_by_call_id(conn, call_id).await
+        {
+            outcomes.insert(call_id.to_owned(), outcome);
+        }
+    }
+    (children, outcomes)
+}
+
+async fn group_link_of(
+    conn: &sea_orm::DatabaseConnection,
+    summary: &DbConversationSummary,
+) -> Option<SessionGroupLink> {
+    let session_id = summary.external_id.clone()?;
+    let folder = folder_service::get_folder_by_id(conn, summary.folder_id)
+        .await
+        .ok()??;
+    let updated_at = summary.updated_at.timestamp_millis().max(0) as u64;
+    tokio::task::spawn_blocking(move || {
+        crate::sessions::session_group_link(
+            std::path::Path::new(&folder.path),
+            &session_id,
+            updated_at,
+        )
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// Core logic for loading a folder conversation from the declared session
 /// source. Shared by both the Tauri command and the web handler.
 ///
@@ -1161,7 +1212,26 @@ pub async fn get_folder_conversation_core(
         source_revision = crate::sessions::declarative::source_revision(at, &eid);
         tokio::task::spawn_blocking(move || -> Result<_, AppCommandError> {
             let parser: Box<dyn AgentParser> = build_agent_parser(at);
-            match parser.get_conversation(&eid) {
+            // 会话读取基线（11-16-session-detail-pipeline S0）：只在 debug 级别计时、量峰值
+            let measure = tracing::enabled!(tracing::Level::DEBUG);
+            let rss_before_kb = if measure {
+                crate::platform::memory::reset_peak();
+                crate::platform::memory::rss_and_peak_kb().map_or(0, |(rss, _)| rss)
+            } else {
+                0
+            };
+            let started = std::time::Instant::now();
+            let parsed = parser.get_conversation(&eid);
+            if measure {
+                let (rss_kb, peak_kb) =
+                    crate::platform::memory::rss_and_peak_kb().unwrap_or_default();
+                tracing::debug!(
+                    "[conversations] parse {at:?} {eid}: {} ms, turns={}, rss {rss_before_kb} -> {rss_kb} KB, peak={peak_kb} KB",
+                    started.elapsed().as_millis(),
+                    parsed.as_ref().map(|d| d.turns.len()).unwrap_or(0),
+                );
+            }
+            match parsed {
                 Ok(d) => Ok((
                     d.turns,
                     d.session_fields,
@@ -1211,56 +1281,32 @@ pub async fn get_folder_conversation_core(
     // `parent_id = summary.id` to repopulate it from the DB. Failure to
     // fetch children silently degrades to "no button on the card" (the
     // pre-fix behavior), never to a failed detail load.
-    let children = conversation_service::list_children(conn, conversation_id)
-        .await
-        .unwrap_or_default();
-    let mut outcomes = HashMap::new();
-    for call_id in children
-        .iter()
-        .filter_map(|child| child.delegation_call_id.as_deref())
-    {
-        if let Ok(Some(outcome)) =
-            crate::db::service::delegation_outcome_service::find_by_call_id(conn, call_id).await
-        {
-            outcomes.insert(call_id.to_owned(), outcome);
-        }
-    }
+    let (children, outcomes) = delegation_children(conn, conversation_id).await;
     inject_delegation_meta(&mut turns, &children, &outcomes);
 
-    let group_link = match summary.external_id.clone() {
-        Some(session_id) => match folder_service::get_folder_by_id(conn, summary.folder_id).await {
-            Ok(Some(folder)) => {
-                let updated_at = summary.updated_at.timestamp_millis().max(0) as u64;
-                tokio::task::spawn_blocking(move || {
-                    crate::sessions::session_group_link(
-                        std::path::Path::new(&folder.path),
-                        &session_id,
-                        updated_at,
-                    )
-                })
-                .await
-                .ok()
-                .flatten()
-            }
-            _ => None,
-        },
-        None => None,
-    };
+    let group_link = group_link_of(conn, &summary).await;
 
-    Ok((
-        DbConversationDetail {
-            summary,
-            turns,
-            context,
-            session_fields,
-            session_stats,
-            transcript_watermark,
-            in_flight_user_turn_id: None,
-            source_revision,
-            group_link,
-        },
-        parsed_title,
-    ))
+    let detail = DbConversationDetail {
+        summary,
+        turns,
+        context,
+        session_fields,
+        session_stats,
+        transcript_watermark,
+        in_flight_user_turn_id: None,
+        source_revision,
+        group_link,
+    };
+    // 会话读取基线（S0）：另序列化一次量响应大小与耗时，只在 debug 级别做
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let started = std::time::Instant::now();
+        let bytes = serde_json::to_vec(&detail).map(|v| v.len()).unwrap_or(0);
+        tracing::debug!(
+            "[conversations] serialize {conversation_id}: {} ms, {bytes} bytes",
+            started.elapsed().as_millis(),
+        );
+    }
+    Ok((detail, parsed_title))
 }
 
 /// 会话源文件的变化标记；与详情里的 `source_revision` 不同即说明有新内容。
@@ -1337,37 +1383,208 @@ pub async fn get_folder_conversation_with_live_core(
     conversation_id: i32,
 ) -> Result<DbConversationDetail, AppCommandError> {
     let (mut detail, parsed_title) = get_folder_conversation_core(conn, conversation_id).await?;
-
-    // Per-turn auto-title backfill. The parse `get_folder_conversation_core`
-    // just did already produced the session-file title; adopt it (and broadcast
-    // a sidebar upsert) whenever the user hasn't renamed this conversation by
-    // hand. `refresh_auto_title` re-checks the lock and equality, so once the
-    // title converges this becomes a cheap no-op on every later turn. The
-    // pre-check here just avoids the extra DB round-trip in the common case.
-    if !detail.summary.title_locked {
-        if let Some(parsed) = parsed_title.as_deref().map(str::trim) {
-            if !parsed.is_empty() && detail.summary.title.as_deref() != Some(parsed) {
-                match conversation_service::refresh_auto_title(
-                    conn,
-                    conversation_id,
-                    parsed.to_string(),
-                )
-                .await
-                {
-                    Ok(true) => {
-                        detail.summary.title = Some(parsed.to_string());
-                        emit_conversation_upsert(emitter, conn, conversation_id).await;
-                    }
-                    Ok(false) => {}
-                    Err(e) => tracing::error!(
-                        "[conversations] auto-title refresh failed for {conversation_id}: {e}"
-                    ),
-                }
-            }
-        }
-    }
-
+    adopt_parsed_title(conn, emitter, &mut detail.summary, parsed_title.as_deref()).await;
     Ok(detail)
+}
+
+/// Per-turn auto-title backfill. The parse that just ran already produced the
+/// session-file title; adopt it (and broadcast a sidebar upsert) whenever the
+/// user hasn't renamed this conversation by hand. `refresh_auto_title`
+/// re-checks the lock and equality, so once the title converges this becomes a
+/// cheap no-op on every later turn. The pre-check here just avoids the extra DB
+/// round-trip in the common case.
+async fn adopt_parsed_title(
+    conn: &sea_orm::DatabaseConnection,
+    emitter: &EventEmitter,
+    summary: &mut DbConversationSummary,
+    parsed_title: Option<&str>,
+) {
+    let conversation_id = summary.id;
+    if summary.title_locked {
+        return;
+    }
+    let Some(parsed) = parsed_title.map(str::trim) else {
+        return;
+    };
+    if parsed.is_empty() || summary.title.as_deref() == Some(parsed) {
+        return;
+    }
+    match conversation_service::refresh_auto_title(conn, conversation_id, parsed.to_string())
+        .await
+    {
+        Ok(true) => {
+            summary.title = Some(parsed.to_string());
+            emit_conversation_upsert(emitter, conn, conversation_id).await;
+        }
+        Ok(false) => {}
+        Err(e) => tracing::error!(
+            "[conversations] auto-title refresh failed for {conversation_id}: {e}"
+        ),
+    }
+}
+
+/// 阅读器按需读取（`get_folder_conversation` 的 `read` 参数）。不带 `read` 时命令返回整份 detail，
+/// 留给会话 tab、导出与旧版客户端。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum ConversationRead {
+    /// 目录。带上手上的 `generation` 与 `from` 时只回第 `from` 段起的变化。
+    Toc {
+        generation: Option<u64>,
+        from: Option<usize>,
+    },
+    /// 这几轮（索引里的轮序号）的 Part。
+    Parts {
+        generation: Option<u64>,
+        turns: Vec<usize>,
+    },
+    /// 这几轮的原文，工具卡片展开时取。
+    Raw {
+        generation: Option<u64>,
+        turns: Vec<usize>,
+    },
+    /// 启动上下文全文。
+    Context,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ConversationReadResult {
+    Detail(Box<DbConversationDetail>),
+    Toc(ConversationToc),
+    Parts(ReadTurns<PartTurn>),
+    Raw(ReadTurns<RawTurn>),
+    Context(Vec<ContextSource>),
+}
+
+/// 目录加会话信息（标题、变化标记、群组归属），与整份 detail 的同名字段一致。
+#[derive(Debug, Clone, Serialize)]
+pub struct ConversationToc {
+    pub summary: DbConversationSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_link: Option<SessionGroupLink>,
+    #[serde(flatten)]
+    pub toc: Toc,
+}
+
+enum Loaded {
+    Toc(Toc),
+    Other(ConversationReadResult),
+}
+
+pub async fn read_folder_conversation_core(
+    conn: &sea_orm::DatabaseConnection,
+    emitter: &EventEmitter,
+    conversation_id: i32,
+    read: ConversationRead,
+) -> Result<ConversationReadResult, AppCommandError> {
+    let mut summary = conversation_service::get_by_id(conn, conversation_id)
+        .await
+        .map_err(AppCommandError::from)?;
+    let agent_type = summary.agent_type;
+    let external_id = summary.external_id.clone();
+    if let Some(id) = &external_id {
+        hydrate_declarative_locator(conn, agent_type, id).await;
+    }
+    // 先取变化标记再读：读的期间的新写入会让下一次比对不同，而不是被漏掉。
+    let revision = external_id
+        .as_deref()
+        .and_then(|id| crate::sessions::declarative::source_revision(agent_type, id));
+    let started = std::time::Instant::now();
+    let label = format!("{read:?}").chars().take(80).collect::<String>();
+    let toc_known = match &read {
+        ConversationRead::Toc { generation, from } => Some(generation.zip(*from)),
+        _ => None,
+    };
+    let read_op = read.clone();
+    let id = external_id.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<_, ParseError> {
+        let parser = id
+            .as_deref()
+            .map(|_| DeclarativeSessionParser::for_agent(agent_type))
+            .transpose()?
+            .flatten();
+        let (Some(parser), Some(id)) = (parser, id) else {
+            return Ok(None);
+        };
+        Ok(Some(match read_op {
+            ConversationRead::Toc { .. } => {
+                let (toc, refresh) =
+                    declarative::index::conversation_toc(&parser, &id, toc_known.flatten())?;
+                tracing::debug!("[conversations] toc {id}: {refresh:?}");
+                Loaded::Toc(toc)
+            }
+            ConversationRead::Parts { generation, turns } => {
+                Loaded::Other(ConversationReadResult::Parts(declarative::index::turn_parts(
+                    &parser, &id, generation, &turns,
+                )?))
+            }
+            ConversationRead::Raw { generation, turns } => {
+                Loaded::Other(ConversationReadResult::Raw(declarative::index::raw_turns(
+                    &parser, &id, generation, &turns,
+                )?))
+            }
+            ConversationRead::Context => Loaded::Other(ConversationReadResult::Context(
+                declarative::index::startup_context(&parser, &id)?,
+            )),
+        }))
+    })
+    .await
+    .map_err(|e| {
+        AppCommandError::task_execution_failed("Failed to read conversation from session file")
+            .with_detail(e.to_string())
+    })?;
+    let loaded = match result {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) | Err(ParseError::ConversationNotFound(_)) => match read {
+            ConversationRead::Toc { .. } => Loaded::Toc(Toc::default()),
+            ConversationRead::Parts { .. } => Loaded::Other(ConversationReadResult::Parts(
+                ReadTurns::default(),
+            )),
+            ConversationRead::Raw { .. } => {
+                Loaded::Other(ConversationReadResult::Raw(ReadTurns::default()))
+            }
+            ConversationRead::Context => Loaded::Other(ConversationReadResult::Context(Vec::new())),
+        },
+        Err(error) => return Err(parse_error_to_app_error(error)),
+    };
+    let result = match loaded {
+        Loaded::Toc(toc) => {
+            summary.message_count = toc.turns as u32;
+            adopt_parsed_title(conn, emitter, &mut summary, toc.title.as_deref()).await;
+            // 首次读取时定位缓存由本次读取填充
+            let source_revision = revision.or_else(|| {
+                external_id
+                    .as_deref()
+                    .and_then(|id| crate::sessions::declarative::source_revision(agent_type, id))
+            });
+            let group_link = group_link_of(conn, &summary).await;
+            ConversationReadResult::Toc(ConversationToc {
+                summary,
+                source_revision,
+                group_link,
+                toc,
+            })
+        }
+        Loaded::Other(ConversationReadResult::Raw(mut raw)) => {
+            let (children, outcomes) = delegation_children(conn, conversation_id).await;
+            for turn in &mut raw.turns {
+                inject_delegation_meta(std::slice::from_mut(&mut turn.turn), &children, &outcomes);
+            }
+            ConversationReadResult::Raw(raw)
+        }
+        Loaded::Other(other) => other,
+    };
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let bytes = serde_json::to_vec(&result).map_or(0, |bytes| bytes.len());
+        tracing::debug!(
+            "[conversations] read {conversation_id} {label}: {} ms, {bytes} bytes",
+            started.elapsed().as_millis(),
+        );
+    }
+    Ok(result)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -1376,19 +1593,20 @@ pub async fn get_folder_conversation<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     db: tauri::State<'_, AppDatabase>,
     conversation_id: i32,
-) -> Result<DbConversationDetail, AppCommandError> {
-    let result = get_folder_conversation_with_live_core(
-        &db.conn,
-        &EventEmitter::tauri(app),
-        conversation_id,
-    )
-    .await;
+    read: Option<ConversationRead>,
+) -> Result<ConversationReadResult, AppCommandError> {
+    let emitter = EventEmitter::tauri(app);
+    if let Some(read) = read {
+        return read_folder_conversation_core(&db.conn, &emitter, conversation_id, read).await;
+    }
+    let result = get_folder_conversation_with_live_core(&db.conn, &emitter, conversation_id)
+        .await
+        .map(|detail| ConversationReadResult::Detail(Box::new(detail)));
     // 大会话解析和序列化的峰值用完后 glibc 不还给系统；等响应发出后归还空闲页
     // （实测每次 6–37 MB，耗时 1–10 ms）。
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        unsafe { libc::malloc_trim(0) };
+        crate::platform::memory::trim();
     });
     result
 }

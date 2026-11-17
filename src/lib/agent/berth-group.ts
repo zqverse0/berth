@@ -127,6 +127,11 @@ export interface GroupEvent {
   reason?: string
   /** system：`started` 等；开工事件带分支、base、worktree。 */
   event?: string
+  /** system `permission`：ACP 成员的审批请求可选的应答；`permission_reply` 的 `option` 是选中的 id。 */
+  options?: { id: string; name: string; kind: string }[]
+  /** system `permission`：工具调用的原始参数（Agent 给什么显示什么）。 */
+  input?: unknown
+  option?: string | null
   branch?: string
   base?: string
   worktree?: string
@@ -185,8 +190,11 @@ export interface GroupMember {
   expertName?: string | null
   /** 内置成员 Berth（没有终端）；`busy` 为它正在回答。 */
   builtin?: boolean
+  /** 正在回答（内置 Berth 与 ACP 成员同形，带 `log`）。 */
   busy?: boolean
   log?: BerthLiveLog | null
+  /** ACP 成员的会话交给了终端：那个终端的 id（交接了还没开好终端时为 ""）；在群里为 null。 */
+  handedTo?: string | null
 }
 
 /** 成员最近入群的终端跑的 Agent。 */
@@ -367,26 +375,6 @@ export async function inspectLaunch(target: string) {
   return response.result
 }
 
-/** `group.member`：成员详情页的数据，点开才读。 */
-export interface MemberDetail {
-  name: string
-  leftAt: number | null
-  bodies: {
-    target_ref: string
-    agent: string | null
-    cwd: string | null
-    sessionId: string | null
-    sessionPath: string | null
-    launch: LaunchRecord | null
-  }[]
-  /** 它最近汇报里改过的文件（相对 `root`），新的在前。 */
-  files: { root: string; path: string; seq: number }[]
-}
-
-export function readMemberDetail(folderId: number, member: string) {
-  return call<MemberDetail>(folderId, "group.member", { member })
-}
-
 /** 确保后台进程在跑（派生成员、排队送达、收集汇报）。 */
 export function ensureGroupWatch(folderId: number) {
   return call<{ running: boolean; started: boolean }>(folderId, "group.watch")
@@ -429,6 +417,87 @@ export function postToMember(
       // 发给 Berth 带上所选模型：宿主据此回答。
       ...(to === BERTH_MEMBER ? { model: loadBerthModel() } : {}),
     }
+  )
+}
+
+/** 群页「加成员」：声明了 `agent.acp` 的插件以 ACP 成员入群，`as` 是群里的名字。 */
+export function joinAcpMember(
+  folderId: number,
+  group: string,
+  agent: string,
+  as: string,
+  choice?: {
+    inputs: Record<string, string | boolean>
+    provider: number | null
+    model: string | null
+  }
+) {
+  return call<GroupEvent>(folderId, "group.join", {
+    name: group,
+    agent,
+    as,
+    ...choice,
+  })
+}
+
+/** `handoff` 的应答：在终端里打开同一会话要的启动参数。 */
+export interface AcpHandoff extends GroupEvent {
+  session: string
+  agent: string
+  cwd: string
+  inputs: Record<string, string | boolean>
+  provider: number | null
+  model: string | null
+}
+
+/**
+ * ACP 成员：`stop` 停下这一轮，`new` 下一条消息开新会话，`leave` 移出群（会话保留，同名再加回来接着用），
+ * `handoff` 把会话交给终端（`terminal` 是开好的终端，可之后再带上），`return` 交回群里。
+ */
+export function controlAcpMember(
+  folderId: number,
+  group: string,
+  member: string,
+  action: "stop" | "new" | "leave" | "handoff" | "return",
+  terminal?: string
+) {
+  return call<AcpHandoff>(folderId, "group.member.control", {
+    name: group,
+    member,
+    action,
+    ...(terminal ? { terminal } : {}),
+  })
+}
+
+/** 应答 ACP 成员的审批请求；不给 `option` 即取消。 */
+export function answerPermission(
+  folderId: number,
+  group: string,
+  request: number,
+  option?: string
+) {
+  return call<GroupEvent>(folderId, "group.approve", {
+    name: group,
+    request,
+    ...(option ? { option } : {}),
+  })
+}
+
+/** 还没应答、那一轮也还没结束的审批请求。 */
+export function pendingPermissions(events: readonly GroupEvent[]) {
+  const answered = new Set<number>()
+  const ended = new Set<string>()
+  for (const event of events) {
+    if (event.event === "permission_reply" && event.reply_to != null)
+      answered.add(event.reply_to)
+    if (event.author && event.reply_to != null && event.event !== "permission")
+      ended.add(`${event.author}:${event.reply_to}`)
+  }
+  return events.filter(
+    (event) =>
+      event.event === "permission" &&
+      !answered.has(event.seq) &&
+      !ended.has(`${event.author}:${event.reply_to}`)
   )
 }
 

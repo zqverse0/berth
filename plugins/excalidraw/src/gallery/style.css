@@ -191,3 +191,39 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.extras {
+  margin-top: 4px;
+}
+.extras ul {
+  margin-top: 4px;
+}
+.extra {
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.extra:hover,
+.extra.open {
+  background: var(--hover);
+}
+.extra .excerpt {
+  margin-top: 4px;
+}
+.extra-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mini {
+  flex: none;
+  width: 32px;
+  height: 24px;
+  object-fit: cover;
+  background: white;
+  border-radius: 3px;
+}
+.action.wide {
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px;
+}

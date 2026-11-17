@@ -60,6 +60,7 @@ pub fn profile_from_asset(id: &str, asset: &ToolAsset) -> Option<AgentProfile> {
         provider_injection,
         capability_stores,
         interrupt_key,
+        acp: extension.get("acp").and_then(Value::as_bool).unwrap_or(false),
     };
     // 所有投影共用同一防守（能力落点 sanitize、name 空值回落目录名）。
     Some(super::profile::sanitize_profile(profile, id))

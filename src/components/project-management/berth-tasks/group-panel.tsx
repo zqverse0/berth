@@ -4,26 +4,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { GroupComposer } from "@/components/project-management/group/group-composer"
 import {
-  addressable,
   memberRows,
   filterMemberEvents,
   type MemberRow,
 } from "@/components/project-management/group/group-model"
 import { GroupChatStrip } from "@/components/project-management/group/group-chat-strip"
 import { GroupLiveStatus } from "@/components/project-management/group/group-live-status"
+import { GroupPermissions } from "@/components/project-management/group/group-permissions"
 import { EnableBerthNotice } from "@/components/project-management/enable-berth-notice"
 import { GroupTimeline } from "@/components/project-management/group/group-timeline"
-import {
-  launchExpert,
-  usePaneActions,
-} from "@/components/project-management/group/pane-actions"
+import { usePaneActions } from "@/components/project-management/group/pane-actions"
 import { useTaskGroup } from "@/components/project-management/group/use-task-group"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import {
   BERTH_MEMBER,
   type GroupEvent,
+  controlAcpMember,
+  joinAcpMember,
   memberAgent,
   memberLabel,
   newSendBatch,
@@ -31,8 +31,11 @@ import {
 } from "@/lib/agent/berth-group"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
-import { MemberDetail } from "@/components/project-management/group/member-detail"
-import { cn } from "@/lib/utils"
+import type { AgentLaunchChoice } from "@/components/launchbar/use-launchbar"
+import { AgentLaunchShelfContent } from "@/components/layout/sidebar/agent-launch"
+import { launchbar } from "@/lib/transport/launchbar"
+import { createAndOpenPrimaryTerminalDetailed } from "@/lib/terminal/create-and-open-primary-terminal"
+import { terminateTerminalSessionIdempotent } from "@/lib/terminal/terminal-record-cleanup"
 
 /**
  * 群组面板固定在辅助面板里，跟随当前项目 / worktree（各自一个群）：成员聚焦、时间线与
@@ -65,7 +68,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     [t]
   )
   const [posting, setPosting] = useState(false)
-  const focus = useGroupWorkspaceStore((state) =>
+  const storedFocus = useGroupWorkspaceStore((state) =>
     name && state.folderId === folderId && state.group === name
       ? state.focusedMember
       : BERTH_MEMBER
@@ -76,27 +79,22 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     store.selectGroup(folderId, name)
     store.setFocusedMember(member)
   }
-  // 选中 Agent 成员时分两页：详情（默认）与它的消息；换成员回到详情。
-  const [picked, setPicked] = useState<{
-    focus: string | null
-    view: "detail" | "messages"
-  }>({ focus: null, view: "detail" })
-  const view = picked.focus === focus ? picked.view : "detail"
-  const setView = (next: "detail" | "messages") =>
-    setPicked({ focus, view: next })
-  const { agents } = useAgentProfiles()
-  const agentName = useCallback(
-    (id: string) => agents.find((agent) => agent.id === id)?.name ?? id,
-    [agents]
-  )
-  const [reply, setReply] = useState<GroupEvent | null>(null)
-  // 回复 / 转给时收件人是这位成员（不一定是被引消息的作者）。
-  const [replyMember, setReplyMember] = useState<string | null>(null)
-  const [context, setContext] = useState<{ seq: number } | null>(null)
   const rows = useMemo(
     () => memberRows(group.members, group.events, panes, seen),
     [group.members, group.events, panes, seen]
   )
+  // 记住的单聊对象已不是成员（如已移出的 ACP 成员）：回到群聊。
+  const focus =
+    storedFocus == null ||
+    rows.length === 0 ||
+    rows.some((row) => row.member.name === storedFocus)
+      ? storedFocus
+      : null
+  const { agents } = useAgentProfiles()
+  const [reply, setReply] = useState<GroupEvent | null>(null)
+  // 回复 / 转给时收件人是这位成员（不一定是被引消息的作者）。
+  const [replyMember, setReplyMember] = useState<string | null>(null)
+  const [context, setContext] = useState<{ seq: number } | null>(null)
   // 时间线是 memo 组件：传给它的派生数据与回调保持引用稳定，无关重渲染（打开文件、
   // 成员 pane 轮询）不会让几百条消息跟着重画。
   const members = group.members
@@ -129,12 +127,10 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     },
     [members, folderId]
   )
-  // Berth 没有会话可读：正在回答的提问下显示它的执行过程。
+  // Berth 与 ACP 成员没有会话可读：正在回答的提问下显示运行时报的过程。
   const liveLogOf = useCallback(
-    (ask: GroupEvent) => {
-      const log = members.find((m) => m.builtin)?.log
-      return log && log.ask === ask.seq ? log.lines : null
-    },
+    (ask: GroupEvent) =>
+      members.find((m) => m.log?.ask === ask.seq)?.log?.lines ?? null,
     [members]
   )
   // 汇报的过程日志：它出自的会话（Berth 是随回答存下的过程），从它回答的那条提问读起。
@@ -188,10 +184,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     setReplyMember(member)
     setReply(event)
   }, [])
-  const forwardTo = useMemo(
-    () => addressable(rows).present.map((row) => row.member.name),
-    [rows]
-  )
+  const forwardTo = useMemo(() => rows.map((row) => row.member.name), [rows])
   // 收件人：回复 / 转给的对象 > 单聊的成员 > 群聊时全体在线成员（不含内置的 Berth：单聊它才发给它）。
   const targets = useMemo(
     () =>
@@ -208,9 +201,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     },
     [jump]
   )
-  // 详情页只给 Agent 成员（内置 Berth 没有终端与启动记录）。
-  const focusedRow =
-    rows.find((row) => row.member.name === focus && !row.member.builtin) ?? null
   const openCommit = useCallback(
     (hash: string, subject: string) =>
       void workspace.openCommitDiff(hash, undefined, subject, {
@@ -218,6 +208,129 @@ export function GroupPanel({ folderId }: { folderId: number }) {
       }),
     [folderId, workspace]
   )
+
+  // 加成员：声明了 `agent.acp` 的插件以 ACP 成员入群，先在启动栏选专家 / 服务商 / 模型；
+  // 名字取插件 id（重名加序号），加完切到和它单聊。失败抛出，启动栏提示。
+  const addable = useMemo(() => agents.filter((agent) => agent.acp), [agents])
+  const rootPath = useAppWorkspaceStore(
+    (s) => s.allFolders.find((folder) => folder.id === folderId)?.path ?? null
+  )
+  const addMember = async (agent: string, choice: AgentLaunchChoice) => {
+    if (!name) return
+    const taken = new Set(group.members.map((m) => m.name))
+    let as = agent
+    for (let n = 2; taken.has(as); n += 1) as = `${agent}-${n}`
+    const response = await joinAcpMember(folderId, name, agent, as, {
+      inputs: choice.agentLaunchInputs,
+      provider: choice.providerId,
+      model: choice.modelId,
+    })
+    if (!response.ok) throw new Error(response.error.message)
+    group.refresh()
+    setFocus(as)
+  }
+
+  // 和 ACP 成员单聊时的成员操作。
+  const acpRow =
+    rows.find((row) => row.member.name === focus && !row.member.builtin) ?? null
+  const controlMember = async (action: "stop" | "new" | "leave") => {
+    if (!name || !acpRow) return
+    const member = acpRow.member.name
+    const response = await controlAcpMember(
+      folderId,
+      name,
+      member,
+      action
+    ).catch((cause: unknown) => ({
+      ok: false as const,
+      error: { message: String(cause) },
+    }))
+    if (!response.ok) {
+      toast.error(response.error.message)
+      return
+    }
+    if (action === "new") toast.success(t("acp.newDone"))
+    if (action === "leave") setFocus(null)
+    group.refresh()
+  }
+
+  // 在终端打开：先交接（运行时停掉进程，消息留着），再用同一份启动选择 + 会话 id 开终端，开好后登记终端。
+  // 同一会话同一时刻只在一处打开：交回时关掉那个终端，下一条群消息接着同一会话。
+  const handoffMember = async () => {
+    if (!name || !acpRow) return
+    const member = acpRow.member.name
+    const fail = (message: string) => toast.error(message)
+    const response = await controlAcpMember(folderId, name, member, "handoff")
+    if (!response.ok) return fail(response.error.message)
+    const handed = response.result
+    const config = await launchbar({ type: "load", agent: handed.agent })
+    const sessionItem =
+      config.type === "file"
+        ? (config.file.config?.items ?? []).find(
+            (item) => item.optionsFrom === "projectSessions"
+          )
+        : undefined
+    const opened = sessionItem
+      ? await createAndOpenPrimaryTerminalDetailed({
+          cwd: handed.cwd,
+          folderId,
+          title: labelOf(member),
+          agentContractId: handed.agent,
+          agentLaunchInputs: {
+            ...handed.inputs,
+            [sessionItem.id]: handed.session,
+          },
+          providerId: handed.provider,
+          modelId: handed.model,
+        }).catch(() => ({ terminalId: null }))
+      : { terminalId: null }
+    if (!opened.terminalId) {
+      await controlAcpMember(folderId, name, member, "return")
+      group.refresh()
+      return fail(
+        sessionItem ? t("acp.handoffFailed") : t("acp.handoffUnsupported")
+      )
+    }
+    await controlAcpMember(folderId, name, member, "handoff", opened.terminalId)
+    group.refresh()
+  }
+  const returnMember = async (row: MemberRow) => {
+    if (!name) return
+    const terminal = row.member.handedTo
+    if (terminal) {
+      const closed = await terminateTerminalSessionIdempotent(terminal)
+        .then(() => true)
+        .catch((cause: unknown) => {
+          toast.error(String(cause))
+          return false
+        })
+      if (!closed) return
+    }
+    const response = await controlAcpMember(
+      folderId,
+      name,
+      row.member.name,
+      "return"
+    )
+    if (!response.ok) toast.error(response.error.message)
+    group.refresh()
+  }
+  // 交给终端的会话：那个终端退出（或关掉）后自动交回。只认这次见过它在跑，刚打开页面时 pane 还没列全不误判。
+  const handedAlive = useRef(new Set<string>())
+  useEffect(() => {
+    if (!name) return
+    for (const row of rows) {
+      const terminal = row.member.handedTo
+      if (!terminal) continue
+      if (row.pane && row.pane.state !== "exited") {
+        handedAlive.current.add(terminal)
+      } else if (handedAlive.current.delete(terminal)) {
+        void controlAcpMember(folderId, name, row.member.name, "return").then(
+          () => group.refresh()
+        )
+      }
+    }
+  }, [rows, name, folderId, group])
 
   const send = async (to: string[], text: string, replyTo?: number) => {
     if (!name || posting) return to
@@ -227,7 +340,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     let firstError: string | null = null
     for (const member of to) {
       const row = rows.find((row) => row.member.name === member)
-      // 离线的专家照发：消息存进群，它下次启动入群后投给它。
+      // 已不在群里的成员不发。
       if (!row) {
         failed.push(member)
         firstError ??= t("composer.unavailable", { names: labelOf(member) })
@@ -272,6 +385,21 @@ export function GroupPanel({ folderId }: { folderId: number }) {
       {group.name && rows.length > 0 ? (
         <GroupChatStrip
           rows={rows}
+          addable={addable}
+          addForm={
+            rootPath
+              ? (agent, close) => (
+                  <AgentLaunchShelfContent
+                    agentId={agent}
+                    workingDirectory={rootPath}
+                    folderId={folderId}
+                    onClose={close}
+                    launch={(choice) => addMember(agent, choice)}
+                    launchLabel={t("add.join")}
+                  />
+                )
+              : undefined
+          }
           focus={focus}
           onFocus={(member) => {
             setFocus(member)
@@ -295,65 +423,121 @@ export function GroupPanel({ folderId }: { folderId: number }) {
                   {group.error}
                 </p>
               ) : null}
-              {focusedRow ? (
+              {acpRow ? (
                 <div
-                  role="tablist"
-                  className="flex shrink-0 gap-1 border-b px-5 py-1"
+                  data-acp-actions={acpRow.member.name}
+                  className="flex shrink-0 items-center gap-1 border-b px-5 py-1 text-xs"
                 >
-                  {(["detail", "messages"] as const).map((id) => (
+                  {acpRow.member.handedTo != null ? (
+                    <>
+                      <span className="px-2 text-muted-foreground">
+                        {t("acp.inTerminal")}
+                      </span>
+                      {acpRow.pane ? (
+                        <button
+                          type="button"
+                          data-acp-action="jump"
+                          className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => openMemberTerminal(acpRow)}
+                        >
+                          {t("acp.jump")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        data-acp-action="return"
+                        title={t("acp.returnHint")}
+                        className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        onClick={() => void returnMember(acpRow)}
+                      >
+                        {t("acp.return")}
+                      </button>
+                    </>
+                  ) : (
                     <button
-                      key={id}
                       type="button"
-                      role="tab"
-                      aria-selected={view === id}
-                      data-member-view={id}
-                      className={cn(
-                        "rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
-                        view === id && "bg-accent font-medium text-foreground"
-                      )}
-                      onClick={() => setView(id)}
+                      data-acp-action="handoff"
+                      title={t("acp.handoffHint")}
+                      disabled={
+                        acpRow.member.busy ||
+                        !acpRow.member.bodies.some((body) => body.sessionId)
+                      }
+                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                      onClick={() =>
+                        void handoffMember().catch((cause: unknown) =>
+                          toast.error(String(cause))
+                        )
+                      }
                     >
-                      {t(`memberView.${id}`)}
+                      {t("acp.handoff")}
                     </button>
-                  ))}
+                  )}
+                  {acpRow.member.busy ? (
+                    <button
+                      type="button"
+                      data-acp-action="stop"
+                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      onClick={() => void controlMember("stop")}
+                    >
+                      {t("acp.stop")}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    data-acp-action="new"
+                    disabled={acpRow.member.handedTo != null}
+                    title={t("acp.newHint")}
+                    className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    onClick={() => void controlMember("new")}
+                  >
+                    {t("acp.new")}
+                  </button>
+                  <button
+                    type="button"
+                    data-acp-action="leave"
+                    title={t("acp.leaveHint")}
+                    className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void controlMember("leave")}
+                  >
+                    {t("acp.leave")}
+                  </button>
                 </div>
               ) : null}
-              {focusedRow && view === "detail" ? (
-                <MemberDetail
-                  key={focusedRow.member.name}
-                  folderId={folderId}
-                  row={focusedRow}
-                  agentName={agentName}
-                  onJump={openMemberTerminal}
+              <>
+                <GroupTimeline
+                  events={timelineEvents}
+                  allEvents={group.events}
+                  scopeKey={focus ? `member:${focus}` : "all"}
+                  context={context}
+                  onContext={openTimelineContext}
+                  onReply={posting ? undefined : replyTo}
+                  delivery={group.delivery}
+                  agentOf={agentOf}
+                  labelOf={labelOf}
+                  onOpenCommit={openCommit}
+                  onOpenTerminal={openTerminal}
+                  forwardTo={forwardTo}
+                  onForward={posting ? undefined : forward}
+                  empty={group.name ? t("noEvents") : t("noGroup")}
+                  liveSessionOf={liveSessionOf}
+                  liveLogOf={liveLogOf}
+                  processOf={processOf}
+                  onOpenFile={openFile}
                 />
-              ) : (
-                <>
-                  <GroupTimeline
-                    events={timelineEvents}
-                    allEvents={group.events}
-                    scopeKey={focus ? `member:${focus}` : "all"}
-                    context={context}
-                    onContext={openTimelineContext}
-                    onReply={posting ? undefined : replyTo}
-                    delivery={group.delivery}
-                    agentOf={agentOf}
-                    labelOf={labelOf}
-                    onOpenCommit={openCommit}
-                    onOpenTerminal={openTerminal}
-                    forwardTo={forwardTo}
-                    onForward={posting ? undefined : forward}
-                    empty={group.name ? t("noEvents") : t("noGroup")}
-                    liveSessionOf={liveSessionOf}
-                    liveLogOf={liveLogOf}
-                    processOf={processOf}
-                    onOpenFile={openFile}
+                <GroupLiveStatus
+                  rows={rows}
+                  onOpenTerminal={openMemberTerminal}
+                />
+                {name ? (
+                  <GroupPermissions
+                    folderId={folderId}
+                    group={name}
+                    events={group.events}
+                    members={group.members}
+                    onAnswered={group.refresh}
                   />
-                  <GroupLiveStatus
-                    rows={rows}
-                    onOpenTerminal={openMemberTerminal}
-                  />
-                </>
-              )}
+                ) : null}
+              </>
               {group.name ? (
                 <GroupComposer
                   rows={rows}
@@ -361,13 +545,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
                   onReplyChange={setReply}
                   targets={targets}
                   onSend={send}
-                  onLaunch={(row) =>
-                    launchExpert({
-                      expert: row.member.name,
-                      agent: row.body?.agent ?? memberAgent(row.member),
-                      cwd: row.body?.cwd,
-                    })
-                  }
                   folderId={folderId}
                 />
               ) : null}

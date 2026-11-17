@@ -66,6 +66,14 @@ session selector 还允许受限的 `@path.parent.name`、`@path.parent.parent.u
 在哪些记录里：每条按 `record` + `kind`（缺省读 `type`）认记录，可选 `textPrefixes` 只认正文以前缀开头的，
 `items` 指向数组时每个元素一项，`name` / `path` / `text` 先对元素取值再对整条记录取；`source` 是来源类别，
 原样交给会话详情的「启动输入」，宿主不解释。同一内容只留一份；只算首次报回用量之前的记录；仅 JSONL / JSON 文档读取。
+顶层 `tools` 按原始工具名声明工具参数里各项在哪（JSON pointer，可给 fallback 列表；参数是 JSON 字符串时先解开，
+`""` 指整份参数）：`kind`（原样交给界面，如 `command` / `read` / `edit` / `search` / `fetch` / `plan` /
+`question` / `delegate` / `skill`）、`title`、`text`、`command`、`path`、`old` / `new`（按行算增删）、`patch`
+（`*** Begin Patch` 或统一 diff，取路径与增删行数）、`background`（真即后台调用）；`items` 指向数组时其余字段逐项先在
+元素里取、取不到再从参数根上取，`kind: "plan"` 的元素按 `text` / `status` 成为计划条目。reader 用完整参数据此算出
+可直接显示的 Part（`role`、`kind`、`tool`、`call`、`title`、`text`、`cut`、`paths`、`added`、`removed`、`plan`、
+`background`），单块文字最多 8000 字，截掉的字数写在 `cut`。没有声明的工具 `kind` 为 `tool`，标题是工具名，
+正文是截断后的参数原文。`tools` 随插件包整体更新，宿主不合并用户改动。
 顶层 `locate` 是带 `{id}` 的文件模式（语法同 `files`，如 `**/*-{id}.jsonl`、`**/{id}/chat_history.jsonl`），
 声明会话 id 在路径里的位置：按 id 打开会话时只核对路径对得上的文件（再用文件头里的 id 确认）；
 缺省时要逐个读文件头，会话目录大时明显变慢。GUI 与 CLI 共用这一份定位。
@@ -141,9 +149,9 @@ GUI 不自动为全部 action 生成工具面板。Terminal action 的持续输�
 结果使用 status/error/sessionRef/artifacts 与 text/markdown/JSON 通用展示。只有 capability
 已经提供稳定 typed output 且主线确有需要时，才增加专门 renderer。
 
-## 状态与群组 hook
+## 状态 hook
 
-Agent 的状态（working / idle / attention）和一轮的结果由 Agent 自己报告，Berth 不看画面、
+终端里 Agent 的状态（working / idle / attention）由 Agent 自己报告，Berth 不看画面、
 不靠输出猜。`launch.js` 把该 CLI 的原生 hook 接到 `berth group hook <事件>`（命令由
 `ctx.hookCommand(event)` 生成；静默、总是成功退出，hook 输出会进 Agent
 上下文，非零退出会拦住 Agent）。stdin 是与 Claude Code / Codex 同形的 hook JSON：
@@ -158,12 +166,52 @@ Agent 的状态（working / idle / attention）和一轮的结果由 Agent 自�
 
 `berth group hook` 往 `BERTH_AGENT_TTY`（宿主启动时从 stdin 的 `ttyname` 导出；hook 进程没有
 控制终端）写 OSC 9;4 进度 / OSC 9 通知，termd 据此给出状态；报告过进度的 pane 不再用「近期有输出」
-兜底。再记会话、把回答贴回群，最后经 `agent.changed` 唤醒 GUI 立即重读（GUI 没开就跳过）。
-群组只往报告过会话的终端粘贴，一轮进行中（含等授权）的消息排队到这一轮结束。
+兜底，再经 `agent.changed` 唤醒 GUI 立即重读（GUI 没开就跳过）。hook 与群组无关：终端里的 Agent
+不进群，群成员走下面的 ACP 模式。
 接法：Claude 写进 `--settings` 的 `hooks`；Codex 写会话目录 `hooks.json`，并用
 `codex app-server` 的 `hooks/list` 取得这几条的信任键与哈希写进会话 `config.toml`（不用
 `--dangerously-bypass-hook-trust`，它连项目层 hook 一起放行）；Pi 用 `private/extensions/` 里的扩展。
-没接 hook 的 Agent 仍显示终端信号给出的状态，但不入群。
+没接 hook 的 Agent 仍显示终端信号给出的状态。
+
+## 群组 ACP 模式
+
+群成员由群组运行时（`berth group watch`）以 [ACP](https://agentclientprotocol.com) 客户端身份起 Agent 的适配器进程。
+Agent 不支持 ACP 就不进群；终端里的 Agent 不进群（`berth group spawn` 也以 ACP 成员入群，目录是所选 worktree）。Berth 不声明 `fs` / `terminal` 客户端能力，Agent 用自己的工具读写文件、跑命令。
+
+**插件入口**：`tool.json` 声明 `contributes.agent.acp: true`（群页据此列出能进群的 Agent），`launch.js` 导出钩子 `acp(ctx)`，`ctx` 与 `launch` 同一份（没有 `hookCommand`、启动栏 `args`），返回：
+
+| 字段 | 含义 |
+|---|---|
+| `argv` | 适配器命令（数组，不经 shell）；指向插件 `install.sh` 装好并锁版本的入口，不用 `npx -y` |
+| `env` | 追加给适配器进程的环境（服务商、隔离目录、包装脚本） |
+| `sessionMeta` | 每次 `session/new` / `load` / `resume` 原样放进 `_meta`；缺省不带 |
+| `delegation` | 能否接收委托（运行时经 `mcpServers` 挂 Berth 的 stdio MCP）。**缺省 false**：stdio MCP 是 ACP 必备能力，initialize 里没有开关，适配器收下却不转交时无从得知 |
+| `approvesAllTools` | 每个工具调用都先经 `session/request_permission`；缺省 false，群页在该成员处写明「工具调用不经审批」 |
+
+版本门槛、适配器缺失由插件在 `acp()` 里自查并抛错，运行时把错误原文显示为「该 Agent 不可用」。
+`ctx.paths.tmp` 活到该 ACP 进程组退出，由运行时删除。
+运行时经 `berth tools launch <launch.js> --acp --berth-launch-inputs … [--berth-provider-id <id> [--berth-provider-model <模型>]]`
+取得上表的 JSON，再用官方 crate `agent-client-protocol` 收发。`inputs` 是入群时在启动栏选的值（含 `expert`），原样进 `ctx.inputs`；
+服务商只在群记录里存 id，CLI 每次启动按 id 写一次性启动档案（同终端启动的 `--berth-provider`），插件照常读 `ctx.provider`。
+
+**交给终端 / 交回**（`berth group member <群> <成员> handoff|return`，群页「在终端打开 / 交回群里」）：同一会话同一时刻只在一处打开。
+交接时运行时停掉该成员的进程，群消息留着；群页用入群时的启动栏值加上会话 id 开终端（填进启动栏 `optionsFrom: "projectSessions"` 那一项），
+所以插件要满足：ACP 的 `sessionId` 就是 Agent 自己的会话 id，终端启动时用这一项能打开它（pi：`--session <id>`）。
+终端关掉后交回，下一条群消息起新进程 `session/load` 同一会话，含终端里聊的。没有会话项的 Agent 不能交接。
+
+**进程**：每个成员会话、每个工单会话各一个适配器进程，独立进程组；回收 / 重启杀整个组，确认退出后才起新的。
+群成员的 ACP 进程只归群组运行时，手开终端只归 termd。
+
+**恢复**：initialize 声明了 `sessionCapabilities.resume` 才用 `session/resume`，否则 `loadSession` 时用 `session/load`，
+load 期间重放的 update 不写账本。只有 -32002 才新建会话并在群里写明「上下文已丢失」；其他错误（含适配器用别的码表示
+会话不存在）原样报给用户，由用户点「开新会话」。
+
+**通信**：
+
+- 运行时 → GUI：一轮里的 update 归一后追加写运行时目录下该群的 live 文件（每轮开头截断，最多每 100 ms 刷一次），
+  再发 `agent.changed` 唤醒（同样节流），GUI 按偏移续读；回答完成后整段写进群账本。
+- GUI / CLI → 运行时：发消息、审批应答、取消都追加进群账本，再经 `kick` socket 叫醒运行时；运行时从上次偏移读新增行。
+  没有 kick socket 的平台退回周期重读。
 
 ## CLI、GUI 与终端
 

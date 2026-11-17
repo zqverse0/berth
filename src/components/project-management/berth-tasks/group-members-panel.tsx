@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
   BERTH_MEMBER,
+  controlAcpMember,
   memberAgent,
   memberLabel,
   stopBerth,
@@ -22,14 +23,9 @@ import {
   memberRows,
   type MemberRow,
 } from "../group/group-model"
-import {
-  AddExpertMenu,
-  GroupMembers,
-  GroupSection,
-} from "../group/group-members"
+import { GroupMembers, GroupSection } from "../group/group-members"
 import { ActiveDelegations } from "../group/active-delegations"
-import { launchExpert, usePaneActions } from "../group/pane-actions"
-import type { AgentPaneRow } from "@/lib/terminal/agent-panes"
+import { usePaneActions } from "../group/pane-actions"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { EnableBerthNotice } from "../enable-berth-notice"
 import { MemberSessions } from "../group/member-sessions"
@@ -67,7 +63,7 @@ function Members({ folderId, live }: { folderId: number; live: boolean }) {
     useAppUiStore.getState().showAuxView("group")
   }
   const open = (row: MemberRow) => {
-    if (!row.pane || row.status === "offline" || row.status === "left") return
+    if (!row.pane) return
     const store = useGroupWorkspaceStore.getState()
     if (group.name) store.selectGroup(folderId, group.name)
     store.preview(actions.jump(row.pane, folderId))
@@ -105,23 +101,10 @@ function Members({ folderId, live }: { folderId: number; live: boolean }) {
   const interrupt = (row: MemberRow) => {
     if (row.member.builtin) void stopBerth(folderId)
     else if (row.pane) void actions.interrupt(row.pane)
+    else if (group.name)
+      void controlAcpMember(folderId, group.name, row.member.name, "stop")
   }
-  const present = rows.filter(
-    (row) => row.status !== "left" && row.status !== "offline"
-  )
-  const needsYou = present.filter((row) => row.unread)
-  const jumpPane = (pane: AgentPaneRow) => {
-    const store = useGroupWorkspaceStore.getState()
-    if (group.name) store.selectGroup(folderId, group.name)
-    store.preview(actions.jump(pane, folderId))
-  }
-  // 新专家默认用群里最近启动的 Agent，没有就用项目默认的。
-  const recentAgent =
-    [...group.members]
-      .flatMap((member) => member.bodies)
-      .sort((a, b) => b.joined_seq - a.joined_seq)[0]?.agent ??
-    folders.find((folder) => folder.id === folderId)?.default_agent_type ??
-    null
+  const needsYou = rows.filter((row) => row.unread)
   return (
     <section data-member-group={group.name} className="space-y-3 px-2 py-1">
       <div className="flex items-center gap-2 px-1">
@@ -155,19 +138,8 @@ function Members({ folderId, live }: { folderId: number; live: boolean }) {
           />
         </GroupSection>
       ) : null}
-      <GroupSection
-        title={t("sectionMembers")}
-        count={present.length}
-        action={
-          group.name ? (
-            <AddExpertMenu
-              present={present.map((row) => row.member.name)}
-              onPick={(expert) => launchExpert({ expert, agent: recentAgent })}
-            />
-          ) : null
-        }
-      >
-        {present.length > 3 || query ? (
+      <GroupSection title={t("sectionMembers")} count={rows.length}>
+        {rows.length > 3 || query ? (
           <Input
             aria-label={tGroup("focus.search")}
             placeholder={tGroup("focus.search")}
@@ -189,13 +161,6 @@ function Members({ folderId, live }: { folderId: number; live: boolean }) {
           onSelect={(row) => select(row.member.name)}
           agentName={agentName}
           onJump={open}
-          onJumpPane={jumpPane}
-          onAddBody={(row) =>
-            launchExpert({
-              expert: row.member.name,
-              agent: row.body?.agent ?? memberAgent(row.member),
-            })
-          }
           onInterrupt={interrupt}
           sessions={(row) => (
             <MemberSessions

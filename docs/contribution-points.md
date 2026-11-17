@@ -24,6 +24,7 @@ Berth 插件（`$BERTH_HOME/tools/<id>/`）只能往本表列出的位置接入�
 | `agent.capabilityStores` | `…capabilityStores` | 设置页 Skills / MCP 状态（`src-tauri/src/tool/agent_projection.rs`） |
 | `agent.promptInput` | `…promptInput` | 协作派发的首条 prompt（`berth group spawn`、宿主启动时交给 `launch.js` 的输入） |
 | `agent.interruptKey` | `…interruptKey` | 终端打断键（`src/lib/terminal/agent-panes.ts`） |
+| `agent.acp` | `…acp`（布尔）+ `launch.js` 导出 `acp(ctx)` | 能否进群当 ACP 成员（`berth group join --acp`，`src-tauri/project/berth-group/src/acp.rs`） |
 | `guide` | `usage.md` | 设置页「工具」详情、`berth tools show <id>`；非 Agent 插件启用时列进 `berth guide --brief`，各 Agent 的 `launch.js` 把它（`ctx.brief`）追加进系统提示词 |
 | `preview` | `extensions["org.berth.preview"]`：`extensions`（后缀）、`argv`、`protocol`、可选 `script`（包内文件） | 文件标签页实时预览（`src-tauri/src/preview_watch/`） |
 | `extract` | `extensions["org.berth.extract"]`：`extensions`、`argv` | 当前文档文本抽取，给 Agent 的上下文（`workspace_state/current_document.rs`） |

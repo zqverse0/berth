@@ -1347,7 +1347,16 @@
       "filterTool": "Tool: {name}",
       "clearFilter": "Clear filter {name}",
       "openInReader": "Open in reader",
-      "noTerminalSession": "No session record for this terminal's agent in this project yet."
+      "noTerminalSession": "No session record for this terminal's agent in this project yet.",
+      "partCut": "{count, plural, one {# more character not shown} other {# more characters not shown}}",
+      "partShowAll": "Show all",
+      "partLoading": "Loading…",
+      "partLoadFailed": "Couldn't read this part: {error}",
+      "partImages": "{count, plural, one {# image} other {# images}}",
+      "partBackground": "background",
+      "partFailed": "Failed",
+      "partTool": "Tool",
+      "partResult": "Result"
     },
     "conversationCard": {
       "untitledConversation": "Untitled conversation",
@@ -3562,6 +3571,7 @@
     "catalogLoading": "Reading the plugin repository…",
     "catalogAlreadyInstalled": "Installed",
     "catalogInstalled": "Installed {name}",
+    "catalogUpdated": "Updated {name}",
     "catalogDescription": "Official Berth plugins. Click Install to use one; requires git on this machine.",
     "remove": "Remove",
     "removed": "Removed {name}",
@@ -3956,7 +3966,7 @@
       "members": {
         "title": "Members ({count})",
         "emptyPlanning": "After starting, Agents launched in the worktree join automatically.",
-        "emptyStarted": "No members yet. Launch an Agent in the worktree and it joins automatically:",
+        "emptyStarted": "No members yet. Use + on the group page to add an Agent.",
         "jump": "Jump to its terminal",
         "mention": "@ mention",
         "interrupt": "Interrupt",
@@ -3981,47 +3991,14 @@
         "status": {
           "attention": "Needs attention",
           "working": "Working",
-          "idle": "Idle",
-          "offline": "Terminal closed",
-          "left": "Left"
+          "idle": "Idle"
         },
         "rename": "Rename",
         "renameHint": "Enter to save, Esc to cancel; leave empty to restore the original name. No spaces or @",
         "showMessages": "Show only its messages",
         "sectionMembers": "Members",
         "sectionDelegations": "In progress",
-        "noDelegations": "No delegation in progress",
-        "sharedDir": "Two terminals in the same folder: they may edit the same files",
-        "addBody": "Open another terminal",
-        "addExpert": "Add expert",
-        "loadingExperts": "Loading experts…",
-        "noMoreExperts": "Every expert is already in the group",
-        "detail": {
-          "refresh": "Refresh",
-          "jump": "Go to terminal",
-          "loading": "Loading",
-          "open": "Open {path}",
-          "terminal": "Terminal #{number}",
-          "agent": "Agent",
-          "model": "Model",
-          "expert": "Expert",
-          "noExpert": "No expert",
-          "brief": "Berth guide",
-          "briefInjected": "Injected ({count} chars)",
-          "briefNone": "Not injected",
-          "cwd": "Directory",
-          "session": "Session",
-          "noSession": "No session yet (the Agent hook has not reported one)",
-          "startedAt": "Started",
-          "noLaunch": "No launch record: this terminal started before launch records existed; reopen it to see one.",
-          "context": "Current context",
-          "contextEmpty": "The session recorded no startup context",
-          "contextFailed": "Could not read the session context: {error}",
-          "loaded": "Loaded at launch",
-          "expertSkills": "Expert skills",
-          "files": "Changed files ({count})",
-          "noFiles": "No changed files reported yet"
-        }
+        "noDelegations": "No delegation in progress"
       },
       "sessions": {
         "title": "Sessions",
@@ -4075,9 +4052,6 @@
         "send": "Send",
         "placeholderAll": "Message everyone, each gets a copy…",
         "partialFailed": "Not sent to {names}: {error} (your text is kept so you can resend)",
-        "offlineQueued": "Saved to the group. {names} is offline; it gets the message once launched.",
-        "launchOffline": "Launch {name}",
-        "dismiss": "Dismiss",
         "keysHint": "Enter to send · Shift+Enter newline",
         "attach": "Insert file paths",
         "attachTitle": "Choose files to reference",
@@ -4125,9 +4099,30 @@
         "modified": "Modified",
         "deleted": "Deleted"
       },
-      "memberView": {
-        "detail": "Details",
-        "messages": "Messages"
+      "add": {
+        "title": "Add member (ACP)",
+        "empty": "No agent can join: the plugin must declare agent.acp in tool.json",
+        "join": "Join group"
+      },
+      "permission": {
+        "title": "Wants to run a tool",
+        "cancel": "Cancel"
+      },
+      "acp": {
+        "stop": "Stop",
+        "new": "New session",
+        "newHint": "The next message starts a new session without the earlier context (an answer in progress is interrupted)",
+        "newDone": "The next message starts a new session",
+        "leave": "Remove",
+        "leaveHint": "Stop its process and remove it from the group; the session is kept, add it back to continue",
+        "handoff": "Open in terminal",
+        "handoffHint": "Continue this session in a terminal (group messages wait); it returns to the group when the terminal closes",
+        "handoffFailed": "The terminal did not open; the session stays in the group",
+        "handoffUnsupported": "This agent's launch bar has no session item, so the same session cannot open in a terminal",
+        "inTerminal": "Session is open in a terminal; group messages are delivered after it returns",
+        "jump": "Show terminal",
+        "return": "Return to group",
+        "returnHint": "Close that terminal and bring the session back to the group (including what was said there)"
       }
     }
   },

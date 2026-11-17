@@ -7,6 +7,7 @@ import {
 
 function fakeAddon() {
   let lose: (() => void) | null = null
+  let addPage: ((canvas: HTMLCanvasElement) => void) | null = null
   const addon = {
     activate: vi.fn(),
     dispose: vi.fn(),
@@ -15,7 +16,15 @@ function fakeAddon() {
       lose = listener
       return { dispose: () => (lose = null) }
     },
+    onAddTextureAtlasCanvas: (
+      listener: (canvas: HTMLCanvasElement) => void
+    ) => {
+      addPage = listener
+      return { dispose: () => (addPage = null) }
+    },
+    onRemoveTextureAtlasCanvas: () => ({ dispose: () => {} }),
     loseContext: () => lose?.(),
+    addPage: (canvas: HTMLCanvasElement) => addPage?.(canvas),
   }
   return addon
 }
@@ -50,7 +59,7 @@ afterEach(() => {
 })
 
 describe("createTerminalWebglController", () => {
-  it("loads WebGL only while visible and releases after a hidden grace period", async () => {
+  it("loads WebGL only while visible and keeps it across hide/show", async () => {
     const { term, addons, controller } = setup()
     controller.setVisible(false)
     await flush()
@@ -60,17 +69,13 @@ describe("createTerminalWebglController", () => {
     await flush()
     expect(term.loadAddon).toHaveBeenCalledTimes(1)
 
-    // 短暂切走再回来不重建
+    // 切走再回来不重建，避免反复创建上下文
     controller.setVisible(false)
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(60_000)
     controller.setVisible(true)
     await flush()
     expect(addons[0].dispose).not.toHaveBeenCalled()
     expect(term.loadAddon).toHaveBeenCalledTimes(1)
-
-    controller.setVisible(false)
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(addons[0].dispose).toHaveBeenCalledTimes(1)
   })
 
   it("stays on DOM after an init failure and gives up globally after repeated failures", async () => {
@@ -139,13 +144,87 @@ describe("createTerminalWebglController", () => {
     expect(term.loadAddon).not.toHaveBeenCalled()
   })
 
-  it("clears the atlas on refresh and releases on dispose", async () => {
+  it("clears every terminal's atlas once per frame on refresh, then releases on dispose", async () => {
+    const a = setup()
+    const b = setup()
+    a.controller.setVisible(true)
+    b.controller.setVisible(true)
+    await flush()
+    // 字体变更时每个终端都会调一次，合并成一轮
+    a.controller.refreshAtlas()
+    b.controller.refreshAtlas()
+    await flush()
+    expect(a.addons[0].clearTextureAtlas).toHaveBeenCalledTimes(1)
+    expect(b.addons[0].clearTextureAtlas).toHaveBeenCalledTimes(1)
+    a.controller.dispose()
+    expect(a.addons[0].dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it("recycles every addon together before the shared atlas merges pages", async () => {
+    const a = setup()
+    const b = setup()
+    a.controller.setVisible(true)
+    b.controller.setVisible(true)
+    await flush()
+    b.controller.setVisible(false)
+    // 默认上限 16 页、预留 2 页：首页之外第 13 页触发；同一页经两个终端各报一次只算一页
+    for (let i = 0; i < 12; i++) {
+      const page = document.createElement("canvas")
+      a.addons[0].addPage(page)
+      b.addons[0].addPage(page)
+    }
+    await flush()
+    expect(a.addons[0].dispose).not.toHaveBeenCalled()
+
+    a.addons[0].addPage(document.createElement("canvas"))
+    await flush()
+    expect(a.addons[0].dispose).toHaveBeenCalledTimes(1)
+    expect(b.addons[0].dispose).toHaveBeenCalledTimes(1)
+    // 可见的立即换新，隐藏的等再显示
+    expect(a.term.loadAddon).toHaveBeenCalledTimes(2)
+    expect(b.term.loadAddon).toHaveBeenCalledTimes(1)
+  })
+
+  it("loses the GL context explicitly after disposing the addon", async () => {
+    const loseContext = vi.fn()
+    const gl = {
+      MAX_TEXTURE_IMAGE_UNITS: 0x8872,
+      getParameter: () => 16,
+      getExtension: () => ({ loseContext }),
+    }
+    const element = document.createElement("div")
+    const layer = document.createElement("canvas")
+    layer.classList.add("xterm-link-layer")
+    const glCanvas = document.createElement("canvas")
+    glCanvas.getContext = vi.fn(
+      () => gl
+    ) as unknown as typeof glCanvas.getContext
+    const term = {
+      element,
+      loadAddon: vi.fn(() => element.append(layer, glCanvas)),
+    }
+    const addon = fakeAddon()
+    const controller = createTerminalWebglController(term, {
+      createAddon: () =>
+        Promise.resolve(() => addon as unknown as WebglAddonLike),
+    })
+    controller.setVisible(true)
+    await flush()
+    controller.dispose()
+    expect(addon.dispose).toHaveBeenCalledTimes(1)
+    expect(loseContext).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears every atlas after a suspend-sized timer gap", async () => {
     const { addons, controller } = setup()
     controller.setVisible(true)
     await flush()
-    controller.refreshAtlas()
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(addons[0].clearTextureAtlas).not.toHaveBeenCalled()
+    // 模拟休眠：墙钟跳过两分钟
+    vi.setSystemTime(Date.now() + 120_000)
+    // 计时器回调里排的 0ms 定时器，fake-timers 会推迟 1ms
+    await vi.advanceTimersByTimeAsync(15_001)
     expect(addons[0].clearTextureAtlas).toHaveBeenCalledTimes(1)
-    controller.dispose()
-    expect(addons[0].dispose).toHaveBeenCalledTimes(1)
   })
 })

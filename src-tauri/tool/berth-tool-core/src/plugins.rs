@@ -336,18 +336,13 @@ pub fn install(source: &str) -> Result<Installed, ToolCoreError> {
     Ok(installed)
 }
 
-/// 按记录的来源重装；新包无效或就位失败时保留旧包。
+/// 按记录的来源重装（手工拷入、没有来源的按官方仓库 `#<id>`）；新包无效或就位失败时保留旧包。
 pub fn update(id: &str) -> Result<Installed, ToolCoreError> {
     let target = require_installed(id)?;
     let source = read_state()?
         .pointer(&format!("/plugins/{id}/source"))
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| {
-            ToolCoreError::invalid_input(format!(
-                "plugin '{id}' has no recorded source (installed by hand); reinstall it with `berth tools install`"
-            ))
-        })?;
+        .map_or_else(|| format!("{OFFICIAL_REPO}#{id}"), str::to_string);
     let (dir, staged_id, rev) = stage(&source)?;
     if staged_id != id {
         let _ = std::fs::remove_dir_all(&dir);

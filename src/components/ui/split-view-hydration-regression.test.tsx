@@ -200,4 +200,54 @@ describe("folder-shell hydration regression", () => {
     console.log("NO-STRICTMODE:", JSON.stringify({ template, paneInfo }))
     expect(paneInfo.map((p) => p.gridColumn)).toEqual(["1", "3", "5"])
   })
+
+  it("keeps handle slots in DOM order when the sidebar collapses after mount", async () => {
+    function Shell() {
+      // 模拟持久化恢复：侧栏默认展开，mount 后恢复成收起
+      const [sidebarOpen, setSidebarOpen] = useState(true)
+      useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSidebarOpen(false)
+      }, [])
+      return (
+        <SplitView id="folder-shell-group" direction="horizontal">
+          <SplitPane
+            id="left"
+            order={1}
+            defaultSize={14}
+            collapsed={!sidebarOpen}
+          >
+            <div>sidebar</div>
+          </SplitPane>
+          <SplitHandle id="sidebar-handle" disabled={!sidebarOpen} />
+          <SplitPane id="main" order={2} defaultSize={64}>
+            <div>main</div>
+          </SplitPane>
+          <SplitHandle id="aux-handle" />
+          <SplitPane id="right" order={3} defaultSize={22}>
+            <div>aux</div>
+          </SplitPane>
+        </SplitView>
+      )
+    }
+
+    const view = render(
+      <StrictMode>
+        <Shell />
+      </StrictMode>
+    )
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    const column = (id: string) =>
+      (
+        view.container.querySelector(
+          `[data-split-handle-id="${id}"]`
+        ) as HTMLElement
+      ).style.gridColumn
+    // 切换 disabled 后侧栏分隔条仍在第 2 列，辅助面板分隔条仍在第 4 列
+    expect(column("sidebar-handle")).toBe("2")
+    expect(column("aux-handle")).toBe("4")
+  })
 })

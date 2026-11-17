@@ -62,10 +62,11 @@ export const SplitPane = function SplitPane({
   )
 
   const { registerPane, unregisterPane } = context
+  // 注册与注销分开：spec 变化只走更新、保留序号（同 SplitHandle）
   useLayoutEffect(() => {
     registerPane({ id: paneId, spec })
-    return () => unregisterPane(paneId)
-  }, [paneId, registerPane, spec, unregisterPane])
+  }, [paneId, registerPane, spec])
+  useLayoutEffect(() => () => unregisterPane(paneId), [paneId, unregisterPane])
 
   return (
     <div

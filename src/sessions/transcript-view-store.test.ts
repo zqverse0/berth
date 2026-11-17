@@ -10,6 +10,7 @@ vi.mock("@/lib/api", () => api)
 
 import {
   LIVE_POLL_MS,
+  transcriptDetailOf,
   useTranscriptDetail,
   useTranscriptLiveSync,
   useTranscriptViewStore,
@@ -36,9 +37,7 @@ describe("transcript live sync", () => {
       useTranscriptLiveSync(42)
     })
     await act(() => vi.advanceTimersByTimeAsync(0))
-    expect(useTranscriptViewStore.getState().details[42].source_revision).toBe(
-      "r1"
-    )
+    expect(transcriptDetailOf(42)?.source_revision).toBe("r1")
 
     await act(() => vi.advanceTimersByTimeAsync(LIVE_POLL_MS))
     expect(api.getConversationSourceRevision).toHaveBeenCalledTimes(1)
@@ -48,9 +47,7 @@ describe("transcript live sync", () => {
     api.getFolderConversation.mockResolvedValueOnce(detail("r2"))
     await act(() => vi.advanceTimersByTimeAsync(LIVE_POLL_MS))
     expect(api.getFolderConversation).toHaveBeenCalledTimes(2)
-    expect(useTranscriptViewStore.getState().details[42].source_revision).toBe(
-      "r2"
-    )
+    expect(transcriptDetailOf(42)?.source_revision).toBe("r2")
 
     unmount()
     await act(() => vi.advanceTimersByTimeAsync(LIVE_POLL_MS * 3))

@@ -44,6 +44,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-client-protocol"
+version = "5.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "956559bd2dfddb5c8bc86792b1669bd2611fb4bd2c31865e4b8165ab6ea63109"
+dependencies = [
+ "agent-client-protocol-derive",
+ "agent-client-protocol-schema",
+ "anyhow",
+ "async-io",
+ "async-process",
+ "blocking",
+ "futures",
+ "futures-concurrency",
+ "rustc-hash 2.1.3",
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "agent-client-protocol-derive"
+version = "5.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4956a27f160f7ff73b17822066d1cb57d415ef9f442d3bcebb8074d2c8f24ec3"
+dependencies = [
+ "quote",
+ "syn 3.0.4",
+]
+
+[[package]]
+name = "agent-client-protocol-schema"
+version = "1.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5128cd57704892e3978c85bfce0d532ef3162f585739f44726fa80d464c1782f"
+dependencies = [
+ "anyhow",
+ "derive_more",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "strum 0.28.0",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -513,7 +561,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "berth-agent"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "futures",
  "genai",
@@ -524,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "berth-cli"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-control-proto",
  "berth-group",
@@ -555,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "berth-control-proto"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -564,10 +612,12 @@ dependencies = [
 
 [[package]]
 name = "berth-group"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
+ "agent-client-protocol",
  "berth-project-core",
  "berth-tool-core",
+ "futures",
  "serde",
  "serde_json",
  "sha2",
@@ -576,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "berth-gui"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -656,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "berth-node"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -668,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "berth-plugin-api"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "base64 0.22.1",
  "berth-tool-core",
@@ -684,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "berth-project-core"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "async-trait",
  "berth-tool-core",
@@ -708,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "berth-provider-proxy"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "bytes",
  "http",
@@ -725,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-engine"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-proto",
  "chrono",
@@ -736,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-ipc"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-os",
  "libc",
@@ -748,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-os"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-types",
  "libc",
@@ -758,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-proto"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-types",
  "bincode",
@@ -769,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-pty"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-os",
  "berth-term-types",
@@ -782,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-sdk"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-ipc",
  "berth-term-os",
@@ -800,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-server"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "async-recursion",
  "berth-control-proto",
@@ -819,14 +869,14 @@ dependencies = [
 
 [[package]]
 name = "berth-term-types"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "berth-terminald"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "berth-term-os",
  "berth-term-server",
@@ -835,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "berth-tool-core"
-version = "0.38.4"
+version = "0.38.5"
 dependencies = [
  "dirs",
  "rusqlite",
@@ -2154,6 +2204,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixedbitset"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
+
+[[package]]
 name = "flate2"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2267,6 +2323,19 @@ checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
  "futures-sink",
+]
+
+[[package]]
+name = "futures-concurrency"
+version = "7.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175cd8cca9e1d45b87f18ffa75088f2099e3c4fe5e2f83e42de112560bea8ea6"
+dependencies = [
+ "fixedbitset",
+ "futures-core",
+ "futures-lite",
+ "pin-project",
+ "smallvec",
 ]
 
 [[package]]
@@ -2974,7 +3043,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4637,6 +4706,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pin-project"
+version = "1.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2466b2336ed02bcdca6b294417127b90ec92038d1d5c4fbeac971a922e0e0924"
+dependencies = [
+ "pin-project-internal",
+]
+
+[[package]]
+name = "pin-project-internal"
+version = "1.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5988,6 +6077,12 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
+
+[[package]]
+name = "shell-words"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shlex"

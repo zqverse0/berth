@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
+  retainConversationDetail,
   useConversationRuntimeActions,
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
@@ -45,6 +46,12 @@ export function useConversationDetail(
     )
   const { fetchDetail } = useConversationRuntimeActions()
   const isVirtual = isVirtualConversationId(conversationId)
+
+  // 显示期间登记，detail 常驻；不显示（未激活的 tab）时可被淘汰，切回再拉
+  useEffect(() => {
+    if (!enabled || isVirtual) return
+    return retainConversationDetail(conversationId)
+  }, [enabled, conversationId, isVirtual])
 
   useEffect(() => {
     if (!enabled) return

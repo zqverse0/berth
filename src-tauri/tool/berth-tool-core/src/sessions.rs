@@ -208,6 +208,10 @@ pub struct SessionSpec {
     /// 启动时注入给 Agent 的上下文在哪些记录里，见 [`ContextSpec`]。
     #[serde(default)]
     pub context: Vec<ContextSpec>,
+    /// 原始工具名 → 种类与参数字段的位置，Rust 据此算出可直接显示的 [`crate::tool_parts::Part`]。
+    /// 没有声明的工具只给工具名和截断后的参数原文。
+    #[serde(default)]
+    pub tools: BTreeMap<String, crate::tool_parts::ToolSpec>,
 }
 
 /// `sessionIndex`：会话元数据所在的 SQLite 表。`match` 从会话文件路径取出键值（`@path.…` 投影），

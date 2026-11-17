@@ -31,8 +31,6 @@ vi.mock("@/lib/runtime-bridge", () => ({ runtimeBridgeOperation }))
 
 const rows = ["a", "b"].map((name) => ({
   member: { name, bodies: [], joined_seq: 1, joined_at: null, leftAt: null },
-  bodies: [],
-  body: null,
   pane: null,
   status: "idle",
   unread: false,
@@ -56,21 +54,19 @@ function composer(
 }
 
 describe("GroupComposer recipient safety", () => {
-  it("keeps sending to A when A goes offline, never redirecting to B, and offers to launch it", async () => {
-    const onSend = vi.fn().mockResolvedValue([])
-    const onLaunch = vi.fn()
-    const view = render(composer({ onSend, onLaunch }))
-    const input = screen.getByRole("textbox")
-    fireEvent.change(input, { target: { value: "for A only" } })
-    const offline = [{ ...rows[0], status: "left" as const }, rows[1]]
-    view.rerender(composer({ onSend, onLaunch, rows: offline }))
-    fireEvent.click(screen.getByRole("button", { name: "Send to a" }))
-    await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith(["a"], "for A only", undefined)
+  it("keeps a draft addressed to A when A leaves, blocked and never redirected to B", () => {
+    const onSend = vi.fn()
+    const view = render(composer({ onSend }))
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "for A only" },
+    })
+    view.rerender(composer({ onSend, rows: [rows[1]] }))
+    expect(screen.getByRole("button", { name: "Send to a" })).toBeDisabled()
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Unavailable recipients: a"
     )
-    expect(await screen.findByRole("status")).toHaveTextContent("a is offline")
-    fireEvent.click(screen.getByRole("button", { name: "Launch a" }))
-    expect(onLaunch).toHaveBeenCalledWith(offline[0])
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it("treats @ in the text as plain text, never as a recipient", async () => {
@@ -103,25 +99,6 @@ describe("GroupComposer recipient safety", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Send failed")
     expect(input).toHaveValue("keep this")
     expect(screen.getByRole("button", { name: "Send to a" })).toBeEnabled()
-  })
-
-  it("blocks an offline member from an old ledger (named by terminal number)", () => {
-    const onSend = vi.fn()
-    const legacy = {
-      ...rows[1],
-      member: { ...rows[1].member, name: "3" },
-      status: "offline" as const,
-    }
-    render(composer({ onSend, targets: ["3"], rows: [rows[0], legacy] }))
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "private instruction" },
-    })
-    expect(screen.getByRole("button", { name: "Send to 3" })).toBeDisabled()
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Unavailable recipients: 3"
-    )
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
-    expect(onSend).not.toHaveBeenCalled()
   })
 })
 

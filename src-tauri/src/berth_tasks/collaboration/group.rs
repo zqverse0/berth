@@ -1,6 +1,6 @@
 //! 任务监控视图（群组）的进程内读写：单任务派生视图、开工、群时间线 + 成员 + 送达状态。
-//! 发消息见 [`super::call`]（`berth_group::post`）：GUI 发的消息排队，由后台进程 `berth group watch`
-//! 在成员空闲时送达，这里负责拉起它。
+//! 发消息见 [`super::call`]（`berth_group::post`）：发给 ACP 成员的消息由后台进程 `berth group watch`
+//! 送达，这里负责拉起它。
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -128,12 +128,6 @@ pub fn unread(root: &Path, params: &Value) -> Result<Value, String> {
     Ok(json!({ "worktrees": { main.to_string_lossy(): count } }))
 }
 
-/// 成员详情页：各终端的会话文件与启动记录、它最近汇报里改过的文件（与群组轮询分开，点开才读）。
-pub fn member(root: &Path, params: &Value) -> Result<Value, String> {
-    let main = tasks::resolve(root).map_err(|error| error.message)?.main;
-    berth_group::member_detail(&main, required(params, "member")?).map_err(|error| error.message)
-}
-
 /// 把任务分配给群组（`group` 为 `main` 或已有群组）。
 pub fn assign(root: &Path, params: &Value) -> Result<Value, String> {
     tasks::assign(root, required(params, "task")?, required(params, "group")?)
@@ -154,14 +148,22 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
             .unwrap_or_default()
             .into_iter()
             .collect();
+    // 成员只有 ACP 成员；旧版的终端成员不再列出，它们的消息留在时间线上。
     let members: Vec<Value> = group::roster(&events)
         .into_iter()
+        .filter(|(member, _)| member.bodies.iter().any(|body| berth_group::acp::is_acp(&body.target_ref)))
         .map(|(member, left_at)| {
             let mut row = serde_json::to_value(&member).unwrap_or_default();
             row["leftAt"] = json!(left_at);
             row["expertName"] = json!(experts.get(&member.name));
-            // 各终端绑定的 Agent 会话：收集器确认的，否则它最近一次入群或汇报带的。
+            // 在群时附上：正在回答的过程（与内置 Berth 的 `busy` / `log` 同形）、交接状态、绑定的会话。
             if left_at.is_none() {
+                let log = berth_group::acp::live(&main, &member.name);
+                row["busy"] = json!(log.is_some());
+                row["log"] = log.unwrap_or(Value::Null);
+                // 会话交给了终端：那个终端的 id（交接了还没开好终端时为 ""）。
+                row["handedTo"] = json!(berth_group::acp::handed(&events, &member.name)
+                    .map(|event| event["terminal"].as_str().unwrap_or_default()));
                 for (index, body) in member.bodies.iter().enumerate() {
                     row["bodies"][index]["sessionId"] = json!(group::bound_session_in(
                         &main,

@@ -93,11 +93,12 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
         .map(|id| load_expert(&home, id))
         .transpose()?;
     sweep_stale_temp_dirs(&std::env::temp_dir());
-    let tmp = TempDir::create(&host.plugin_id)?;
+    // ACP 模式：目录要活到适配器进程退出，按调用方（群组运行时）的 pid 命名，由它删除。
+    let tmp = TempDir::create(&host.plugin_id, if request.acp { owner_pid() } else { std::process::id() })?;
     if request.expert_id.as_deref() == Some(berth_tool_core::builtin::EXPERT) {
         data["brief"] = json!((extras.brief)());
     }
-    data["mode"] = json!("launch");
+    data["mode"] = json!(if request.acp { "acp" } else { "launch" });
     data["manifest"] = prepare_manifest(&home, &request.inputs, &package, expert.as_ref())?;
     data["inputs"] = Value::Object(request.inputs);
     data["passthrough"] = json!(request.passthrough);
@@ -110,8 +111,13 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
         "cwd": cwd.to_string_lossy(),
         "home": std::env::var("HOME").unwrap_or_default(),
     });
-    let code = run_bootstrap(host, &script, data)?;
-    Ok(code.as_i64().unwrap_or(0) as i32)
+    let result = run_bootstrap(host, &script, data)?;
+    if request.acp {
+        std::mem::forget(tmp);
+        println!("{result}");
+        return Ok(0);
+    }
+    Ok(result.as_i64().unwrap_or(0) as i32)
 }
 
 /// 对一份启动清单运行插件可选的 `inspect` 钩子，核对声明与实际：`{implemented, items}`。
@@ -171,6 +177,8 @@ fn run_bootstrap(host: crate::rpc::Host, script: &Path, data: Value) -> Result<V
 }
 
 struct LaunchRequest {
+    /// `--acp`：调插件的 `acp(ctx)`，把适配器启动规格（JSON）打到 stdout，不启动 Agent。
+    acp: bool,
     expert_id: Option<String>,
     inputs: Map<String, Value>,
     passthrough: Vec<String>,
@@ -179,6 +187,7 @@ struct LaunchRequest {
 
 fn parse_argv(argv: &[String]) -> Result<LaunchRequest, String> {
     let mut request = LaunchRequest {
+        acp: false,
         expert_id: None,
         inputs: Map::new(),
         passthrough: Vec::new(),
@@ -203,6 +212,7 @@ fn parse_argv(argv: &[String]) -> Result<LaunchRequest, String> {
                     .ok_or("--berth-provider requires one file")?;
                 request.provider_file = Some(PathBuf::from(file));
             }
+            "--acp" => request.acp = true,
             "--berth-expert" => {
                 let id = args
                     .next()
@@ -584,11 +594,11 @@ fn set_agent_tty() {
 struct TempDir(PathBuf);
 
 impl TempDir {
-    fn create(id: &str) -> Result<Self, String> {
+    fn create(id: &str, pid: u32) -> Result<Self, String> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.subsec_nanos());
-        let path = std::env::temp_dir().join(format!("berth-{id}-{}-{nanos}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("berth-{id}-{pid}-{nanos}"));
         #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
@@ -604,6 +614,18 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// 父进程 pid（ACP 模式下是群组运行时）。
+#[cfg(unix)]
+fn owner_pid() -> u32 {
+    std::os::unix::process::parent_id()
+}
+
+// ponytail: 非 Unix 取不到父 pid，用自己的 pid，目录会在下次启动时被当作残留清掉；要支持 Windows 群组时改为运行时传入 pid。
+#[cfg(not(unix))]
+fn owner_pid() -> u32 {
+    std::process::id()
 }
 
 /// `TempDir` 靠 `Drop` 删除，进程被杀就留下：启动时清掉所属进程已死的目录。

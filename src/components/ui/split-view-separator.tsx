@@ -43,10 +43,15 @@ export const SplitHandle = function SplitHandle({
   const a11y = context.getHandleA11y(handleId)
 
   const { registerHandle, unregisterHandle } = context
+  // 注册与注销分开：属性变化只走更新、保留序号。合在一起时切换 disabled 会先注销再注册，
+  // 拿到新序号排到最后，与其他 handle 互换槽位（侧栏收起后辅助面板的分隔条跑到左边）。
   useLayoutEffect(() => {
     registerHandle({ id: handleId, disabled, onDragging })
-    return () => unregisterHandle(handleId)
-  }, [disabled, handleId, onDragging, registerHandle, unregisterHandle])
+  }, [disabled, handleId, onDragging, registerHandle])
+  useLayoutEffect(
+    () => () => unregisterHandle(handleId),
+    [handleId, unregisterHandle]
+  )
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     onPointerDown?.(event)

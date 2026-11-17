@@ -247,11 +247,14 @@ async function writeSessionModels(
   )
 }
 
-/** 启动栏输入 → pi 参数。要看选中的服务商，所以在 launch 里算，args 钩子不用。 */
-async function inputArgs(/** @type {import("berth").LaunchContext} */ ctx) {
+/** 启动栏输入 → pi 参数。要看选中的服务商，所以在 launch 里算，args 钩子不用。ACP 模式下会话由适配器管，不带会话与首条消息。 */
+async function inputArgs(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  acp = false
+) {
   const inputs = ctx.inputs
   const args = []
-  const session = textInput(inputs, "session")
+  const session = acp ? null : textInput(inputs, "session")
   if (session) args.push("--session", session)
   if ("thinking" in inputs) args.push("--thinking", String(inputs.thinking))
   let provider = textInput(inputs, "provider")
@@ -273,10 +276,26 @@ async function inputArgs(/** @type {import("berth").LaunchContext} */ ctx) {
   if (trust !== undefined)
     args.push(trust === "approve" ? "--approve" : "--no-approve")
   // promptInput：派发的任务作为交互会话的首条消息（`pi [--] [messages...]`，无 -p 即交互）
-  const prompt = textInput(inputs, "prompt")
+  const prompt = acp ? null : textInput(inputs, "prompt")
   if (prompt) args.push("--", prompt)
   return args
 }
+
+// ACP 模式（群组）：pi-acp 锁版本装在插件数据目录（install.sh），它起 pi 时不让加参数，经包装脚本带上。
+const PI_ACP = "pi-acp@0.0.34"
+// 群组里不接终端状态 hook（运行时直接收发），换成审批扩展：每个工具调用先经 session/request_permission。
+const ACP_EXTENSIONS = {
+  drop: "berth-agent-status.ts",
+  add: "berth-approve.ts",
+}
+
+/** pi 按工作目录分的会话子目录名（同 pi `getDefaultSessionDirPath`）：`/tmp/a` → `--tmp-a--`。 */
+const piSessionDirName = (/** @type {string} */ cwd) =>
+  `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`
+
+/** sh 单引号转义。 */
+const shellQuote = (/** @type {string} */ text) =>
+  `'${text.replace(/'/g, `'\\''`)}'`
 
 // 已知的运行状态，软链进会话没有上下文影响；其余条目在启动清单里报 unknown，CLI 升级新增的目录能被看到。
 const KNOWN_STATE = new Set([
@@ -386,6 +405,90 @@ async function reportAssets(
   ctx.report?.(items)
 }
 
+/** launch 与 acp 共用的装配：隔离 agent 目录、专家资产、服务商 → pi 参数与环境。 */
+async function assemble(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  acp = false
+) {
+  const { home, package: pkg } = ctx.paths
+  const global = await loadGlobal(pkg)
+  const expert = ctx.expert
+  const skills = expert?.skills ?? []
+  const servers = expert?.mcp ?? {}
+  // 专家插件：Pi 原生包整目录 --extension（Pi 自己读 package.json#pi，连带其 skills）；否则跳过。
+  const packages = (expert?.plugins ?? []).map((plugin) => plugin.path)
+  // Agent 级扩展（如 berth-agent-status.ts）是 Berth 跑 Pi 的一部分，随 Pi 工具包放在 private/extensions/。
+  const extensions = []
+  const ids = acp
+    ? [
+        ...global.extensions.filter(
+          (/** @type {string} */ id) => id !== ACP_EXTENSIONS.drop
+        ),
+        ACP_EXTENSIONS.add,
+      ]
+    : global.extensions
+  for (const id of ids) {
+    const path = `${pkg}/private/extensions/${id}`
+    if (!(await fs.stat(path)))
+      throw new Error(`pi extension not found: ${path}`)
+    extensions.push(path)
+  }
+
+  const args = []
+  if (expert?.prompt) args.push("--append-system-prompt", expert.prompt)
+  const memory = await memoryIndex(ctx)
+  if (memory?.text) args.push("--append-system-prompt", memory.text)
+  if (ctx.brief) args.push("--append-system-prompt", ctx.brief)
+  for (const skill of skills) args.push("--skill", skill.path)
+  for (const extension of [...extensions, ...packages])
+    args.push("--extension", extension)
+
+  // ~/.agents/skills 按 $HOME 定位，Pi 没有单独关闭它的开关：非空时在计划里标出，不静默放过。
+  const sharedSkills = `${home}/.agents/skills`
+  const agentDir = `${ctx.paths.tmp}/agent`
+  await fs.mkdir(agentDir, { mode: 0o700 })
+  const settings = await prepareAgentDir(home, agentDir, global)
+  if (acp) {
+    // 启动横幅会被 pi-acp 当回答推给客户端，混进第一轮回答。
+    settings.quietStartup = true
+    await fs.writeText(
+      `${agentDir}/settings.json`,
+      JSON.stringify(settings, null, 2) + "\n"
+    )
+  }
+  /** @type {Record<string, string>} */
+  let providerEnv = {}
+  if (ctx.provider) {
+    const { providers, env } = berthProviders(ctx.provider)
+    providerEnv = env
+    await writeSessionModels(home, agentDir, providers)
+  }
+  if (Object.keys(servers).length) {
+    const configPath = `${agentDir}/berth-mcp.json`
+    await fs.writeText(
+      configPath,
+      JSON.stringify({ mcpServers: servers }, null, 2) + "\n",
+      { mode: 0o600 }
+    )
+    args.push("--mcp-config", configPath)
+  }
+  const sharedNames =
+    (await fs.stat(sharedSkills))?.kind === "dir"
+      ? (await fs.list(sharedSkills)).sort()
+      : []
+  ctx.plan({
+    expert: expert?.id ?? null,
+    skills: skills.map((skill) => skill.name),
+    extensions: global.extensions,
+    mcp: Object.keys(servers).sort(),
+    packages: (settings.packages ?? []).map(packageSource),
+    sharedSkillsNotIsolated: sharedNames,
+  })
+  await reportAssets(ctx, sharedNames, memory)
+  const env = { ...providerEnv, PI_CODING_AGENT_DIR: agentDir }
+  return { args: [...args, ...(await inputArgs(ctx, acp))], env }
+}
+
 /** @type {import("berth").AgentHooks} */
 export default {
   /** Pi 原生包：package.json 有 `pi` 清单，或有约定的 extensions/ 目录（docs/packages.md）。 */
@@ -399,70 +502,37 @@ export default {
   },
 
   async launch(ctx) {
-    const { home, package: pkg } = ctx.paths
-    const global = await loadGlobal(pkg)
-    const expert = ctx.expert
-    const skills = expert?.skills ?? []
-    const servers = expert?.mcp ?? {}
-    // 专家插件：Pi 原生包整目录 --extension（Pi 自己读 package.json#pi，连带其 skills）；否则跳过。
-    const packages = (expert?.plugins ?? []).map((plugin) => plugin.path)
-    // Agent 级扩展（如 berth-agent-status.ts）是 Berth 跑 Pi 的一部分，随 Pi 工具包放在 private/extensions/。
-    const extensions = []
-    for (const id of global.extensions) {
-      const path = `${pkg}/private/extensions/${id}`
-      if (!(await fs.stat(path)))
-        throw new Error(`pi extension not found: ${path}`)
-      extensions.push(path)
-    }
+    const { args, env } = await assemble(ctx)
+    return await process.run("pi", [...args, ...ctx.args], { env })
+  },
 
-    const args = []
-    if (expert?.prompt) args.push("--append-system-prompt", expert.prompt)
-    const memory = await memoryIndex(ctx)
-    if (memory?.text) args.push("--append-system-prompt", memory.text)
-    if (ctx.brief) args.push("--append-system-prompt", ctx.brief)
-    for (const skill of skills) args.push("--skill", skill.path)
-    for (const extension of [...extensions, ...packages])
-      args.push("--extension", extension)
-
-    // ~/.agents/skills 按 $HOME 定位，Pi 没有单独关闭它的开关：非空时在计划里标出，不静默放过。
-    const sharedSkills = `${home}/.agents/skills`
-    const agentDir = `${ctx.paths.tmp}/agent`
-    await fs.mkdir(agentDir, { mode: 0o700 })
-    const settings = await prepareAgentDir(home, agentDir, global)
-    /** @type {Record<string, string>} */
-    let providerEnv = {}
-    if (ctx.provider) {
-      const { providers, env } = berthProviders(ctx.provider)
-      providerEnv = env
-      await writeSessionModels(home, agentDir, providers)
-    }
-    if (Object.keys(servers).length) {
-      const configPath = `${agentDir}/berth-mcp.json`
-      await fs.writeText(
-        configPath,
-        JSON.stringify({ mcpServers: servers }, null, 2) + "\n",
-        { mode: 0o600 }
+  async acp(ctx) {
+    const bin = `${berth.storage.dir}/acp/node_modules/.bin/pi-acp`
+    if (!(await fs.stat(bin)))
+      throw new Error(
+        `${PI_ACP} 未安装（${bin}），在 设置 → 工具 → Pi 重新安装`
       )
-      args.push("--mcp-config", configPath)
-    }
-    const sharedNames =
-      (await fs.stat(sharedSkills))?.kind === "dir"
-        ? (await fs.list(sharedSkills)).sort()
-        : []
-    ctx.plan({
-      expert: expert?.id ?? null,
-      skills: skills.map((skill) => skill.name),
-      extensions: global.extensions,
-      mcp: Object.keys(servers).sort(),
-      packages: (settings.packages ?? []).map(packageSource),
-      sharedSkillsNotIsolated: sharedNames,
-    })
-    await reportAssets(ctx, sharedNames, memory)
-    const env = { ...providerEnv, PI_CODING_AGENT_DIR: agentDir }
-    return await process.run(
-      "pi",
-      [...args, ...(await inputArgs(ctx)), ...ctx.args],
-      { env }
+    const { args, env } = await assemble(ctx, true)
+    const pi = (await process.which("pi")) ?? "pi"
+    const wrap = `${ctx.paths.tmp}/pi-acp-wrap`
+    // 会话目录给真实路径：否则 pi 报的会话文件在临时 agent 目录下（经软链），pi-acp 把这个路径记进
+    // ~/.pi/pi-acp/session-map.json，临时目录删掉后 load 打开的是空文件，上下文丢失、之后的对话也不落盘。
+    // 须是 pi 默认的按目录分的子目录：终端里 `pi --session <id>`、Berth 的会话列表都只在那里找。
+    const sessions = [
+      "--session-dir",
+      `${piSourceDir(ctx.paths.home)}/sessions/${piSessionDirName(ctx.paths.cwd)}`,
+    ]
+    await fs.writeText(
+      wrap,
+      `#!/bin/sh\nexec ${[pi, ...sessions, ...args, ...ctx.args].map(shellQuote).join(" ")} "$@"\n`,
+      { mode: 0o700 }
     )
+    return {
+      argv: [bin],
+      env: { ...env, PI_ACP_PI_COMMAND: wrap },
+      // pi-acp 0.0.34 收下 mcpServers 却不交给 pi（S0 实测）
+      delegation: false,
+      approvesAllTools: true,
+    }
   },
 }

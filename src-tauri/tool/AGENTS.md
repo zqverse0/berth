@@ -52,6 +52,9 @@ CLI：`berth tools enable|disable|install <git>|update|remove`；GUI：设置页
 （`optionsFrom`）才改 Rust/React。`optionsFrom: "experts"` 加载时读取
 `$BERTH_HOME/experts/*.json`。
 
+群组成员走 `launch.js` 的 `acp(ctx)`：插件返回适配器 argv / env 与能力声明，进程由群组运行时起，
+Berth 不按 Agent 写 ACP 翻译（`docs/agent-contracts.md`「群组 ACP 模式」）。
+
 ## 按需细则
 
 | 需要 | 读 |

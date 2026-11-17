@@ -40,6 +40,10 @@ pub enum ToolAssetsRequest {
     Install {
         source: String,
     },
+    /// 按来源重装已安装的插件，返回刷新后的列表。
+    Update {
+        id: String,
+    },
     /// 删除插件目录与它的状态条目，返回刷新后的列表。
     Remove {
         id: String,
@@ -83,6 +87,8 @@ pub struct ToolCatalogEntry {
     /// 包内 `icon.svg|icon.png` 的 data URL。
     pub icon: Option<String>,
     pub installed: bool,
+    /// 本机已装包的版本；与 `version` 不同即可更新。
+    pub installed_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -145,6 +151,14 @@ pub async fn tool_assets(
             })
             .await
         }
+        ToolAssetsRequest::Update { id } => {
+            blocking(move || {
+                berth_tool_core::plugins::update(&id)
+                    .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
+                list()
+            })
+            .await
+        }
         ToolAssetsRequest::Remove { id } => {
             berth_tool_core::plugins::remove(&id)
                 .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
@@ -175,6 +189,11 @@ fn catalog() -> Result<ToolAssetsResponse, AppCommandError> {
             version: version_text(&raw),
             icon: crate::commands::launchbar::icon_data_url(dir).ok().flatten(),
             installed: installed.contains(&id),
+            installed_version: installed
+                .contains(&id)
+                .then(|| crate::tool::asset_repository::load_tool_asset(&id).ok().flatten())
+                .flatten()
+                .and_then(|asset| version_text(asset.raw())),
             id,
         }
     })

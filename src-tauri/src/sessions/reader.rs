@@ -471,6 +471,13 @@ pub fn title_from_user_text(text: &str) -> String {
 
 /// Aggregate turn-level usage and duration into a single `SessionStats`.
 pub fn compute_session_stats(turns: &[MessageTurn]) -> Option<SessionStats> {
+    usage_stats(turns.iter().map(|turn| (turn.usage.as_ref(), turn.duration_ms)))
+}
+
+/// 按每一轮的（用量，耗时）合计；会话索引没有整轮内容时也用它。
+pub fn usage_stats<'a>(
+    turns: impl IntoIterator<Item = (Option<&'a TurnUsage>, Option<u64>)>,
+) -> Option<SessionStats> {
     let mut total_in = 0u64;
     let mut total_out = 0u64;
     let mut total_cache_create = 0u64;
@@ -478,15 +485,15 @@ pub fn compute_session_stats(turns: &[MessageTurn]) -> Option<SessionStats> {
     let mut total_duration = 0u64;
     let mut has_data = false;
 
-    for turn in turns {
-        if let Some(ref u) = turn.usage {
+    for (usage, duration_ms) in turns {
+        if let Some(u) = usage {
             total_in += u.input_tokens;
             total_out += u.output_tokens;
             total_cache_create += u.cache_creation_input_tokens;
             total_cache_read += u.cache_read_input_tokens;
             has_data = true;
         }
-        if let Some(d) = turn.duration_ms {
+        if let Some(d) = duration_ms {
             total_duration += d;
         }
     }
