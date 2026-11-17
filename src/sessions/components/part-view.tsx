@@ -86,7 +86,7 @@ function kindIcon(kind: string): ReactNode {
 }
 
 /** 工具组摘要用的分类（沿用 `Folder.chat.contentParts.toolGroup` 的文案）。 */
-const GROUP_KIND: Record<string, string> = {
+const GROUP_KIND: Record<string, GroupKind> = {
   command: "command",
   edit: "edit",
   read: "read",
@@ -106,7 +106,8 @@ const GROUP_ORDER = [
   "todo",
   "think",
   "other",
-]
+] as const
+type GroupKind = (typeof GROUP_ORDER)[number]
 
 /** 自成一张卡、不并进工具组的种类。 */
 const STANDALONE = new Set(["plan", "question", "delegate"])
@@ -446,7 +447,7 @@ function ToolRun({
 }) {
   const t = useTranslations("Folder.chat.contentParts.toolGroup")
   const [open, setOpen] = useState(false)
-  const counts = new Map<string, number>()
+  const counts = new Map<GroupKind, number>()
   let errors = 0
   for (const { call, result } of items) {
     const kind = GROUP_KIND[call.part.kind] ?? "other"
