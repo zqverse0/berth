@@ -62,6 +62,8 @@ enum GroupCommand {
         #[arg(long)]
         cwd: Option<PathBuf>,
     },
+    /// 设负责人：没 @ 谁的消息发给它；不给成员即清除。
+    Lead { name: String, member: Option<String> },
     /// 应答 ACP 成员的审批请求：`<请求 seq> <选项 id>`，不给选项即取消。
     Approve {
         name: String,
@@ -174,6 +176,7 @@ fn execute(ctx: &Ctx, command: GroupCommand) -> TaskResult<Value> {
             let inputs = expert.map(|expert| ("expert".to_owned(), json!(expert))).into_iter().collect();
             berth_group::join_acp(ctx, &name, &as_name, &acp, inputs, None, cwd)
         }
+        GroupCommand::Lead { name, member } => berth_group::lead(ctx, &name, member.as_deref()),
         GroupCommand::Approve { name, request, option } => berth_group::approve(ctx, &name, request, option),
         GroupCommand::Member { name, member, action, terminal } => {
             berth_group::control(ctx, &name, &member, &action, terminal)

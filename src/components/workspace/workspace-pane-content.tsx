@@ -93,6 +93,9 @@ export function WorkspacePaneContent({
   }, [pane, activeKey, homeOver])
   const showHome =
     pane === "files" && !hidden && (activeKey === "" || homeOver === activeKey)
+  // 首页是群对话：显示过就一直挂着（隐藏），切去文件再切回来草稿、滚动位置都在。
+  const [homeMounted, setHomeMounted] = useState(showHome)
+  if (showHome && !homeMounted) setHomeMounted(true)
   const fileVisible = !hidden && !showHome && activeFileTabId !== null
   // Exactly one file panel owns save shortcuts and the document context.
   const fileActive = fileVisible && activeFileTabId === storeActiveFileTabId
@@ -130,8 +133,11 @@ export function WorkspacePaneContent({
       <div className="pointer-events-none absolute inset-0">
         <ConversationDetailPanel pane={pane} hidden={hidden} />
       </div>
-      {showHome && (
-        <div className="absolute inset-0 z-10">
+      {homeMounted && (
+        <div
+          className={cn("absolute inset-0 z-10", !showHome && "hidden")}
+          inert={!showHome || undefined}
+        >
           <Suspense fallback={null}>
             <LazyProjectHome />
           </Suspense>

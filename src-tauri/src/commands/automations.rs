@@ -100,6 +100,8 @@ async fn dispatch(
             }
         })?;
     let mut created_terminal_id = None;
+    // 例行发群：Some(发出的 seq)，成员正忙为 Some(None)。
+    let mut posted = None;
     let result = async {
         let folder_id = model.root_folder_id.ok_or_else(|| {
             AppCommandError::new(AppErrorCode::InvalidInput, "automation has no folder")
@@ -116,11 +118,30 @@ async fn dispatch(
                     "legacy automation config cannot be dispatched",
                 )
             })?;
-        if config.schema != automation_service::TUI_CONFIG_SCHEMA {
+        if automation_service::config(&model).is_none() {
             return Err(AppCommandError::new(
                 AppErrorCode::ConfigurationInvalid,
                 "legacy automation config cannot be dispatched",
             ));
+        }
+        if let Some(member) = config.member.clone() {
+            let (socket, env) = manager.cli_launch().ok_or_else(|| {
+                AppCommandError::new(
+                    AppErrorCode::DependencyMissing,
+                    "Berth terminal is unavailable",
+                )
+            })?;
+            let seq = crate::berth_tasks::collaboration::routine(
+                PathBuf::from(&folder.path),
+                member,
+                config.prompt.clone(),
+                format!("routine:{}", run.id),
+                crate::berth_tasks::collaboration::CliLaunch { socket, env },
+            )
+            .await
+            .map_err(|error| AppCommandError::new(AppErrorCode::TaskExecutionFailed, error))?;
+            posted = Some(seq);
+            return Ok(());
         }
         let launch = launch_plan(&model, &config, &folder.path, &run)?;
         let descriptor = create_terminal_core(
@@ -164,6 +185,11 @@ async fn dispatch(
             RunOutcome::Failed(error),
         )
         .await?;
+    } else if let Some(posted) = posted {
+        match posted {
+            Some(seq) => automation_service::mark_posted(&db.conn, run.clone(), seq).await?,
+            None => automation_service::skip_run(&db.conn, run.clone(), "member is busy").await?,
+        }
     } else {
         automation_service::mark_dispatched(
             &db.conn,
@@ -177,7 +203,7 @@ async fn dispatch(
         )
         .await?;
     }
-    if trigger == "manual" && error.is_none() {
+    if trigger == "manual" && error.is_none() && posted != Some(None) {
         automation_service::record_last_run(&db.conn, model.clone(), "running").await?;
     }
     let runs = automation_service::list_runs(&db.conn, model.id).await?;
@@ -437,6 +463,53 @@ async fn task_run_of(
     Some((path, continue_prompt(&task, &config.prompt)))
 }
 
+/// 例行发群的运行：（主项目目录，自动化名，收件成员，发出的 seq）；不是例行发群为 `None`。
+async fn routine_of(
+    db: &AppDatabase,
+    run: &berth_project_core::entities::automation_run::Model,
+) -> Option<(PathBuf, String, String, u64)> {
+    let seq = run
+        .connection_id
+        .as_deref()?
+        .strip_prefix("group:")?
+        .parse()
+        .ok()?;
+    let model = automation_service::get_model(&db.conn, run.automation_id)
+        .await
+        .ok()?;
+    let member = automation_service::config(&model)?.member?;
+    let main = task_root(db, &model).await?;
+    Some((main, model.name, member, seq))
+}
+
+/// 例行发群失败后结算：头一次失败自动重试一次；重试的结局才计入连续失败，失败就在群里告诉用户。
+async fn after_routine(
+    db: &AppDatabase,
+    manager: &TerminalSessionManager,
+    emitter: &EventEmitter,
+    run: &berth_project_core::entities::automation_run::Model,
+    (main, name, member, _): (PathBuf, String, String, u64),
+    error: Option<String>,
+) {
+    if error.is_some() && run.trigger != "retry" {
+        if let Ok(model) = automation_service::get_model(&db.conn, run.automation_id).await {
+            let _ = dispatch(db, manager, emitter.clone(), model, "retry", None).await;
+        }
+        return;
+    }
+    let Ok(failures) =
+        automation_service::count_failure(&db.conn, run.automation_id, error.is_some()).await
+    else {
+        return;
+    };
+    if let Some(error) = error {
+        let text = format!("例行「{name}」重试后仍失败（连续 {failures} 次）：{error}");
+        if let Err(error) = berth_group::routine_failed(&main, &member, &text) {
+            tracing::warn!(run_id = run.id, error = %error.message, "routine failure notice failed");
+        }
+    }
+}
+
 /// 运行上限：超过仍没交结果就记超时（终端留着可接管）。
 const TASK_RUN_LIMIT: Duration = Duration::from_secs(2 * 60 * 60);
 /// 刚启动的一分钟不判空闲：首条消息可能还没进一轮。
@@ -598,7 +671,22 @@ pub async fn scheduler_tick(
                 Some(_) => task_run_of(db, &run).await,
                 None => None,
             };
-            let outcome = if let (Some(terminal_id), Some((result_path, continue_text))) =
+            let routine = match terminal_id {
+                Some(_) => None,
+                None => routine_of(db, &run).await,
+            };
+            let outcome = if let Some((main, _, member, seq)) = &routine {
+                match berth_group::routine_outcome(main, member, *seq) {
+                    Ok(Some(Ok(answer))) => RunOutcome::Answered(answer),
+                    Ok(Some(Err(reason))) => RunOutcome::Failed(reason),
+                    _ if (Utc::now() - run.created_at).to_std().unwrap_or_default()
+                        >= TASK_RUN_LIMIT =>
+                    {
+                        RunOutcome::TimedOut
+                    }
+                    _ => continue,
+                }
+            } else if let (Some(terminal_id), Some((result_path, continue_text))) =
                 (terminal_id.as_deref(), task_run)
             {
                 let submitted = result_path
@@ -685,10 +773,19 @@ pub async fn scheduler_tick(
             };
             let automation_id = run.automation_id;
             let run_id = run.id;
+            let failure = match &outcome {
+                RunOutcome::Answered(_) => None,
+                RunOutcome::TimedOut => Some("超时没有回答".to_owned()),
+                RunOutcome::Failed(error) => Some(error.clone()),
+                other => Some(format!("{other:?}")),
+            };
             if matches!(
-                automation_service::settle_run(&db.conn, run, terminal_id, outcome).await,
+                automation_service::settle_run(&db.conn, run.clone(), terminal_id, outcome).await,
                 Ok(true)
             ) {
+                if let Some(routine) = routine {
+                    after_routine(db, manager, &emitter, &run, routine, failure).await;
+                }
                 unavailable_since.remove(&run_id);
                 continued.remove(&run_id);
                 if let Ok(model) = automation_service::get_model(&db.conn, automation_id).await {

@@ -12,7 +12,6 @@ import {
 } from "react"
 import { startFileDrag } from "@/lib/platform"
 import {
-  BookOpen,
   Check,
   ChevronRight,
   File,
@@ -26,10 +25,6 @@ import {
 import { useTranslations } from "next-intl"
 import { dismissToast, toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import {
-  useBrowsedReference,
-  useReferenceBrowseStore,
-} from "@/lib/workspace/reference-browse"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
@@ -260,7 +255,6 @@ export function FileTreeTab({
   const tCommon = useTranslations("Folder.common")
   const tSearch = useTranslations("Folder.search")
   const tTerminal = useTranslations("Folder.terminal")
-  const tMembers = useTranslations("ProjectMembers")
   const pendingRevealPath = useAppUiStore((state) => state.pendingRevealPath)
   const consumePendingRevealPath = useAppUiStore(
     (state) => state.consumePendingRevealPath
@@ -272,16 +266,7 @@ export function FileTreeTab({
   // janking the switch. All path-keyed work (store subscription, <FileTree key>,
   // fetch effects) rides the deferred folder; same-path metadata churn is a
   // no-op since the tree derives from the store snapshot, not folder identity.
-  const { activeFolder: memberFolder } = useActiveFolder()
-  // 侧栏点了参考成员：树换成参考目录（身份仍是当前成员，打开的文件归本项目）。
-  const referencePath = useBrowsedReference(memberFolder?.id)
-  const activeFolder = useMemo(
-    () =>
-      memberFolder && referencePath
-        ? { ...memberFolder, path: referencePath }
-        : memberFolder,
-    [memberFolder, referencePath]
-  )
+  const { activeFolder } = useActiveFolder()
   const folder = useDeferredValue(activeFolder)
   // True while the deferred render lags a cross-folder switch. During that gap we
   // render the loading skeleton (below) instead of the PREVIOUS folder's tree:
@@ -2252,27 +2237,6 @@ export function FileTreeTab({
           onClick={() => handleRequestCreate(createParentDir, "dir")}
         />
       </SidebarHeaderActions>
-      {referencePath && memberFolder ? (
-        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/50 px-3 text-xs text-muted-foreground">
-          <BookOpen className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate" title={referencePath}>
-            {tMembers("browsingReference")} ·{" "}
-            {referencePath
-              .replace(/[\\/]+$/, "")
-              .split(/[\\/]/)
-              .pop()}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 hover:text-foreground"
-            onClick={() =>
-              useReferenceBrowseStore.getState().browse(memberFolder.id, null)
-            }
-          >
-            {tMembers("backToMember", { name: memberFolder.name })}
-          </button>
-        </div>
-      ) : null}
       {fileSearchBar}
       {fileSearchActive && fileSearchResults}
       {!fileSearchActive && folder.path && (

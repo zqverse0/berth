@@ -9,11 +9,11 @@ use sea_orm::{
 
 use crate::agent::AgentType;
 use crate::entities::folder::FolderKind;
-use crate::entities::{automation_run, folder, project, project_reference};
+use crate::entities::{automation_run, folder, project};
 use crate::error::DbError;
 use crate::service::folder::{
     CheckoutView, FolderDetail, FolderHistoryEntry, ProjectMember, ProjectSummary, ProjectView,
-    ReferenceView, UntrackedCheckout,
+    UntrackedCheckout,
 };
 
 fn to_entry(m: folder::Model) -> FolderHistoryEntry {
@@ -285,7 +285,7 @@ pub async fn project_for_dir(
     }
 }
 
-/// 只读的项目视图（检出 + 参考）；检出的 `agents` 留空给调用方填。
+/// 只读的项目视图（检出与未加入的检出）；检出的 `agents` 留空给调用方填。
 pub async fn project_view(
     conn: &DatabaseConnection,
     project: &project::Model,
@@ -310,67 +310,8 @@ pub async fn project_view(
             .map(|checkout| checkout.path.clone())
             .unwrap_or_default(),
         checkouts,
-        references: list_references(conn, project.id)
-            .await?
-            .into_iter()
-            .map(|path| ReferenceView { path })
-            .collect(),
         untracked: untracked_checkouts(conn, project.id).await?,
     })
-}
-
-/// 项目的参考成员路径（加入顺序）。
-pub async fn list_references(
-    conn: &DatabaseConnection,
-    project_id: i32,
-) -> Result<Vec<String>, DbError> {
-    Ok(project_reference::Entity::find()
-        .filter(project_reference::Column::ProjectId.eq(project_id))
-        .order_by_asc(project_reference::Column::Id)
-        .all(conn)
-        .await?
-        .into_iter()
-        .map(|reference| reference.path)
-        .collect())
-}
-
-/// 加入参考成员：必须是已存在的目录，存规范化路径；已在时不重复。返回存下的路径。
-pub async fn add_reference(
-    conn: &DatabaseConnection,
-    project_id: i32,
-    path: &str,
-) -> Result<String, DbError> {
-    let dir = std::fs::canonicalize(path)
-        .ok()
-        .filter(|dir| dir.is_dir())
-        .ok_or_else(|| DbError::NotFound(format!("{path} is not an existing directory")))?;
-    let path = dir.to_string_lossy().into_owned();
-    if !list_references(conn, project_id).await?.contains(&path) {
-        project_reference::ActiveModel {
-            id: NotSet,
-            project_id: Set(project_id),
-            path: Set(path.clone()),
-            created_at: Set(Utc::now()),
-        }
-        .insert(conn)
-        .await?;
-    }
-    Ok(path)
-}
-
-/// 移除参考成员（按路径，软链与真实路径都认）；不在时返回 `false`。不动磁盘上的目录。
-pub async fn remove_reference(
-    conn: &DatabaseConnection,
-    project_id: i32,
-    path: &str,
-) -> Result<bool, DbError> {
-    let path = canonical_or_raw(path).to_string_lossy().into_owned();
-    let removed = project_reference::Entity::delete_many()
-        .filter(project_reference::Column::ProjectId.eq(project_id))
-        .filter(project_reference::Column::Path.eq(path))
-        .exec(conn)
-        .await?;
-    Ok(removed.rows_affected > 0)
 }
 
 /// 打开（登记）一个目录：已属于某项目就保持；新目录自成一个项目，自己是主成员。
@@ -553,12 +494,11 @@ async fn create_project<C: ConnectionTrait>(
     Ok(created.id)
 }
 
-/// 成员变动后收尾：没有成员的项目删掉（连同参考成员），主成员已不在的改指最早登记的成员。
+/// 成员变动后收尾：没有成员的项目删掉，主成员已不在的改指最早登记的成员。
 async fn prune_projects<C: ConnectionTrait>(conn: &C) -> Result<(), DbError> {
     const LIVE: &str = "SELECT id FROM folder WHERE deleted_at IS NULL AND project_id = project.id";
     for sql in [
         format!("DELETE FROM project WHERE NOT EXISTS ({LIVE})"),
-        "DELETE FROM project_reference WHERE project_id NOT IN (SELECT id FROM project)".to_owned(),
         format!(
             "UPDATE project SET main_folder_id = ({LIVE} ORDER BY id LIMIT 1) \
              WHERE main_folder_id NOT IN ({LIVE})"

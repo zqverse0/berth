@@ -154,6 +154,7 @@ impl Acp {
         let present = group::members(events);
         // 移出群的：断开连接即停掉进程（crate 杀整个进程组），正在答的那轮标为中断。
         self.workers.retain(|name, _| present.iter().any(|member| &member.name == name));
+        let settings = group::settings(&ctx.main, group::MAIN_GROUP).ok();
         for event in events.iter().filter(|event| group::seq(event) > since) {
             let action = text(event, "event");
             if !matches!(action, Some("acp_stop" | "acp_new" | "acp_handoff")) || !self.answered.insert(group::seq(event)) {
@@ -176,7 +177,7 @@ impl Acp {
             if handed(events, &member.name).is_some() {
                 continue;
             }
-            let pending = deliver::pending(&ctx.main, group::MAIN_GROUP, events, &member);
+            let (mut since, pending) = deliver::pending(&ctx.main, group::MAIN_GROUP, events, &member);
             let Some(last) = pending.last().map(|event| group::seq(event)) else {
                 continue;
             };
@@ -203,10 +204,19 @@ impl Acp {
             let worker = &self.workers[&member.name];
             for event in &pending {
                 worker.busy.store(true, Ordering::SeqCst);
+                let seq = group::seq(event);
+                // 群上下文：上次投递之后群里其他人的话，只补增量，不因群事件重开会话。
+                let room = settings
+                    .as_ref()
+                    .and_then(|settings| {
+                        deliver::room_window(events, &member.name, since, seq, settings.context_items, settings.context_chars)
+                    })
+                    .unwrap_or_default();
+                since = seq;
                 let _ = worker.tx.unbounded_send(Cmd::Prompt {
-                    seq: group::seq(event),
+                    seq,
                     from: text(event, "author").unwrap_or(group::USER).to_owned(),
-                    text: text(event, "text").unwrap_or_default().to_owned(),
+                    text: format!("{room}{}", text(event, "text").unwrap_or_default()),
                 });
             }
             let _ = group::set_delivered(&ctx.main, group::MAIN_GROUP, &member.name, &body.target_ref, last);
@@ -589,6 +599,14 @@ async fn converse(
                 let mut answer = turn.text.trim().to_owned();
                 if response.stop_reason == StopReason::Cancelled {
                     answer = if answer.is_empty() { "（已取消）".to_owned() } else { format!("{answer}\n\n（已取消）") };
+                } else if answer.is_empty() {
+                    // 一轮正常结束却一个字没说：不沉默，与中断 / 起不来同形的通知，带最后几步。
+                    let mut event = notice(&session.member.name, "turn_empty", Some(turn.seq), "这一轮没有回答");
+                    event["to"] = json!(turn.from);
+                    event["steps"] = json!(turn.steps[turn.steps.len().saturating_sub(5)..]);
+                    session.append(event);
+                    session.busy.store(!queue.is_empty(), Ordering::SeqCst);
+                    continue;
                 }
                 session.append(json!({
                     "kind": "message", "source": "transcript", "author": session.member.name, "to": turn.from,

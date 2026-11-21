@@ -130,7 +130,7 @@ export interface AppWorkspaceStoreState {
   setActiveFolderId: (id: number | null) => void
 }
 
-export type MemberFlags = Pick<ProjectMember, "stale" | "temporary">
+export type MemberFlags = Pick<ProjectMember, "stale">
 
 function computeStats(conversations: DbConversationSummary[]): AgentStats {
   const byAgent = new Map<AgentType, number>()
@@ -943,8 +943,7 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
           try {
             const members = await listProjectMembers(id)
             const memberFlags = new Map(get().memberFlags)
-            for (const { id, stale, temporary } of members)
-              memberFlags.set(id, { stale, temporary })
+            for (const { id, stale } of members) memberFlags.set(id, { stale })
             set({
               memberFlags,
               staleMembers: [

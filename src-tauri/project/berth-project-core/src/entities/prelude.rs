@@ -13,5 +13,4 @@ pub use super::opened_tab::Entity as OpenedTab;
 pub use super::primary_tab::Entity as PrimaryTab;
 pub use super::project::Entity as Project;
 pub use super::project_agent_session_index::Entity as ProjectAgentSessionIndex;
-pub use super::project_reference::Entity as ProjectReference;
 pub use super::quick_message::Entity as QuickMessage;

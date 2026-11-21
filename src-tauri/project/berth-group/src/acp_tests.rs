@@ -248,7 +248,8 @@ fn new_session_forgets_the_context() {
     crate::control(&fx.ctx(), group::MAIN_GROUP, MEMBER, "new", None).unwrap();
     fx.tick();
     let recall = fx.post("recall");
-    assert_eq!(fx.answer(recall)["text"], "");
+    // 新会话里什么都想不起来：空回答记成「没有回答」。
+    assert_eq!(fx.answer(recall)["event"], "turn_empty");
     assert_eq!(fx.log().matches("new ").count(), 2, "{}", fx.log());
 }
 
@@ -332,4 +333,14 @@ fn handoff_parks_the_member_until_it_is_returned_then_resumes_the_session() {
     assert!(crate::control(&ctx, group::MAIN_GROUP, MEMBER, "return", None).is_err());
     assert_eq!(fx.answer(recall)["text"], "say one");
     assert!(fx.log().contains("load "), "{}", fx.log());
+}
+
+#[test]
+fn empty_turn_is_reported_with_its_last_steps() {
+    let mut fx = Fixture::new(&[]);
+    let seq = fx.post("tool only");
+    let notice = fx.system("turn_empty");
+    assert_eq!((notice["reply_to"].clone(), notice["to"].clone()), (json!(seq), json!(group::USER)));
+    assert_eq!(notice["steps"], json!([{"text": "Run echo"}]));
+    assert_eq!(fx.member_messages(), 0);
 }

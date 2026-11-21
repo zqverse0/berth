@@ -4,14 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { GroupComposer } from "@/components/project-management/group/group-composer"
 import {
   memberRows,
   filterMemberEvents,
   type MemberRow,
 } from "@/components/project-management/group/group-model"
-import { GroupChatStrip } from "@/components/project-management/group/group-chat-strip"
 import { GroupLiveStatus } from "@/components/project-management/group/group-live-status"
 import { GroupPermissions } from "@/components/project-management/group/group-permissions"
 import { GroupTimeline } from "@/components/project-management/group/group-timeline"
@@ -19,26 +17,21 @@ import { usePaneActions } from "@/components/project-management/group/pane-actio
 import { useTaskGroup } from "@/components/project-management/group/use-task-group"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import {
-  BERTH_MEMBER,
   type GroupEvent,
   controlAcpMember,
-  joinAcpMember,
   memberAgent,
   memberLabel,
   newSendBatch,
   postToMember,
 } from "@/lib/agent/berth-group"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
-import { useAgentProfiles } from "@/hooks/use-agent-profiles"
-import type { AgentLaunchChoice } from "@/components/launchbar/use-launchbar"
-import { AgentLaunchShelfContent } from "@/components/layout/sidebar/agent-launch"
-import { launchbar } from "@/lib/transport/launchbar"
-import { createAndOpenPrimaryTerminalDetailed } from "@/lib/terminal/create-and-open-primary-terminal"
 import { terminateTerminalSessionIdempotent } from "@/lib/terminal/terminal-record-cleanup"
+import { handoffAcpMember } from "@/components/project-management/group/acp-handoff"
 
 /**
- * 群组面板固定在辅助面板里，跟随当前项目 / worktree（各自一个群）：成员聚焦、时间线与
- * 明确收件人的输入；任务和终端操作仍留在既有侧栏。调用方按 folderId 加 key 重建。
+ * 群对话主体，嵌在空间首页下部（一个空间一个群）：时间线（往上翻再读）、实时状态、审批卡片、输入框。
+ * 单聊对象由侧栏群组视图选（{@link useGroupWorkspaceStore}），群聊不指定收件人、由负责人兜底。
+ * 调用方按 folderId 加 key 重建。
  */
 export function GroupPanel({ folderId }: { folderId: number }) {
   const t = useTranslations("BerthTasks.group")
@@ -70,7 +63,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
   const storedFocus = useGroupWorkspaceStore((state) =>
     name && state.folderId === folderId && state.group === name
       ? state.focusedMember
-      : BERTH_MEMBER
+      : null
   )
   const setFocus = (member: string | null) => {
     if (!name) return
@@ -89,7 +82,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     rows.some((row) => row.member.name === storedFocus)
       ? storedFocus
       : null
-  const { agents } = useAgentProfiles()
   const [reply, setReply] = useState<GroupEvent | null>(null)
   // 回复 / 转给时收件人是这位成员（不一定是被引消息的作者）。
   const [replyMember, setReplyMember] = useState<string | null>(null)
@@ -184,15 +176,10 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     setReply(event)
   }, [])
   const forwardTo = useMemo(() => rows.map((row) => row.member.name), [rows])
-  // 收件人：回复 / 转给的对象 > 单聊的成员 > 群聊时全体在线成员（不含内置的 Berth：单聊它才发给它）。
+  // 收件人：回复 / 转给的对象 > 单聊的成员；群聊不指定，由后端交给负责人。
   const targets = useMemo(
-    () =>
-      reply && replyMember
-        ? [replyMember]
-        : focus
-          ? [focus]
-          : forwardTo.filter((name) => name !== BERTH_MEMBER),
-    [reply, replyMember, focus, forwardTo]
+    () => (reply && replyMember ? [replyMember] : focus ? [focus] : []),
+    [reply, replyMember, focus]
   )
   const openMemberTerminal = useCallback(
     (row: MemberRow) => {
@@ -207,27 +194,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
       }),
     [folderId, workspace]
   )
-
-  // 加成员：声明了 `agent.acp` 的插件以 ACP 成员入群，先在启动栏选专家 / 服务商 / 模型；
-  // 名字取插件 id（重名加序号），加完切到和它单聊。失败抛出，启动栏提示。
-  const addable = useMemo(() => agents.filter((agent) => agent.acp), [agents])
-  const rootPath = useAppWorkspaceStore(
-    (s) => s.allFolders.find((folder) => folder.id === folderId)?.path ?? null
-  )
-  const addMember = async (agent: string, choice: AgentLaunchChoice) => {
-    if (!name) return
-    const taken = new Set(group.members.map((m) => m.name))
-    let as = agent
-    for (let n = 2; taken.has(as); n += 1) as = `${agent}-${n}`
-    const response = await joinAcpMember(folderId, name, agent, as, {
-      inputs: choice.agentLaunchInputs,
-      provider: choice.providerId,
-      model: choice.modelId,
-    })
-    if (!response.ok) throw new Error(response.error.message)
-    group.refresh()
-    setFocus(as)
-  }
 
   // 和 ACP 成员单聊时的成员操作。
   const acpRow =
@@ -253,45 +219,20 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     group.refresh()
   }
 
-  // 在终端打开：先交接（运行时停掉进程，消息留着），再用同一份启动选择 + 会话 id 开终端，开好后登记终端。
-  // 同一会话同一时刻只在一处打开：交回时关掉那个终端，下一条群消息接着同一会话。
+  // 在终端打开：交接后用同一会话开终端（见 handoffAcpMember）。
   const handoffMember = async () => {
     if (!name || !acpRow) return
     const member = acpRow.member.name
-    const fail = (message: string) => toast.error(message)
-    const response = await controlAcpMember(folderId, name, member, "handoff")
-    if (!response.ok) return fail(response.error.message)
-    const handed = response.result
-    const config = await launchbar({ type: "load", agent: handed.agent })
-    const sessionItem =
-      config.type === "file"
-        ? (config.file.config?.items ?? []).find(
-            (item) => item.optionsFrom === "projectSessions"
-          )
-        : undefined
-    const opened = sessionItem
-      ? await createAndOpenPrimaryTerminalDetailed({
-          cwd: handed.cwd,
-          folderId,
-          title: labelOf(member),
-          agentContractId: handed.agent,
-          agentLaunchInputs: {
-            ...handed.inputs,
-            [sessionItem.id]: handed.session,
-          },
-          providerId: handed.provider,
-          modelId: handed.model,
-        }).catch(() => ({ terminalId: null }))
-      : { terminalId: null }
-    if (!opened.terminalId) {
-      await controlAcpMember(folderId, name, member, "return")
-      group.refresh()
-      return fail(
-        sessionItem ? t("acp.handoffFailed") : t("acp.handoffUnsupported")
-      )
-    }
-    await controlAcpMember(folderId, name, member, "handoff", opened.terminalId)
+    const failure = await handoffAcpMember(
+      folderId,
+      name,
+      member,
+      labelOf(member)
+    )
     group.refresh()
+    if (failure === "failed") toast.error(t("acp.handoffFailed"))
+    else if (failure === "unsupported") toast.error(t("acp.handoffUnsupported"))
+    else if (failure) toast.error(failure.message)
   }
   const returnMember = async (row: MemberRow) => {
     if (!name) return
@@ -337,10 +278,11 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     const batch = newSendBatch()
     const failed: string[] = []
     let firstError: string | null = null
-    for (const member of to) {
+    // 群聊不指定收件人：发一条到群里。
+    for (const member of to.length ? to : [undefined]) {
       const row = rows.find((row) => row.member.name === member)
       // 已不在群里的成员不发。
-      if (!row) {
+      if (member && !row) {
         failed.push(member)
         firstError ??= t("composer.unavailable", { names: labelOf(member) })
         continue
@@ -357,7 +299,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
         error: { message: String(cause) },
       }))
       if (!response.ok) {
-        failed.push(member)
+        if (member) failed.push(member)
         firstError ??= response.error.message
       }
     }
@@ -381,31 +323,6 @@ export function GroupPanel({ folderId }: { folderId: number }) {
       data-group-panel={name ?? ""}
       className="flex h-full min-h-0 flex-col bg-background ws-transparent-bg text-sm"
     >
-      {group.name && rows.length > 0 ? (
-        <GroupChatStrip
-          rows={rows}
-          addable={addable}
-          addForm={
-            rootPath
-              ? (agent, close) => (
-                  <AgentLaunchShelfContent
-                    agentId={agent}
-                    workingDirectory={rootPath}
-                    folderId={folderId}
-                    onClose={close}
-                    launch={(choice) => addMember(agent, choice)}
-                    launchLabel={t("add.join")}
-                  />
-                )
-              : undefined
-          }
-          focus={focus}
-          onFocus={(member) => {
-            setFocus(member)
-            setContext(null)
-          }}
-        />
-      ) : null}
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
           {group.error ? (
@@ -413,85 +330,110 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               {group.error}
             </p>
           ) : null}
-          {acpRow ? (
+          {focus ? (
             <div
-              data-acp-actions={acpRow.member.name}
+              data-acp-actions={acpRow?.member.name}
               className="flex shrink-0 items-center gap-1 border-b px-5 py-1 text-xs"
             >
-              {acpRow.member.handedTo != null ? (
+              <span className="truncate font-medium">
+                {t("focus.with", { name: labelOf(focus) })}
+              </span>
+              <button
+                type="button"
+                data-group-back
+                className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => setFocus(null)}
+              >
+                {t("focus.back")}
+              </button>
+              {acpRow ? (
                 <>
-                  <span className="px-2 text-muted-foreground">
-                    {t("acp.inTerminal")}
-                  </span>
-                  {acpRow.pane ? (
+                  {acpRow.member.handedTo != null ? (
+                    <>
+                      <span className="px-2 text-muted-foreground">
+                        {t("acp.inTerminal")}
+                      </span>
+                      {acpRow.pane ? (
+                        <button
+                          type="button"
+                          data-acp-action="jump"
+                          className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => openMemberTerminal(acpRow)}
+                        >
+                          {t("acp.jump")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        data-acp-action="return"
+                        title={t("acp.returnHint")}
+                        className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        onClick={() => void returnMember(acpRow)}
+                      >
+                        {t("acp.return")}
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
-                      data-acp-action="jump"
-                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => openMemberTerminal(acpRow)}
+                      data-acp-action="handoff"
+                      title={t("acp.handoffHint")}
+                      disabled={
+                        acpRow.member.busy ||
+                        !acpRow.member.bodies.some((body) => body.sessionId)
+                      }
+                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                      onClick={() =>
+                        void handoffMember().catch((cause: unknown) =>
+                          toast.error(String(cause))
+                        )
+                      }
                     >
-                      {t("acp.jump")}
+                      {t("acp.handoff")}
+                    </button>
+                  )}
+                  {acpRow.member.busy ? (
+                    <button
+                      type="button"
+                      data-acp-action="stop"
+                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      onClick={() => void controlMember("stop")}
+                    >
+                      {t("acp.stop")}
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    data-acp-action="return"
-                    title={t("acp.returnHint")}
-                    className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    onClick={() => void returnMember(acpRow)}
+                    data-acp-action="new"
+                    disabled={acpRow.member.handedTo != null}
+                    title={t("acp.newHint")}
+                    className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    onClick={() => void controlMember("new")}
                   >
-                    {t("acp.return")}
+                    {t("acp.new")}
+                  </button>
+                  <button
+                    type="button"
+                    data-acp-action="leave"
+                    title={t("acp.leaveHint")}
+                    className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void controlMember("leave")}
+                  >
+                    {t("acp.leave")}
                   </button>
                 </>
-              ) : (
-                <button
-                  type="button"
-                  data-acp-action="handoff"
-                  title={t("acp.handoffHint")}
-                  disabled={
-                    acpRow.member.busy ||
-                    !acpRow.member.bodies.some((body) => body.sessionId)
-                  }
-                  className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                  onClick={() =>
-                    void handoffMember().catch((cause: unknown) =>
-                      toast.error(String(cause))
-                    )
-                  }
-                >
-                  {t("acp.handoff")}
-                </button>
-              )}
-              {acpRow.member.busy ? (
-                <button
-                  type="button"
-                  data-acp-action="stop"
-                  className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={() => void controlMember("stop")}
-                >
-                  {t("acp.stop")}
-                </button>
               ) : null}
-              <button
-                type="button"
-                data-acp-action="new"
-                disabled={acpRow.member.handedTo != null}
-                title={t("acp.newHint")}
-                className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                onClick={() => void controlMember("new")}
-              >
-                {t("acp.new")}
-              </button>
-              <button
-                type="button"
-                data-acp-action="leave"
-                title={t("acp.leaveHint")}
-                className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => void controlMember("leave")}
-              >
-                {t("acp.leave")}
-              </button>
             </div>
+          ) : null}
+          {group.more ? (
+            <button
+              type="button"
+              data-group-older
+              className="shrink-0 py-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={group.loadOlder}
+            >
+              {t("older")}
+            </button>
           ) : null}
           <>
             <GroupTimeline
@@ -533,6 +475,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               targets={targets}
               onSend={send}
               folderId={folderId}
+              lead={targets.length ? undefined : group.lead}
             />
           ) : null}
         </main>

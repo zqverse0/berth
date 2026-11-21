@@ -731,6 +731,31 @@ fn channel_members_follow_the_latest_join_or_leave() {
 }
 
 #[test]
+fn group_jsonl_is_imported_once_and_read_pages_by_seq() {
+    let repo = Repo::new();
+    let main = &repo.main;
+    group::create(main, "g").unwrap();
+    let dir = group::dir(main);
+    let lines: String = (1..=5)
+        .map(|seq| format!("{{\"kind\":\"message\",\"author\":\"user\",\"text\":\"m{seq}\",\"seq\":{seq}}}\n"))
+        .collect();
+    std::fs::write(dir.join("old.jsonl"), lines).unwrap();
+    assert_eq!(group::events(main, "old").unwrap().len(), 5);
+    assert!(dir.join("old.jsonl.imported").is_file() && !dir.join("old.jsonl").exists());
+    assert_eq!(group::seq(&group::append(main, "old", serde_json::json!({"kind": "message"})).unwrap()), 6);
+    let texts = |page: &serde_json::Value| -> Vec<String> {
+        page["events"].as_array().unwrap().iter().map(|e| e["seq"].to_string()).collect()
+    };
+    let last = group::read(main, "old", 0, None, 2, None).unwrap();
+    assert_eq!((texts(&last), last["more"].clone(), last["nextAfter"].clone()), (vec!["5".into(), "6".into()], serde_json::json!(true), serde_json::json!(6)));
+    let older = group::read(main, "old", 0, Some(5), 10, None).unwrap();
+    assert_eq!((texts(&older).len(), older["more"].clone()), (4, serde_json::json!(false)));
+    let shared = group::events_shared(main, "old").unwrap();
+    group::append(main, "old", serde_json::json!({"kind": "message"})).unwrap();
+    assert_eq!((shared.len(), group::events_shared(main, "old").unwrap().len()), (6, 7));
+}
+
+#[test]
 fn channel_idempotent_append_and_addressed_read() {
     let repo = Repo::new();
     let main = &repo.main;
@@ -765,8 +790,7 @@ fn channel_idempotent_append_and_addressed_read() {
         serde_json::json!({"kind": "message", "author": "user", "text": "all"}),
     )
     .unwrap();
-    let events = group::events(main, "g").unwrap();
-    let read = group::read(&events, 1, Some("a"));
+    let read = group::read(main, "g", 1, None, 500, Some("a")).unwrap();
     let texts: Vec<&str> = read["events"]
         .as_array()
         .unwrap()

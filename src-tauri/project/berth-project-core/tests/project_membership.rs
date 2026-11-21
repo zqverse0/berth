@@ -335,7 +335,7 @@ async fn git_worktrees_are_hints_until_joined_and_members_can_move() {
 }
 
 #[tokio::test]
-async fn project_view_is_the_same_from_any_checkout_and_lists_references() {
+async fn project_view_is_the_same_from_any_checkout() {
     let dir = tempfile::tempdir().unwrap();
     let conn = ready(dir.path()).await;
     let repo = dir.path().join("repo");
@@ -347,11 +347,6 @@ async fn project_view_is_the_same_from_any_checkout_and_lists_references() {
     folder_service::open_project(&conn, repo.to_str().unwrap())
         .await
         .unwrap();
-    let docs = dir.path().join("docs");
-    std::fs::create_dir_all(docs.join("sub")).unwrap();
-    let other = folder_service::add_folder(&conn, docs.to_str().unwrap())
-        .await
-        .unwrap();
 
     let from_main = folder_service::project_for_dir(&conn, &repo).await.unwrap().unwrap();
     let from_wt = folder_service::project_for_dir(&conn, &wt.join("nested"))
@@ -360,43 +355,9 @@ async fn project_view_is_the_same_from_any_checkout_and_lists_references() {
         .unwrap();
     assert_eq!(from_main.id, from_wt.id, "worktree resolves to the same project");
 
-    // 同一路径可以是别的项目的成员，也可以进多个项目的参考；重复加入不重复。
-    let stored = folder_service::add_reference(&conn, from_main.id, docs.to_str().unwrap())
-        .await
-        .unwrap();
-    folder_service::add_reference(&conn, from_main.id, docs.to_str().unwrap())
-        .await
-        .unwrap();
-    let docs_project = folder_service::get_folder_by_id(&conn, other.id)
-        .await
-        .unwrap()
-        .unwrap()
-        .project_id
-        .unwrap();
-    folder_service::add_reference(&conn, docs_project, wt.to_str().unwrap())
-        .await
-        .unwrap();
-    assert!(folder_service::add_reference(&conn, from_main.id, "/nonexistent/berth-ref")
-        .await
-        .is_err());
-
     let view = folder_service::project_view(&conn, &from_main).await.unwrap();
     assert_eq!(view.name, "repo");
     assert_eq!(Path::new(&view.home), std::fs::canonicalize(&repo).unwrap());
     let branches: Vec<_> = view.checkouts.iter().map(|c| (c.main, c.branch.clone())).collect();
     assert_eq!(branches, vec![(true, Some("main".into())), (false, Some("wt".into()))]);
-    assert_eq!(view.references.len(), 1);
-    assert_eq!(view.references[0].path, stored);
-
-    assert!(folder_service::remove_reference(&conn, from_main.id, docs.to_str().unwrap())
-        .await
-        .unwrap());
-    assert!(!folder_service::remove_reference(&conn, from_main.id, docs.to_str().unwrap())
-        .await
-        .unwrap());
-    assert!(folder_service::project_view(&conn, &from_main)
-        .await
-        .unwrap()
-        .references
-        .is_empty());
 }

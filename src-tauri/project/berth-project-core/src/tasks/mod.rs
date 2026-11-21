@@ -5,6 +5,7 @@
 //! 契约见 `.berth/tasks/10-04-task-group/prd.md`。
 
 pub mod group;
+mod group_db;
 pub(crate) mod fsutil;
 mod file;
 mod git;

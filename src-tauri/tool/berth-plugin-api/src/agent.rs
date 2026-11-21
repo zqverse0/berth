@@ -29,7 +29,7 @@ pub struct LaunchExtras {
     pub brief: fn() -> String,
     /// 当前项目 `{id, name, root}` 或 null（`env.project`）。
     pub project: crate::rpc::ProjectLookup,
-    /// `ctx.project`：启动目录所在项目的成员视图 `{name, home, checkouts[], references[]}`
+    /// `ctx.project`：启动目录所在项目的成员视图 `{name, home, checkouts[], untracked[]}`
     /// （同 `berth project . member ls --json`）或 null；怎么用由插件决定。
     pub project_view: fn() -> Value,
 }
@@ -1106,10 +1106,10 @@ mod tests {
         std::fs::create_dir_all(&package).unwrap();
         std::fs::write(package.join("tool.json"), r#"{"id":"demo"}"#).unwrap();
         std::fs::write(package.join("launchbar.json"), r#"{"items":[]}"#).unwrap();
-        // 退出码 = 检出数 × 10 + 参考数；没有项目时 1。
+        // 退出码 = 检出数 × 10 + 未加入的检出数；没有项目时 1。
         std::fs::write(
             package.join("launch.js"),
-            r#"export default { launch: (ctx) => ctx.project ? ctx.project.checkouts.length * 10 + ctx.project.references.length : 1 }"#,
+            r#"export default { launch: (ctx) => ctx.project ? ctx.project.checkouts.length * 10 + ctx.project.untracked.length : 1 }"#,
         )
         .unwrap();
         let run = |project_view: fn() -> Value| {
@@ -1121,7 +1121,7 @@ mod tests {
             launch(&package.join("launch.js"), &[], extras)
         };
         let with_project = run(|| {
-            json!({"name": "p", "home": "/p", "checkouts": [{"path": "/p"}, {"path": "/p-wt"}], "references": [{"path": "/r"}]})
+            json!({"name": "p", "home": "/p", "checkouts": [{"path": "/p"}, {"path": "/p-wt"}], "untracked": [{"path": "/r"}]})
         });
         let without = run(|| Value::Null);
         match previous {

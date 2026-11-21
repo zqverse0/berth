@@ -1,4 +1,3 @@
-import { useAppUiStore } from "@/stores/app-ui-store"
 import { type ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
@@ -16,7 +15,6 @@ import {
   resetAppWorkspaceStore,
   useAppWorkspaceStore,
 } from "@/stores/app-workspace-store"
-import { useReferenceBrowseStore } from "@/lib/workspace/reference-browse"
 import enMessages from "@/i18n/messages/en.json"
 import {
   _resetTerminalInventoryQuery,
@@ -66,7 +64,6 @@ const stableTabFns = vi.hoisted(() => ({
 }))
 
 const bridge = vi.hoisted(() => ({
-  references: [] as string[],
   untracked: [] as { path: string; branch: string | null }[],
   calls: [] as { method: string; params?: unknown }[],
 }))
@@ -106,7 +103,6 @@ vi.mock("@/lib/runtime-bridge", async (importOriginal) => {
         return {
           ok: true,
           result: {
-            references: bridge.references.map((path) => ({ path })),
             untracked: bridge.untracked,
           },
         }
@@ -234,7 +230,6 @@ beforeEach(() => {
   resetAppWorkspaceStore()
   terminalApi.listTerminalSessions.mockReset()
   terminalApi.listTerminalSessions.mockResolvedValue([])
-  bridge.references = []
   bridge.untracked = []
   bridge.calls = []
   folderApi.updateFolderAlias.mockClear()
@@ -392,7 +387,6 @@ describe("SidebarProjectList — project explorer mode", () => {
 
     expect(stableTabFns.activateFolderWorkspace).toHaveBeenCalledWith(2)
     expect(stableWorkspaceFns.openFolder).not.toHaveBeenCalled()
-    expect(useAppUiStore.getState().auxView).toBe("group")
     expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
   })
 
@@ -746,7 +740,7 @@ describe("SidebarProjectList — sessions", () => {
     )
   })
 
-  it("expands the current project into members: temporary folded, stale only cleans up", () => {
+  it("expands the current project into members: temporary listed flat, stale only cleans up", () => {
     const folders = [
       folder(1, "Repo"),
       folder(2, "wt-a", 1, { git_branch: "task/a" }),
@@ -758,8 +752,8 @@ describe("SidebarProjectList — sessions", () => {
       folders,
       allFolders: folders,
       memberFlags: new Map([
-        [4, { stale: false, temporary: true }],
-        [5, { stale: true, temporary: false }],
+        [4, { stale: false }],
+        [5, { stale: true }],
       ]),
     })
     store.activeFolder = folders[1]
@@ -771,12 +765,9 @@ describe("SidebarProjectList — sessions", () => {
       (el) =>
         el.getAttribute("data-project-id") ?? el.getAttribute("data-folder-id")
     )
-    // 项目行、主成员、worktree、失效成员；临时的收起，其他项目折叠。
-    expect(ids).toEqual(["1", "1", "5", "2", "3"])
+    // 项目行、各成员（临时 worktree 也平铺）；其他项目折叠。
+    expect(ids).toEqual(["1", "1", "5", "4", "2", "3"])
     expect(screen.getByText("task/a")).toBeTruthy()
-    const toggle = screen.getByText("+ 1 temporary worktree")
-    fireEvent.click(toggle)
-    expect(document.querySelector('[data-folder-id="4"]')).not.toBeNull()
     expect(
       screen.getAllByRole("button", {
         name: enMessages.ProjectMembers.prune,
@@ -830,18 +821,6 @@ describe("SidebarProjectList — sessions", () => {
     expect(main).toContain("Move to space")
     expect(main).not.toContain("Make main project")
     expect(main).not.toContain("Remove from space…")
-  })
-
-  it("lists the project's references and browses one in the file panel", async () => {
-    bridge.references = ["/ref/OpenMausBot"]
-    renderList()
-
-    expect(await screen.findByText("References")).toBeTruthy()
-    fireEvent.click(await screen.findByText("OpenMausBot"))
-    expect(useReferenceBrowseStore.getState()).toMatchObject({
-      folderId: 1,
-      path: "/ref/OpenMausBot",
-    })
   })
 
   it("keeps search folded until opened, finds sessions and closes on Escape", async () => {

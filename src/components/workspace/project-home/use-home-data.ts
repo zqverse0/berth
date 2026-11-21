@@ -20,8 +20,8 @@ interface HomeData {
   tasks: BerthTaskSummary[]
   /** 派生视图：状态从 git / prd 推出（与任务侧栏同一口径），读不到时按 task.json 近似。 */
   views: Map<string, BerthTaskView>
-  /** 当前 checkout 的群；任务按它过滤（主目录看全部） */
-  group: string | null
+  /** 主项目的 worktree 路径（与其他项目区分）。 */
+  worktrees: string[]
   /** worktree 路径 → git 概况 */
   git: Map<string, WorktreeGit>
 }
@@ -38,7 +38,7 @@ async function worktreeGit(path: string): Promise<WorktreeGit> {
 const EMPTY_BERTH = {
   tasks: [],
   views: new Map(),
-  group: null,
+  worktrees: [],
 } satisfies Omit<HomeData, "git">
 
 /**
@@ -57,7 +57,7 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
     const paths = pathsKey.split("\n").filter(Boolean)
     const rest = Promise.allSettled([
       listBerthTasks(folderId),
-      listGroups(folderId),
+      listGroups(folderId, true),
     ])
     const views = Promise.allSettled([listBerthTaskViews(folderId)])
     void (async () => {
@@ -89,10 +89,10 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
           tasks.status === "fulfilled" && tasks.value.ok
             ? tasks.value.result.tasks
             : [],
-        group:
+        worktrees:
           groups.status === "fulfilled" && groups.value.ok
-            ? (groups.value.result.groups[0] ?? null)
-            : null,
+            ? Object.values(groups.value.result.worktrees)
+            : [],
       }))
 
       const [view] = await views

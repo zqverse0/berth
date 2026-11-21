@@ -57,7 +57,7 @@ const render = (element: React.ReactNode) =>
 describe("AuxPanel", () => {
   beforeEach(() => {
     folder.id = 1
-    useAppUiStore.setState({ auxPanelOpen: true, auxView: "group" })
+    useAppUiStore.setState({ auxPanelOpen: true })
     selectTerminal(null)
   })
 
@@ -100,26 +100,11 @@ describe("AuxPanel", () => {
         </>
       )
       act(() => selectTerminal("terminal-1"))
-      expect(useAppUiStore.getState().auxView).toBe("terminals")
       expect(errors.mock.calls.flat().join(" ")).not.toContain(
         "Cannot update a component"
       )
-      act(() => useAppUiStore.getState().showAuxView("group"))
-      expect(useAppUiStore.getState().auxView).toBe("group")
     } finally {
       errors.mockRestore()
     }
-  })
-
-  it("keeps the group view on mount and when switching projects", () => {
-    selectTerminal("terminal-1")
-    const { rerender } = render(<AuxPanel />)
-    expect(useAppUiStore.getState().auxView).toBe("group")
-    act(() => {
-      folder.id = 2
-      selectTerminal("terminal-2")
-    })
-    rerender(<AuxPanel />)
-    expect(useAppUiStore.getState().auxView).toBe("group")
   })
 })

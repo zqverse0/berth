@@ -1,4 +1,3 @@
-import { useAppUiStore } from "@/stores/app-ui-store"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -14,6 +13,18 @@ const mocks = vi.hoisted(() => ({
   events: [] as unknown[],
   delivery: {} as Record<string, string>,
   members: [] as unknown[],
+  showHome: vi.fn(),
+  lead: null as string | null,
+  refresh: vi.fn(),
+  setLead: vi.fn(),
+}))
+// 交接与入群表单另有实现与测试；这里只看成员栏。
+vi.mock("../group/acp-handoff", () => ({ handoffAcpMember: vi.fn() }))
+vi.mock("@/components/layout/sidebar/agent-launch", () => ({
+  AgentLaunchShelfContent: () => null,
+}))
+vi.mock("@/lib/workspace/project-home", () => ({
+  showProjectHome: () => mocks.showHome(),
 }))
 // 成员的会话列表另有测试；这里只看成员栏。
 vi.mock("../group/member-sessions", () => ({
@@ -24,6 +35,7 @@ vi.mock("../group/member-sessions", () => ({
 vi.mock("@/lib/agent/berth-group", async (original) => ({
   ...(await original<object>()),
   listGroups: (...args: unknown[]) => mocks.listGroups(...args),
+  setGroupLead: (...args: unknown[]) => mocks.setLead(...args),
 }))
 // 只需要 trimSlash；真模块会连带加载整个 workspace-runtime
 vi.mock("@/sessions/project/open-project-session", () => ({
@@ -53,7 +65,7 @@ vi.mock("@/stores/workspace-layout-store", () => ({
 vi.mock("@/stores/app-workspace-store", () => ({
   useAppWorkspaceStore: (select: (state: unknown) => unknown) =>
     select({
-      allFolders: [{ id: 7, path: "/repo/berth-dev" }],
+      allFolders: [{ id: 7, path: "/repo/berth-dev", name: "berth-dev" }],
     }),
 }))
 vi.mock("@/components/project-management/group/use-task-group", () => ({
@@ -67,6 +79,8 @@ vi.mock("@/components/project-management/group/use-task-group", () => ({
       events: mocks.events,
       delivery: mocks.delivery,
       members: mocks.members,
+      lead: mocks.lead,
+      refresh: mocks.refresh,
     }
   },
 }))
@@ -87,10 +101,12 @@ vi.mock("@/hooks/use-agent-profiles", async (original) => ({
   useAgentProfiles: () => ({ agents: [{ id: "tool", name: "Test Agent" }] }),
 }))
 import { GroupMembersPanel } from "./group-members-panel"
+import { SidebarHeader } from "@/components/layout/sidebar/sidebar-header"
 
 function renderPanel() {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
+      <SidebarHeader title="Group" />
       <GroupMembersPanel folderId={7} />
     </NextIntlClientProvider>
   )
@@ -104,7 +120,9 @@ beforeEach(() => {
   })
   mocks.readGroup.mockReset()
   mocks.jump.mockReset().mockReturnValue("terminal:t1")
-  useAppUiStore.setState({ auxView: "terminals" })
+  mocks.showHome.mockReset()
+  mocks.lead = null
+  mocks.setLead.mockReset().mockResolvedValue({ ok: true, result: {} })
   mocks.panes = [
     {
       descriptor: { terminalId: "t1", targetRef: "pane-ref" },
@@ -188,10 +206,13 @@ describe("GroupMembersPanel", () => {
     expect(screen.getByText("Test Agent")).toBeVisible()
     expect(screen.queryByText("other")).not.toBeInTheDocument()
     expect(mocks.listGroups).not.toHaveBeenCalled()
-    // 点成员：切到辅助面板的群组并只看它的消息。
+    // 点成员：首页切到与它单聊。
     fireEvent.click(screen.getByText("Frontend"))
     expect(useGroupWorkspaceStore.getState().focusedMember).toBe("agent-1")
-    expect(useAppUiStore.getState().auxView).toBe("group")
+    expect(mocks.showHome).toHaveBeenCalledTimes(1)
+    // 「全部」回到群聊。
+    fireEvent.click(document.querySelector("[data-member-all]")!)
+    expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
   })
   it("expands a member card into its sessions", async () => {
     renderPanel()
@@ -211,7 +232,7 @@ describe("GroupMembersPanel", () => {
       screen.queryByText("Open a group from Tasks to view its Agent members.")
     ).not.toBeInTheDocument()
     expect(mocks.readGroup).toHaveBeenCalledWith(7, true)
-    expect(useAppUiStore.getState().auxView).toBe("terminals")
+    expect(mocks.showHome).not.toHaveBeenCalled()
   })
   it("ignores a stale selection from another folder", () => {
     useGroupWorkspaceStore.setState({ folderId: 8, group: "other" })
@@ -236,7 +257,7 @@ describe("GroupMembersPanel", () => {
     expect(screen.queryByText("Frontend")).not.toBeInTheDocument()
     expect(mocks.events).toHaveLength(1)
   })
-  it("searches existing members and clears the message filter with All messages", () => {
+  it("searches existing members and goes back to the group chat with All", () => {
     // 在群成员多于 3 个才显示搜索框。
     mocks.members = [
       ...mocks.members,
@@ -267,8 +288,21 @@ describe("GroupMembersPanel", () => {
     expect(screen.getByText("No matching Agents")).toBeVisible()
     fireEvent.change(input, { target: { value: "agent-1" } })
     expect(screen.getByText("Frontend")).toBeVisible()
-    fireEvent.click(screen.getByRole("button", { name: "All messages" }))
+    fireEvent.click(document.querySelector("[data-member-all]")!)
     expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
     expect(mocks.jump).not.toHaveBeenCalled()
+  })
+  it("marks the lead and filters to members waiting for you", () => {
+    mocks.lead = "agent-1"
+    mocks.members = [{ ...(mocks.members[0] as object), busy: true }]
+    renderPanel()
+    expect(
+      document.querySelector('[data-member="agent-1"] [data-member-lead]')
+    ).not.toBeNull()
+    expect(screen.getByText("Lead: Frontend")).toBeVisible()
+    fireEvent.click(screen.getByRole("tab", { name: "Waiting" }))
+    expect(screen.queryByText("Frontend")).toBeNull()
+    fireEvent.click(screen.getByRole("tab", { name: "Working" }))
+    expect(screen.getByText("Frontend")).toBeVisible()
   })
 })

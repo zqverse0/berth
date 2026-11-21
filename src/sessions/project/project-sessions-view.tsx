@@ -23,7 +23,7 @@ import { useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import type { ProjectSessionOverviewItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
-import { useAppUiStore } from "@/stores/app-ui-store"
+import { showProjectHome } from "@/lib/workspace/project-home"
 import {
   BERTH_MEMBER,
   listBerthSessions,
@@ -258,7 +258,7 @@ export function ProjectSessionsView({
       const store = useGroupWorkspaceStore.getState()
       store.selectGroup(target, PROJECT_GROUP)
       store.setFocusedMember(item.liveMember)
-      useAppUiStore.getState().showAuxView("group")
+      showProjectHome()
       useSidebarViewStore.getState().setView("group")
       onShowMember?.()
     } catch (error) {

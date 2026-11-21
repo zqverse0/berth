@@ -72,7 +72,7 @@ pub struct ProjectMember {
 }
 
 /// 项目视图：`berth project . member ls --json` 与 launch.js 的 `ctx.project` 同一份。
-/// 怎么用（交给 `--add-dir`、参考只读、有 Agent 在跑的检出给不给写）由插件决定。
+/// 怎么用（交给 `--add-dir`、有 Agent 在跑的检出给不给写）由插件决定。
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectView {
     pub name: String,
@@ -80,8 +80,6 @@ pub struct ProjectView {
     pub home: String,
     /// 代码成员（main 与各 worktree），主成员在前。
     pub checkouts: Vec<CheckoutView>,
-    /// 参考成员（只读约定）。
-    pub references: Vec<ReferenceView>,
     /// git 里有、还没登记进任何项目的检出：只提示，用户决定是否加入。
     pub untracked: Vec<UntrackedCheckout>,
 }
@@ -109,9 +107,4 @@ pub struct RunningAgent {
     pub agent: String,
     /// 终端短名，如 `berth-dev:3`。
     pub terminal: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ReferenceView {
-    pub path: String,
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, type ComponentType } from "react"
-import { Activity, Brain, FolderKanban, ListTodo, Users } from "lucide-react"
+import { Brain, FolderKanban, ListTodo, Users } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { create } from "zustand"
 import {
@@ -15,8 +15,6 @@ export type SidebarView =
   | "group"
   | "tasks"
   | "memory"
-  /** 今天各 Agent 会话的每一问与工具调用（原首页「Agent 轨迹」） */
-  | "trajectory"
   /** 设置标签页激活时的列表视图，由活动栏的设置按钮进入。 */
   | "settings"
   /** 插件贡献的侧栏视图（`plugin:<插件>/<视图>`），由宿主原生渲染。 */
@@ -25,7 +23,7 @@ export type SidebarView =
 export interface SidebarViewItem {
   id: SidebarView
   icon: ComponentType<{ className?: string }>
-  labelKey: "projects" | "group" | "tasks" | "memory" | "trajectory"
+  labelKey: "projects" | "group" | "tasks" | "memory"
 }
 
 export const SIDEBAR_VIEWS: SidebarViewItem[] = [
@@ -33,7 +31,6 @@ export const SIDEBAR_VIEWS: SidebarViewItem[] = [
   { id: "group", icon: Users, labelKey: "group" },
   { id: "tasks", icon: ListTodo, labelKey: "tasks" },
   { id: "memory", icon: Brain, labelKey: "memory" },
-  { id: "trajectory", icon: Activity, labelKey: "trajectory" },
 ]
 
 /** 侧栏下方「当前项目面板」的标签。 */

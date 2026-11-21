@@ -2,13 +2,7 @@
 
 import { memo, useCallback, useState, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
-import {
-  BookOpen,
-  MoreHorizontal,
-  PencilLine,
-  Pin,
-  XCircle,
-} from "lucide-react"
+import { MoreHorizontal, PencilLine, Pin, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,7 +48,6 @@ export const ProjectRow = memo(function ProjectRow({
   onRemoveFromWorkspace,
   onRename,
   onSetPinned,
-  onAddReference,
 }: {
   /** 主成员 id：项目的名称、置顶记在它的项目记录上。 */
   folderId: number
@@ -76,9 +69,7 @@ export const ProjectRow = memo(function ProjectRow({
   onRemoveFromWorkspace: (folderId: number) => void
   onRename: (folderId: number, name: string) => void
   onSetPinned: (folderId: number, pinned: boolean) => void
-  onAddReference: (folderId: number) => void
 }) {
-  const tMembers = useTranslations("ProjectMembers")
   // Own the translations here rather than receiving `t` as a prop: next-intl
   // returns a fresh `t` on every parent render, which would defeat this memo.
   const t = useTranslations("Folder.sidebar")
@@ -175,10 +166,6 @@ export const ProjectRow = memo(function ProjectRow({
               <ContextMenuItem onSelect={openRenameDialog}>
                 <PencilLine className="h-4 w-4" />
                 {t("folderHeaderMenu.renameProject")}
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => onAddReference(folderId)}>
-                <BookOpen className="h-4 w-4" />
-                {tMembers("addReference")}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem

@@ -159,8 +159,8 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
             });
         }
 
-        // 项目成员：ls|add|rm 与 `berth project . member ls|add|rm` 同一实现。GUI 用 ls 读参考成员
-        // 与未加入的 worktree，检出（含失效 / 临时）走 `list_project_members`；join|move|main 只有 GUI 用。
+        // 项目成员：ls 与 `berth project . member ls` 同一实现。GUI 用 ls 读
+        // 未加入的 worktree，检出（含失效 / 临时）走 `list_project_members`；join|move|main 只有 GUI 用。
         if let Some(action) = method.strip_prefix("project.member.") {
             let folder_id = args
                 .folder_id
@@ -231,7 +231,7 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
 /// `expert.*`：全局（不属于某个项目），读写 `$BERTH_HOME/experts`。
 #[cfg(feature = "tauri-runtime")]
 /// `project.member.*`，`folder_id` 是项目里的成员：
-/// - `ls` 成员视图；`add` / `rm` 加入 / 移除参考目录（`path`）
+/// - `ls` 成员视图
 /// - `join` 把 git 发现的检出（`path`）加入本项目
 /// - `move` 把这个成员改挂到 `project`（项目 id）；`main` 设它为主成员
 #[cfg(feature = "tauri-runtime")]
@@ -258,14 +258,6 @@ async fn project_member(
             .await
             .map_err(|error| error.to_string())
             .and_then(|view| serde_json::to_value(view).map_err(|error| error.to_string())),
-        "add" => folder_service::add_reference(&db.conn, project.id, path)
-            .await
-            .map(|stored| json!({ "path": stored }))
-            .map_err(|error| error.to_string()),
-        "rm" => folder_service::remove_reference(&db.conn, project.id, path)
-            .await
-            .map(|changed| json!({ "changed": changed }))
-            .map_err(|error| error.to_string()),
         "join" => folder_service::add_folder_to_project(&db.conn, path, project.id)
             .await
             .map(|entry| json!({ "folderId": entry.id }))

@@ -4,7 +4,7 @@
 
 ## 空间
 
-- 空间是 Berth 里的容器，包含若干项目（主项目、worktree、参考目录）。任务、群组、想法、知识库属于空间，存在空间目录（Berth 数据目录下），不在代码仓库里，也不进 git。
+- 空间是 Berth 里的容器，包含若干项目（主项目、worktree）。任务、群组、想法、知识库属于空间，存在空间目录（Berth 数据目录下），不在代码仓库里，也不进 git。
 - 不属于任何空间的目录，任务、群组命令报 `not_initialized`：请用户在 Berth 里把项目加进空间。
 - 空间里任何一个项目目录下用 `berth project . task` / `berth project . group` 读写的都是同一份；改需求走 `change`。
 - 知识库路径用 `berth project . knowledge root` 取。任务、想法归档后进它的待入库清单，用户说要维护时才处理。维护方法：`berth guide knowledge`。

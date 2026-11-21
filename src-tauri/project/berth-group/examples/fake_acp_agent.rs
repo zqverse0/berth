@@ -146,6 +146,11 @@ fn main() -> agent_client_protocol::Result<()> {
                                 SessionUpdate::ToolCall(ToolCall::new("t1", "Run echo")),
                             ))?;
                             say("done")?;
+                        } else if prompt == "tool only" {
+                            cx.send_notification(SessionNotification::new(
+                                id.clone(),
+                                SessionUpdate::ToolCall(ToolCall::new("t1", "Run echo")),
+                            ))?;
                         } else if prompt == "ask" {
                             let options = vec![
                                 PermissionOption::new("a1", "Allow", PermissionOptionKind::AllowOnce),

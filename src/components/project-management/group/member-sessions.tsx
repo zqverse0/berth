@@ -14,6 +14,7 @@ import {
   useOpenProjectSession,
 } from "@/sessions/project/open-project-session"
 import { cn } from "@/lib/utils"
+import { MemberTrajectory } from "@/components/workspace/project-home/trajectory"
 import type { MemberRow } from "./group-model"
 
 const PAGE = 100
@@ -32,7 +33,7 @@ interface Entry {
 
 /**
  * 成员卡片展开的会话列表，新的在前：Berth 是它在本项目的会话；Agent 成员是它所用 Agent 在本项目
- * （主目录与各群目录）的会话，它在跑、绑定或汇报过的标出来。
+ * （主目录与各群目录）的会话，它在跑、绑定或汇报过的标出来，这些会话今天的轨迹列在上方。
  */
 export function MemberSessions({
   row,
@@ -58,6 +59,13 @@ export function MemberSessions({
   const [error, setError] = useState<string | null>(null)
   const agents = new Set(member.bodies.map((body) => body.agent))
   const agentKey = [...agents].sort().join(",")
+  // 它绑定过或汇报出自的会话。
+  const own = new Set([
+    ...member.bodies.map((body) => body.sessionId),
+    ...events
+      .filter((event) => event.author === member.name)
+      .map((event) => event.session_id),
+  ])
 
   useEffect(() => {
     let live = true
@@ -89,13 +97,6 @@ export function MemberSessions({
         })
         .catch(fail)
     } else {
-      // 它绑定过或汇报出自的会话。
-      const own = new Set([
-        ...member.bodies.map((body) => body.sessionId),
-        ...events
-          .filter((event) => event.author === member.name)
-          .map((event) => event.session_id),
-      ])
       // ponytail: 总览按全部 Agent 取最近 N 条再筛，Agent 多、会话多时这位成员的旧会话要点「更多」。
       listProjectSessionOverview(folderId, limit)
         .then((overview) =>
@@ -152,6 +153,16 @@ export function MemberSessions({
     )
   return (
     <div data-member-sessions={member.name} className="space-y-px">
+      {member.builtin ? null : (
+        <MemberTrajectory
+          folderId={folderId}
+          refreshKey={`${row.status}:${events.length}`}
+          accept={(item) =>
+            item.liveMember === member.name ||
+            (item.sessionId != null && own.has(item.sessionId))
+          }
+        />
+      )}
       {page.entries.length === 0 ? (
         <p className="px-2 py-1 text-[11px] text-muted-foreground">
           {tView("empty")}

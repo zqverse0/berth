@@ -5,12 +5,19 @@ import { useFormatter, useNow, useTranslations } from "next-intl"
 import {
   AtSign,
   ChevronRight,
+  Crown,
+  Ellipsis,
   MessagesSquare,
   OctagonX,
   Pencil,
   SquareTerminal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useSlowBlink } from "@/components/ui/status-dot"
 import {
@@ -114,9 +121,18 @@ function MemberCard({
   onSelect,
   selected,
   current,
+  queued,
+  lead,
+  menu,
   sessions,
 }: {
   row: MemberRow
+  /** 它正在做的委托还在排队（没投进去）。 */
+  queued?: boolean
+  /** 它是负责人。 */
+  lead?: boolean
+  /** 行菜单的菜单项；不给时没有「⋯」。 */
+  menu?: (row: MemberRow) => React.ReactNode
   /** 展开的会话列表；不给时没有「会话」按钮。 */
   sessions?: (row: MemberRow) => React.ReactNode
   /** 它正在做的委托（排队或处理中）；没有为 null。 */
@@ -178,6 +194,15 @@ function MemberCard({
               <span className="truncate text-sm font-medium">
                 {memberLabel(member)}
               </span>
+              {lead ? (
+                <Crown
+                  data-member-lead
+                  aria-label={t("lead")}
+                  className="size-3 shrink-0 self-center text-amber-500"
+                >
+                  <title>{t("lead")}</title>
+                </Crown>
+              ) : null}
               {member.label ? (
                 <span className="shrink-0 font-mono text-[10px] text-muted-foreground/80">
                   #{member.name}
@@ -204,12 +229,20 @@ function MemberCard({
             </span>
             {memberAgent(member) ? (
               <span className="block truncate text-[11px] text-muted-foreground/80">
-                {agentName(memberAgent(member)!)}
+                {[agentName(memberAgent(member)!), member.expertName]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             ) : null}
             {current ? (
               <span className="block truncate text-[11px] text-muted-foreground">
-                ↳ {current.text}
+                ↳ {queued ? `${t("queued")} · ` : ""}
+                {current.text}
+              </span>
+            ) : status === "attention" &&
+              pane?.descriptor.agentSignal?.notification ? (
+              <span className="block truncate text-[11px] text-amber-600 dark:text-amber-400">
+                ⏸ {pane.descriptor.agentSignal.notification}
               </span>
             ) : null}
           </span>
@@ -280,6 +313,23 @@ function MemberCard({
           >
             <OctagonX aria-hidden="true" className="size-3.5" />
           </Button>
+          {menu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={iconButton}
+                  title={t("menu")}
+                  aria-label={t("menu")}
+                  data-member-menu={member.name}
+                >
+                  <Ellipsis aria-hidden="true" className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">{menu(row)}</DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       ) : null}
       {expanded && sessions ? (
@@ -305,9 +355,17 @@ export function GroupMembers({
   selected,
   empty,
   currentOf,
+  queuedOf,
+  lead,
+  menu,
   sessions,
 }: {
   rows: readonly MemberRow[]
+  /** 委托还在排队（没投进去）。 */
+  queuedOf?: (seq: number) => boolean
+  /** 负责人成员名。 */
+  lead?: string | null
+  menu?: (row: MemberRow) => React.ReactNode
   agentName: (agentId: string) => string
   onJump: (row: MemberRow) => void
   onMention?: (name: string) => void
@@ -320,21 +378,27 @@ export function GroupMembers({
   currentOf?: (name: string) => GroupEvent | null
   sessions?: (row: MemberRow) => React.ReactNode
 }) {
-  const card = (row: MemberRow) => (
-    <MemberCard
-      key={row.member.name}
-      row={row}
-      current={currentOf?.(row.member.name)}
-      agentName={agentName}
-      onJump={onJump}
-      onMention={onMention}
-      onInterrupt={onInterrupt}
-      onRename={onRename}
-      onSelect={onSelect}
-      selected={selected}
-      sessions={sessions}
-    />
-  )
+  const card = (row: MemberRow) => {
+    const current = currentOf?.(row.member.name)
+    return (
+      <MemberCard
+        key={row.member.name}
+        row={row}
+        current={current}
+        queued={current ? queuedOf?.(current.seq) : false}
+        lead={lead != null && lead === row.member.name}
+        menu={menu}
+        agentName={agentName}
+        onJump={onJump}
+        onMention={onMention}
+        onInterrupt={onInterrupt}
+        onRename={onRename}
+        onSelect={onSelect}
+        selected={selected}
+        sessions={sessions}
+      />
+    )
+  }
   return (
     <div className="space-y-0.5">
       {rows.length === 0 ? empty : rows.map(card)}

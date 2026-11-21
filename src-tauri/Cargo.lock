@@ -561,7 +561,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "berth-agent"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "futures",
  "genai",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "berth-cli"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-control-proto",
  "berth-group",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "berth-control-proto"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "berth-group"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "agent-client-protocol",
  "berth-project-core",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "berth-gui"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "berth-node"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "berth-plugin-api"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "base64 0.22.1",
  "berth-tool-core",
@@ -734,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "berth-project-core"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "async-trait",
  "berth-tool-core",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "berth-provider-proxy"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "bytes",
  "http",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-engine"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-proto",
  "chrono",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-ipc"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-os",
  "libc",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-os"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-types",
  "libc",
@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-proto"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-types",
  "bincode",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-pty"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-os",
  "berth-term-types",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-sdk"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-ipc",
  "berth-term-os",
@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "berth-term-server"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "async-recursion",
  "berth-control-proto",
@@ -870,14 +870,14 @@ dependencies = [
 
 [[package]]
 name = "berth-term-types"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "berth-terminald"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "berth-term-os",
  "berth-term-server",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "berth-tool-core"
-version = "0.38.8"
+version = "0.38.9"
 dependencies = [
  "dirs",
  "rusqlite",

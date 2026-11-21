@@ -1,15 +1,6 @@
 "use client"
 
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  memo,
-} from "react"
-import { Users } from "lucide-react"
+import { useState, memo } from "react"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useConversationPaneShown } from "@/hooks/workspace/use-conversation-pane-shown"
@@ -22,47 +13,14 @@ import { WorkspacePaneContent } from "@/components/workspace/workspace-pane-cont
 import { WorkspacePaneDropArea } from "@/components/workspace/workspace-pane-drop-area"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 import { useTranslations } from "next-intl"
-import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
-import { WorkspaceTabShell } from "@/components/tabs/workspace-tab-shell"
 import { AgentLaunchMenu } from "@/components/layout/sidebar/agent-launch"
-import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
-
-// 群消息用 Markdown 渲染（streamdown + mermaid + shiki，约 120KB gz），打开群面板时才加载。
-const LazyGroupPanel = lazy(() =>
-  import("@/components/project-management/berth-tasks/group-panel").then(
-    (m) => ({ default: m.GroupPanel })
-  )
-)
 
 export const AuxPanel = memo(function AuxPanel({
   present,
 }: { present?: boolean } = {}) {
   const t = useTranslations("BerthTasks.workspace")
-  const tView = useTranslations("Folder.auxPanel.views")
   const emptyMember = useGroupWorkspaceStore((state) => state.emptyMember)
   const isOpen = useAppUiStore((state) => state.auxPanelOpen)
-  const view = useAppUiStore((state) => state.auxView)
-  const showView = useAppUiStore((state) => state.showAuxView)
-  const { activeFolder } = useActiveFolder()
-  const folderId = activeFolder?.id ?? null
-  // 同一项目里选中 / 新开终端时切到终端视图；切项目只换群，不抢视图。
-  const terminalTab = useWorkspaceLayoutStore(
-    (state) => state.activeTabByPane.conversation?.id ?? null
-  )
-  const seenTerminal = useRef({ folderId, terminalTab })
-  useEffect(() => {
-    const previous = seenTerminal.current
-    seenTerminal.current = { folderId, terminalTab }
-    if (
-      previous.folderId === folderId &&
-      previous.terminalTab !== terminalTab &&
-      terminalTab &&
-      view === "group"
-    )
-      showView("terminals")
-  }, [folderId, terminalTab, view, showView])
-  const showTerminals = useCallback(() => showView("terminals"), [showView])
   const terminalsShown = useConversationPaneShown()
   const isMobile = useIsMobile()
   const { isWindows, isLinux } = usePlatform()
@@ -98,31 +56,12 @@ export const AuxPanel = memo(function AuxPanel({
             useGroupWorkspaceStore.getState().clearEmpty()
           }
         >
-          {/* 群组固定在最左、不可关闭；右侧是打开的 Agent / 终端。 */}
+          {/* 辅助栏只放终端（群对话在中间栏「空间」首页）：条首是全部标签菜单与启动入口。 */}
           <TabBar
-            leadingActive={view === "group"}
-            onTabSelected={showTerminals}
             leadingTabs={(tabListMenu) => (
-              <div
-                role="tablist"
-                className="flex shrink-0 items-stretch pl-2 pt-1.5"
-              >
-                <WorkspaceTabShell
-                  dataAttributes={{ "data-aux-group-tab": "" }}
-                  active={view === "group"}
-                  fit
-                  icon={<Users aria-hidden className="size-3.5 shrink-0" />}
-                  label={tView("group")}
-                  title={tView("group")}
-                  closeLabel=""
-                  onSelect={() => showView("group")}
-                  actions={
-                    <>
-                      {tabListMenu}
-                      <AgentLaunchMenu />
-                    </>
-                  }
-                />
+              <div className="flex shrink-0 items-center gap-0.5 pl-2 pt-1.5">
+                {tabListMenu}
+                <AgentLaunchMenu />
               </div>
             )}
           />
@@ -136,27 +75,10 @@ export const AuxPanel = memo(function AuxPanel({
         )}
       </div>
 
-      {view === "group" ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {activeFolder ? (
-            <Suspense fallback={null}>
-              <LazyGroupPanel
-                key={activeFolder.id}
-                folderId={activeFolder.id}
-              />
-            </Suspense>
-          ) : (
-            <AuxPanelNoFolderEmpty />
-          )}
-        </div>
-      ) : null}
       {/* 终端一直挂载：卸载会丢掉屏幕、模式与滚动状态。 */}
       <WorkspacePaneDropArea
         pane="conversation"
-        className={cn(
-          "min-h-0 flex-1 overflow-hidden",
-          view !== "terminals" && "hidden"
-        )}
+        className="min-h-0 flex-1 overflow-hidden"
       >
         <div className={cn("h-full", emptyMember && "hidden")}>
           <WorkspacePaneContent pane="conversation" hidden={!terminalsShown} />

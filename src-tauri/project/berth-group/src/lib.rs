@@ -133,8 +133,8 @@ pub fn presets(ctx: &Ctx) -> TaskResult<Value> {
 
 /// `after` 之后的事件；`to` 只看发给它和发给所有人的。
 pub fn read(ctx: &Ctx, name: &str, after: u64, to: Option<&str>) -> TaskResult<Value> {
-    let (_, _, events) = existing(ctx, name)?;
-    Ok(group::read(&events, after, to))
+    let (name, _, _) = existing(ctx, name)?;
+    group::read(&ctx.main, &name, after, None, 500, to)
 }
 
 /// 群成员：Agent、目录、会话 id、是否正在回答、会话是否交给了终端。
@@ -230,7 +230,13 @@ pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Opti
             acp::forget_session(&ctx.main, member);
             json!({"kind": "system", "event": "acp_new", "author": group::USER, "to": member})
         }
-        "leave" => json!({"kind": "left", "author": member, "target_ref": target_ref, "reason": "removed"}),
+        "leave" => {
+            // 负责人移出群：清空，之后没 @ 谁的消息只记进群。
+            if group::settings(&ctx.main, &name)?.lead.as_deref() == Some(member) {
+                group::set_lead(&ctx.main, &name, None)?;
+            }
+            json!({"kind": "left", "author": member, "target_ref": target_ref, "reason": "removed"})
+        }
         _ => {
             return Err(TaskError::new(
                 "invalid_input",
@@ -241,6 +247,73 @@ pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Opti
     let written = group::append(&ctx.main, &name, event)?;
     watch::kick_now(ctx);
     Ok(written)
+}
+
+/// 设负责人（`berth group lead` 与 GUI `group.lead` 共用）：没 @ 谁的用户消息发给它；`member` 为 None 清除。
+pub fn lead(ctx: &Ctx, name: &str, member: Option<&str>) -> TaskResult<Value> {
+    let (name, _, events) = project_existing(ctx, name)?;
+    let member = member.map(str::trim).filter(|member| !member.is_empty());
+    if let Some(member) = member {
+        if !group::members(&events).iter().any(|present| present.name == member) {
+            return Err(TaskError::new("not_found", format!("{member} is not a member")));
+        }
+    }
+    group::set_lead(&ctx.main, &name, member)?;
+    Ok(json!({ "lead": member }))
+}
+
+/// 例行发群：到点以用户身份发给 `member`，带 `source: routine`（不进别人的群上下文）；`key` 幂等。
+/// 成员正在回答时不发，返回 `None`。
+pub fn routine(ctx: &Ctx, member: &str, text: &str, key: &str) -> TaskResult<Option<u64>> {
+    let (name, _, events) = project_existing(ctx, group::MAIN_GROUP)?;
+    if !group::members(&events).iter().any(|present| present.name == member) {
+        return Err(TaskError::new("not_found", format!("{member} is not a member")));
+    }
+    if acp::live(&ctx.main, member).is_some() {
+        return Ok(None);
+    }
+    let event = json!({
+        "kind": "message", "author": group::USER, "to": member, "text": required(text, "text")?,
+        "source": "routine", "idempotency_key": key,
+    });
+    let (written, fresh) = group::append_new(&ctx.main, &name, event)?;
+    if fresh {
+        deliver::doorbell(ctx, &name, member);
+    }
+    Ok(Some(group::seq(&written)))
+}
+
+/// 例行那条消息（`seq`）这一轮的结局：成员答了是 `Ok(回答)`，中断 / 失败 / 起不来 / 没回答 / 之后丢了上下文是 `Err(原因)`，
+/// 还没结束是 `None`。按 seq 顺序取第一个结局：上下文丢失不带 `reply_to`，发生在例行之后就算这一轮失败。
+pub fn routine_outcome(main: &Path, member: &str, seq: u64) -> TaskResult<Option<Result<String, String>>> {
+    let events = group::events(main, group::MAIN_GROUP)?;
+    Ok(events
+        .iter()
+        .filter(|event| group::seq(event) > seq)
+        .filter(|event| text(event, "author") == Some(member) && text(event, "kind") == Some("message"))
+        .find_map(|event| {
+            let said = text(event, "text").unwrap_or_default().to_owned();
+            let answers = event.get("reply_to").and_then(Value::as_u64) == Some(seq);
+            match text(event, "event") {
+                Some("context_lost") => Some(Err(said)),
+                None if answers => Some(Ok(said)),
+                Some("turn_interrupted" | "turn_failed" | "acp_unavailable" | "turn_empty") if answers => Some(Err(said)),
+                _ => None,
+            }
+        }))
+}
+
+/// 例行连续失败：在群里告诉用户（与成员通知同形，`event: routine_failed`）。
+pub fn routine_failed(main: &Path, member: &str, text: &str) -> TaskResult<()> {
+    group::append(
+        main,
+        group::MAIN_GROUP,
+        json!({
+            "kind": "message", "source": "transcript", "event": "routine_failed", "author": member,
+            "to": group::USER, "text": text,
+        }),
+    )?;
+    Ok(())
 }
 
 /// 应答 ACP 成员的审批请求（`permission` 事件的 seq）；`option` 为 None 即取消。
@@ -310,10 +383,23 @@ pub fn post(
     reply_to: Option<u64>,
     idempotency_key: Option<String>,
 ) -> TaskResult<Value> {
-    let (name, _, _) = project_existing(ctx, name)?;
+    let (name, _, events) = project_existing(ctx, name)?;
     let author = identity::author(author)?;
     let text = required(text, "--text")?;
     let to = to.filter(|to| !to.trim().is_empty());
+    // 用户没指定收件人：被回复消息的作者（在群的成员）> 负责人；不从正文解析 @。没设负责人只记进群。
+    let to = match to {
+        None if author == group::USER => {
+            let members = group::members(&events);
+            let replied = reply_to
+                .and_then(|seq| events.iter().find(|event| group::seq(event) == seq))
+                .and_then(|event| crate::text(event, "author"))
+                .filter(|author| members.iter().any(|member| member.name == *author))
+                .map(str::to_owned);
+            replied.or(group::settings(&ctx.main, &name)?.lead)
+        }
+        to => to,
+    };
     let mut event = json!({
         "kind": "message", "author": author, "to": to, "text": text,
         "idempotency_key": idempotency_key,

@@ -33,8 +33,6 @@ import { parseDeviceFolderId } from "@/lib/transport/device"
 import type { UsageState } from "@/lib/transport/usage"
 import { cn } from "@/lib/utils"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
-import { mainFolderId } from "@/lib/workspace/projects"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import {
   PANE_POPOVER_FIT,
   TAB_TOOLBAR_BUTTON,
@@ -377,13 +375,8 @@ export function AgentLaunchMenu() {
     useStatusBarLaunchStore.getState()
   const { trackTrigger, content: paneContent } = usePaneBoundary()
   const { activeFolder } = useActiveFolder()
-  // 在项目里运行：启动目录是项目主成员（真实仓库），在某个成员里运行由成员行指定。
-  const home = useAppWorkspaceStore((s) =>
-    activeFolder
-      ? (s.allFolders.find((f) => f.id === mainFolderId(activeFolder)) ??
-        activeFolder)
-      : null
-  )
+  // 启动目录跟随侧栏选中的成员（空间里的各个项目目录）；预选里带了目录时以预选为准。
+  const target = activeFolder
   // 对方项目：列对方的工具，启动栏、服务商也是对方的（`useLaunchbar` 按项目所属设备取）。
   const { agents } = useAgentProfiles(
     activeFolder ? parseDeviceFolderId(activeFolder.id)?.deviceId : undefined
@@ -423,8 +416,8 @@ export function AgentLaunchMenu() {
             <AgentLaunchForm
               key={agentId}
               agentId={agentId}
-              workingDirectory={preset?.workingDirectory ?? home?.path ?? ""}
-              folderId={preset?.folderId ?? home?.id ?? null}
+              workingDirectory={preset?.workingDirectory ?? target?.path ?? ""}
+              folderId={preset?.folderId ?? target?.id ?? null}
               expert={preset?.expert ?? null}
               onClose={closeLaunchShelf}
             />
@@ -435,14 +428,13 @@ export function AgentLaunchMenu() {
             agents={agents}
             onPick={setActiveLaunchAgentId}
             onTerminal={
-              home
+              target
                 ? () => {
                     closeLaunchShelf()
-                    // 成员行 ▶ 打开时带了成员：终端也开在那个目录。
                     void createAndOpenFolderTerminal(
                       {
-                        cwd: preset?.workingDirectory ?? home.path,
-                        folderId: preset?.folderId ?? home.id,
+                        cwd: preset?.workingDirectory ?? target.path,
+                        folderId: preset?.folderId ?? target.id,
                       },
                       tTerminal
                     )

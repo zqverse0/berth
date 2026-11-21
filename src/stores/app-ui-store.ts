@@ -55,8 +55,6 @@ function clampSidebarWidth(width: number) {
   )
 }
 
-export type AuxView = "group" | "terminals"
-
 export interface AppUiStore {
   alerts: Alert[]
   tasks: Task[]
@@ -79,8 +77,6 @@ export interface AppUiStore {
 
   auxPanelOpen: boolean
   auxPanelRestored: boolean
-  /** 辅助面板显示当前项目的群组，还是终端 tab 组。 */
-  auxView: AuxView
   auxPanelWidth: number
   auxPanelMinWidth: number
   auxPanelMaxWidth: number
@@ -113,8 +109,6 @@ export interface AppUiStore {
 
   toggleAuxPanel: () => void
   setAuxPanelOpen: (open: boolean) => void
-  /** 切换辅助面板视图并展开面板。 */
-  showAuxView: (view: AuxView) => void
   /** 手机上辅助面板 / 侧栏盖住主区：主区打开 tab 时收起它们；桌面并排，不动。 */
   revealMainArea: () => void
   setAuxPanelWidth: (width: number) => void
@@ -152,7 +146,6 @@ const INITIAL_STATE = {
   sidebarMaxWidth: APP_UI_DEFAULTS.sidebarMaxWidth,
   auxPanelOpen: APP_UI_DEFAULTS.auxPanelOpen,
   auxPanelRestored: false,
-  auxView: "group" as AuxView,
   auxPanelWidth: APP_UI_DEFAULTS.auxPanelWidth,
   auxPanelMinWidth: APP_UI_DEFAULTS.auxPanelMinWidth,
   auxPanelMaxWidth: APP_UI_DEFAULTS.auxPanelMaxWidth,
@@ -174,7 +167,6 @@ const INITIAL_STATE = {
   | "hydrateSidebar"
   | "toggleAuxPanel"
   | "setAuxPanelOpen"
-  | "showAuxView"
   | "revealMainArea"
   | "setAuxPanelWidth"
   | "setAuxPanelMinWidth"
@@ -317,7 +309,6 @@ const appUiState: StateCreator<AppUiStore> = (set, get) => ({
     set({
       auxPanelOpen: open,
     }),
-  showAuxView: (view) => set({ auxView: view, auxPanelOpen: true }),
   revealMainArea: () => {
     if (!get().mobileLayout) return
     set({ auxPanelOpen: false, sidebarOpen: false })

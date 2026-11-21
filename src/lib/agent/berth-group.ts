@@ -229,6 +229,10 @@ export interface GroupRead {
   name: string | null
   events: GroupEvent[]
   nextAfter: number
+  /** 这页之前还有更早的事件（往上翻带 `before` = 这页第一条的 seq）。 */
+  more?: boolean
+  /** 负责人：没指定收件人的消息发给它；没设为 null。 */
+  lead?: string | null
   members: GroupMember[]
   /** seq → 送达状态。 */
   delivery: Record<string, DeliveryState>
@@ -300,9 +304,13 @@ export function mergeGroupEvents(
   return [...bySeq.values()].sort((left, right) => left.seq - right.seq)
 }
 
-/** 当前 checkout 的群（后端只认 checkout，不接受群名）：`after` 之后的事件 + 成员 + 送达状态。 */
-export function readTaskGroup(folderId: number, after = 0) {
-  return call<GroupRead>(folderId, "group.read", { after })
+/** 空间的群：`after` 之后的事件（给 `before` 时是它之前的一页）+ 成员 + 送达状态。 */
+export function readTaskGroup(
+  folderId: number,
+  after = 0,
+  page?: { before: number; limit: number }
+) {
+  return call<GroupRead>(folderId, "group.read", { after, ...page })
 }
 
 /** 启动记录：launch 时宿主与 launch.js 记下的 Agent、专家、服务商、Berth 说明长度与启动计划。 */
@@ -399,7 +407,8 @@ export function sendBatchOf(idempotencyKey: string | undefined): string | null {
 export function postToMember(
   folderId: number,
   group: string,
-  to: string,
+  /** 不给：发到群里，后端交给被回复者或负责人。 */
+  to: string | undefined,
   text: string,
   batch: string = newSendBatch(),
   replyTo?: number
@@ -412,7 +421,7 @@ export function postToMember(
       author: GROUP_USER,
       to,
       text,
-      idempotencyKey: `${batch}:${to}`,
+      idempotencyKey: `${batch}:${to ?? ""}`,
       ...(replyTo != null ? { replyTo } : {}),
       // 发给 Berth 带上所选模型：宿主据此回答。
       ...(to === BERTH_MEMBER ? { model: loadBerthModel() } : {}),
@@ -466,6 +475,18 @@ export function controlAcpMember(
     member,
     action,
     ...(terminal ? { terminal } : {}),
+  })
+}
+
+/** 设负责人（`berth group lead` 同一实现）；`member` 为 null 清除。 */
+export function setGroupLead(
+  folderId: number,
+  group: string,
+  member: string | null
+) {
+  return call<{ lead: string | null }>(folderId, "group.lead", {
+    name: group,
+    ...(member ? { member } : {}),
   })
 }
 

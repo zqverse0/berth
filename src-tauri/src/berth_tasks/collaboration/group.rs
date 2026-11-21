@@ -113,13 +113,13 @@ pub fn assign(root: &Path, params: &Value) -> Result<Value, String> {
         .map_err(|error| error.message)
 }
 
-/// 任务群组：`after` 之后的事件、来过群的全部成员、发给成员的消息的送达状态。还没有群组时 `channel` 为 null。
+/// 任务群组：`after` 之后（或 `before` 之前一页）的事件、来过群的全部成员、发给成员的消息的送达状态。还没有群组时 `channel` 为 null。
 pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
     let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
     let main = tasks::resolve(root).map_err(|error| error.message)?.main;
     // 一个项目一个群：主目录和各 worktree 打开的都是项目群；旧 tab 的群名不能把它切到别的群。
     let name = group::MAIN_GROUP.to_owned();
-    // 群组页常开、每 2 秒读一次：账本没变就复用上次的解析结果。
+    // 群组页常开、每 2 秒读一次：成员与送达状态由缓存的事件派生，只增量补读新事件。
     let events = group::events_shared(&main, &name).map_err(|error| error.message)?;
     // 成员名是专家 id：附上专家的显示名（`experts/<id>.json` 的 `name`）。
     let experts: std::collections::HashMap<String, String> =
@@ -130,7 +130,12 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
     // 成员只有 ACP 成员；旧版的终端成员不再列出，它们的消息留在时间线上。
     let members: Vec<Value> = group::roster(&events)
         .into_iter()
-        .filter(|(member, _)| member.bodies.iter().any(|body| berth_group::acp::is_acp(&body.target_ref)))
+        .filter(|(member, _)| {
+            member
+                .bodies
+                .iter()
+                .any(|body| berth_group::acp::is_acp(&body.target_ref))
+        })
         .map(|(member, left_at)| {
             let mut row = serde_json::to_value(&member).unwrap_or_default();
             row["leftAt"] = json!(left_at);
@@ -161,9 +166,18 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
             .map(|(seq, state)| (seq.to_string(), json!(state)))
             .collect();
     super::berth_member::mark_delivered(&main, &events, &mut delivery);
-    let mut read = group::read(&events, after, None);
+    // 时间线分页：`before` 往上翻更早的，`limit` 每页条数。
+    let before = params.get("before").and_then(Value::as_u64);
+    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
+    let mut read =
+        group::read(&main, &name, after, before, limit, None).map_err(|error| error.message)?;
     read["name"] = json!(name);
     read["members"] = json!(members);
+    read["lead"] = json!(
+        group::settings(&main, &name)
+            .map_err(|error| error.message)?
+            .lead
+    );
     read["delivery"] = Value::Object(delivery);
     // 内置成员 Berth：没有终端，前端固定显示；`busy` 为它正在回答（或有消息排队），
     // `log` 为正在回答的提问与执行过程。

@@ -230,10 +230,10 @@ function group(extra: Record<string, unknown> = {}) {
   }
 }
 
-function renderDetail() {
+function renderDetail(folderId = 7) {
   return render(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
-      <GroupPanel folderId={7} />
+      <GroupPanel folderId={folderId} />
     </NextIntlClientProvider>
   )
 }
@@ -287,21 +287,17 @@ beforeEach(() => {
 })
 
 describe("GroupPanel", () => {
-  it("reads an empty group directly without an anchor task", async () => {
+  it("opens on the group chat and says when no lead is set", async () => {
     listBerthTaskViews.mockResolvedValue({ ok: true, result: { tasks: [] } })
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
     await waitFor(() => expect(readTaskGroup).toHaveBeenCalledWith(7, 0))
-    // 进群默认和 Berth 单聊。
-    await waitFor(() =>
-      expect(document.querySelector('[data-chat="berth"]')).toHaveAttribute(
-        "aria-selected",
-        "true"
-      )
-    )
-    expect(screen.queryByText("please do S1")).toBeNull()
+    // 首页就是群聊：没有成员条，没设负责人时输入框提示。
+    expect(await screen.findByText("please do S1")).toBeVisible()
+    expect(document.querySelector("[data-group-chats]")).toBeNull()
+    expect(document.querySelector("[data-composer-no-lead]")).not.toBeNull()
     expect(
-      screen.getByPlaceholderText("Message Berth (type / for commands)")
+      screen.getByPlaceholderText("Message the group (no lead set)")
     ).toBeVisible()
   })
   it("shows the group timeline with delivery state, members and its tasks", async () => {
@@ -317,16 +313,16 @@ describe("GroupPanel", () => {
     await waitFor(() => expect(ensureGroupWatch).toHaveBeenCalledWith(7))
   })
 
-  /** 顶部成员条：「全部」是群聊，点成员是单聊，收件人跟随当前会话。 */
+  /** 侧栏选成员：「all」是群聊，成员名是单聊，收件人跟随当前会话。 */
   async function openChat(member: string) {
-    const tab = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>(
-        `[data-chat="${member}"]`
-      )
-      expect(found).not.toBeNull()
-      return found!
-    })
-    fireEvent.click(tab)
+    await waitFor(() =>
+      expect(useGroupWorkspaceStore.getState().group).not.toBeNull()
+    )
+    act(() =>
+      useGroupWorkspaceStore
+        .getState()
+        .setFocusedMember(member === "all" ? null : member)
+    )
   }
 
   it("sends a 1:1 message to the member whose chat is open", async () => {
@@ -351,10 +347,11 @@ describe("GroupPanel", () => {
     expect(screen.queryByTitle("Jump to its terminal")).toBeNull()
   })
 
-  it("sends one message to every member as a single batch", async () => {
+  it("sends a group message once without a recipient for the lead to answer", async () => {
     getTaskView.mockResolvedValue(view())
     readTaskGroup.mockResolvedValue(
       group({
+        lead: "claude-1",
         members: [
           member,
           {
@@ -369,13 +366,14 @@ describe("GroupPanel", () => {
     postToMember.mockResolvedValue({ ok: true, result: {} })
     renderDetail()
     await openChat("all")
-    const input = screen.getByPlaceholderText(/Message everyone/)
+    const input = await screen.findByPlaceholderText(
+      "Message the group; lead claude-1 answers"
+    )
+    expect(document.querySelector("[data-composer-no-lead]")).toBeNull()
     fireEvent.change(input, { target: { value: "sync up" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(postToMember).toHaveBeenCalledTimes(2))
-    const [first, second] = postToMember.mock.calls
-    expect([first[2], second[2]].sort()).toEqual(["claude-1", "codex-1"])
-    expect(first[4]).toBe(second[4])
+    await waitFor(() => expect(postToMember).toHaveBeenCalledTimes(1))
+    expect(postToMember.mock.calls[0][2]).toBeUndefined()
   })
 
   it("keeps member display labels in messages and recipient selection", async () => {
@@ -526,7 +524,41 @@ describe("GroupPanel", () => {
     expect(screen.queryByText("All messages")).toBeNull()
     await openChat("claude-1")
     expect(useGroupWorkspaceStore.getState().focusedMember).toBe("claude-1")
-    await openChat("all")
+    fireEvent.click(document.querySelector("[data-group-back]")!)
     expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
+  })
+  it("loads the page before the earliest message when scrolling back", async () => {
+    readTaskGroup.mockImplementation((_folder, _after, page) =>
+      Promise.resolve(
+        page
+          ? group({
+              more: false,
+              events: [
+                {
+                  schema_version: 1,
+                  seq: 0.5,
+                  timestamp_ms: 500,
+                  kind: "message",
+                  author: "user",
+                  to: "claude-1",
+                  text: "older ask",
+                },
+              ],
+            })
+          : group({ more: true })
+      )
+    )
+    // 群数据按项目缓存在模块里：用没读过的项目，从第一页读起。
+    renderDetail(9)
+    await screen.findByText("please do S1")
+    fireEvent.click(document.querySelector("[data-group-older]")!)
+    await waitFor(() =>
+      expect(readTaskGroup).toHaveBeenCalledWith(9, 0, {
+        before: 1,
+        limit: 200,
+      })
+    )
+    expect(await screen.findByText("older ask")).toBeVisible()
+    expect(document.querySelector("[data-group-older]")).toBeNull()
   })
 })

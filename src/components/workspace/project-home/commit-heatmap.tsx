@@ -20,24 +20,38 @@ const shade = (level: number) =>
     ? "var(--muted)"
     : `color-mix(in oklch, var(--primary) ${level * 25}%, var(--muted))`
 
-/** 提交热力：本仓库（所有分支）每天的提交数，一列一周、周日在上。 */
-export function CommitHeatmap({ path }: { path: string }) {
+/** 提交热力：空间里各项目成员（所有分支）每天的提交数合计，一列一周、周日在上。 */
+export function CommitHeatmap({ paths }: { paths: string[] }) {
   const t = useTranslations("ProjectHome.commits")
   const [counts, setCounts] = useState<Map<string, number> | null>(null)
+  const pathsKey = paths.join("\n")
   useEffect(() => {
     let disposed = false
-    gitCommitDays(path, MAX_WEEKS * 7 + 7)
-      .then((rows) => {
-        if (!disposed)
-          setCounts(new Map(rows.map((row) => [row.date, row.count])))
-      })
-      .catch(() => {
-        if (!disposed) setCounts(new Map())
-      })
+    void Promise.allSettled(
+      pathsKey
+        .split("\n")
+        .filter(Boolean)
+        .map((path) => gitCommitDays(path, MAX_WEEKS * 7 + 7))
+    ).then((results) => {
+      if (disposed) return
+      const merged = new Map<string, number>()
+      // 同一仓库的 worktree 读到的是同一份历史（所有分支）：结果相同的只算一次。
+      // ponytail: 按结果去重，两个仓库每天提交数恰好全同会被少算，要精确就按 git common dir 去重。
+      const seen = new Set<string>()
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue
+        const key = JSON.stringify(result.value)
+        if (seen.has(key)) continue
+        seen.add(key)
+        for (const row of result.value)
+          merged.set(row.date, (merged.get(row.date) ?? 0) + row.count)
+      }
+      setCounts(merged)
+    })
     return () => {
       disposed = true
     }
-  }, [path])
+  }, [pathsKey])
 
   const view = useMemo(() => {
     if (!counts) return null

@@ -34,7 +34,8 @@ type BerthCommand = keyof typeof BERTH_COMMANDS
 const COMMAND_NAMES = Object.keys(BERTH_COMMANDS) as BerthCommand[]
 
 /**
- * 群输入框：收件人由群顶部的会话条决定（单聊是那位成员，群聊是全体在线成员；回复 / 转给时是对方）。
+ * 群输入框：收件人由侧栏选中的成员决定（单聊是那位成员；回复 / 转给时是对方）；群聊不指定收件人，
+ * 由后端交给负责人（`lead`），没设负责人只记进群。
  * 正文就是正文：`@`、`/` 不当指令；例外是单聊 Berth 时的 {@link BERTH_COMMANDS}（输入 `/` 弹出补全）。
  * 左下角按钮插入文件路径。Enter 发送、Shift+Enter 换行。
  */
@@ -46,6 +47,7 @@ export function GroupComposer({
   disabled,
   reply,
   onReplyChange,
+  lead,
 }: {
   rows: readonly MemberRow[]
   /** 收件人（成员名），由会话条与回复决定。 */
@@ -56,6 +58,8 @@ export function GroupComposer({
   onReplyChange?: (event: GroupEvent | null) => void
   folderId: number
   disabled?: boolean
+  /** 群聊（不指定收件人）时给出：负责人成员名，没设为 null；单聊不给。 */
+  lead?: string | null
 }) {
   const t = useTranslations("BerthTasks.group.composer")
   const [text, setText] = useState("")
@@ -92,8 +96,10 @@ export function GroupComposer({
   const berthBusy = rows.some(
     (row) => row.member.name === BERTH_MEMBER && row.member.busy
   )
+  // 群聊：不指定收件人也能发（后端按负责人兜底）。
+  const toGroup = to.length === 0 && lead !== undefined
   const canSend =
-    to.length > 0 &&
+    (to.length > 0 || toGroup) &&
     Boolean(body) &&
     !sending &&
     !disabled &&
@@ -156,7 +162,7 @@ export function GroupComposer({
     try {
       const failed = await onSend(to, body, reply?.seq)
       // 部分失败时不保留输入：重发会让已收到的成员再收一次（失败的成员已在提示里列出）。
-      if (failed.length < to.length) {
+      if (to.length === 0 || failed.length < to.length) {
         setText("")
         onReplyChange?.(null)
       }
@@ -217,6 +223,13 @@ export function GroupComposer({
       {reachable.length === 0 ? (
         <p className="mb-1.5 text-xs text-muted-foreground/80">
           {t("noMembers")}
+        </p>
+      ) : toGroup && lead === null ? (
+        <p
+          data-composer-no-lead
+          className="mb-1.5 text-xs text-muted-foreground/80"
+        >
+          {t("noLead")}
         </p>
       ) : null}
       <div
@@ -282,13 +295,17 @@ export function GroupComposer({
           rows={2}
           disabled={disabled || sending || reachable.length === 0}
           placeholder={
-            everyone
-              ? t("placeholderAll")
-              : onlyBerth
-                ? t("berthPlaceholder")
-                : to.length
-                  ? t("placeholderTo", { name: to.map(labelOf).join(", ") })
-                  : t("placeholderPick")
+            toGroup
+              ? lead
+                ? t("placeholderLead", { name: labelOf(lead) })
+                : t("placeholderGroup")
+              : everyone
+                ? t("placeholderAll")
+                : onlyBerth
+                  ? t("berthPlaceholder")
+                  : to.length
+                    ? t("placeholderTo", { name: to.map(labelOf).join(", ") })
+                    : t("placeholderPick")
           }
           className="max-h-48 min-h-14 w-full resize-none rounded-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-relaxed shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground/70"
           onChange={(event) => {

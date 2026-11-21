@@ -15,12 +15,16 @@ export type Automation = {
   prompt: string
   /** 挂在哪个任务上（任务名）；没有的是已停用的旧独立自动化。 */
   task: string | null
+  /** 例行发群的收件成员：到点往空间群发 `prompt` 给它，不起终端。 */
+  member?: string | null
   missedRunGraceMinutes: number
+  /** 连续失败次数（成功清零）。 */
+  failures?: number
 }
 
 export type AutomationDraft = Omit<
   Automation,
-  "id" | "nextRunAt" | "lastRunAt" | "lastRunStatus"
+  "id" | "nextRunAt" | "lastRunAt" | "lastRunStatus" | "failures"
 >
 
 export type AutomationRun = {

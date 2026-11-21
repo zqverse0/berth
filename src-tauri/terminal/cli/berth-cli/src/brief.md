@@ -7,7 +7,7 @@
 {berth}
 - 给用户看文件或某一行 → `berth open <路径>:<行号>`（不要用 xdg-open 或外部浏览器）
 - 读用户在编辑器里正在看的内容 → `berth project current-file`
-- 项目成员（检出、参考目录）→ `berth project . member ls`
+- 项目成员（各检出）→ `berth project . member ls`
 - 查看其他终端 → `berth terminal ls`、`berth terminal capture -t <终端>`
 - 在其他终端里执行 → `berth terminal send -t <终端> --text <命令>`，回车另发 `berth terminal send -t <终端> --key Enter`；多行加 `--paste`
 - 新开 Agent 终端 → `berth terminal create --project <项目> --agent <工具>`；关闭终端 → `berth terminal close -t <终端>`

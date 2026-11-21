@@ -25,13 +25,19 @@ export interface TaskGroupState {
   events: GroupEvent[]
   members: GroupMember[]
   delivery: Record<string, DeliveryState>
+  /** 负责人；没设为 null。 */
+  lead: string | null
+  /** 时间线之前还有更早的事件。 */
+  more: boolean
   error: string | null
   loaded: boolean
   /** 立即再读一次（发送、开工之后）。 */
   refresh: () => void
+  /** 往上翻：读最早一条之前的一页。 */
+  loadOlder: () => void
 }
 
-type GroupData = Omit<TaskGroupState, "refresh">
+type GroupData = Omit<TaskGroupState, "refresh" | "loadOlder">
 
 const EMPTY: GroupData = {
   env: null,
@@ -39,9 +45,14 @@ const EMPTY: GroupData = {
   events: [],
   members: [],
   delivery: {},
+  lead: null,
+  more: false,
   error: null,
   loaded: false,
 }
+
+/** 往上翻一页的条数。 */
+const PAGE = 200
 
 /**
  * 一个项目（checkout）的群数据。`group.read` 只认当前 checkout 的群，同一项目的群页、成员栏、
@@ -57,6 +68,8 @@ interface GroupFeed {
   snapshot: string
   loading: Promise<void> | null
   again: boolean
+  /** 往上翻在途。 */
+  older: boolean
   stop: (() => void) | null
   subscribe: (listener: () => void) => () => void
 }
@@ -76,6 +89,7 @@ function feedOf(folderId: number): GroupFeed {
       snapshot: "",
       loading: null,
       again: false,
+      older: false,
       stop: null,
       subscribe: (listener) => {
         listeners.add(listener)
@@ -124,6 +138,7 @@ async function readOnce(feed: GroupFeed) {
     result.env ?? null,
     members,
     result.delivery,
+    result.lead ?? null,
   ])
   if (feed.snapshot !== snapshot) {
     feed.snapshot = snapshot
@@ -131,7 +146,9 @@ async function readOnce(feed: GroupFeed) {
     patch.env = result.env ?? null
     patch.members = members
     patch.delivery = result.delivery
+    patch.lead = result.lead ?? null
   }
+  if (after === 0) patch.more = result.more ?? false
   if (switched) patch.events = []
   else if (after === 0) patch.events = result.events
   else if (result.events.length > 0)
@@ -140,6 +157,26 @@ async function readOnce(feed: GroupFeed) {
   feed.cursor = switched ? 0 : Math.max(after, result.nextAfter)
   if (result.name && result.name !== previous && feed.holders > 0) {
     ensureWatch(feed)
+  }
+}
+
+/** 往上翻：最早一条之前的一页并进时间线。 */
+async function loadOlder(feed: GroupFeed) {
+  const first = feed.data.events[0]?.seq
+  if (!feed.data.more || first == null || feed.older) return
+  feed.older = true
+  try {
+    const response = await readTaskGroup(feed.folderId, 0, {
+      before: first,
+      limit: PAGE,
+    })
+    if (response.ok)
+      update(feed, {
+        events: mergeGroupEvents(feed.data.events, response.result.events),
+        more: response.result.more ?? false,
+      })
+  } finally {
+    feed.older = false
   }
 }
 
@@ -217,5 +254,9 @@ export function useTaskGroup(
   )
   useEffect(() => (active ? hold(feed) : undefined), [active, feed])
   const refresh = useCallback(() => void load(feed), [feed])
-  return useMemo(() => ({ ...data, refresh }), [data, refresh])
+  const older = useCallback(() => void loadOlder(feed), [feed])
+  return useMemo(
+    () => ({ ...data, refresh, loadOlder: older }),
+    [data, refresh, older]
+  )
 }

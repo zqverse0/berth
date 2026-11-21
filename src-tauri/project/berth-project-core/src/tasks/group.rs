@@ -1,15 +1,14 @@
-//! 群组账本：`<空间目录>/local/groups/groups.json` 元数据 + `<群>.jsonl` 事件流，
-//! 同一把 `.lock`。`berth group`、开工、GUI 群时间线共用；只追加，不改写已有事件。
+//! 群组账本：`<空间目录>/local/groups/groups.json` 元数据（`.lock` 保护）+ `group.db` 事件流（[`super::group_db`]）。
+//! `berth group`、开工、GUI 群时间线共用；只追加，不改写已有事件。
 //!
 //! 成员不另存名单：由 `joined` / `left` 事件派生（[`members`]），每人以最近一条为准；
 //! 显示名由群主的 `renamed` 事件给出（[`rename`]），成员名本身不变（投递、收集都按成员名）。
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -22,6 +21,7 @@ use super::{TaskError, TaskResult};
 pub const NAME_MAX: usize = 64;
 /// 成员显示名最长字符数。
 pub const LABEL_MAX: usize = 32;
+/// 只读旧布局（`local/channel/`）迁移时的 jsonl。
 const MAX_GROUP_BYTES: u64 = 8 * 1024 * 1024;
 /// 群主（用户）的固定作者名。
 pub const USER: &str = "user";
@@ -193,10 +193,6 @@ fn meta_path(main: &Path) -> PathBuf {
     dir(main).join("groups.json")
 }
 
-fn events_path(main: &Path, name: &str) -> PathBuf {
-    dir(main).join(format!("{name}.jsonl"))
-}
-
 /// 账本读写前的检查：`main` 属于某个空间。
 pub fn prepare(main: &Path) -> TaskResult<()> {
     super::hub::require(main)
@@ -359,6 +355,44 @@ pub fn move_checkout(
     })
 }
 
+/// 群设置（`groups.json` 群条目）：负责人（没 @ 谁的消息发给它）、每轮带给成员的群上下文条数与字数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    pub lead: Option<String>,
+    pub context_items: usize,
+    pub context_chars: usize,
+}
+
+pub fn settings(main: &Path, name: &str) -> TaskResult<Settings> {
+    let entry = info(main, name)?.unwrap_or_default();
+    let limit = |key: &str, default: usize| {
+        entry
+            .pointer(&format!("/context/{key}"))
+            .and_then(Value::as_u64)
+            .map_or(default, |value| value as usize)
+    };
+    Ok(Settings {
+        lead: entry.get("lead").and_then(Value::as_str).filter(|lead| !lead.is_empty()).map(str::to_owned),
+        context_items: limit("items", 30),
+        context_chars: limit("chars", 6000),
+    })
+}
+
+/// 设（`Some`）或清除（`None`）负责人；是否在群由调用方检查。
+pub fn set_lead(main: &Path, name: &str, lead: Option<&str>) -> TaskResult<()> {
+    let _guard = fsutil::lock(&dir(main).join(".lock"))?;
+    let mut meta = meta(main)?;
+    let entry = meta["groups"]
+        .get_mut(name)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| TaskError::new("not_found", format!("Group not found: {name}")))?;
+    match lead {
+        Some(lead) => entry.insert("lead".to_owned(), json!(lead)),
+        None => entry.remove("lead"),
+    };
+    fsutil::write_json(&meta_path(main), &meta)
+}
+
 /// 群不存在就建（不绑定任务，如 `main`）。
 pub fn ensure_group(main: &Path, name: &str) -> TaskResult<()> {
     match create(main, name) {
@@ -383,7 +417,7 @@ fn register_checkout(main: &Path, name: &str) -> TaskResult<()> {
 
 /// 群（旧版 worktree 群）有没有账本：没有的只是 checkout 记录。
 pub fn has_ledger(main: &Path, name: &str) -> bool {
-    events_path(main, name).is_file()
+    super::group_db::exists(&dir(main), name)
 }
 
 /// 对账实际存在的 checkout：主目录补建项目群，没有记录的 worktree 补一条 checkout 记录。
@@ -524,40 +558,44 @@ pub fn project_group(main: &Path, name: &str) -> TaskResult<(String, GroupEnv)> 
 }
 
 pub fn events(main: &Path, name: &str) -> TaskResult<Vec<Value>> {
-    read_events(&events_path(main, name))
+    super::group_db::after(&dir(main), name, 0)
 }
 
-/// 同 [`events`]，只读共享：按账本文件长度与修改时间缓存，账本没变就不再解析。
+/// 同 [`events`]，只读共享：缓存上次读到的事件，之后只按 seq 增量补读新追加的。
+/// ponytail: 不察觉别的进程删群重建（seq 从头算），删群只发生在旧 worktree 群收尾，项目群不删。
 /// 给反复读同一份账本的长驻进程用（GUI 群组页每 2 秒、`berth group watch` 每轮）；只留最近用过的几份。
 pub fn events_shared(main: &Path, name: &str) -> TaskResult<Arc<Vec<Value>>> {
     const KEEP: usize = 4;
-    type Entry = (u64, Option<SystemTime>, Instant, Arc<Vec<Value>>);
-    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Entry>>> = LazyLock::new(Default::default);
-    let path = events_path(main, name);
-    let Some((len, modified)) = fs::metadata(&path)
-        .ok()
-        .map(|meta| (meta.len(), meta.modified().ok()))
-    else {
-        return read_events(&path).map(Arc::new);
-    };
-    {
-        let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(entry) = cache
-            .get_mut(&path)
-            .filter(|(cached_len, cached_at, ..)| *cached_len == len && *cached_at == modified)
-        {
-            entry.2 = Instant::now();
-            return Ok(entry.3.clone());
+    type Entry = (Instant, Arc<Vec<Value>>);
+    static CACHE: LazyLock<Mutex<HashMap<(PathBuf, String), Entry>>> = LazyLock::new(Default::default);
+    let dir = dir(main);
+    let key = (dir.clone(), name.to_owned());
+    let cached = CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key)
+        .map(|entry| entry.1.clone());
+    let events = match cached {
+        Some(cached) => {
+            let fresh = super::group_db::after(&dir, name, last_seq(&cached))?;
+            if fresh.is_empty() {
+                cached
+            } else {
+                let mut all = Vec::with_capacity(cached.len() + fresh.len());
+                all.extend(cached.iter().cloned());
+                all.extend(fresh);
+                Arc::new(all)
+            }
         }
-    }
-    let events = Arc::new(read_events(&path)?);
+        None => Arc::new(events(main, name)?),
+    };
     let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    cache.insert(path, (len, modified, Instant::now(), events.clone()));
+    cache.insert(key, (Instant::now(), events.clone()));
     while cache.len() > KEEP {
         let Some(oldest) = cache
             .iter()
-            .min_by_key(|(_, entry)| entry.2)
-            .map(|(path, _)| path.clone())
+            .min_by_key(|(_, entry)| entry.0)
+            .map(|(key, _)| key.clone())
         else {
             break;
         };
@@ -604,8 +642,7 @@ pub fn create(main: &Path, name: &str) -> TaskResult<Value> {
 pub fn remove(main: &Path, name: &str) -> TaskResult<()> {
     let _guard = fsutil::lock(&dir(main).join(".lock"))?;
     let mut meta = meta(main)?;
-    let path = events_path(main, name);
-    let events = read_events(&path).unwrap_or_default();
+    let events = events(main, name).unwrap_or_default();
     let entry = meta["groups"]
         .as_object_mut()
         .and_then(|groups| groups.remove(name));
@@ -621,8 +658,7 @@ pub fn remove(main: &Path, name: &str) -> TaskResult<()> {
     }
     fsutil::write_json(&meta_path(main), &meta)?;
     forget_runtime(main, name, &events);
-    let _ = fs::remove_file(path);
-    Ok(())
+    super::group_db::remove(&dir(main), name)
 }
 
 /// 追加事件，补 `schema_version` / `seq` / `timestamp_ms`。
@@ -632,47 +668,18 @@ pub fn append(main: &Path, name: &str, event: Value) -> TaskResult<Value> {
 
 /// 同 [`append`]；带 `idempotency_key` 且已有同键事件时不再写，返回旧事件与 `false`。
 pub fn append_new(main: &Path, name: &str, event: Value) -> TaskResult<(Value, bool)> {
-    let _guard = fsutil::lock(&dir(main).join(".lock"))?;
+    // seq 与幂等由 group.db 的事务保证，不再占元数据锁。
     append_locked(main, name, event)
 }
 
 fn append_locked(main: &Path, name: &str, event: Value) -> TaskResult<(Value, bool)> {
-    let mut event: Map<String, Value> = match event {
-        Value::Object(map) => map,
-        _ => {
-            return Err(TaskError::new(
-                "invalid_input",
-                "group event must be an object",
-            ))
-        }
+    let Value::Object(event) = event else {
+        return Err(TaskError::new(
+            "invalid_input",
+            "group event must be an object",
+        ));
     };
-    let existing = events(main, name)?;
-    if let Some(key) = event
-        .get("idempotency_key")
-        .and_then(Value::as_str)
-        .filter(|key| !key.is_empty())
-    {
-        if let Some(previous) = existing
-            .iter()
-            .find(|previous| previous.get("idempotency_key").and_then(Value::as_str) == Some(key))
-        {
-            return Ok((previous.clone(), false));
-        }
-    }
-    event.insert("schema_version".into(), json!(1));
-    event.insert("seq".into(), json!(last_seq(&existing) + 1));
-    event.insert(
-        "timestamp_ms".into(),
-        json!(chrono::Utc::now().timestamp_millis()),
-    );
-    let line = serde_json::to_string(&event)
-        .map_err(|error| TaskError::new("io_error", error.to_string()))?;
-    let mut handle = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(events_path(main, name))?;
-    handle.write_all(format!("{line}\n").as_bytes())?;
-    Ok((Value::Object(event), true))
+    super::group_db::append(&dir(main), name, event)
 }
 
 pub fn seq(event: &Value) -> u64 {
@@ -898,21 +905,23 @@ pub fn messages_to<'a>(
     })
 }
 
-/// `read`：`after` 之后、发给所有人或 `to` 的事件（最多 500 条）与下一个游标。
-pub fn read(events: &[Value], after: u64, to: Option<&str>) -> Value {
-    let selected: Vec<&Value> = events
-        .iter()
-        .filter(|event| seq(event) > after)
-        .filter(|event| match to {
-            None => true,
-            Some(to) => text(event, "to").is_none_or(|target| target == to),
-        })
-        .collect();
-    let start = selected.len().saturating_sub(500);
-    json!({
-        "events": selected[start..],
-        "nextAfter": last_seq(events).max(after),
-    })
+/// `read`：`after` 之后、`before`（不含）之前、发给所有人或 `to` 的最近 `limit` 条（最多 500），
+/// `nextAfter` 为下一个增量游标，`more` 为这页之前还有更早的（往上翻带 `before` = 这页第一条的 seq）。
+pub fn read(
+    main: &Path,
+    name: &str,
+    after: u64,
+    before: Option<u64>,
+    limit: usize,
+    to: Option<&str>,
+) -> TaskResult<Value> {
+    let (events, last, more) =
+        super::group_db::page(&dir(main), name, after, before, limit.clamp(1, 500), to)?;
+    Ok(json!({
+        "events": events,
+        "nextAfter": last.max(after),
+        "more": more,
+    }))
 }
 
 fn delivery_key(target_ref: &str, name: &str, participant: &str) -> String {

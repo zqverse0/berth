@@ -2,13 +2,19 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import type { FolderDetail } from "@/lib/types"
 import type { MemberRow } from "./group-model"
 import { MemberSessions } from "./member-sessions"
 
 const runtimeBridgeOperation = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/runtime-bridge", () => ({ runtimeBridgeOperation }))
 const listProjectSessionOverview = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/api", () => ({ listProjectSessionOverview }))
+const resolveProjectAgentSession = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api", () => ({
+  listProjectSessionOverview,
+  resolveProjectAgentSession,
+}))
 const openBerthSessionTab = vi.hoisted(() => vi.fn())
 vi.mock("@/hooks/workspace/use-workspace-runtime", () => ({
   useWorkspaceRuntimeActions: () => ({ openBerthSessionTab }),
@@ -109,5 +115,60 @@ describe("MemberSessions", () => {
       cwd: "/repo",
       title: "mine",
     })
+  })
+
+  it("shows today's trajectory of the member's sessions above the list", async () => {
+    useAppWorkspaceStore.setState({
+      allFolders: [
+        { id: 7, path: "/repo", kind: "project", project: null },
+      ] as unknown as FolderDetail[],
+    })
+    resolveProjectAgentSession.mockResolvedValue({
+      deleted: false,
+      sourceAvailable: true,
+      conversation: null,
+    })
+    const item = (patch: object) => ({
+      cwd: "/repo",
+      groupDir: "/repo",
+      updatedAt: Date.now(),
+      group: "main",
+      groupName: "repo",
+      origin: "berth",
+      liveMember: null,
+      agent: "claude",
+      ...patch,
+    })
+    listProjectSessionOverview.mockResolvedValue({
+      hasMore: false,
+      items: [
+        item({ sessionId: "s1", title: "mine", liveMember: "dev" }),
+        item({ sessionId: "s2", title: "someone else" }),
+      ],
+    })
+    show(
+      row({
+        bodies: [
+          {
+            target_ref: "r",
+            agent: "claude",
+            cwd: "/repo",
+            collect: true,
+            derived: false,
+            joined_seq: 1,
+            joined_at: null,
+          },
+        ],
+      })
+    )
+    await screen.findByText("mine")
+    const trajectory = await vi.waitFor(() => {
+      const element = document.querySelector("[data-member-trajectory]")
+      if (!element) throw new Error("no trajectory yet")
+      return element
+    })
+    // 只有这位成员在跑的那个会话成一条泳道。
+    expect(trajectory).toHaveTextContent("mine")
+    expect(trajectory).not.toHaveTextContent("someone else")
   })
 })

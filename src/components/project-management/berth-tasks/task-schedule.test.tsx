@@ -3,7 +3,8 @@ import { NextIntlClientProvider } from "next-intl"
 import { describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
 import zh from "@/i18n/messages/zh-CN.json"
-import { cronOf, parseCron, TaskSchedule } from "./task-schedule"
+import { cronOf, parseCron } from "@/lib/automation-cron"
+import { TaskSchedule } from "./task-schedule"
 
 vi.mock("@/hooks/use-agent-profiles", () => ({
   useAgentProfiles: () => ({ agents: [{ id: "claude", name: "Claude" }] }),

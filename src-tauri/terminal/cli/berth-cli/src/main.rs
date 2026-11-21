@@ -55,7 +55,7 @@ Berth 命令行：与 GUI 同一套功能。
   任务      berth project <项目> task create | list | show | start | assign | finish | reopen
   群组      berth project <项目> group who | read | post | spawn | join --acp
   会话      berth project <项目> session ls | show | last
-  成员      berth project <项目> member ls | add | rm（检出来自 git，add / rm 管参考目录）
+  成员      berth project <项目> member ls（检出来自 git）
   记忆      berth project <项目> knowledge search | for | show | lint | digest | root | inbox
 
 常用：
@@ -223,7 +223,7 @@ enum Command {
         args: Vec<OsString>,
     },
 
-    /// 项目成员：检出（main 与各 worktree，来自 git）与参考目录。写作 `berth project <项目> member`。
+    /// 项目成员：检出（main 与各 worktree，来自 git）。写作 `berth project <项目> member`。
     #[command(hide = true)]
     Member {
         #[command(subcommand)]

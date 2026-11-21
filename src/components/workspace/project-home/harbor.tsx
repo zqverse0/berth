@@ -29,6 +29,8 @@ export interface HarborBerth {
   folderId: number
   path: string
   name: string
+  /** 主项目、主项目的 worktree、空间里的其他项目。 */
+  kind: "main" | "worktree" | "project"
   /** 分支名；detached 时为短哈希 */
   branch: string | null
   current: boolean
@@ -242,6 +244,9 @@ function BerthColumn({
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="max-w-[65%] shrink-0 truncate font-semibold">
               {berth.name}
+            </span>
+            <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
+              {t(`worktrees.kind.${berth.kind}`)}
             </span>
             {berth.branch && (
               <span className="min-w-0 truncate rounded bg-muted px-1.5 font-mono text-[11px] text-muted-foreground">

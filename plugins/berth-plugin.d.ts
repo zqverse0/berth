@@ -199,8 +199,6 @@ declare module "berth" {
         readonly terminal: string
       }[]
     }[]
-    /** 参考目录（只读约定，Berth 不做沙箱）。 */
-    readonly references: readonly { readonly path: string }[]
   }
 
   export interface LaunchContext {

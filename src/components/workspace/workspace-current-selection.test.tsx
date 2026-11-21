@@ -191,7 +191,7 @@ beforeEach(() => {
   mocks.setCurrentDocumentContext.mockImplementation(async () => {})
   mocks.setCurrentWorkspaceTerminal.mockReset()
   mocks.setCurrentWorkspaceTerminal.mockImplementation(async () => {})
-  useAppUiStore.setState({ auxPanelOpen: true, auxView: "terminals" })
+  useAppUiStore.setState({ auxPanelOpen: true })
   useGroupWorkspaceStore.setState({ emptyMember: null })
   useTabStore.setState({ tabs: [], rawTabs: [] })
   selectFile(null)
@@ -634,17 +634,9 @@ it("仅同步当前明确选中的终端，不根据文件或 pane 候选猜终�
   expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(null)
 })
 
-it("辅助面板收起或切到群组时，被盖住的终端不算当前", async () => {
+it("辅助面板收起时，被盖住的终端不算当前", async () => {
   selectTerminal("covered-terminal")
   render(<WorkspaceCurrentSelection />)
-  await flush()
-  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(
-    "covered-terminal"
-  )
-  act(() => useAppUiStore.setState({ auxView: "group" }))
-  await flush()
-  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(null)
-  act(() => useAppUiStore.setState({ auxView: "terminals" }))
   await flush()
   expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(
     "covered-terminal"

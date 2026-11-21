@@ -1,8 +1,8 @@
-//! 空间：Berth 的容器（库表 `project`），一个空间有多个项目——主项目、worktree、参考目录。
+//! 空间：Berth 的容器（库表 `project`），一个空间有多个项目——主项目与各 worktree。
 //!
 //! 任务、群组、想法、知识库与运行态是空间的私有数据，存在空间目录 `<数据目录>/spaces/<id>/`，
 //! 不进代码仓库；目录里的布局与旧的 `<主项目>/.berth/` 相同（`tasks/`、`knowledge/`、`local/`…）。
-//! 「目录属于哪个空间」只以库为准（folder.project_id、project_reference）。
+//! 「目录属于哪个空间」只以库为准（folder.project_id）。
 //!
 //! 进程启动时由宿主 [`configure`]（GUI 建库后、CLI 解析实例后）。没配置的进程（拿不到库、
 //! 库还没迁移的 CLI）用不了任务、群组与知识库。
@@ -30,7 +30,7 @@ struct Config {
     spaces_root: PathBuf,
 }
 
-/// 一行：成员或参考目录 → 所属空间。
+/// 一行：成员 → 所属空间。
 #[derive(Debug, Clone)]
 struct Row {
     path: PathBuf,
@@ -85,7 +85,7 @@ pub fn dir_of(id: i32) -> Option<PathBuf> {
     CONFIG.get().map(|config| config.spaces_root.join(id.to_string()))
 }
 
-/// `dir`（或其祖先）所属的空间：取路径最长的那个成员 / 参考目录。未配置或不属于任何空间时为 `None`。
+/// `dir`（或其祖先）所属的空间：取路径最长的那个成员。未配置或不属于任何空间时为 `None`。
 pub fn of(dir: &Path) -> Option<Space> {
     let config = CONFIG.get()?;
     let rows = rows(config);
@@ -127,11 +127,7 @@ fn query(db_path: &Path) -> rusqlite::Result<Vec<Row>> {
         "SELECT f.path, p.id, m.path FROM folder f \
            JOIN project p ON p.id = f.project_id \
            JOIN folder m ON m.id = p.main_folder_id \
-          WHERE f.deleted_at IS NULL \
-         UNION ALL \
-         SELECT r.path, p.id, m.path FROM project_reference r \
-           JOIN project p ON p.id = r.project_id \
-           JOIN folder m ON m.id = p.main_folder_id",
+          WHERE f.deleted_at IS NULL",
     )?;
     let rows = statement
         .query_map([], |row| {
@@ -164,8 +160,7 @@ pub mod testing {
                 .unwrap()
                 .execute_batch(
                     "CREATE TABLE project (id integer PRIMARY KEY, main_folder_id integer NOT NULL);
-                     CREATE TABLE folder (id integer PRIMARY KEY, path varchar, project_id integer, deleted_at text);
-                     CREATE TABLE project_reference (id integer PRIMARY KEY, project_id integer, path varchar);",
+                     CREATE TABLE folder (id integer PRIMARY KEY, path varchar, project_id integer, deleted_at text);",
                 )
                 .unwrap();
             let _ = CONFIG.set(Config {
@@ -205,11 +200,9 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE project (id integer PRIMARY KEY, main_folder_id integer NOT NULL);
              CREATE TABLE folder (id integer PRIMARY KEY, path varchar, project_id integer, deleted_at text);
-             CREATE TABLE project_reference (id integer PRIMARY KEY, project_id integer, path varchar);
              INSERT INTO project VALUES (1, 10), (2, 20);
              INSERT INTO folder VALUES (10, '/w/app', 1, NULL), (11, '/w/app-feature', 1, NULL),
-                                       (20, '/w/app/vendor/lib', 2, NULL), (21, '/w/gone', 2, 'x');
-             INSERT INTO project_reference VALUES (1, 1, '/ref/docs');",
+                                       (20, '/w/app/vendor/lib', 2, NULL), (21, '/w/gone', 2, 'x');",
         )
         .unwrap();
     }
@@ -229,14 +222,13 @@ mod tests {
     }
 
     #[test]
-    fn members_and_references_resolve_to_the_innermost_space() {
+    fn members_resolve_to_the_innermost_space() {
         let data = tempfile::tempdir().unwrap();
         db(&data.path().join("berth.db"));
         let rows = query(&data.path().join("berth.db")).unwrap();
         let find = |dir: &str| pick(&rows, Path::new(dir)).map(|row| (row.id, row.main.clone()));
         assert_eq!(find("/w/app/src"), Some((1, PathBuf::from("/w/app"))));
         assert_eq!(find("/w/app-feature"), Some((1, PathBuf::from("/w/app"))));
-        assert_eq!(find("/ref/docs/a.md"), Some((1, PathBuf::from("/w/app"))));
         // 嵌在别的成员里的项目归它自己的空间。
         assert_eq!(find("/w/app/vendor/lib/x"), Some((2, PathBuf::from("/w/app/vendor/lib"))));
         // 已删除的成员、前缀相同但不是祖先的目录都不算。

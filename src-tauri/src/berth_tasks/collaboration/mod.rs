@@ -36,6 +36,7 @@ pub async fn call(
         "group.post" => post(&root, &params, launch.as_ref()),
         "group.join" => join(&root, &params, launch.as_ref()),
         "group.approve" => approve(&root, &params, launch.as_ref()),
+        "group.lead" => lead(&root, &params, launch.as_ref()),
         "group.member.control" => control(&root, &params, launch.as_ref()),
         "group.stopBerth" => berth_member::stop(&root),
         "group.berthSessions" => berth_member::sessions(&root),
@@ -70,6 +71,32 @@ fn post(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value
         group::ensure_watch(root, &ctx.cli, launch)?;
     }
     Ok(written)
+}
+
+/// 例行发群（automation `group_message_v1`）：发给成员并确保后台进程在跑；成员正忙返回 `None`。
+pub async fn routine(
+    root: PathBuf,
+    member: String,
+    text: String,
+    key: String,
+    launch: CliLaunch,
+) -> Result<Option<u64>, String> {
+    tokio::task::spawn_blocking(move || {
+        let ctx = ctx(&root, Some(&launch))?;
+        let seq = berth_group::routine(&ctx, &member, &text, &key).map_err(|error| error.message)?;
+        if seq.is_some() {
+            group::ensure_watch(&root, &ctx.cli, &launch)?;
+        }
+        Ok(seq)
+    })
+    .await
+    .map_err(|error| format!("task worker failed: {error}"))?
+}
+
+/// 设负责人（`member` 缺省为清除），与 `berth group lead` 同一实现。
+fn lead(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+    let ctx = ctx(root, launch)?;
+    berth_group::lead(&ctx, required(params, "name")?, text(params, "member")).map_err(|error| error.message)
 }
 
 fn ctx(root: &Path, launch: Option<&CliLaunch>) -> Result<berth_group::Ctx, String> {

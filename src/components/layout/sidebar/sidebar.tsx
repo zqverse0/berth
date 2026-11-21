@@ -49,11 +49,6 @@ const LazyGroupPanel = lazy(() =>
     (m) => ({ default: m.GroupMembersPanel })
   )
 )
-const LazyTrajectorySidebar = lazy(() =>
-  import("@/components/workspace/project-home/trajectory").then((m) => ({
-    default: m.TrajectorySidebar,
-  }))
-)
 
 const LazyMemoryPage = lazy(() =>
   import("@/knowledge/pages/knowledge-sidebar").then((m) => ({
@@ -297,21 +292,6 @@ export const Sidebar = memo(function Sidebar() {
                     folderId={mainFolder.id}
                     folderPath={mainFolder.path}
                     active={isOpen && currentView === "memory"}
-                  />
-                </Suspense>
-              ) : (
-                <AuxPanelNoFolderEmpty />
-              )}
-            </div>
-          )}
-
-          {currentView === "trajectory" && (
-            <div className="h-full min-h-0 overflow-hidden">
-              {activeFolder ? (
-                <Suspense fallback={tabFallback}>
-                  <LazyTrajectorySidebar
-                    key={activeFolder.id}
-                    folder={activeFolder}
                   />
                 </Suspense>
               ) : (

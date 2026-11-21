@@ -17,6 +17,8 @@ use berth_project_core::entities::automation_run::{self, AutomationRunStatus};
 use berth_project_core::error::DbError;
 
 pub const TUI_CONFIG_SCHEMA: &str = "tui_terminal_v1";
+/// 例行发群：到点往空间群发一条给成员的消息，不起终端。
+pub const GROUP_CONFIG_SCHEMA: &str = "group_message_v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +29,9 @@ pub struct TuiAutomationConfig {
     /// 挂在哪个任务上（任务名）；没有的是旧的独立自动化，不再触发。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    /// 例行发群的收件成员（`group_message_v1`），`prompt` 是正文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +47,8 @@ pub struct AutomationDraft {
     pub prompt: String,
     #[serde(default)]
     pub task: Option<String>,
+    #[serde(default)]
+    pub member: Option<String>,
     #[serde(default = "default_grace")]
     pub missed_run_grace_minutes: i32,
 }
@@ -65,7 +72,10 @@ pub struct AutomationInfo {
     pub folder_id: i32,
     pub prompt: String,
     pub task: Option<String>,
+    pub member: Option<String>,
     pub missed_run_grace_minutes: i32,
+    /// 连续失败次数（成功清零）。
+    pub failures: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +181,7 @@ pub fn compute_next_run(
 pub fn config(model: &automation::Model) -> Option<TuiAutomationConfig> {
     serde_json::from_str::<TuiAutomationConfig>(&model.config)
         .ok()
-        .filter(|c| c.schema == TUI_CONFIG_SCHEMA)
+        .filter(|c| c.schema == TUI_CONFIG_SCHEMA || c.schema == GROUP_CONFIG_SCHEMA)
 }
 
 fn to_info(model: automation::Model) -> Option<AutomationInfo> {
@@ -189,7 +199,9 @@ fn to_info(model: automation::Model) -> Option<AutomationInfo> {
         folder_id: model.root_folder_id?,
         prompt: cfg.prompt,
         task: cfg.task,
+        member: cfg.member,
         missed_run_grace_minutes: model.missed_run_grace_minutes,
+        failures: model.unseen_failures,
     })
 }
 
@@ -198,9 +210,13 @@ fn validate(draft: &AutomationDraft) -> Result<(), DbError> {
         .task
         .as_deref()
         .is_some_and(|task| !task.trim().is_empty());
+    let member = draft
+        .member
+        .as_deref()
+        .is_some_and(|member| !member.trim().is_empty());
     if draft.name.trim().is_empty()
         || (!task && draft.prompt.trim().is_empty())
-        || draft.agent_id.trim().is_empty()
+        || (!member && draft.agent_id.trim().is_empty())
     {
         return Err(DbError::Validation(
             "name, agent and a task or prompt are required".into(),
@@ -213,6 +229,25 @@ fn validate(draft: &AutomationDraft) -> Result<(), DbError> {
     }
     compute_next_run(&draft.cron, &draft.timezone, Utc::now())?;
     Ok(())
+}
+
+fn config_json(draft: &AutomationDraft) -> Result<String, DbError> {
+    let member = draft
+        .member
+        .clone()
+        .filter(|member| !member.trim().is_empty());
+    serde_json::to_string(&TuiAutomationConfig {
+        schema: if member.is_some() {
+            GROUP_CONFIG_SCHEMA
+        } else {
+            TUI_CONFIG_SCHEMA
+        }
+        .into(),
+        prompt: draft.prompt.clone(),
+        task: draft.task.clone(),
+        member,
+    })
+    .map_err(|e| DbError::Validation(e.to_string()))
 }
 
 pub async fn list(
@@ -253,12 +288,7 @@ pub async fn create(
     } else {
         None
     };
-    let config = serde_json::to_string(&TuiAutomationConfig {
-        schema: TUI_CONFIG_SCHEMA.into(),
-        prompt: draft.prompt,
-        task: draft.task,
-    })
-    .map_err(|e| DbError::Validation(e.to_string()))?;
+    let config = config_json(&draft)?;
     let row = automation::ActiveModel {
         id: NotSet,
         name: Set(draft.name.trim().into()),
@@ -305,6 +335,7 @@ pub async fn update(
     } else {
         None
     };
+    let config = config_json(&draft)?;
     let mut active = row.into_active_model();
     active.name = Set(draft.name.trim().into());
     active.enabled = Set(draft.enabled);
@@ -312,12 +343,7 @@ pub async fn update(
     active.timezone = Set(draft.timezone);
     active.next_run_at = Set(next);
     active.agent_type = Set(draft.agent_id);
-    active.config = Set(serde_json::to_string(&TuiAutomationConfig {
-        schema: TUI_CONFIG_SCHEMA.into(),
-        prompt: draft.prompt,
-        task: draft.task,
-    })
-    .map_err(|e| DbError::Validation(e.to_string()))?);
+    active.config = Set(config);
     active.missed_run_grace_minutes = Set(draft.missed_run_grace_minutes);
     active.updated_at = Set(now);
     to_info(active.update(conn).await?)
@@ -440,6 +466,8 @@ pub enum RunOutcome {
     NeedsAttention(String),
     /// 任务定时：超过运行上限仍没交结果。
     TimedOut,
+    /// 例行发群：成员答了这一轮（回答摘要）。
+    Answered(String),
 }
 
 pub async fn settle_run(
@@ -452,7 +480,12 @@ pub async fn settle_run(
         RunOutcome::Submitted(path) => Set(Some(path.clone())),
         _ => NotSet,
     };
+    let summary = match &outcome {
+        RunOutcome::Answered(answer) => Set(Some(answer.chars().take(200).collect::<String>())),
+        _ => NotSet,
+    };
     let (status, reason, error) = match outcome {
+        RunOutcome::Answered(_) => (AutomationRunStatus::Succeeded, "answered", None),
         RunOutcome::Submitted(_) => (AutomationRunStatus::Succeeded, "result_submitted", None),
         RunOutcome::NeedsAttention(error) => {
             (AutomationRunStatus::Failed, "needs_attention", Some(error))
@@ -485,6 +518,7 @@ pub async fn settle_run(
             error: Set(error),
             ended_at: Set(Some(now)),
             result_path,
+            summary,
             ..Default::default()
         })
         .filter(automation_run::Column::Id.eq(run.id))
@@ -604,6 +638,32 @@ pub async fn mark_dispatched(
     Ok(())
 }
 
+/// 例行发群：记下发出的那条消息的 seq，结算时按它找这一轮的结局。
+pub async fn mark_posted(
+    conn: &DatabaseConnection,
+    run: automation_run::Model,
+    seq: u64,
+) -> Result<(), DbError> {
+    let mut active = run.into_active_model();
+    active.connection_id = Set(Some(format!("group:{seq}")));
+    active.update(conn).await?;
+    Ok(())
+}
+
+/// 记一次例行结果并返回连续失败次数（成功清零）。
+pub async fn count_failure(
+    conn: &DatabaseConnection,
+    automation_id: i32,
+    failed: bool,
+) -> Result<i32, DbError> {
+    let row = get_model(conn, automation_id).await?;
+    let failures = if failed { row.unseen_failures + 1 } else { 0 };
+    let mut active = row.into_active_model();
+    active.unseen_failures = Set(failures);
+    active.update(conn).await?;
+    Ok(failures)
+}
+
 pub async fn skip_run(
     conn: &DatabaseConnection,
     run: automation_run::Model,
@@ -678,6 +738,7 @@ mod tests {
                 folder_id,
                 prompt: "check".into(),
                 task: None,
+                member: None,
                 missed_run_grace_minutes: 1,
             },
         )
@@ -848,6 +909,7 @@ mod tests {
                 folder_id,
                 prompt: "check".into(),
                 task: None,
+                member: None,
                 missed_run_grace_minutes: 1,
             },
         )

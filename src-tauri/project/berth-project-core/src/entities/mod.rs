@@ -14,5 +14,4 @@ pub mod prelude;
 pub mod primary_tab;
 pub mod project;
 pub mod project_agent_session_index;
-pub mod project_reference;
 pub mod quick_message;

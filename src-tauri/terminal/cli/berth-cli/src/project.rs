@@ -117,40 +117,6 @@ pub(crate) async fn project_view_at(
         .map_err(incompatible)
 }
 
-/// 给 `dir` 所在项目加入（`add`）或移除参考成员；返回（项目名, 是否有改动）。不在项目里为 `None`。
-/// 参考成员只是本机的路径引用，GUI 每次列成员时现读，写库不经 GUI。
-pub(crate) async fn edit_reference(
-    instance: &DataInstance,
-    dir: &std::path::Path,
-    path: &str,
-    add: bool,
-) -> Result<Option<(String, bool)>, InstanceState> {
-    let conn = ready_conn!(instance);
-    let incompatible = |error: berth_project_core::DbError| InstanceState::Incompatible {
-        detail: error.to_string(),
-    };
-    let Some(project) = folder_service::project_for_dir(&conn, dir)
-        .await
-        .map_err(incompatible)?
-    else {
-        return Ok(None);
-    };
-    let changed = if add {
-        let before = folder_service::list_references(&conn, project.id)
-            .await
-            .map_err(incompatible)?;
-        let stored = folder_service::add_reference(&conn, project.id, path)
-            .await
-            .map_err(incompatible)?;
-        !before.contains(&stored)
-    } else {
-        folder_service::remove_reference(&conn, project.id, path)
-            .await
-            .map_err(incompatible)?
-    };
-    Ok(Some((project.name, changed)))
-}
-
 pub(crate) async fn list_entries(
     instance: &DataInstance,
     scope: ProjectScope,

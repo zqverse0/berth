@@ -34,7 +34,7 @@ import {
 } from "@/lib/plugins/plugin-views"
 import { workspaceTabKey } from "@/lib/workspace/workspace-tab-placement"
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
+import { showProjectHome } from "@/lib/workspace/project-home"
 import { cn } from "@/lib/utils"
 
 // Desktop main-workspace tab strip. Settings is a mode entered from the
@@ -49,18 +49,10 @@ export function FileWorkspaceTabBar() {
     : ""
   const homeShown =
     !settingsActive && (activeKey === "" || homeOver === activeKey)
-  // 软件图标：随时叫出 / 收起项目首页（没有 tab 时首页本来就在）；在设置里点它先退出设置。
+  // 「空间」tab（软件图标）：固定在条首、不可关闭，点它切到空间首页（群对话）；在设置里点它先退出设置。
   const showHome = () => {
-    if (settingsActive) {
-      closeSettings()
-      const files = useWorkspaceLayoutStore.getState().activeTabByPane.files
-      useAppUiStore.setState({
-        projectHomeOver: files ? workspaceTabKey(files) : null,
-      })
-      return
-    }
-    if (activeKey === "") return
-    useAppUiStore.setState({ projectHomeOver: homeShown ? null : activeKey })
+    if (settingsActive) closeSettings()
+    showProjectHome()
   }
   // 与 Agent tab 同一外壳的图标 tab，固定在条首；尾部带全部标签菜单与新建文件。
   const homeTab = (tabListMenu: ReactNode) => (

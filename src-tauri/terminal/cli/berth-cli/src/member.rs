@@ -1,7 +1,7 @@
-//! `berth project <项目> member ls|add|rm`：项目成员。代码成员（main 与各 worktree）来自 git，
-//! 由 GUI 列成员时登记；`add` / `rm` 只管参考成员。`ls` 只读，与 launch.js 的 `ctx.project` 同一份视图。
+//! `berth project <项目> member ls`：项目成员。代码成员（main 与各 worktree）来自 git，
+//! 由 GUI 列成员时登记。`ls` 只读，与 launch.js 的 `ctx.project` 同一份视图。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use berth_project_core::service::folder::{ProjectView, RunningAgent};
 use clap::Subcommand;
@@ -10,21 +10,9 @@ use crate::{CliError, EXIT_TARGET_NOT_FOUND};
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum MemberCommand {
-    /// 列出成员：每个检出的路径、分支、在跑的 Agent，以及参考目录（只读）。
+    /// 列出成员：每个检出的路径、分支、在跑的 Agent。
     Ls {
         /// 输出一个机器可读的 JSON 对象（与 launch.js 的 `ctx.project` 相同）。
-        #[arg(long)]
-        json: bool,
-    },
-    /// 加入参考目录（参考项目、资料）；同一目录可进多个项目。
-    Add {
-        path: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
-    /// 移除参考目录（不动磁盘上的文件）。
-    Rm {
-        path: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -114,45 +102,7 @@ pub(crate) fn run(command: MemberCommand, socket: Option<&Path>) -> Result<(), C
             print_view(&view, json);
             Ok(())
         }
-        MemberCommand::Add { path, json } => edit(&dir, path, true, json),
-        MemberCommand::Rm { path, json } => edit(&dir, path, false, json),
     }
-}
-
-fn edit(dir: &Path, path: PathBuf, add: bool, json: bool) -> Result<(), CliError> {
-    let path = dir.join(path);
-    if add && !path.is_dir() {
-        return Err(CliError::not_found(format!(
-            "{} is not an existing directory",
-            path.display()
-        )));
-    }
-    let instance = crate::project::writable_instance()
-        .map_err(|state| CliError::from_instance(state, json))?;
-    let (project, changed) = runtime()?
-        .block_on(crate::project::edit_reference(
-            &instance,
-            dir,
-            &path.to_string_lossy(),
-            add,
-        ))
-        .map_err(|state| CliError::from_instance(state, json))?
-        .ok_or_else(|| not_in_project(dir))?;
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({ "project": project, "path": path, "changed": changed })
-        );
-    } else {
-        let verb = match (add, changed) {
-            (true, true) => "已加入",
-            (true, false) => "已在",
-            (false, true) => "已移除",
-            (false, false) => "不在",
-        };
-        println!("{verb}项目 {project} 的参考目录：{}", path.display());
-    }
-    Ok(())
 }
 
 fn print_view(view: &ProjectView, json: bool) {
@@ -192,13 +142,5 @@ fn print_view(view: &ProjectView, json: bool) {
                 format!("  {}", notes.join("，"))
             }
         );
-    }
-    if view.references.is_empty() {
-        println!("参考目录：无（`berth project . member add <目录>` 加入）");
-    } else {
-        println!("参考目录（只读）：");
-        for reference in &view.references {
-            println!("  {}", reference.path);
-        }
     }
 }

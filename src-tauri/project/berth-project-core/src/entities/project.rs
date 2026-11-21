@@ -1,7 +1,7 @@
 use sea_orm::entity::prelude::*;
 
-/// 项目：Berth 的逻辑容器，不对应磁盘目录。代码成员是 `folder.project_id` 指向它的 folder 行，
-/// 参考成员在 [`super::project_reference`]。项目级属性（名称、置顶、排序）只存在这里。
+/// 项目：Berth 的逻辑容器，不对应磁盘目录。代码成员是 `folder.project_id` 指向它的 folder 行。
+/// 项目级属性（名称、置顶、排序）只存在这里。
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "project")]
 pub struct Model {

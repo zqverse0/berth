@@ -70,7 +70,7 @@ describe("app UI store", () => {
 
     // 手机上后打开的留下，不管从哪个入口打开。
     ui.toggleSidebar()
-    useAppUiStore.getState().showAuxView("terminals")
+    useAppUiStore.getState().setAuxPanelOpen(true)
     ui = useAppUiStore.getState()
     expect([ui.sidebarOpen, ui.auxPanelOpen]).toEqual([false, true])
     ui.revealInFileTree("/a")

@@ -1418,14 +1418,10 @@
         "tasks": "任务",
         "memory": "记忆",
         "collaboration": "协同",
-        "terminal": "终端",
-        "trajectory": "Agent 轨迹"
+        "terminal": "终端"
       },
       "noFolderTitle": "暂无打开的文件夹",
       "noFolderHint": "打开一个文件夹后在这里查看",
-      "views": {
-        "group": "群组"
-      },
       "launch": "启动 Agent",
       "launchBack": "换一个 Agent",
       "commands": "快捷指令"
@@ -3640,7 +3636,7 @@
     }
   },
   "ProjectHome": {
-    "home": "空间首页",
+    "home": "空间",
     "pulse": {
       "attention": "<b>{count}</b> 个等你处理",
       "working": "<b>{count}</b> 个 Agent 干活中",
@@ -3652,17 +3648,19 @@
       "reply": "去处理"
     },
     "worktrees": {
-      "title": "Worktree 与 Agent",
-      "summary": "{count} 个 worktree",
+      "title": "项目与 worktree",
+      "summary": "{count} 个",
       "noAgent": "没有 Agent",
       "clean": "无改动",
       "dirty": "{count} 个文件未提交",
-      "noTask": "没有分到任务"
+      "noTask": "没有分到任务",
+      "kind": {
+        "main": "主项目",
+        "worktree": "worktree",
+        "project": "项目"
+      }
     },
     "trajectory": {
-      "title": "Agent 轨迹",
-      "summary": "今天 {count} 个会话",
-      "empty": "今天还没有 Agent 会话",
       "count": "{turns} 问 · {calls} 次调用",
       "noTurns": "今天还没有提问",
       "running": "进行中…",
@@ -3704,6 +3702,10 @@
       "title": "知识库",
       "summary": "{notes} 篇笔记",
       "empty": "知识库还没有笔记。在记忆面板里让 Agent 写第一批笔记。"
+    },
+    "overview": {
+      "title": "概览",
+      "summary": "{members} 个项目与 worktree · {notes} 篇笔记"
     }
   },
   "LaunchManifest": {
@@ -3777,7 +3779,8 @@
         "legacy": "历史运行已结束，结果未核实",
         "submitted": "已交结果",
         "attention": "未交结果，需要处理",
-        "timeout": "超时未交结果"
+        "timeout": "超时未交结果",
+        "answered": "已回答"
       },
       "open": "打开终端",
       "reviewState": {
@@ -3840,7 +3843,9 @@
         "reply": "回复",
         "original": "原消息暂不可用",
         "newCount": "{count} 条新消息",
-        "earlier": "更早的 {count} 条"
+        "earlier": "更早的 {count} 条",
+        "with": "与 {name} 单聊",
+        "back": "回到群聊"
       },
       "fromIdea": "来源想法 {id}",
       "ideaMissing": "找不到想法 {id}",
@@ -3912,11 +3917,10 @@
       "members": {
         "title": "成员（{count}）",
         "emptyPlanning": "开工后，在 worktree 里启动的 Agent 会自动入群。",
-        "emptyStarted": "还没有成员。在群组页点「+」加一个 Agent。",
+        "emptyStarted": "还没有成员。点顶栏「+」加一个 Agent。",
         "jump": "跳到它的终端",
         "mention": "@ 它",
         "interrupt": "打断",
-        "pageMembers": "成员",
         "pageSessions": "会话",
         "sessions": {
           "toggle": "会话",
@@ -3942,9 +3946,18 @@
         "rename": "改显示名",
         "renameHint": "Enter 保存，Esc 取消；留空改回原名。不能含空格或 @",
         "showMessages": "只看它的消息",
-        "sectionMembers": "成员",
         "sectionDelegations": "进行中的委托",
-        "noDelegations": "没有进行中的委托"
+        "noDelegations": "没有进行中的委托",
+        "filterAll": "全部",
+        "filterAttention": "等你",
+        "filterWorking": "干活中",
+        "setLead": "设为负责人",
+        "unsetLead": "取消负责人",
+        "lead": "负责人",
+        "leadIs": "负责人 {name}",
+        "noLead": "未设负责人",
+        "queued": "排队中",
+        "menu": "更多操作"
       },
       "sessions": {
         "title": "关联会话",
@@ -4009,7 +4022,10 @@
         "commandsLabel": "指令",
         "commands": {
           "new": "开始新会话（之前的对话不再带入）"
-        }
+        },
+        "noLead": "未设负责人：没指定收件人的消息只记进群，没有成员会回答。在侧栏成员菜单里设负责人。",
+        "placeholderLead": "发到群里，由负责人 {name} 回答",
+        "placeholderGroup": "发到群里（未设负责人）"
       },
       "fromTerminal": "来自终端 #{number}，点击跳转",
       "terminalClosed": "这个终端已经关闭",
@@ -4069,6 +4085,17 @@
         "jump": "打开终端",
         "return": "交回群里",
         "returnHint": "关掉那个终端，会话回到群里（含在终端里聊的）"
+      },
+      "older": "加载更早的消息",
+      "routine": {
+        "menu": "定时发给它…",
+        "title": "定时发给 {name}",
+        "name": "例行：{name}",
+        "hint": "到点以你的名义在群里发这段话给它，它这一轮答了算成功；它正忙时跳过这次，失败自动重试一次，仍失败会在群里告诉你。",
+        "text": "要发的话",
+        "failures": "连续失败 {count} 次",
+        "retry": "重试",
+        "timeout": "超时没有回答"
       }
     }
   },
@@ -4304,16 +4331,6 @@
     "prune": "清理",
     "staleHint": "已失效：目录不在",
     "changes": "{count} 个未提交改动",
-    "showTemporary": "＋ {count} 个临时 worktree",
-    "hideTemporary": "− 收起临时 worktree",
-    "references": "参考",
-    "referenceHint": "参考目录（不做任务、群组、git 监视）",
-    "addReference": "添加参考目录…",
-    "removeReference": "移出空间（不动磁盘）",
-    "addReferenceFailed": "加入参考目录失败：{message}",
-    "removeReferenceFailed": "移出参考目录失败：{message}",
-    "browsingReference": "参考目录",
-    "backToMember": "← 回到 {name}",
     "pruneTitle": "清理失效的 worktree「{name}」？",
     "pruneDescription": "目录已不在或已不是 git 检出：只清掉 git 里的登记和列表里的这一行，不动磁盘。",
     "groupFinishTitle": "收尾群 worktree「{name}」？",

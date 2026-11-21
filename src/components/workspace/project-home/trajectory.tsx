@@ -1,15 +1,14 @@
 "use client"
 
 /**
- * 侧栏「Agent 轨迹」：一个会话一条泳道，一个节点 = 一问，柱子 = 这一问里的工具调用（颜色 = 类型）。
+ * 群成员的 Agent 轨迹：一个会话一条泳道，一个节点 = 一问，柱子 = 这一问里的工具调用（颜色 = 类型）。
  * 点节点就地展开这一问（提问、调用清单、回答开头），不跳走；「打开会话」才去会话页。
  */
 
 import { useEffect, useRef, useState } from "react"
 import { useFormatter, useTranslations } from "next-intl"
 import type { ToolKindLabel } from "@/lib/adapters/tool-kind-classifier"
-import type { FolderDetail } from "@/lib/types"
-import { paneFolderId, useAllAgentPanes } from "@/lib/terminal/agent-panes"
+import type { ProjectSessionOverviewItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useOpenProjectSession } from "@/sessions/project/open-project-session"
 import { useProjectMembers } from "./use-home-data"
@@ -47,37 +46,33 @@ export function TrajectoryLegend() {
   )
 }
 
-/** 侧栏视图：本项目（各成员）今天的会话；Agent 起停、换状态时重读。 */
-export function TrajectorySidebar({ folder }: { folder: FolderDetail }) {
-  const t = useTranslations("ProjectHome.trajectory")
-  const family = useProjectMembers(folder)
-  const panes = useAllAgentPanes()
-  const paneKey = panes
-    .filter(
-      (row) =>
-        row.descriptor.agentId &&
-        family.some((f) => f.id === paneFolderId(row.descriptor, family))
-    )
-    .map((row) => `${row.descriptor.terminalId}:${row.state}`)
-    .join(",")
-  const lanes = useTrajectory(folder.id, family, paneKey)
+/**
+ * 群成员卡片展开时：这位成员今天的会话（`accept` 认下的），没有就不占地方。
+ * `folderId` 是主成员；`refreshKey` 变了（成员换状态、群里有新事件）就重读。
+ */
+export function MemberTrajectory({
+  folderId,
+  refreshKey,
+  accept,
+}: {
+  folderId: number
+  refreshKey: string
+  accept: (item: ProjectSessionOverviewItem) => boolean
+}) {
+  const family = useProjectMembers({ id: folderId, project: null })
+  const lanes = useTrajectory(folderId, family, refreshKey, accept)
+  if (lanes.length === 0) return null
   return (
-    <div className="@container flex h-full min-h-0 flex-col">
-      <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
-        <div className="mb-1">{t("summary", { count: lanes.length })}</div>
+    <div
+      data-member-trajectory
+      className="@container mb-1 rounded-md border text-[11px] text-muted-foreground"
+    >
+      <div className="border-b px-3 py-1.5">
         <TrajectoryLegend />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {lanes.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
-            {t("empty")}
-          </p>
-        ) : (
-          lanes.map((lane) => (
-            <Lane key={lane.key} folderId={folder.id} lane={lane} />
-          ))
-        )}
-      </div>
+      {lanes.map((lane) => (
+        <Lane key={lane.key} folderId={folderId} lane={lane} />
+      ))}
     </div>
   )
 }

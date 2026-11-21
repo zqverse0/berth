@@ -1439,14 +1439,10 @@
         "tasks": "Tasks",
         "memory": "Memory",
         "collaboration": "Collaboration",
-        "terminal": "Terminal",
-        "trajectory": "Agent trajectory"
+        "terminal": "Terminal"
       },
       "noFolderTitle": "No folder open",
       "noFolderHint": "Open a folder to see its contents here",
-      "views": {
-        "group": "Group"
-      },
       "launch": "Launch agent",
       "launchBack": "Choose another agent",
       "commands": "Quick commands"
@@ -3661,7 +3657,7 @@
     }
   },
   "ProjectHome": {
-    "home": "Space home",
+    "home": "Space",
     "pulse": {
       "attention": "<b>{count}</b> waiting for you",
       "working": "<b>{count}</b> {count, plural, one {agent} other {agents}} working",
@@ -3673,17 +3669,19 @@
       "reply": "Handle"
     },
     "worktrees": {
-      "title": "Worktrees & agents",
-      "summary": "{count, plural, one {# worktree} other {# worktrees}}",
+      "title": "Projects & worktrees",
+      "summary": "{count}",
       "noAgent": "No agent",
       "clean": "Clean",
       "dirty": "{count} uncommitted files",
-      "noTask": "No task assigned"
+      "noTask": "No task assigned",
+      "kind": {
+        "main": "Main",
+        "worktree": "Worktree",
+        "project": "Project"
+      }
     },
     "trajectory": {
-      "title": "Agent trajectory",
-      "summary": "{count, plural, one {# session} other {# sessions}} today",
-      "empty": "No agent sessions today",
       "count": "{turns} {turns, plural, one {turn} other {turns}} · {calls} {calls, plural, one {call} other {calls}}",
       "noTurns": "No prompts today",
       "running": "In progress…",
@@ -3725,6 +3723,10 @@
       "title": "Knowledge",
       "summary": "{notes} notes",
       "empty": "No notes yet. Ask an agent to write the first notes from the Memory panel."
+    },
+    "overview": {
+      "title": "Overview",
+      "summary": "{members, plural, one {# project or worktree} other {# projects and worktrees}} · {notes, plural, one {# note} other {# notes}}"
     }
   },
   "LaunchManifest": {
@@ -3798,7 +3800,8 @@
         "legacy": "Historical run ended; result unverified",
         "submitted": "Result submitted",
         "attention": "No result, needs attention",
-        "timeout": "Timed out without a result"
+        "timeout": "Timed out without a result",
+        "answered": "Answered"
       },
       "open": "Open terminal",
       "reviewState": {
@@ -3861,7 +3864,9 @@
         "reply": "Reply",
         "original": "Original message unavailable",
         "newCount": "{count} new messages",
-        "earlier": "{count} earlier"
+        "earlier": "{count} earlier",
+        "with": "Chatting with {name}",
+        "back": "Back to group"
       },
       "fromIdea": "From idea {id}",
       "ideaMissing": "Idea {id} not found",
@@ -3933,11 +3938,10 @@
       "members": {
         "title": "Members ({count})",
         "emptyPlanning": "After starting, Agents launched in the worktree join automatically.",
-        "emptyStarted": "No members yet. Use + on the group page to add an Agent.",
+        "emptyStarted": "No members yet. Click + in the header to add an agent.",
         "jump": "Jump to its terminal",
         "mention": "@ mention",
         "interrupt": "Interrupt",
-        "pageMembers": "Members",
         "pageSessions": "Sessions",
         "sessions": {
           "toggle": "Sessions",
@@ -3963,9 +3967,18 @@
         "rename": "Rename",
         "renameHint": "Enter to save, Esc to cancel; leave empty to restore the original name. No spaces or @",
         "showMessages": "Show only its messages",
-        "sectionMembers": "Members",
         "sectionDelegations": "In progress",
-        "noDelegations": "No delegation in progress"
+        "noDelegations": "No delegation in progress",
+        "filterAll": "All",
+        "filterAttention": "Waiting",
+        "filterWorking": "Working",
+        "setLead": "Set as lead",
+        "unsetLead": "Remove as lead",
+        "lead": "Lead",
+        "leadIs": "Lead: {name}",
+        "noLead": "No lead",
+        "queued": "Queued",
+        "menu": "More actions"
       },
       "sessions": {
         "title": "Sessions",
@@ -4030,7 +4043,10 @@
         "commandsLabel": "Commands",
         "commands": {
           "new": "Start a new session (earlier turns are left out)"
-        }
+        },
+        "noLead": "No lead set: messages without a recipient are only recorded in the group and nobody answers. Set a lead from a member's menu in the sidebar.",
+        "placeholderLead": "Message the group; lead {name} answers",
+        "placeholderGroup": "Message the group (no lead set)"
       },
       "fromTerminal": "From terminal #{number}; click to open",
       "terminalClosed": "That terminal is closed",
@@ -4090,6 +4106,17 @@
         "jump": "Show terminal",
         "return": "Return to group",
         "returnHint": "Close that terminal and bring the session back to the group (including what was said there)"
+      },
+      "older": "Load earlier messages",
+      "routine": {
+        "menu": "Schedule a message…",
+        "title": "Scheduled message to {name}",
+        "name": "Routine: {name}",
+        "hint": "On schedule, posts this to it in the group as you. The run succeeds when it answers; if it is busy the run is skipped; a failure is retried once and, if it still fails, you are told in the group.",
+        "text": "Message",
+        "failures": "{count} failures in a row",
+        "retry": "retry",
+        "timeout": "No answer in time"
       }
     }
   },
@@ -4304,16 +4331,6 @@
     "prune": "Clean up",
     "staleHint": "Stale: the folder no longer exists",
     "changes": "{count, plural, one {# uncommitted change} other {# uncommitted changes}}",
-    "showTemporary": "+ {count, plural, one {# temporary worktree} other {# temporary worktrees}}",
-    "hideTemporary": "− Hide temporary worktrees",
-    "references": "References",
-    "referenceHint": "Reference directory (no tasks, groups, or git watching)",
-    "addReference": "Add reference folder…",
-    "removeReference": "Remove from space (files stay on disk)",
-    "addReferenceFailed": "Couldn't add the reference directory: {message}",
-    "removeReferenceFailed": "Couldn't remove the reference directory: {message}",
-    "browsingReference": "Reference",
-    "backToMember": "← Back to {name}",
     "pruneTitle": "Clean up stale worktree \"{name}\"?",
     "pruneDescription": "The directory is gone or no longer a git checkout: only its git registration and this row are removed; nothing on disk is touched.",
     "groupFinishTitle": "Wrap up group worktree \"{name}\"?",

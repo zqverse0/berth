@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
-import { useReferenceBrowseStore } from "@/lib/workspace/reference-browse"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useOpenFolderPicker } from "@/hooks/workspace/use-open-folder-picker"
@@ -46,7 +45,7 @@ import { sessionIndent } from "./project-row-face"
 import { ProjectRow } from "./project-row"
 import { useRemoveProject } from "./remove-project-dialog"
 import { useRenameWorktree } from "./rename-worktree-dialog"
-import { pickAndAddReference, projectMemberOp } from "./project-references"
+import { projectMemberOp } from "./untracked-checkouts"
 import { AgentIcons } from "./agent-icons"
 import {
   ProjectMembers,
@@ -302,10 +301,6 @@ export function SidebarProjectList({
       const folder = folderById.get(folderId)
       if (!folder) return
       activateFolderWorkspace(folderId)
-      // 点成员行（含当前成员）就回到它自己的文件树，不再看参考目录。
-      useReferenceBrowseStore.getState().browse(folderId, null)
-      // 群组是项目主页：恢复上次的文件，辅助面板切到该项目的群；开不开由用户自己决定。
-      useAppUiStore.setState({ auxView: "group" })
     },
     [activateFolderWorkspace, folderById]
   )
@@ -343,8 +338,8 @@ export function SidebarProjectList({
           true
         )
       }
-      // 点的是 Agent / 终端：辅助面板显示终端，不停在项目群组页
-      useAppUiStore.getState().showAuxView("terminals")
+      // 点的是 Agent / 终端：展开辅助面板显示终端
+      useAppUiStore.getState().setAuxPanelOpen(true)
     },
     [openTerminalTab, switchTab]
   )
@@ -397,14 +392,6 @@ export function SidebarProjectList({
       }
     },
     [refreshFolder, t]
-  )
-
-  const handleAddReference = useCallback(
-    (folderId: number) =>
-      void pickAndAddReference(folderId, (message) =>
-        tMembers("addReferenceFailed", { message })
-      ),
-    [tMembers]
   )
 
   const handleSetFolderPinned = useCallback(
@@ -516,15 +503,6 @@ export function SidebarProjectList({
       },
       onJoined: (mainId: number) =>
         void useAppWorkspaceStore.getState().refreshProjectMembers(mainId),
-      onBrowseReference: (folderId: number, path: string | null) => {
-        useReferenceBrowseStore.getState().browse(folderId, path)
-        useProjectPanelStore.getState().showPanel("files")
-      },
-      onReferenceTerminal: (mainId: number, path: string) =>
-        void createAndOpenFolderTerminal(
-          { cwd: path, folderId: mainId },
-          tTerminal
-        ),
     }),
     [
       handleOpenInSystemExplorer,
@@ -683,7 +661,6 @@ export function SidebarProjectList({
           onRemoveFromWorkspace={handleRemoveFromWorkspace}
           onRename={handleRenameProject}
           onSetPinned={handleSetFolderPinned}
-          onAddReference={handleAddReference}
         />
         {expanded ? (
           <ProjectMembers

@@ -117,14 +117,15 @@ function summarize(detail: DbConversationDetail): TrajectoryTurn[] {
 const resolved = new Map<string, number | null>()
 
 /**
- * 首页轨迹：项目（含各 worktree）今天活动过的会话，每个会话今天的每一问。
+ * 轨迹：项目（含各 worktree）今天活动过、`accept` 认下的会话，每个会话今天的每一问。
  * 转录走会话阅读的共享 store（加载合并、按源文件变化自动重读），只订阅在跑的会话。
  * `refreshKey` 变了（Agent 起停、换状态）就重读会话列表。
  */
 export function useTrajectory(
   folderId: number,
   family: { id: number; path: string }[],
-  refreshKey: string
+  refreshKey: string,
+  accept: (item: ProjectSessionOverviewItem) => boolean
 ): TrajectoryLane[] {
   useAgentProfiles()
   const [items, setItems] = useState<ProjectSessionOverviewItem[]>([])
@@ -138,7 +139,10 @@ export function useTrajectory(
         const since = startOfToday()
         setItems(
           overview.items
-            .filter((item) => item.sessionId && item.updatedAt >= since)
+            .filter(
+              (item) =>
+                item.sessionId && item.updatedAt >= since && accept(item)
+            )
             .slice(0, LANE_LIMIT)
         )
       })
@@ -146,6 +150,8 @@ export function useTrajectory(
     return () => {
       disposed = true
     }
+    // accept 每次渲染新建，按 refreshKey 重读
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderId, refreshKey])
 
   // 只认已打开的目录：解析别的目录会顺手打开 worktree，首页只读不该有这种副作用
