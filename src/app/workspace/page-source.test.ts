@@ -21,7 +21,7 @@ describe("workspace page and global surfaces", () => {
       ),
       "utf8"
     )
-    expect(paneSource).toContain("<ConversationDetailPanel pane={pane} />")
+    expect(paneSource).toContain("<ConversationDetailPanel pane={pane}")
     expect(pageSource).toContain("return null")
     expect(pageSource).not.toContain("SETTINGS_GLOBAL_TAB_ID")
     expect(pageSource).not.toContain("LazySettingsWorkspaceView")

@@ -472,8 +472,9 @@ describe("opening a main-area tab on a phone", () => {
     })
     await createWorkspaceRuntime().openFilePreview("/repo/README.md", {}, deps)
   }
-  const phone = (matches: boolean) =>
-    vi.stubGlobal("matchMedia", () => ({ matches }) as MediaQueryList)
+  const phone = (matches: boolean) => {
+    useAppUiStore.setState({ mobileLayout: matches })
+  }
 
   it("folds away the aux panel and sidebar covering the main area", async () => {
     phone(true)
@@ -483,7 +484,7 @@ describe("opening a main-area tab on a phone", () => {
       auxPanelOpen: false,
       sidebarOpen: false,
     })
-    vi.unstubAllGlobals()
+    phone(false)
   })
 
   it("keeps the aux panel when startup restores a file tab", async () => {
@@ -494,7 +495,7 @@ describe("opening a main-area tab on a phone", () => {
     // 启动恢复直接走布局 store，不经运行时。
     useWorkspaceLayoutStore.getState().activateFileTab(id)
     expect(useAppUiStore.getState().auxPanelOpen).toBe(true)
-    vi.unstubAllGlobals()
+    phone(false)
   })
 
   it("leaves desktop panels alone: they sit beside the main area", async () => {
@@ -505,6 +506,5 @@ describe("opening a main-area tab on a phone", () => {
       auxPanelOpen: true,
       sidebarOpen: true,
     })
-    vi.unstubAllGlobals()
   })
 })

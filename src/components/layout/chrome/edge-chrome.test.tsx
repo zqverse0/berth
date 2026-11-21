@@ -58,7 +58,8 @@ describe("window edge chrome components", () => {
     // Sidebar toggle and the view icons also live here; Open Folder is gone
     expect(screen.getByRole("button", { name: /Sidebar/i })).toBeDefined()
     expect(screen.queryByRole("button", { name: /Open Folder/i })).toBeNull()
-    expect(screen.getByRole("button", { name: "Git" })).toBeDefined()
+    expect(screen.getByRole("button", { name: "Spaces" })).toBeDefined()
+    expect(screen.getByRole("button", { name: "Tasks" })).toBeDefined()
   })
 
   it("keeps only the aux panel toggle on RightEdgeChrome", () => {

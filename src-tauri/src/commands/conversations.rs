@@ -2702,7 +2702,7 @@ mod tests {
             FolderKind::Chat,
             "folder must be a chat folder"
         );
-        assert_eq!(result.folder.parent_id, None);
+        assert_eq!(result.folder.project_id, None);
         assert_eq!(result.folder_id, result.folder.id);
         assert!(
             result
@@ -4000,8 +4000,8 @@ mod tests {
         assert_eq!(folder_rows.len(), 1);
         assert_eq!(folder_rows[0].path, "/tmp/proj-a");
         assert!(
-            folder_rows[0].is_open,
-            "created folder must open in sidebar"
+            folder_rows[0].deleted_at.is_none() && folder_rows[0].project_id.is_some(),
+            "created folder must be active in a space"
         );
 
         let convs = conversation::Entity::find().all(&db.conn).await.unwrap();
@@ -4059,7 +4059,6 @@ mod tests {
             .unwrap();
         let mut active = row.into_active_model();
         active.deleted_at = Set(Some(chrono::Utc::now()));
-        active.is_open = Set(false);
         active.update(&db.conn).await.unwrap();
 
         let summaries = vec![scan_summary(
@@ -4089,7 +4088,7 @@ mod tests {
             .unwrap();
         assert_eq!(folder_rows.len(), 1, "reopened in place, not duplicated");
         assert!(folder_rows[0].deleted_at.is_none());
-        assert!(folder_rows[0].is_open);
+        assert!(folder_rows[0].project_id.is_some());
     }
 
     #[tokio::test]

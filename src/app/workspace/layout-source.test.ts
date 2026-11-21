@@ -34,7 +34,7 @@ describe("workspace three-column layout ownership", () => {
     expect(source).toContain("<AuxPanel present={auxOpen || auxAnimating} />")
     expect(auxSource).toContain("if (!mounted) return null")
     expect(auxSource).toContain("<TabBar")
-    expect(auxSource).toContain('<WorkspacePaneContent pane="conversation" />')
+    expect(auxSource).toContain('<WorkspacePaneContent pane="conversation"')
   })
 
   it("keeps project-owned surfaces out of the right auxiliary panel", () => {
