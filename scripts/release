@@ -24,6 +24,39 @@ require_clean() {
 $dirty"
 }
 
+# 本地快检（几十秒、不 OOM）：上次发版以来改过的 JS / TS 跑 eslint（含 prettier），全量 tsc 只看非测试文件
+# （next build 不查测试文件）。完整 clippy 与 Windows 专用代码只有公开 Test 查得全，见下面的等 Test。
+local_checks() {
+  local last files=()
+  last=$(git -C "$dev" log -1 --format=%H --grep='^chore(release): 发布 ' dev)
+  while IFS= read -r -d '' file; do [ -f "$dev/$file" ] && files+=("$file"); done < <(
+    git -C "$dev" diff --name-only -z "$last" HEAD -- '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx'
+  )
+  if [ ${#files[@]} -gt 0 ]; then
+    (cd "$dev" && pnpm exec eslint --no-warn-ignored --quiet -- "${files[@]}") || die "eslint 没过"
+  fi
+  local types
+  types=$(cd "$dev" && NODE_OPTIONS=--max-old-space-size=3072 pnpm exec tsc --noEmit -p . 2>&1 |
+    grep 'error TS' | grep -vE '\.test\.tsx?\(' || true)
+  [ -z "$types" ] || die "TypeScript 类型错误（next build 会失败）：
+$types"
+}
+
+# 等公开仓库 main 当前快照的 Test 跑完；不绿就停，不打 tag
+wait_public_test() {
+  local sha run=""
+  sha=$(gh api repos/zqverse0/berth/commits/main -q .sha)
+  for _ in $(seq 1 30); do
+    run=$(gh run list -R zqverse0/berth --workflow test.yml --commit "$sha" --limit 1 --json databaseId -q '.[0].databaseId')
+    [ -n "$run" ] && break
+    sleep 10
+  done
+  [ -n "$run" ] || die "没找到公开快照 ${sha:0:7} 的 Test"
+  echo "release: 等公开 Test（gh run view $run -R zqverse0/berth）…"
+  gh run watch "$run" -R zqverse0/berth --exit-status >/dev/null ||
+    die "公开 Test 没过，没有打 tag：gh run view $run -R zqverse0/berth --log-failed；在 dev 修好后用同一版本号重跑 scripts/release $version"
+}
+
 version=${1:-}
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "用法：scripts/release <版本>，例如 scripts/release 0.38.0"
 
@@ -38,6 +71,7 @@ require_clean "$main"
 if git ls-remote --exit-code --tags public "v$version" >/dev/null; then
   die "公开仓库已有 v$version，换一个版本号"
 fi
+local_checks
 
 git -C "$dev" push origin dev
 
@@ -47,13 +81,16 @@ git -C "$main" merge --no-edit dev
 
 (cd "$main" && node scripts/set-version.mjs "$version")
 git -C "$main" add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-git -C "$main" commit -q -m "chore(release): 发布 $version"
+# 同一版本号重跑（上次停在公开 Test）时版本号已改过，没有可提交的
+git -C "$main" diff --cached --quiet || git -C "$main" commit -q -m "chore(release): 发布 $version"
 git -C "$main" push origin main
 
 # 版本号提交带回 dev，两边保持一致
 git -C "$dev" merge -q --ff-only main
 git -C "$dev" push origin dev
 
+(cd "$main" && scripts/publish-public)
+wait_public_test
 (cd "$main" && scripts/publish-public --tag)
 (cd "$main" && scripts/publish-plugins)
 

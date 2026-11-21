@@ -15,9 +15,8 @@ function makeFolder(id: number): FolderDetail {
     last_opened_at: "2026-01-01T00:00:00.000Z",
     sort_order: id,
     color: "inherit",
-    parent_id: null,
+    project: null,
     kind: "regular",
-    alias: null,
   }
 }
 

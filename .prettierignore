@@ -8,3 +8,4 @@ src-tauri/resources/codex/bundled-catalog.json
 docs/
 pnpm-lock.yaml
 REMOVE/
+plugins/pi/private/acp/

@@ -12,7 +12,7 @@ import type { FolderDetail } from "@/lib/types"
 import { paneFolderId, useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import { cn } from "@/lib/utils"
 import { useOpenProjectSession } from "@/sessions/project/open-project-session"
-import { useWorktreeFamily } from "./use-home-data"
+import { useProjectMembers } from "./use-home-data"
 import {
   useTrajectory,
   type TrajectoryLane,
@@ -47,10 +47,10 @@ export function TrajectoryLegend() {
   )
 }
 
-/** 侧栏视图：本项目（worktree 家族）今天的会话；Agent 起停、换状态时重读。 */
+/** 侧栏视图：本项目（各成员）今天的会话；Agent 起停、换状态时重读。 */
 export function TrajectorySidebar({ folder }: { folder: FolderDetail }) {
   const t = useTranslations("ProjectHome.trajectory")
-  const family = useWorktreeFamily(folder)
+  const family = useProjectMembers(folder)
   const panes = useAllAgentPanes()
   const paneKey = panes
     .filter(

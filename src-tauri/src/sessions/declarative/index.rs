@@ -362,8 +362,7 @@ impl Built {
             let mut stats = SegmentStats::default();
             let mut names: HashMap<&str, &str> = HashMap::new();
             let mut steps = 0;
-            for at in start..end {
-                let (message, mark) = (&messages[at], &self.marks[at]);
+            for (message, mark) in messages[start..end].iter().zip(&self.marks[start..end]) {
                 let time = fallback.unwrap_or(message.timestamp);
                 stats.started_at.get_or_insert(time);
                 stats.ended_at = Some(fallback.or(message.completed_at).unwrap_or(time));

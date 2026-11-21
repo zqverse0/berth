@@ -7,6 +7,8 @@ import {
   tabsForFolderScope,
 } from "@/lib/workspace/tab-scope"
 import type { PrimaryTab } from "@/lib/workspace/primary-tabs"
+import type { FolderDetail } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 const pinnedTab = (folderId: number): PrimaryTab =>
   conversationTab(folderId, `pinned:${folderId}`, true)
@@ -63,15 +65,36 @@ describe("tabsForFolderScope", () => {
     ])
   })
 
-  it("does not merge unpinned worktree conversations with their parent folder", () => {
-    const tabs = [pinnedTab(7), pinnedTab(8), conversationTab(8, "wt")]
+  it("keeps folders of different projects apart", () => {
+    const tabs = [pinnedTab(7), pinnedTab(8), conversationTab(8, "other")]
 
-    // Pinned (global) tabs show everywhere; the unpinned worktree
-    // conversation stays in folder 8.
+    // 7 与 8 不在同一项目：未钉住的 tab 留在 8。
     expect(tabsForFolderScope(tabs, 7).map((tab) => tab.id)).toEqual([
       "pinned:7",
       "pinned:8",
     ])
+  })
+
+  it("shows the same tabs on every member of a project", () => {
+    const member = (id: number, main: number) =>
+      ({
+        id,
+        name: `m${id}`,
+        path: `/p/${id}`,
+        project: { name: "p", main_folder_id: main },
+      }) as unknown as FolderDetail
+    useAppWorkspaceStore.setState({ allFolders: [member(7, 7), member(8, 7)] })
+    const tabs = [conversationTab(7, "main"), conversationTab(8, "wt")]
+
+    expect(tabsForFolderScope(tabs, 7).map((tab) => tab.id)).toEqual([
+      "main",
+      "wt",
+    ])
+    expect(tabsForFolderScope(tabs, 8).map((tab) => tab.id)).toEqual([
+      "main",
+      "wt",
+    ])
+    useAppWorkspaceStore.setState({ allFolders: [] })
   })
 
   it("shows only folderless terminals in the null scope", () => {

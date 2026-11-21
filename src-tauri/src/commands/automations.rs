@@ -474,7 +474,7 @@ fn task_run_step(
     if age >= TASK_RUN_LIMIT {
         return TaskRunStep::Settle(RunOutcome::TimedOut);
     }
-    if age < TASK_RUN_START_GRACE || !idle_for.is_some_and(|idle| idle >= TASK_RUN_IDLE) {
+    if age < TASK_RUN_START_GRACE || idle_for.is_none_or(|idle| idle < TASK_RUN_IDLE) {
         return TaskRunStep::Wait;
     }
     match continued {

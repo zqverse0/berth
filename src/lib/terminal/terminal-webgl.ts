@@ -14,6 +14,8 @@ import type { IDisposable, ITerminalAddon, Terminal } from "@xterm/xterm"
  *     新 addon 从空图集开始，屏幕按 xterm buffer 重画。
  *   - 单个终端清图集会让共用图集的其他终端取到错位字形，所以清图集一律全部终端同帧一起清。
  *   - 休眠唤醒后驱动可能静默弄坏纹理且不发 contextlost，靠计时器断档检测后全部清图集。
+ * - 弃用的画布（释放的 WebGL 画布、合并或换新丢掉的图集页）宽高置 0：WebKit 要等 GC 收走画布元素
+ *   才归还其显存，长时间运行时周期换新的图集页和上下文会一直堆着。
  * - 初始化失败：本终端本次挂载留在 DOM；全局累计 MAX_INIT_FAILURES 次后所有终端退回 DOM。
  * - 上下文丢失（显卡重置）：退回 DOM，仍可见就稍后重试；同一终端丢失
  *   MAX_CONTEXT_LOSSES 次后本次挂载不再重试。
@@ -106,6 +108,12 @@ function reserveContext(): boolean {
   return oldest !== null
 }
 
+function freeCanvas(canvas: unknown) {
+  if (!(canvas instanceof HTMLCanvasElement)) return
+  canvas.width = 0
+  canvas.height = 0
+}
+
 function listCanvases(term: WebglTerminal): HTMLCanvasElement[] {
   return Array.from(term.element?.querySelectorAll("canvas") ?? [])
 }
@@ -147,6 +155,7 @@ function recycleAll() {
   recycleTimer = null
   const slots = Array.from(holders).filter((slot) => slot.addon())
   for (const slot of slots) slot.release()
+  for (const canvas of atlasPages) freeCanvas(canvas)
   atlasPages.clear()
   for (const slot of slots) slot.reacquire()
 }
@@ -228,6 +237,7 @@ export function createTerminalWebglController(
     } catch {
       // 上下文已经丢了
     }
+    freeCanvas(currentGl?.canvas)
   }
 
   function canUseWebgl() {
@@ -264,7 +274,10 @@ export function createTerminalWebglController(
       listeners = [
         next.onContextLoss(onContextLoss),
         next.onAddTextureAtlasCanvas(onAtlasPageAdded),
-        next.onRemoveTextureAtlasCanvas((canvas) => atlasPages.delete(canvas)),
+        next.onRemoveTextureAtlasCanvas((canvas) => {
+          atlasPages.delete(canvas)
+          freeCanvas(canvas)
+        }),
       ]
     } catch (error) {
       console.warn("[TerminalWebgl] falling back to DOM renderer", error)

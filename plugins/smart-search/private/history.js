@@ -21,7 +21,10 @@ export async function run(input) {
         }),
       }
     case "find":
-      return { ok: true, records: await records.find(deps, input.query, project?.root) }
+      return {
+        ok: true,
+        records: await records.find(deps, input.query, project?.root),
+      }
     case "show":
       return { ok: true, record: await records.show(deps, input.id) }
     case "remove":
@@ -39,8 +42,10 @@ export default entry({
     const { positional, options } = parseArgs(argv, ["all"])
     const [action = "list", ...rest] = positional
     if (action === "list") return run({ action, ...options })
-    if (action === "find" && rest.length) return run({ action, query: rest.join(" ") })
-    if ((action === "show" || action === "remove") && rest.length === 1) return run({ action, id: rest[0] })
+    if (action === "find" && rest.length)
+      return run({ action, query: rest.join(" ") })
+    if ((action === "show" || action === "remove") && rest.length === 1)
+      return run({ action, id: rest[0] })
     throw new UsageError("用法不对")
   },
 })

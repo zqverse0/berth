@@ -9,13 +9,19 @@ const USAGE = `berth tools run smart-search private/save.js <网址> [--title <�
 
 /** 正文第一个一级 / 二级标题，没有就用网址。 */
 const titleOf = (markdown, url) =>
-  markdown.match(/^#{1,2}\s+(.+?)\s*#*\s*$/m)?.[1]?.trim() || url.replace(/^https?:\/\//, "").replace(/\/$/, "")
+  markdown.match(/^#{1,2}\s+(.+?)\s*#*\s*$/m)?.[1]?.trim() ||
+  url.replace(/^https?:\/\//, "").replace(/\/$/, "")
 
 export async function save(input) {
   const { deps, cfg, project, by } = await context()
   const url = String(input.url ?? "").trim()
   if (!/^https?:\/\//.test(url))
-    return { ok: false, url, error_type: "parameter_error", error: "url must be http(s)" }
+    return {
+      ok: false,
+      url,
+      error_type: "parameter_error",
+      error: "url must be http(s)",
+    }
   const existing = await berth.knowledge.findSource(url)
   if (existing) return { ok: true, url, path: existing.path, existed: true }
   let content = input.content || (await records.pageFor(deps, url))
@@ -23,13 +29,29 @@ export async function save(input) {
     const fetched = await route.fetchPage(deps, cfg, url)
     await records.write(
       deps,
-      { kind: "fetch", query: url, project, by, result: { ...fetched, content: undefined }, pages: fetched.ok ? [{ url, content: fetched.content }] : [] },
+      {
+        kind: "fetch",
+        query: url,
+        project,
+        by,
+        result: { ...fetched, content: undefined },
+        pages: fetched.ok ? [{ url, content: fetched.content }] : [],
+      },
       cfg.retentionDays
     )
-    if (!fetched.ok) return { ok: false, url, error_type: fetched.error_type, error: `抓取失败，未保存：${fetched.error}` }
+    if (!fetched.ok)
+      return {
+        ok: false,
+        url,
+        error_type: fetched.error_type,
+        error: `抓取失败，未保存：${fetched.error}`,
+      }
     content = fetched.content
   }
-  const meta = { via: "smart-search", ...(input.query ? { query: String(input.query) } : {}) }
+  const meta = {
+    via: "smart-search",
+    ...(input.query ? { query: String(input.query) } : {}),
+  }
   try {
     const { path } = await berth.knowledge.addSource({
       url,
@@ -39,7 +61,8 @@ export async function save(input) {
     })
     return { ok: true, url, path, existed: false }
   } catch (error) {
-    if (error?.reason === "conflict") return { ok: true, url, path: error.data?.path, existed: true }
+    if (error?.reason === "conflict")
+      return { ok: true, url, path: error.data?.path, existed: true }
     throw error
   }
 }
@@ -60,6 +83,10 @@ export default entry({
   cli: (argv) => {
     const { positional, options } = parseArgs(argv)
     if (positional.length !== 1) throw new UsageError("需要一个网址")
-    return save({ url: positional[0], title: options.title, query: options.query })
+    return save({
+      url: positional[0],
+      title: options.title,
+      query: options.query,
+    })
   },
 })

@@ -1,7 +1,7 @@
 //! 项目目录投影（GUI control 与 CLI 消费的同一判据）语义测试。
 //!
-//! 覆盖：`scope=all` 含未打开的已注册项目、隐藏 chat scratch folder、
-//! `scope=open` 只返回打开项目，以及 `is_open` 由打开集合投影得出。
+//! 覆盖：`scope=all` 含目录已不在的已注册项目、隐藏 chat scratch folder、
+//! `scope=open` 只返回目录仍在的项目，以及 `is_open` 由打开集合投影得出。
 
 use std::path::Path;
 
@@ -36,21 +36,20 @@ fn find<'a>(entries: &'a [CatalogEntry], name: &str) -> &'a CatalogEntry {
         .unwrap_or_else(|| panic!("entry {name} missing"))
 }
 
-/// scope=all：未打开的已注册项目仍可见，chat scratch folder 不出现。
+/// scope=all：目录已不在的已注册项目仍可见（不算打开），chat scratch folder 不出现。
 #[tokio::test]
 async fn all_scope_keeps_closed_projects_and_hides_chat() {
     let dir = tempfile::tempdir().expect("dir");
     let conn = ready_instance(dir.path()).await;
 
-    let alpha = folder_service::add_folder(&conn, &project_dir(dir.path(), "alpha"))
+    let alpha_dir = project_dir(dir.path(), "alpha");
+    folder_service::add_folder(&conn, &alpha_dir)
         .await
         .expect("alpha");
     folder_service::add_folder(&conn, &project_dir(dir.path(), "beta"))
         .await
         .expect("beta");
-    folder_service::set_folder_open(&conn, alpha.id, false)
-        .await
-        .expect("close alpha");
+    std::fs::remove_dir(&alpha_dir).expect("remove alpha dir");
     folder_service::add_chat_folder(&conn, &project_dir(dir.path(), "chat-scratch"))
         .await
         .expect("chat folder");
@@ -72,18 +71,12 @@ async fn open_scope_returns_only_open_projects() {
     let conn = ready_instance(dir.path()).await;
 
     // 打开列表只列仍存在的目录：用真实目录，另加一个已不存在的。
-    let alpha = folder_service::add_folder(&conn, &project_dir(dir.path(), "alpha"))
-        .await
-        .expect("alpha");
     folder_service::add_folder(&conn, &project_dir(dir.path(), "beta"))
         .await
         .expect("beta");
     folder_service::add_folder(&conn, "/tmp/berth-catalog-test-gone")
         .await
         .expect("gone");
-    folder_service::set_folder_open(&conn, alpha.id, false)
-        .await
-        .expect("close alpha");
     folder_service::add_chat_folder(&conn, &project_dir(dir.path(), "chat-scratch"))
         .await
         .expect("chat folder");
@@ -201,108 +194,43 @@ async fn retire_closed_migration_leaves_only_registered_projects() {
     assert_ne!(readded.id, 3);
 }
 
+/// 同名项目新建时项目名加 ` · <folder id>` 区分；用户改过的名字重开不被覆盖。
 #[tokio::test]
-async fn same_named_projects_use_editable_aliases_without_overwriting_user_names() {
+async fn same_named_projects_get_distinct_editable_names() {
     let dir = tempfile::tempdir().unwrap();
     let conn = ready_instance(dir.path()).await;
+    let alias = |id| {
+        let conn = &conn;
+        async move {
+            folder_service::get_folder_by_id(conn, id)
+                .await
+                .unwrap()
+                .unwrap()
+                .project
+                .unwrap()
+                .name
+        }
+    };
     let first = folder_service::add_folder(&conn, "/tmp/one/berth-dev")
         .await
         .unwrap();
-    assert!(folder_service::get_folder_by_id(&conn, first.id)
-        .await
-        .unwrap()
-        .unwrap()
-        .alias
-        .is_none());
     let second = folder_service::add_folder(&conn, "/tmp/two/berth-dev")
         .await
         .unwrap();
-    let alias =
-        |row: &berth_project_core::service::folder::FolderDetail| row.alias.clone().unwrap();
-    let first_row = folder_service::get_folder_by_id(&conn, first.id)
-        .await
-        .unwrap()
-        .unwrap();
-    let second_row = folder_service::get_folder_by_id(&conn, second.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_ne!(alias(&first_row), alias(&second_row));
+    assert_eq!(alias(first.id).await, "berth-dev", "first keeps the directory name");
+    assert_eq!(alias(second.id).await, format!("berth-dev · {}", second.id));
     folder_service::update_folder_alias(&conn, first.id, Some("My dev".into()), true, None)
-        .await
-        .unwrap();
-    folder_service::add_folder(&conn, "/tmp/three/berth-dev")
         .await
         .unwrap();
     folder_service::add_folder(&conn, "/tmp/one/berth-dev")
         .await
         .unwrap();
-    assert_eq!(
-        folder_service::get_folder_by_id(&conn, first.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .alias
-            .as_deref(),
-        Some("My dev")
-    );
-    assert_eq!(
-        folder_service::get_folder_by_id(&conn, second.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .alias,
-        second_row.alias
-    );
-}
-
-#[tokio::test]
-async fn existing_same_named_projects_are_backfilled_once_using_the_same_alias_field() {
-    let dir = tempfile::tempdir().unwrap();
-    let conn = ready_instance(dir.path()).await;
-    let first = folder_service::add_folder(&conn, "/tmp/one/project")
-        .await
-        .unwrap();
-    let second = folder_service::add_folder(&conn, "/tmp/two/project")
-        .await
-        .unwrap();
+    assert_eq!(alias(first.id).await, "My dev");
+    // 清空名称恢复为主成员目录名。
     folder_service::update_folder_alias(&conn, first.id, None, true, None)
         .await
         .unwrap();
-    folder_service::update_folder_alias(&conn, second.id, Some("Custom".into()), true, None)
-        .await
-        .unwrap();
-    folder_service::ensure_distinct_folder_aliases(&conn)
-        .await
-        .unwrap();
-    let row = folder_service::get_folder_by_id(&conn, first.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        row.alias.as_deref(),
-        Some(format!("project · {}", first.id).as_str())
-    );
-    folder_service::ensure_distinct_folder_aliases(&conn)
-        .await
-        .unwrap();
-    assert_eq!(
-        folder_service::get_folder_by_id(&conn, first.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .alias,
-        row.alias
-    );
-    assert_eq!(
-        folder_service::get_folder_by_id(&conn, second.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .alias
-            .as_deref(),
-        Some("Custom")
-    );
+    assert_eq!(alias(first.id).await, "berth-dev");
 }
 
 #[cfg(unix)]
@@ -349,11 +277,20 @@ async fn reopening_moved_folder_through_symlink_preserves_identity() {
         1
     );
 
-    // 模拟遗留软链路径：worktree 的 parent 写入入口也必须迁移同一身份。
+    // 模拟遗留软链路径：登记进项目的写入入口也必须迁移同一身份。
     let mut legacy = row.into_active_model();
     legacy.path = Set(old.to_str().unwrap().to_owned());
     legacy.update(&conn).await.unwrap();
-    let child = folder_service::add_folder_with_parent(&conn, new.to_str().unwrap(), Some(999))
+    let other = folder_service::add_folder(&conn, &project_dir(dir.path(), "other"))
+        .await
+        .unwrap();
+    let other_project = folder_service::get_folder_by_id(&conn, other.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .project_id
+        .unwrap();
+    let child = folder_service::add_folder_to_project(&conn, new.to_str().unwrap(), other_project)
         .await
         .unwrap();
     assert_eq!(child.id, original.id);
@@ -362,7 +299,8 @@ async fn reopening_moved_folder_through_symlink_preserves_identity() {
             .await
             .unwrap()
             .unwrap()
-            .parent_id,
-        Some(999)
+            .project
+            .map(|p| p.main_folder_id),
+        Some(other.id)
     );
 }

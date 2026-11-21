@@ -2,7 +2,7 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "pi",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "requires": {
     "process": 1,
     "fs": 1

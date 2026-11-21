@@ -22,11 +22,11 @@ use std::fmt;
 
 pub(crate) use hub::checkout_root;
 pub(crate) use hub::hub_elsewhere;
-pub use hub::{main_project, resolve, Scope, HUB_MARKER};
+pub use hub::{exclude_main_only, main_project, resolve, MainOnlyCopy, Scope, HUB_MARKER};
 pub use ops::{
     parse_task_run, run_result_path, run_stamp, run_stamp_now, write_run_result, INCOMPLETE_MARK,
     RUNS_DIR, TASK_RUN_ENV,
-    archive, assign, begin, bind, complete, create, done, finish, finish_group, list, migrate,
+    archive, assign, begin, bind, complete, create, done, ended_group_worktrees, group_worktrees, finish, finish_group, list, migrate,
     open_tasks_in_group, reopen, save, settle_merged, show, step, unbind, views, CreateOptions,
     FinishOptions,
 };

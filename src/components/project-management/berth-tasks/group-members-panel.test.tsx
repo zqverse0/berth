@@ -53,7 +53,7 @@ vi.mock("@/stores/workspace-layout-store", () => ({
 vi.mock("@/stores/app-workspace-store", () => ({
   useAppWorkspaceStore: (select: (state: unknown) => unknown) =>
     select({
-      allFolders: [{ id: 7, path: "/repo/berth-dev", parent_id: null }],
+      allFolders: [{ id: 7, path: "/repo/berth-dev" }],
     }),
 }))
 vi.mock("@/components/project-management/group/use-task-group", () => ({

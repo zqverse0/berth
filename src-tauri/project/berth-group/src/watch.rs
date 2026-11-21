@@ -20,6 +20,7 @@ use sha2::{Digest, Sha256};
 use crate::{text, Ctx};
 
 /// 兜底周期：叫醒是主路径，周期只用来记提交。
+#[cfg(unix)]
 const IDLE_TICK: Duration = Duration::from_secs(30);
 /// 没有叫醒通道（非 Unix 或 socket 绑不上）时只能靠周期，退回短周期。
 const TICK: Duration = Duration::from_secs(2);

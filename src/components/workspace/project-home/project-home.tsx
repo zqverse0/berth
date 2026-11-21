@@ -51,13 +51,33 @@ import { useTabStore } from "@/stores/tab-store"
 import { CommitHeatmap } from "./commit-heatmap"
 import { Harbor, type BerthTask, type HarborBerth } from "./harbor"
 import { TokenUsage } from "./token-usage"
-import { useHomeData, useWorktreeFamily } from "./use-home-data"
+import { useHomeData, useProjectMembers } from "./use-home-data"
+import {
+  mainFolderId,
+  memberLabel,
+  projectName,
+} from "@/lib/workspace/projects"
 
-/** 没有打开的 tab（或点了 tab 条的软件图标）时，中间工作区显示的项目首页。 */
+/**
+ * 没有打开的 tab（或点了 tab 条的软件图标）时，中间工作区显示的项目首页。
+ * 首页属于项目：选中哪个成员都显示主成员的首页，当前成员只在港湾里标出。
+ */
 export function ProjectHome() {
   const { activeFolder } = useActiveFolder()
+  const main = useAppWorkspaceStore((s) =>
+    activeFolder
+      ? s.allFolders.find((f) => f.id === mainFolderId(activeFolder))
+      : undefined
+  )
   if (!activeFolder) return null
-  return <ProjectHomeBody key={activeFolder.id} folder={activeFolder} />
+  const folder = main ?? activeFolder
+  return (
+    <ProjectHomeBody
+      key={folder.id}
+      folder={folder}
+      activeId={activeFolder.id}
+    />
+  )
 }
 
 /** 打开侧栏的某个视图（侧栏收起时先展开）。 */
@@ -230,15 +250,18 @@ function AttentionList({
 
 function ProjectHomeBody({
   folder,
+  activeId,
 }: {
   folder: NonNullable<ReturnType<typeof useActiveFolder>["activeFolder"]>
+  /** 当前选中的成员（港湾里标「当前」）。 */
+  activeId: number
 }) {
   const t = useTranslations("ProjectHome")
   const gitHeads = useAppWorkspaceStore((s) => s.gitHeads)
   const panes = useAllAgentPanes()
 
-  const root = folder.parent_id ?? folder.id
-  const family = useWorktreeFamily(folder)
+  const root = mainFolderId(folder)
+  const family = useProjectMembers(folder)
   const familyPaths = useMemo(() => family.map((f) => f.path), [family])
   const { data, reload } = useHomeData(folder.id, familyPaths)
   const { git } = useWorkspaceStateStore(folder.path)
@@ -265,9 +288,9 @@ function ProjectHomeBody({
     return {
       folderId: f.id,
       path: f.path,
-      name: f.alias || f.name,
+      name: memberLabel(f),
       branch: head?.branch ?? head?.short_sha ?? f.git_branch,
-      current: f.id === folder.id,
+      current: f.id === activeId,
       git: data.git.get(f.path),
       // 任务视图最后到；没到（或项目没有任务）前不显示任务行，免得先闪「没有分到任务」
       task:
@@ -302,7 +325,7 @@ function ProjectHomeBody({
   )
   const pending = git.filter((e) => !e.path.endsWith("/"))
   const openBerth = (folderId: number) =>
-    folderId === folder.id
+    folderId === activeId
       ? useAppUiStore.getState().showAuxView("group")
       : useTabStore.getState().activateFolderWorkspace(folderId)
 
@@ -333,9 +356,7 @@ function ProjectHomeBody({
     <div className="@container h-full overflow-auto bg-background">
       <div className="mx-auto max-w-[1180px] px-4 pt-6 pb-8 @2xl:px-10">
         <header className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h1 className="text-sm font-semibold">
-            {folder.alias || folder.name}
-          </h1>
+          <h1 className="text-sm font-semibold">{projectName(folder)}</h1>
           {(head?.branch ?? head?.short_sha) && (
             <span className="rounded bg-muted px-1.5 font-mono text-[11px] text-muted-foreground">
               {head?.branch ?? head?.short_sha}

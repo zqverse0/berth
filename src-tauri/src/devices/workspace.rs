@@ -168,7 +168,8 @@ async fn stream(socket: TcpStream, node: Arc<Node>, sinks: Sinks) {
     let mut chunk = buf[..n].to_vec();
     loop {
         if lane == Lane::Interactive {
-            node.data.yield_until(std::time::Instant::now() + TRANSFER_YIELD);
+            node.data
+                .yield_until(std::time::Instant::now() + TRANSFER_YIELD);
         }
         fire(
             &node,

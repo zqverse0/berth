@@ -9,7 +9,12 @@ test("keys are stored 0600 and only shown masked", async () => {
   await config.set(d, "ZHIPU_API_KEY", "  secret-abcd1234 ")
   assert.equal(d.fs.modes.get("/state/config.json"), 0o600)
   const view = await config.view(d)
-  assert.deepEqual(view.ZHIPU_API_KEY, { value: "…1234", default: null, saved: true, secret: true })
+  assert.deepEqual(view.ZHIPU_API_KEY, {
+    value: "…1234",
+    default: null,
+    saved: true,
+    secret: true,
+  })
   assert.equal(view.ZHIPU_SEARCH_ENGINE.value, null)
   assert.equal(view.ZHIPU_SEARCH_ENGINE.default, "search_std")
   assert.ok(!JSON.stringify(view).includes("secret-abcd"))
@@ -20,7 +25,10 @@ test("keys are stored 0600 and only shown masked", async () => {
 
 test("values are validated", () => {
   assert.throws(() => config.validate("NOPE", "x"), /unknown/)
-  assert.throws(() => config.validate("SMART_SEARCH_FALLBACK_MODE", "maybe"), /one of/)
+  assert.throws(
+    () => config.validate("SMART_SEARCH_FALLBACK_MODE", "maybe"),
+    /one of/
+  )
   assert.throws(() => config.validate("EXA_TIMEOUT_SECONDS", "0"), /positive/)
   assert.throws(() => config.validate("XAI_TOOLS", "web_search,bogus"), /bogus/)
   assert.throws(() => config.validate("ZHIPU_API_URL", "ftp://x"), /http/)
@@ -29,9 +37,18 @@ test("values are validated", () => {
 })
 
 test("import takes only known, valid keys from the old CLI config", async () => {
-  const legacy = { XAI_API_KEY: "xk-1", SMART_SEARCH_DEBUG: "true", SSL_VERIFY: "false", EXA_TIMEOUT_SECONDS: "-1", XAI_TOOLS: "web_search" }
+  const legacy = {
+    XAI_API_KEY: "xk-1",
+    SMART_SEARCH_DEBUG: "true",
+    SSL_VERIFY: "false",
+    EXA_TIMEOUT_SECONDS: "-1",
+    XAI_TOOLS: "web_search",
+  }
   const d = deps({ files: { "/legacy.json": JSON.stringify(legacy) } })
-  assert.deepEqual((await config.importLegacy(d, "/legacy.json")).sort(), ["XAI_API_KEY", "XAI_TOOLS"])
+  assert.deepEqual((await config.importLegacy(d, "/legacy.json")).sort(), [
+    "XAI_API_KEY",
+    "XAI_TOOLS",
+  ])
   const cfg = await config.resolve(d)
   assert.deepEqual(cfg.xai.tools, ["web_search"])
   assert.equal(cfg.retry.attempts, 4, "3 retries by default → 4 attempts")
@@ -39,6 +56,12 @@ test("import takes only known, valid keys from the old CLI config", async () => 
 })
 
 test("openrouter models get the :online suffix", async () => {
-  const d = deps({ config: { OPENAI_COMPATIBLE_API_URL: "https://openrouter.ai/api/v1", OPENAI_COMPATIBLE_API_KEY: "k", OPENAI_COMPATIBLE_MODEL: "x/grok" } })
+  const d = deps({
+    config: {
+      OPENAI_COMPATIBLE_API_URL: "https://openrouter.ai/api/v1",
+      OPENAI_COMPATIBLE_API_KEY: "k",
+      OPENAI_COMPATIBLE_MODEL: "x/grok",
+    },
+  })
   assert.equal((await config.resolve(d)).openai.model, "x/grok:online")
 })

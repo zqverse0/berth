@@ -340,6 +340,23 @@ pub(crate) struct ListedTerminal {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_ref: Option<String>,
+    /// 经 `tools/<id>/launch.js` 启动的 Agent 的插件 id；只供 `member ls` 归到检出，不进 `terminal ls` 输出。
+    #[serde(skip)]
+    agent: Option<String>,
+}
+
+impl ListedTerminal {
+    /// 在跑的 Agent：（插件 id，终端短名，启动目录）；不是 Agent、已退出或不属于项目时为 `None`。
+    pub(crate) fn running_agent(&self) -> Option<(&str, String, &str)> {
+        if self.status != "running" {
+            return None;
+        }
+        Some((
+            self.agent.as_deref()?,
+            terminal_handle(self.project_name.as_deref()?, self.pane_id),
+            self.cwd.as_deref()?,
+        ))
+    }
 }
 
 pub(crate) async fn list_entries(
@@ -417,6 +434,10 @@ pub(crate) async fn list_entries(
                     session: session.as_str().to_owned(),
                     pane_id: pane.pane_id.as_u32(),
                     title: pane.title,
+                    agent: pane
+                        .command
+                        .as_deref()
+                        .and_then(berth_tool_core::paths::launch_tool_id),
                     cwd: pane.working_directory,
                     status: match pane.process {
                         PaneProcessState::Running { .. } => "running",
@@ -477,6 +498,7 @@ pub(crate) async fn list(
 
 /// 明确项目的一次性创建；预检完成前不连接或启动 daemon。
 /// `agent` 为 (tool id, 启动输入)，与 GUI 启动栏同一 argv。
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn create(
     socket: &Path,
     gui_override: Option<&OsString>,

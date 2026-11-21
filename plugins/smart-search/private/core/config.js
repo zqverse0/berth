@@ -91,15 +91,22 @@ export function validate(key, value) {
   }
   // 重试次数可以是 0（不重试），其余数值必须为正
   const floor = key === "SMART_SEARCH_RETRY_MAX_ATTEMPTS" ? 0 : Number.MIN_VALUE
-  if (NUMBERS.has(key) && !(Number(text) >= floor && Number.isFinite(Number(text))))
-    throw new Error(`${key} must be a ${floor ? "positive" : "non-negative"} number`)
+  if (
+    NUMBERS.has(key) &&
+    !(Number(text) >= floor && Number.isFinite(Number(text)))
+  )
+    throw new Error(
+      `${key} must be a ${floor ? "positive" : "non-negative"} number`
+    )
   if (key === "XAI_TOOLS") {
     const bad = text
       .split(",")
       .map((tool) => tool.trim().toLowerCase())
       .filter((tool) => tool && !XAI_TOOLS.includes(tool))
     if (bad.length)
-      throw new Error(`XAI_TOOLS: unsupported ${bad.join(", ")} (${XAI_TOOLS.join(", ")})`)
+      throw new Error(
+        `XAI_TOOLS: unsupported ${bad.join(", ")} (${XAI_TOOLS.join(", ")})`
+      )
   }
   if (/_(URL)$/.test(key) && !/^https?:\/\//.test(text))
     throw new Error(`${key} must be an http(s) URL`)
@@ -163,7 +170,9 @@ export async function resolve(deps) {
   const get = (key) => saved[key] ?? DEFAULTS[key] ?? ""
   const number = (key) => {
     const value = Number(get(key))
-    return get(key) !== "" && Number.isFinite(value) ? value : Number(DEFAULTS[key])
+    return get(key) !== "" && Number.isFinite(value)
+      ? value
+      : Number(DEFAULTS[key])
   }
   const seconds = (key) => number(key) * 1000
   const tavilyEnabled = get("TAVILY_ENABLED") !== "false"

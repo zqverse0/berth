@@ -1,7 +1,8 @@
+import { projectIdOf } from "@/stores/app-workspace-store"
 import type { WorkspaceTabPlacement } from "@/lib/workspace/workspace-tab-placement"
 
 export const WORKSPACE_TAB_PLACEMENT_STATE_KEY =
-  "berth:workspace-tab-placement:v1"
+  "berth:workspace-tab-placement:v2"
 
 export const GLOBAL_WORKSPACE_PLACEMENT_SCOPE = "global"
 
@@ -12,10 +13,11 @@ interface PersistedWorkspaceTabPlacementState {
   scopes: WorkspaceTabPlacementByScope
 }
 
+/** 布局与 tab 顺序按项目存：同一项目的各成员共用一份。 */
 export function workspacePlacementScope(folderId: number | null): string {
   return folderId == null
     ? GLOBAL_WORKSPACE_PLACEMENT_SCOPE
-    : `folder:${folderId}`
+    : `project:${projectIdOf(folderId)}`
 }
 
 export function parseWorkspaceTabPlacementState(

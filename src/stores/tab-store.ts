@@ -1,7 +1,8 @@
 import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { parseDeviceFolderId, parseDeviceRef } from "@/lib/transport/device"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { projectIdOf, useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { sameProject } from "@/lib/workspace/tab-scope"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
 import {
@@ -378,6 +379,7 @@ let lastConversations: ReturnType<
   typeof useAppWorkspaceStore.getState
 >["conversations"] = useAppWorkspaceStore.getState().conversations
 let folderActivationGeneration = 0
+/** 上次停留，按项目（主成员 id，`projectIdOf`）记：切成员不丢。 */
 const folderWorkspaceResume = new Map<number, FolderWorkspaceResume>()
 
 function rememberActivePrimaryTab(state: {
@@ -386,8 +388,9 @@ function rememberActivePrimaryTab(state: {
 }) {
   const tab = state.rawTabs.find((item) => item.id === state.activeTabId)
   if (tab?.folderId == null) return
-  const existing = folderWorkspaceResume.get(tab.folderId)
-  folderWorkspaceResume.set(tab.folderId, {
+  const project = projectIdOf(tab.folderId)
+  const existing = folderWorkspaceResume.get(project)
+  folderWorkspaceResume.set(project, {
     primaryTabId: tab.id,
     pane: existing?.pane ?? "conversation",
   })
@@ -396,7 +399,7 @@ function rememberActivePrimaryTab(state: {
 export function getFolderWorkspaceResume(
   folderId: number
 ): FolderWorkspaceResume | null {
-  return folderWorkspaceResume.get(folderId) ?? null
+  return folderWorkspaceResume.get(projectIdOf(folderId)) ?? null
 }
 
 export function getFolderActivationGeneration(): number {
@@ -860,7 +863,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   activateFolderWorkspace: (folderId) => {
     folderActivationGeneration += 1
     const state = get()
-    const resume = folderWorkspaceResume.get(folderId) ?? null
+    const resume = folderWorkspaceResume.get(projectIdOf(folderId)) ?? null
     const decision = resolveFolderWorkspaceActivation({
       folderId,
       resume,
@@ -884,11 +887,10 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 
   rememberFolderWorkspace: (folderId, resume) => {
-    folderWorkspaceResume.set(folderId, resume)
+    folderWorkspaceResume.set(projectIdOf(folderId), resume)
   },
 
-  getFolderWorkspaceResume: (folderId) =>
-    folderWorkspaceResume.get(folderId) ?? null,
+  getFolderWorkspaceResume,
 
   ensureFolderConversationTabs: (folderId) => {
     const conversations = useAppWorkspaceStore.getState().conversations
@@ -980,8 +982,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       }
       const next = prevState.rawTabs.filter((t) => t.id !== tabId)
       const folderId = closingTab.folderId
-      const inFolder = prevState.rawTabs.filter(
-        (tab) => tab.folderId === folderId
+      const inFolder = prevState.rawTabs.filter((tab) =>
+        sameProject(tab.folderId, folderId)
       )
       const closingIndexInFolder = inFolder.findIndex((tab) => tab.id === tabId)
       const remainingInFolder = inFolder.filter((tab) => tab.id !== tabId)
@@ -1918,7 +1920,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         if (
           preferred &&
           state.rawTabs.some(
-            (tab) => tab.id === preferred && tab.folderId === f.id
+            (tab) => tab.id === preferred && sameProject(tab.folderId, f.id)
           )
         ) {
           state.switchTab(preferred)

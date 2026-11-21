@@ -32,8 +32,12 @@ function folder(id: number, extra: Partial<FolderDetail> = {}): FolderDetail {
     id,
     name: `p${id}`,
     path: `/p/${id}`,
-    parent_id: null,
-    alias: null,
+    project: {
+      name: "berth",
+      main_folder_id: 1,
+      pinned_at: null,
+      sort_order: 0,
+    },
     git_branch: "main",
     ...extra,
   } as FolderDetail
@@ -52,7 +56,7 @@ describe("StatusBarProject", () => {
   beforeEach(() => {
     localStorage.clear()
     const root = folder(1, { name: "berth" })
-    mocks.folder = folder(2, { parent_id: 1, git_branch: "dev" })
+    mocks.folder = folder(2, { name: "berth-wt", git_branch: "dev" })
     mocks.settingsActive = false
     mocks.closeSettings.mockClear()
     useAppWorkspaceStore.setState({
@@ -64,15 +68,14 @@ describe("StatusBarProject", () => {
     useProjectPanelStore.setState({ collapsed: false, maximized: false })
   })
 
-  it("titles the worktree as root ⎇ branch and does not copy on click", () => {
+  it("titles a member as project ⎇ member and does not copy on click", () => {
     const writeText = vi.fn()
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
       configurable: true,
     })
     const button = renderButton()
-    expect(button.textContent).toContain("berth")
-    expect(button.textContent).toContain("dev")
+    expect(button.textContent).toBe("berthberth-wt")
 
     fireEvent.click(button)
     expect(writeText).not.toHaveBeenCalled()

@@ -262,6 +262,8 @@ impl TerminalProfile {
         let shell = resolve_shell_path(options, Some(session_name), &resolved);
         let mut suppressed_raw_names =
             suppress_client_shell_environment(&mut resolved, suppressed_raw_names);
+        #[cfg(unix)]
+        ensure_utf8_locale(&mut resolved, &suppressed_raw_names);
         set_environment_value(
             &mut resolved,
             "SHELL".to_owned(),
@@ -565,6 +567,25 @@ fn suppress_client_shell_environment(
     suppressed_raw_names: HashSet<String>,
 ) -> HashSet<String> {
     suppressed_raw_names
+}
+
+/// 从 Dock / 桌面启动时进程环境可能没有任何 locale 变量（macOS 必然如此），shell 会按 ASCII
+/// 处理，中文显示成 `?` 和 `\M-^V`。LC_ALL / LC_CTYPE / LANG 都缺时补 LANG（与 VS Code 等终端
+/// 一致）；已有或被显式移除时不动。macOS 用 en_US.UTF-8：本机必有、ssh 带到远端也最常见。
+#[cfg(unix)]
+fn ensure_utf8_locale(resolved: &mut HashMap<String, String>, suppressed: &HashSet<String>) {
+    const LOCALE_NAMES: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
+    if LOCALE_NAMES.iter().any(|name| {
+        suppressed.contains(*name) || resolved.get(*name).is_some_and(|value| !value.is_empty())
+    }) {
+        return;
+    }
+    let value = if cfg!(target_os = "macos") {
+        "en_US.UTF-8"
+    } else {
+        "C.UTF-8"
+    };
+    set_environment_value(resolved, "LANG".to_owned(), value.to_owned());
 }
 
 fn suppress_terminal_program_environment(suppressed_raw_names: &mut HashSet<String>) {

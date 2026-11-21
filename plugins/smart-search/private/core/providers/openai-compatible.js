@@ -19,7 +19,15 @@ Guidelines:
 - Be direct and concise. No filler or unnecessary follow-up questions.
 `
 
-const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
+const WEEKDAYS = [
+  "星期日",
+  "星期一",
+  "星期二",
+  "星期三",
+  "星期四",
+  "星期五",
+  "星期六",
+]
 const pad = (n) => String(n).padStart(2, "0")
 
 /** 本地时间上下文（原 get_local_time_info）；时区写成 UTC 偏移（QuickJS 没有时区名）。 */
@@ -84,7 +92,8 @@ export function parseSearch(response) {
       sources = mergeCitations(sources, normalizeCitations(message.citations))
     }
   }
-  if (!content && body.trimStart().startsWith("data:")) content = parseStream(body)
+  if (!content && body.trimStart().startsWith("data:"))
+    content = parseStream(body)
   if (content && sources.length)
     content = `${content.trimEnd()}\n\nsources(${JSON.stringify(sources)})`
   return content
@@ -98,7 +107,11 @@ export function parseStream(body) {
     const line = raw.trim()
     if (!line) continue
     lines.push(line)
-    if (!line.startsWith("data:") || line === "data: [DONE]" || line === "data:[DONE]")
+    if (
+      !line.startsWith("data:") ||
+      line === "data: [DONE]" ||
+      line === "data:[DONE]"
+    )
       continue
     try {
       const delta = JSON.parse(line.slice(5).trimStart()).choices?.[0]?.delta
@@ -118,7 +131,8 @@ export function parseStream(body) {
 }
 
 const isHttp = (url) =>
-  typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))
+  typeof url === "string" &&
+  (url.startsWith("http://") || url.startsWith("https://"))
 
 export function normalizeCitations(citations) {
   if (!citations) return []
@@ -162,6 +176,9 @@ function extractCitations(data) {
   let sources = normalizeCitations(data.citations)
   for (const choice of data.choices ?? [])
     if (choice?.message && typeof choice.message === "object")
-      sources = mergeCitations(sources, normalizeCitations(choice.message.citations))
+      sources = mergeCitations(
+        sources,
+        normalizeCitations(choice.message.citations)
+      )
   return sources
 }

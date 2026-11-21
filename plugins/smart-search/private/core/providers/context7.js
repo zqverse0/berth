@@ -17,7 +17,11 @@ const get = (cfg, path, retry) =>
   })
 
 export const libraryRequest = (cfg, name, query, retry) =>
-  get(cfg, `/api/v2/search?query=${encodeURIComponent(`${name} ${query ?? ""}`.trim())}`, retry)
+  get(
+    cfg,
+    `/api/v2/search?query=${encodeURIComponent(`${name} ${query ?? ""}`.trim())}`,
+    retry
+  )
 
 export const docsRequest = (cfg, libraryId, query, retry) =>
   get(
@@ -93,7 +97,10 @@ export function docsOutput(outcome, libraryId, query, elapsedMs) {
       total: code.length + info.length,
       content: isObject ? JSON.stringify(data) : String(data),
       // 文档正文：v2 接口回的是 Markdown 文本；回 JSON 片段时给片段原文
-      text: typeof data?.content === "string" ? data.content : JSON.stringify([...code, ...info], null, 2),
+      text:
+        typeof data?.content === "string"
+          ? data.content
+          : JSON.stringify([...code, ...info], null, 2),
       elapsed_ms: elapsedMs,
     }
   } catch (error) {

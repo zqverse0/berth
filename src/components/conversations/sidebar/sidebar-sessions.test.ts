@@ -96,18 +96,26 @@ describe("buildSidebarSessions", () => {
     expect([agent.dot, shell.dot]).toEqual([null, null])
   })
 
-  it("terminals of removed projects are unassigned, not guessed by cwd", () => {
-    const [stale, home] = buildSidebarSessions({
+  it("terminals of removed projects are unassigned, not guessed by cwd; hidden ones are dropped", () => {
+    const sessions = buildSidebarSessions({
       tabs: [],
       panes: [],
       inventory: [
         d("stale", 99, { initialCwd: "/p/1/sub" }),
         d("ssh", null, { initialCwd: "/data/remote/4" }),
+        d("hidden", null, { initialCwd: "/remote/unshown" }),
       ],
       folders,
       seen: {},
-      detachedDevice: (desc) => (desc.initialCwd === "/data/remote/4" ? 4 : 0),
+      detachedDevice: (desc) =>
+        desc.terminalId === "hidden"
+          ? null
+          : desc.initialCwd === "/data/remote/4"
+            ? 4
+            : 0,
     })
+    expect(sessions).toHaveLength(2)
+    const [stale, home] = sessions
     expect([stale.folderId, stale.device]).toEqual([null, 0])
     expect([home.folderId, home.device]).toEqual([null, 4])
     expect(home.descriptor?.terminalId).toBe("ssh")

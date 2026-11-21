@@ -167,7 +167,7 @@ pub(crate) fn resolve_gui_endpoint() -> io::Result<LocalEndpoint> {
 }
 
 #[derive(Clone)]
-struct ControlContext {
+pub(crate) struct ControlContext {
     version: String,
     pid: u32,
     capabilities: Vec<String>,

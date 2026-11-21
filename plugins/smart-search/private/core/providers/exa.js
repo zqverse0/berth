@@ -23,7 +23,8 @@ export function searchRequest(cfg, params, retry) {
   }
   if (params.text || params.highlights)
     payload.contents = { text: !!params.text, highlights: !!params.highlights }
-  if (params.startPublishedDate) payload.startPublishedDate = params.startPublishedDate
+  if (params.startPublishedDate)
+    payload.startPublishedDate = params.startPublishedDate
   const include = domains(params.includeDomains)
   const exclude = domains(params.excludeDomains)
   if (include) payload.includeDomains = include
@@ -59,7 +60,10 @@ export function searchOutput(outcome, params, elapsedMs) {
     // Exa 的 4xx 带响应正文，参数错误单列（原 _error_payload）
     const data = json(outcome, { detail: true })
     const results = (data.results ?? []).map((item) =>
-      normalizeResult(item, { text: !!params.text, highlights: !!params.highlights })
+      normalizeResult(item, {
+        text: !!params.text,
+        highlights: !!params.highlights,
+      })
     )
     return {
       ok: true,
@@ -70,7 +74,11 @@ export function searchOutput(outcome, params, elapsedMs) {
       elapsed_ms: elapsedMs,
     }
   } catch (error) {
-    return { ok: false, query: params.query, ...errorOf(error), elapsed_ms: elapsedMs }
+    return {
+      ok: false,
+      query: params.query,
+      ...errorOf(error),
+      elapsed_ms: elapsedMs,
+    }
   }
 }
-

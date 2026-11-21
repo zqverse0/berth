@@ -758,6 +758,39 @@ pub fn open_tasks_in_group(main: &Path, group: &str, except: Option<&str>) -> Ta
     Ok(open)
 }
 
+/// worktree 群的目录（Berth 建的，不含主目录）；未启用 Berth 或读不到群时为空。
+pub fn group_worktrees(main: &Path) -> Vec<PathBuf> {
+    group::envs(main)
+        .map(|envs| {
+            envs.into_iter()
+                .filter(|(_, env)| !git::same_path(Path::new(&env.worktree), main))
+                .map(|(_, env)| PathBuf::from(env.worktree))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 已结束的 worktree 群的目录：分到过任务、且这些任务都已完成。没分过任务的 checkout 记录不算；
+/// 未启用 Berth 或读不到群时为空（成员列表据此把它们收成「临时」）。
+pub fn ended_group_worktrees(main: &Path) -> Vec<PathBuf> {
+    let (Ok(all), Ok(envs)) = (state::load(main), group::envs(main)) else {
+        return Vec::new();
+    };
+    envs.into_iter()
+        .filter(|(name, env)| {
+            let mut tasks = all
+                .tasks
+                .values()
+                .filter(|live| live.group.as_deref() == Some(name.as_str()))
+                .peekable();
+            !git::same_path(Path::new(&env.worktree), main)
+                && tasks.peek().is_some()
+                && tasks.all(|live| live.is_completed())
+        })
+        .map(|(_, env)| PathBuf::from(env.worktree))
+        .collect()
+}
+
 /// 把任务目录移进它所在 tasks 根的 `archive/<年月>/`。
 fn move_to_archive(directory: &Path, name: &str) -> TaskResult<PathBuf> {
     let root = directory

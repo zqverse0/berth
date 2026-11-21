@@ -26,9 +26,8 @@ function seedFolders(ids: number[]) {
     last_opened_at: "2026-08-22T00:00:00Z",
     sort_order: id,
     color: "inherit",
-    parent_id: null,
+    project: null,
     kind: "regular",
-    alias: null,
   }))
   useAppWorkspaceStore.setState({
     folders,

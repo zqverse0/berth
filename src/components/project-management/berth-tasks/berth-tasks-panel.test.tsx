@@ -22,7 +22,7 @@ vi.mock("@/hooks/workspace/use-workspace-runtime", () => ({
   useWorkspaceRuntimeActions: () => ({ openTaskTab, openCommitDiff }),
 }))
 
-let folders: { id: number; path: string; parent_id: number | null }[] = []
+let folders: { id: number; path: string }[] = []
 let panes: unknown[] = []
 vi.mock("@/stores/app-workspace-store", () => ({
   useAppWorkspaceStore: (
@@ -102,7 +102,7 @@ function bound(taskDirName: string, worktree: string): BerthTaskView {
 }
 
 beforeEach(() => {
-  folders = [{ id: 7, path: "/repo", parent_id: null }]
+  folders = [{ id: 7, path: "/repo" }]
   panes = []
   openTaskTab.mockReset()
   openCommitDiff.mockReset()

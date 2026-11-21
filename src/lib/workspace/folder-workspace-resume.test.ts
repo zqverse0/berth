@@ -4,6 +4,8 @@ import {
   resolveCloseTabActivation,
   resolveFolderWorkspaceActivation,
 } from "@/lib/workspace/folder-workspace-resume"
+import type { FolderDetail } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 const conversationTab = (folderId: number, id: string) => ({
   id,
@@ -160,5 +162,20 @@ describe("pickTabInFolder", () => {
         "conv-1"
       )
     ).toBe("conv-1")
+  })
+
+  it("resumes the project's tab when switching to another member", () => {
+    const member = (id: number) =>
+      ({ id, project: { main_folder_id: 7 } }) as unknown as FolderDetail
+    useAppWorkspaceStore.setState({ allFolders: [member(7), member(8)] })
+
+    expect(
+      resolveFolderWorkspaceActivation({
+        folderId: 8,
+        resume: { primaryTabId: "conv-main", pane: "file" },
+        rawTabs: [conversationTab(7, "conv-main")],
+      })
+    ).toEqual({ tabId: "conv-main", pane: "file" })
+    useAppWorkspaceStore.setState({ allFolders: [] })
   })
 })

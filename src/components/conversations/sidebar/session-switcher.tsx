@@ -15,14 +15,12 @@ import type { SidebarSession } from "./sidebar-sessions"
 
 export interface SwitcherEntry {
   session: SidebarSession
-  /** 所属项目（「项目 ⎇ 分支」），未归属为 null */
-  project: string | null
-  /** 所在工作区名，未归属为「未归属会话」 */
-  group: string
+  /** 所属项目（「项目 ⎇ 分支」），未归属为「未归属会话」 */
+  project: string
 }
 
 /**
- * 会话切换器（`Ctrl+Space S`）：已按「最近用过 → 运行中 → 其余」排好，输入即按标题、项目、Agent、工作区搜，
+ * 会话切换器（`Ctrl+Space S`）：已按「最近用过 → 运行中 → 其余」排好，输入即按标题、项目、Agent 搜，
  * 回车切换。
  */
 export function SessionSwitcher({
@@ -36,17 +34,14 @@ export function SessionSwitcher({
   entries: readonly SwitcherEntry[]
   onSelect: (session: SidebarSession) => void
 }) {
-  const t = useTranslations("WorkspaceGroups")
+  const t = useTranslations("SidebarSessions")
   const [query, setQuery] = useState("")
   const q = query.trim().toLocaleLowerCase()
   const shown = q
     ? entries.filter((entry) =>
-        [
-          entry.session.title,
-          entry.session.agentType,
-          entry.project,
-          entry.group,
-        ].some((value) => value?.toLocaleLowerCase().includes(q))
+        [entry.session.title, entry.session.agentType, entry.project].some(
+          (value) => value?.toLocaleLowerCase().includes(q)
+        )
       )
     : entries
   return (
@@ -66,7 +61,7 @@ export function SessionSwitcher({
       />
       <CommandList>
         <CommandEmpty>{t("switcherEmpty")}</CommandEmpty>
-        {shown.map(({ session, project, group }) => (
+        {shown.map(({ session, project }) => (
           <CommandItem
             key={session.id}
             value={session.id}
@@ -92,7 +87,7 @@ export function SessionSwitcher({
               </span>
             ) : null}
             <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
-              {[project, group].filter(Boolean).join(" · ")}
+              {project}
             </span>
           </CommandItem>
         ))}

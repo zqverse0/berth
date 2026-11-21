@@ -1,7 +1,7 @@
 "use client"
 
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
-import { FileCode2, FileIcon } from "lucide-react"
+import { FileCode2 } from "lucide-react"
 import { editorDocumentRegistry } from "@/lib/editor/document-registry"
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
@@ -19,12 +19,11 @@ import {
 import { fileTabsForFolderScope } from "@/lib/workspace/tab-scope"
 import type { DiffViewerSelection } from "@/components/diff/diff-viewer"
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
-import { ScrollArea } from "@/components/ui/scroll-area"
+  buildDiffOutline,
+  DiffOverviewPanel,
+  EMPTY_DIFF_OUTLINE,
+  type DiffListContext,
+} from "@/components/files/diff-overview-panel"
 import {
   isResourceFileTab,
   isTextFileTab,
@@ -53,11 +52,6 @@ const LazyBerthSessionView = lazy(() =>
     default: m.BerthSessionView,
   }))
 )
-const LazyDevicePage = lazy(() =>
-  import("@/components/devices/device-page").then((m) => ({
-    default: m.DevicePage,
-  }))
-)
 const LazyTranscriptReader = lazy(() =>
   import("@/sessions/components/transcript-reader").then((m) => ({
     default: m.TranscriptReader,
@@ -82,8 +76,7 @@ function isTabRendererReady(tab: FileWorkspaceTab): boolean {
   if (
     tab.kind === "transcript" ||
     tab.kind === "task" ||
-    tab.kind === "berth-session" ||
-    tab.kind === "device"
+    tab.kind === "berth-session"
   )
     return true
   if (tab.kind === "rich-diff") {
@@ -92,346 +85,6 @@ function isTabRendererReady(tab: FileWorkspaceTab): boolean {
     )
   }
   return tab.content !== ""
-}
-
-interface DiffOutlineFile {
-  key: string
-  path: string
-  startLine: number
-  endLine: number
-  additions: number
-  deletions: number
-  hunks: DiffOutlineHunk[]
-}
-
-interface DiffOutlineHunk {
-  key: string
-  startLine: number
-  endLine: number
-  header: string
-  additions: number
-  deletions: number
-}
-
-interface DiffOutline {
-  files: DiffOutlineFile[]
-  totalAdditions: number
-  totalDeletions: number
-  totalHunks: number
-}
-
-type DiffListContext =
-  | { kind: "commit"; commitHash: string; commitMessage: string | null }
-  | { kind: "working"; path: string }
-  | { kind: "branch"; branch: string; path: string }
-
-function normalizeDiffPath(rawPath: string): string | null {
-  const trimmed = rawPath.trim().replace(/^"|"$/g, "")
-  if (!trimmed || trimmed === "/dev/null") return null
-
-  if (trimmed.startsWith("a/") || trimmed.startsWith("b/")) {
-    return trimmed.slice(2).replace(/\\/g, "/")
-  }
-
-  return trimmed.replace(/\\/g, "/")
-}
-
-function parsePathFromDiffGitLine(line: string): string | null {
-  if (!line.startsWith("diff --git ")) return null
-  const match = line.match(/^diff --git\s+(.+?)\s+(.+)$/)
-  if (!match) return null
-
-  return normalizeDiffPath(match[2]) ?? normalizeDiffPath(match[1])
-}
-
-function parsePathFromFileHeader(
-  line: string,
-  prefix: "--- " | "+++ "
-): string | null {
-  if (!line.startsWith(prefix)) return null
-  return normalizeDiffPath(line.slice(prefix.length))
-}
-
-function parsePathFromApplyPatchLine(line: string): string | null {
-  const prefixes = ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
-
-  for (const prefix of prefixes) {
-    if (line.startsWith(prefix)) {
-      return normalizeDiffPath(line.slice(prefix.length))
-    }
-  }
-
-  return null
-}
-
-function parseMovedPathFromApplyPatchLine(line: string): string | null {
-  if (!line.startsWith("*** Move to: ")) return null
-  return normalizeDiffPath(line.slice(13))
-}
-
-function buildDiffOutline(content: string): DiffOutline | null {
-  if (!content.trim()) return null
-
-  const lines = content.split("\n")
-  const files: DiffOutlineFile[] = []
-
-  let current: DiffOutlineFile | null = null
-  let currentHunk: {
-    startLine: number
-    header: string
-    additions: number
-    deletions: number
-  } | null = null
-  let fileIndex = 1
-  let hunkIndex = 1
-
-  const createFile = (
-    lineNumber: number,
-    path: string | null
-  ): DiffOutlineFile => {
-    const entry: DiffOutlineFile = {
-      key: `${lineNumber}-${fileIndex}`,
-      path: path ?? `Diff #${fileIndex}`,
-      startLine: lineNumber,
-      endLine: lineNumber,
-      additions: 0,
-      deletions: 0,
-      hunks: [],
-    }
-    fileIndex += 1
-    return entry
-  }
-
-  const flushHunk = (endLine: number) => {
-    if (!current || !currentHunk) return
-
-    const normalizedEnd = Math.max(currentHunk.startLine, endLine)
-    current.hunks.push({
-      key: `${current.key}:hunk-${hunkIndex}`,
-      startLine: currentHunk.startLine,
-      endLine: normalizedEnd,
-      header: currentHunk.header,
-      additions: currentHunk.additions,
-      deletions: currentHunk.deletions,
-    })
-    hunkIndex += 1
-    currentHunk = null
-  }
-
-  const flushFile = () => {
-    if (!current) return
-
-    if (currentHunk) {
-      flushHunk(current.endLine)
-    }
-
-    if (
-      current.hunks.length === 0 &&
-      (current.additions > 0 || current.deletions > 0)
-    ) {
-      current.hunks.push({
-        key: `${current.key}:hunk-${hunkIndex}`,
-        startLine: current.startLine,
-        endLine: current.endLine,
-        header: "Change",
-        additions: current.additions,
-        deletions: current.deletions,
-      })
-      hunkIndex += 1
-    }
-
-    files.push(current)
-    current = null
-  }
-
-  for (const [index, line] of lines.entries()) {
-    const lineNumber = index + 1
-
-    const diffGitPath = parsePathFromDiffGitLine(line)
-    if (diffGitPath) {
-      flushFile()
-      current = createFile(lineNumber, diffGitPath)
-      continue
-    }
-
-    const applyPatchPath = parsePathFromApplyPatchLine(line)
-    if (applyPatchPath) {
-      flushFile()
-      current = createFile(lineNumber, applyPatchPath)
-      continue
-    }
-
-    if (line.startsWith("--- ") && currentHunk) {
-      flushHunk(lineNumber - 1)
-    }
-
-    const movedPath = parseMovedPathFromApplyPatchLine(line)
-    if (movedPath && current) {
-      current.path = movedPath
-    }
-
-    if (!current) {
-      const minusPath = parsePathFromFileHeader(line, "--- ")
-      if (minusPath) {
-        current = createFile(lineNumber, minusPath)
-      } else {
-        const plusPath = parsePathFromFileHeader(line, "+++ ")
-        if (plusPath) current = createFile(lineNumber, plusPath)
-      }
-    } else {
-      const plusPath = parsePathFromFileHeader(line, "+++ ")
-      if (plusPath) current.path = plusPath
-    }
-
-    if (!current) continue
-    current.endLine = lineNumber
-
-    if (line.startsWith("@@ ")) {
-      if (currentHunk) {
-        flushHunk(lineNumber - 1)
-      }
-      currentHunk = {
-        startLine: lineNumber,
-        header: line,
-        additions: 0,
-        deletions: 0,
-      }
-      continue
-    }
-
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      current.additions += 1
-      if (currentHunk) currentHunk.additions += 1
-    }
-    if (line.startsWith("-") && !line.startsWith("---")) {
-      current.deletions += 1
-      if (currentHunk) currentHunk.deletions += 1
-    }
-  }
-
-  flushFile()
-
-  if (files.length === 0) return null
-
-  const totalAdditions = files.reduce((sum, file) => sum + file.additions, 0)
-  const totalDeletions = files.reduce((sum, file) => sum + file.deletions, 0)
-  const totalHunks = files.reduce((sum, file) => sum + file.hunks.length, 0)
-
-  return {
-    files,
-    totalAdditions,
-    totalDeletions,
-    totalHunks,
-  }
-}
-
-const EMPTY_DIFF_OUTLINE: DiffOutline = {
-  files: [],
-  totalAdditions: 0,
-  totalDeletions: 0,
-  totalHunks: 0,
-}
-
-function DiffFileList({
-  diffOutline,
-  badge,
-  description,
-  onOpenDiff,
-  openFilePreview,
-  error,
-}: {
-  diffOutline: DiffOutline
-  badge?: string | null
-  description?: string | null
-  onOpenDiff: (path: string) => Promise<void>
-  openFilePreview: (path: string) => Promise<void>
-  /** 读取失败的原因；没有改动时为空。 */
-  error?: string | null
-}) {
-  const t = useTranslations("Folder.fileWorkspacePanel")
-  return (
-    <div className="h-full flex flex-col min-h-0">
-      <div className="border-b border-border bg-muted/25 px-3 py-2 space-y-1">
-        <div className="text-[11px] text-muted-foreground flex items-center gap-3">
-          {badge && (
-            <span className="font-medium text-foreground/80 font-mono">
-              {badge}
-            </span>
-          )}
-          <span>{t("fileCount", { count: diffOutline.files.length })}</span>
-          <span className="font-mono text-green-600 dark:text-green-400">
-            +{diffOutline.totalAdditions}
-          </span>
-          <span className="font-mono text-red-600 dark:text-red-400">
-            -{diffOutline.totalDeletions}
-          </span>
-        </div>
-        {description && (
-          <p className="text-xs text-foreground/70 line-clamp-2 leading-snug">
-            {description}
-          </p>
-        )}
-      </div>
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="py-1">
-          {diffOutline.files.length === 0 ? (
-            <p
-              className={`px-3 py-2 text-xs ${error ? "text-destructive" : "text-muted-foreground"}`}
-            >
-              {error ?? t("noDiffFiles")}
-            </p>
-          ) : null}
-          {diffOutline.files.map((file) => (
-            <ContextMenu key={file.key}>
-              <ContextMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors group"
-                  onClick={() => {
-                    void onOpenDiff(file.path)
-                  }}
-                  title={file.path}
-                >
-                  <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="text-xs truncate flex-1 min-w-0 font-mono">
-                    {file.path}
-                  </span>
-                  <span className="shrink-0 flex items-center gap-2 text-[10px] font-mono">
-                    {file.additions > 0 && (
-                      <span className="text-green-600 dark:text-green-400">
-                        +{file.additions}
-                      </span>
-                    )}
-                    {file.deletions > 0 && (
-                      <span className="text-red-600 dark:text-red-400">
-                        -{file.deletions}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem
-                  onSelect={() => {
-                    void onOpenDiff(file.path)
-                  }}
-                >
-                  {t("viewDiff")}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onSelect={() => {
-                    void openFilePreview(file.path)
-                  }}
-                >
-                  {t("openFile")}
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          ))}
-        </div>
-      </ScrollArea>
-    </div>
-  )
 }
 
 export function FileWorkspacePanel({
@@ -475,6 +128,7 @@ export function FileWorkspacePanel({
     editorDocumentRegistry.retain(liveEditorDocumentIds, "file-tab:")
   }, [liveEditorDocumentIds])
   const {
+    closeFileTab,
     openBranchDiff,
     openCommitDiff,
     openFilePreview,
@@ -668,17 +322,6 @@ export function FileWorkspacePanel({
     )
   }
 
-  if (activeFileTab.kind === "device") {
-    return (
-      <Suspense fallback={viewerFallback}>
-        <LazyDevicePage
-          key={activeFileTab.id}
-          deviceId={activeFileTab.deviceId}
-        />
-      </Suspense>
-    )
-  }
-
   if (activeFileTab.kind === "task") {
     return (
       <Suspense fallback={viewerFallback}>
@@ -765,7 +408,7 @@ export function FileWorkspacePanel({
 
   // Diff overview list view (commit / directory)
   // 没有改动时也走总览：显示「没有改动」，不留空白页。
-  if (diffListContext) {
+  if (diffListContext && activeFileTab.kind === "diff") {
     const badge =
       diffListContext.kind === "commit"
         ? diffListContext.commitHash.slice(0, 7)
@@ -788,7 +431,11 @@ export function FileWorkspacePanel({
     // routes its rows through the active folder. (Diff tabs always carry a
     // numeric folderId; the ?? undefined only satisfies the option type.)
     const overviewFolderId = activeFileTab.folderId ?? undefined
-    const handleOpenDiff = async (path: string) => {
+    const overviewFolder =
+      overviewFolderId != null
+        ? (allFolders.find((folder) => folder.id === overviewFolderId) ?? null)
+        : null
+    const handleOpenDiffInNewTab = async (path: string) => {
       if (diffListContext.kind === "commit") {
         await openCommitDiff(diffListContext.commitHash, path, undefined, {
           folderId: overviewFolderId,
@@ -806,6 +453,53 @@ export function FileWorkspacePanel({
       await openWorkingTreeDiff(path, { folderId: overviewFolderId })
     }
 
+    const handleCommitAmended = async (newHash: string, newMessage: string) => {
+      if (diffListContext.kind !== "commit") return
+      if (overviewFolderId != null) {
+        const store = useAppWorkspaceStore.getState()
+        const existingHead = store.gitHeads.get(overviewFolderId)
+        if (existingHead) {
+          store.applyGitHead(overviewFolderId, {
+            ...existingHead,
+            short_sha: newHash.slice(0, 7),
+          })
+        }
+      }
+      if (newHash && newHash !== diffListContext.commitHash) {
+        const previousTabId = activeFileTab.id
+        await openCommitDiff(newHash, undefined, newMessage, {
+          folderId: overviewFolderId,
+        })
+        await closeFileTab(previousTabId)
+      }
+    }
+
+    const handleRefreshOverview = () => {
+      if (diffListContext.kind === "commit") {
+        void openCommitDiff(
+          diffListContext.commitHash,
+          undefined,
+          diffListContext.commitMessage ?? undefined,
+          { folderId: overviewFolderId }
+        )
+        return
+      }
+
+      if (diffListContext.kind === "branch") {
+        void openBranchDiff(
+          diffListContext.branch,
+          diffListContext.path === "all" ? undefined : diffListContext.path,
+          { folderId: overviewFolderId }
+        )
+        return
+      }
+
+      void openWorkingTreeDiff(
+        diffListContext.path === "all" ? undefined : diffListContext.path,
+        { folderId: overviewFolderId }
+      )
+    }
+
     const diffListColdLoad =
       activeFileTab.loading && !isTabRendererReady(activeFileTab)
     return (
@@ -814,21 +508,25 @@ export function FileWorkspacePanel({
         {diffListColdLoad ? (
           <ViewerLoading />
         ) : (
-          <DiffFileList
+          <DiffOverviewPanel
+            key={activeFileTab.id}
+            tabId={activeFileTab.id}
+            diffContent={activeFileTab.content}
             diffOutline={diffOutline ?? EMPTY_DIFF_OUTLINE}
-            error={
-              activeFileTab.kind === "diff" && activeFileTab.saveError
-                ? activeFileTab.content
-                : null
-            }
+            context={diffListContext}
+            folderId={activeFileTab.folderId}
+            folderPath={overviewFolder?.path ?? null}
+            error={activeFileTab.saveError ? activeFileTab.content : null}
             badge={badge}
             description={description}
-            onOpenDiff={handleOpenDiff}
+            onOpenDiffInNewTab={handleOpenDiffInNewTab}
             openFilePreview={(path) =>
               // Rows belong to the overview tab's folder — never the
               // active workspace folder.
               openFilePreview(path, { folderId: overviewFolderId })
             }
+            onCommitAmended={handleCommitAmended}
+            onRefresh={handleRefreshOverview}
           />
         )}
       </div>

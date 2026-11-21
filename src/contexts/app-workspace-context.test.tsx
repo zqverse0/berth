@@ -62,7 +62,6 @@ vi.mock("@/lib/api", () => ({
   openFolder: vi.fn(),
   openFolderById: vi.fn(),
   removeFolderFromWorkspace: vi.fn(),
-  reorderFolders: vi.fn(),
   getFolder: vi.fn(),
 }))
 
@@ -101,9 +100,8 @@ function makeFolder(
     last_opened_at: "2026-01-01T00:00:00.000Z",
     sort_order: overrides.id,
     color: "inherit",
-    parent_id: null,
+    project: null,
     kind: "regular",
-    alias: null,
     ...overrides,
   }
 }
@@ -312,7 +310,10 @@ describe("AppWorkspaceProvider folder://changed sync", () => {
     // land in `folders` (so a conversation inside it can be grouped/rendered)
     // and `allFolders` (cwd resolution) without a re-fetch.
     await mountProvider()
-    emitFolder({ kind: "upsert", folder: makeFolder({ id: 12, parent_id: 1 }) })
+    emitFolder({
+      kind: "upsert",
+      folder: makeFolder({ id: 12, project_id: 1 }),
+    })
     expect(screen.getByTestId("folder-ids")).toHaveTextContent("12")
     expect(screen.getByTestId("all-folder-ids")).toHaveTextContent("12")
   })
@@ -466,10 +467,10 @@ describe("AppWorkspaceProvider worktree fingerprint", () => {
         .mockResolvedValueOnce(head("a"))
         .mockResolvedValueOnce(head("b"))
       h.listAllFolders.mockResolvedValue([makeFolder({ id: 7 })])
-      const refreshWorktreeFamily = vi.fn(async () => {})
+      const refreshProjectMembers = vi.fn(async () => {})
       useAppWorkspaceStore.setState({
         activeFolderId: 7,
-        refreshWorktreeFamily,
+        refreshProjectMembers,
       })
 
       await mountProvider()
@@ -477,13 +478,13 @@ describe("AppWorkspaceProvider worktree fingerprint", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000)
       })
-      expect(refreshWorktreeFamily).not.toHaveBeenCalled()
+      expect(refreshProjectMembers).not.toHaveBeenCalled()
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000)
       })
-      expect(refreshWorktreeFamily).toHaveBeenCalledTimes(1)
-      expect(refreshWorktreeFamily).toHaveBeenCalledWith(7)
+      expect(refreshProjectMembers).toHaveBeenCalledTimes(1)
+      expect(refreshProjectMembers).toHaveBeenCalledWith(7)
     } finally {
       vi.useRealTimers()
     }

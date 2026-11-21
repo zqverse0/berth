@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, lazy, Suspense, memo } from "react"
 import { useAppUiStore } from "@/stores/app-ui-store"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { mainFolderId } from "@/lib/workspace/projects"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { SidebarProjectList } from "@/components/conversations/sidebar/sidebar-project-list"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -160,6 +162,13 @@ const tabFallback = (
 export const Sidebar = memo(function Sidebar() {
   const isOpen = useAppUiStore((state) => state.sidebarOpen)
   const { activeFolder } = useActiveFolder()
+  // 任务、群组、记忆是项目级的：在任一成员里都读主成员。
+  const mainFolder =
+    useAppWorkspaceStore((state) =>
+      activeFolder
+        ? state.allFolders.find((f) => f.id === mainFolderId(activeFolder))
+        : undefined
+    ) ?? activeFolder
   const { isMac: platformIsMac } = usePlatform()
   const { zoomLevel } = useZoomLevel()
   const isMobile = useIsMobile()
@@ -248,10 +257,10 @@ export const Sidebar = memo(function Sidebar() {
 
           {currentView === "group" && (
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
-              {activeFolder ? (
+              {mainFolder ? (
                 <Suspense fallback={tabFallback}>
                   <LazyGroupPanel
-                    folderId={activeFolder.id}
+                    folderId={mainFolder.id}
                     active={isOpen && currentView === "group"}
                   />
                 </Suspense>
@@ -263,14 +272,14 @@ export const Sidebar = memo(function Sidebar() {
 
           {currentView === "tasks" && (
             <div className="h-full min-h-0 overflow-hidden">
-              {activeFolder ? (
+              {mainFolder ? (
                 <Suspense fallback={tabFallback}>
                   <LazyTasksPage
-                    folderId={activeFolder.id}
-                    folderPath={activeFolder.path}
+                    folderId={mainFolder.id}
+                    folderPath={mainFolder.path}
                     visible={isOpen && currentView === "tasks"}
                     active={currentView === "tasks"}
-                    selectedAgent={activeFolder.default_agent_type ?? "claude"}
+                    selectedAgent={mainFolder.default_agent_type ?? "claude"}
                     onSelectAgent={() => {}}
                   />
                 </Suspense>
@@ -282,11 +291,11 @@ export const Sidebar = memo(function Sidebar() {
 
           {currentView === "memory" && (
             <div className="h-full min-h-0 overflow-hidden">
-              {activeFolder ? (
+              {mainFolder ? (
                 <Suspense fallback={tabFallback}>
                   <LazyMemoryPage
-                    folderId={activeFolder.id}
-                    folderPath={activeFolder.path}
+                    folderId={mainFolder.id}
+                    folderPath={mainFolder.path}
                     active={isOpen && currentView === "memory"}
                   />
                 </Suspense>
@@ -327,7 +336,10 @@ export const Sidebar = memo(function Sidebar() {
                   className="h-full min-h-0 overflow-hidden"
                 >
                   <Suspense fallback={tabFallback}>
-                    <LazyPluginSidebarPage view={view} />
+                    <LazyPluginSidebarPage
+                      view={view}
+                      active={id === currentView}
+                    />
                   </Suspense>
                 </div>
               )

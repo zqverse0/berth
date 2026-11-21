@@ -11,7 +11,12 @@ export async function run(input) {
   const { deps, cfg, project, by } = await context()
   const url = String(input.url ?? "").trim()
   if (!/^https?:\/\//.test(url))
-    return { ok: false, url, error_type: "parameter_error", error: "url must be http(s)" }
+    return {
+      ok: false,
+      url,
+      error_type: "parameter_error",
+      error: "url must be http(s)",
+    }
   const result = await route.fetchPage(deps, cfg, url)
   const pages = result.ok ? [{ url, content: result.content }] : []
   if (input.record) {
@@ -20,7 +25,14 @@ export async function run(input) {
   } else {
     result.record = await records.write(
       deps,
-      { kind: "fetch", query: url, project, by, result: { ...result, content: undefined }, pages },
+      {
+        kind: "fetch",
+        query: url,
+        project,
+        by,
+        result: { ...result, content: undefined },
+        pages,
+      },
       cfg.retentionDays
     )
   }

@@ -18,7 +18,7 @@ const assignTask = vi.fn()
 const terminateTerminalSession = vi.fn()
 const requestAgentLaunch = vi.fn()
 const setActiveFolderId = vi.fn()
-const refreshWorktreeFamily = vi.fn()
+const refreshProjectMembers = vi.fn()
 const jump = vi.fn()
 const openTaskTab = vi.fn()
 const closeFileTab = vi.fn()
@@ -97,7 +97,7 @@ vi.mock("@/stores/app-workspace-store", () => {
     // 正看着任务的 worktree 项目：收尾后应回到主项目。
     activeFolderId: 8,
     setActiveFolderId,
-    refreshWorktreeFamily,
+    refreshProjectMembers,
   })
   const useAppWorkspaceStore = (
     select: (s: ReturnType<typeof state>) => unknown
@@ -262,7 +262,7 @@ beforeEach(() => {
     ensureGroupWatch,
     requestAgentLaunch,
     setActiveFolderId,
-    refreshWorktreeFamily,
+    refreshProjectMembers,
     finishTask,
     changeTaskState,
     listGroups,
@@ -357,7 +357,7 @@ describe("TaskDetail", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     expect(document.querySelector("[data-start-bar]")).toBeNull()
     expect(startTask).not.toHaveBeenCalled()
-    expect(refreshWorktreeFamily).not.toHaveBeenCalled()
+    expect(refreshProjectMembers).not.toHaveBeenCalled()
     expect(ensureGroupWatch).not.toHaveBeenCalled()
   })
 
@@ -546,7 +546,7 @@ describe("TaskDetail", () => {
     )
     expect(terminateTerminalSession).not.toHaveBeenCalled()
     expect(finishTask).not.toHaveBeenCalled()
-    expect(refreshWorktreeFamily).not.toHaveBeenCalled()
+    expect(refreshProjectMembers).not.toHaveBeenCalled()
   })
 
   it("keeps a task tab and active worktree project in place after completion", async () => {

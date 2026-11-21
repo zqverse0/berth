@@ -85,7 +85,7 @@ export function useSwitchToBranch(): (
 
       // Workspace state/actions are event-time reads — getState() sees the
       // lists as of *now* (post-await), never a stale render capture.
-      const { allFolders, openWorktreeFolder, setBranch, refreshFolder } =
+      const { allFolders, setBranch, refreshFolder } =
         useAppWorkspaceStore.getState()
 
       const plan = planBranchSwitch({
@@ -113,25 +113,18 @@ export function useSwitchToBranch(): (
           return
 
         case "navigateRegistered": {
-          const target = allFolders.find((f) => f.id === plan.folderId)
-          if (!target) return
           try {
+            // 刚由后端自动登记的 worktree 还不在列表里：重拉一次。
+            const find = () =>
+              useAppWorkspaceStore
+                .getState()
+                .allFolders.find((f) => f.id === plan.folderId)
+            if (!find()) await useAppWorkspaceStore.getState().fetchFolders()
+            const target = find()
+            if (!target) return
             await ensureOpen(target.id)
             activateRegisteredFolder(target.id)
             toast.success(t("toasts.switchedToFolder", { name: target.name }))
-          } catch (err) {
-            toast.error(t("toasts.switchFailed"), {
-              description: toErrorMessage(err),
-            })
-          }
-          return
-        }
-
-        case "navigateExternal": {
-          try {
-            const detail = await openWorktreeFolder(plan.path, plan.rootId)
-            activateRegisteredFolder(detail.id)
-            toast.success(t("toasts.switchedToFolder", { name: detail.name }))
           } catch (err) {
             toast.error(t("toasts.switchFailed"), {
               description: toErrorMessage(err),

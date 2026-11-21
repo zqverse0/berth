@@ -34,7 +34,8 @@ export function parseSearch(response) {
     if (!item || typeof item !== "object") continue
     for (const content of item.content ?? []) {
       if (content?.type !== "output_text") continue
-      if (typeof content.text === "string" && content.text) parts.push(content.text)
+      if (typeof content.text === "string" && content.text)
+        parts.push(content.text)
       for (const note of content.annotations ?? []) {
         if (note?.type !== "url_citation") continue
         const url = note.url

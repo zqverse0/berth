@@ -140,6 +140,8 @@
     "view.drop": "drop",
     "view.editorChange": "editorChange",
     "ui.headerTab": "headerTab",
+    "devices.changed": "devicesChanged",
+    "devices.select": "devicesSelect",
   }
 
   window.addEventListener("message", (event) => {
@@ -254,6 +256,25 @@
     },
     agent: {
       attach: (item) => call("agent.attach", item),
+    },
+    // 权限 `devices`：设备管理面板
+    devices: {
+      list: () => call("devices.list"),
+      candidates: () => call("devices.candidates"),
+      add: (name, target) => call("devices.add", { name, target }),
+      remove: (id) => call("devices.remove", { id }),
+      inspect: (id) => call("devices.inspect", { id }),
+      show: (id, path, shown) => call("devices.show", { id, path, shown }),
+      dirs: (id, path) => call("devices.dirs", { id, path: path ?? null }),
+      addProject: (id, path) => call("devices.addProject", { id, path }),
+      openTerminal: (id) => call("devices.openTerminal", { id }),
+      setupKey: (device) =>
+        call(
+          "devices.setupKey",
+          typeof device === "number" ? { id: device } : { target: device }
+        ),
+      onChange: (listener) => on("devicesChanged", () => listener()),
+      onSelect: (listener) => on("devicesSelect", ({ id }) => listener(id)),
     },
     ui: {
       theme: () => Promise.resolve(theme),

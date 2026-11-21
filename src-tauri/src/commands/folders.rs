@@ -4,9 +4,10 @@ use crate::app_error::AppCommandError;
 use crate::commands::git::{git_command_error, parse_worktrees, WorktreeResolution};
 use crate::db::AppDatabase;
 use crate::event_bridge::EventEmitter;
-use crate::git::repo::{ensure_git_repo, is_git_repo};
+use crate::git::repo::ensure_git_repo;
 use crate::models::{FolderDetail, FolderHistoryEntry};
 use berth_project_core::error::DbError;
+use berth_project_core::service::folder::ProjectMember;
 use berth_project_core::service::folder_service;
 use sea_orm::TransactionTrait;
 
@@ -117,175 +118,74 @@ pub async fn open_folder_core(
         .map_err(AppCommandError::from)
 }
 
-/// 以 folder 所属 worktree 家族为单位，与 `git worktree list` 对账：
-///
-/// - git 现存、DB 家族缺失的 worktree → 登记为 root 的子 folder
-///   （`add_folder_with_parent` upsert，重开旧记录也刷新 parent）。
-/// - git 已无（含 prunable）的 DB 家族成员 → 移除：走完整删除（关 tabs / PTY）。
-///   worktree 成员以 git 为唯一事实，目录是否仍在不影响判定。
-///
-/// `emitter` / `terminal_manager` 为 `None`（纯 core / 测试）时删除降级为
-/// 软删 + 关 open，不做 tab/PTY 清理。
-///
-/// 返回对账后的家族详情（root + 全部 worktree，含刚登记或移除后仍在的）。
-/// 对账是幂等的：git 侧无变化时重复调用不改 DB。
-///
-/// 宽容语义（对账是辅助能力，绝不因前置状态炸 UI / console）：
-/// folder 不存在、父 folder 缺失、非 git 仓库、git 命令暂不可用
-/// （目录刚删 / 并发）都返回 `Ok(现状)`，静默不做任何改动。
-pub async fn reconcile_worktree_family_core(
+/// 项目成员列表（侧栏展开、当前项目的 worktree 指纹变化时现读）：群组 worktree 的登记与失效 / 临时标记
+/// 在 `folder_service::discover_members`（git 新出现的检出不登记），这里只补一件宿主侧的事——想法、知识库只在主项目有一份，
+/// 其他仍在的 checkout 去掉副本（没有副本时只是两次 stat）。项目不存在时返回空。
+pub async fn list_project_members_core(
     db: &AppDatabase,
-    emitter: Option<&EventEmitter>,
-    terminal_manager: Option<&crate::terminal::manager::TerminalSessionManager>,
-    folder_id: i32,
-) -> Result<Vec<FolderDetail>, AppCommandError> {
-    let folder = folder_service::get_folder_by_id(&db.conn, folder_id)
+    project_id: i32,
+) -> Result<Vec<ProjectMember>, AppCommandError> {
+    let members = folder_service::discover_members(&db.conn, project_id)
         .await
         .map_err(AppCommandError::from)?;
-    let Some(folder) = folder else {
-        // 触发方持有的 folder 已删除（列表刷新竞态）——无可对账。
-        return Ok(Vec::new());
-    };
-    // parent 指向的 root 已不在（孤儿 worktree）→ 以自身为 root 对账。
-    let root_id = match folder.parent_id {
-        Some(parent_id) => {
-            let parent = folder_service::get_folder_by_id(&db.conn, parent_id)
-                .await
-                .map_err(AppCommandError::from)?;
-            match parent {
-                Some(_) => parent_id,
-                None => folder.id,
-            }
-        }
-        None => folder.id,
-    };
-    let root = if root_id == folder.id {
-        folder
-    } else {
-        folder_service::get_folder_by_id(&db.conn, root_id)
-            .await
-            .map_err(AppCommandError::from)?
-            .ok_or_else(|| AppCommandError::not_found(format!("Root folder {root_id} not found")))?
-    };
-
-    if !is_git_repo(std::path::Path::new(&root.path)) {
-        return Ok(vec![root]);
-    }
-
-    let output = crate::platform::process::tokio_command("git")
-        .args(["worktree", "list", "--porcelain"])
-        .current_dir(&root.path)
-        .output()
-        .await
-        .map_err(AppCommandError::io)?;
-    if !output.status.success() {
-        // git 暂不可用（目录刚删 / 权限）——返回现状，不做增删。
-        return Ok(vec![root]);
-    }
-    let live_paths: Vec<String> = parse_worktrees(&String::from_utf8_lossy(&output.stdout))
-        .into_iter()
-        .map(|(path, _)| {
-            std::fs::canonicalize(&path)
-                .unwrap_or_else(|_| PathBuf::from(&path))
-                .to_string_lossy()
-                .into_owned()
-        })
+    let checkouts: Vec<String> = members
+        .iter()
+        .filter(|member| !member.stale)
+        .map(|member| member.folder.path.clone())
         .collect();
-
-    let family = folder_service::list_all_folder_details(&db.conn)
-        .await
-        .map_err(AppCommandError::from)?
-        .into_iter()
-        .filter(|f| f.id == root_id || f.parent_id == Some(root_id))
-        .collect::<Vec<_>>();
-
-    let canonical_of = |path: &str| {
-        std::fs::canonicalize(path)
-            .unwrap_or_else(|_| PathBuf::from(path))
-            .to_string_lossy()
-            .into_owned()
-    };
-
-    // 登记 git 现存、家族缺失的 worktree（main worktree 即 root 自身）。
-    for live in &live_paths {
-        let registered = family.iter().find(|f| canonical_of(&f.path) == *live);
-        // 软链仍可访问不代表存储路径仍正确；重用原身份刷新到 Git 的真实路径。
-        if registered.is_none_or(|f| f.path != *live) {
-            let is_root_path = canonical_of(&root.path) == *live;
-            open_single_folder(db, live.clone(), (!is_root_path).then_some(root_id)).await?;
-        }
-    }
-
-    // 移除 git 已无的家族成员（root 自身除外）。
-    for member in &family {
-        if member.id == root_id {
-            continue;
-        }
-        let member_canonical = canonical_of(&member.path);
-        if live_paths.iter().any(|live| live == &member_canonical) {
-            continue;
-        }
-        match (emitter, terminal_manager) {
-            (Some(emitter), Some(manager)) => {
-                remove_folder_from_workspace_core(emitter, db, member.id, Some(manager)).await?
+    let excluded = tokio::task::spawn_blocking(move || {
+        checkouts
+            .into_iter()
+            .map(|path| {
+                let result =
+                    berth_project_core::tasks::exclude_main_only(std::path::Path::new(&path));
+                (path, result)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    for (path, result) in excluded {
+        use berth_project_core::tasks::MainOnlyCopy;
+        match result {
+            MainOnlyCopy::Skipped => {}
+            MainOnlyCopy::Excluded => {
+                tracing::info!("{path}: 已去掉 .berth/ideas、.berth/knowledge 副本（只在主项目）")
             }
-            _ => {
-                // 无清理能力时降级：关 open + 软删（列表不再显示）。
-                folder_service::set_folder_open(&db.conn, member.id, false)
-                    .await
-                    .map_err(AppCommandError::from)?;
-                folder_service::remove_folder(&db.conn, &member.path)
-                    .await
-                    .map_err(AppCommandError::from)?;
+            MainOnlyCopy::Dirty(lines) => tracing::warn!(
+                "{path}: .berth 副本有未收回主项目的改动，暂不去掉：{}",
+                lines.join("；")
+            ),
+            MainOnlyCopy::Failed(message) => {
+                tracing::warn!("{path}: 去掉 .berth 副本失败：{message}")
             }
         }
     }
-
-    let result = folder_service::list_all_folder_details(&db.conn)
-        .await
-        .map_err(AppCommandError::from)?
-        .into_iter()
-        .filter(|f| f.id == root_id || f.parent_id == Some(root_id))
-        .collect();
-    Ok(result)
+    Ok(members)
 }
 
-async fn open_single_folder(
-    db: &AppDatabase,
-    path: String,
-    parent_id: Option<i32>,
-) -> Result<FolderDetail, AppCommandError> {
-    let entry = folder_service::add_folder_with_parent(&db.conn, &path, parent_id)
-        .await
-        .map_err(AppCommandError::from)?;
-    folder_service::get_folder_by_id(&db.conn, entry.id)
-        .await
-        .map_err(AppCommandError::from)?
-        .ok_or_else(|| AppCommandError::not_found("Folder not found after add"))
-}
-
-/// Open a freshly created git worktree directory as a folder, recording the
-/// *root* folder it descends from. Parents are flattened: a worktree created
-/// from another worktree still records the original root, so every worktree of a
-/// repo groups under that one repo folder. An unknown / non-positive
-/// `source_folder_id` degrades to a top-level folder (`parent_id = None`) rather
-/// than erroring.
+/// 把刚建好的 git worktree 目录登记为来源 folder 所属项目的成员。来源未知 / 非正数 /
+/// 不属于项目时退化为自成一个项目，不报错。
 pub async fn open_worktree_folder_core(
     db: &AppDatabase,
     path: String,
     source_folder_id: i32,
 ) -> Result<FolderDetail, AppCommandError> {
-    let parent_id = if source_folder_id > 0 {
+    let project_id = if source_folder_id > 0 {
         folder_service::get_folder_by_id(&db.conn, source_folder_id)
             .await
             .map_err(AppCommandError::from)?
-            .map(|src| src.parent_id.unwrap_or(src.id))
+            .and_then(|src| src.project_id)
     } else {
         None
     };
-    let entry = folder_service::add_folder_with_parent(&db.conn, &path, parent_id)
-        .await
-        .map_err(AppCommandError::from)?;
+    let entry = match project_id {
+        Some(project_id) => {
+            folder_service::add_folder_to_project(&db.conn, &path, project_id).await
+        }
+        None => folder_service::add_folder(&db.conn, &path).await,
+    }
+    .map_err(AppCommandError::from)?;
     folder_service::get_folder_by_id(&db.conn, entry.id)
         .await
         .map_err(AppCommandError::from)?
@@ -313,9 +213,6 @@ pub async fn open_folder_by_id_core(
     db: &AppDatabase,
     folder_id: i32,
 ) -> Result<FolderDetail, AppCommandError> {
-    folder_service::set_folder_open(&db.conn, folder_id, true)
-        .await
-        .map_err(AppCommandError::from)?;
     folder_service::get_folder_by_id(&db.conn, folder_id)
         .await
         .map_err(AppCommandError::from)?
@@ -337,16 +234,17 @@ pub async fn remove_folder_from_workspace_core(
         .await
         .map_err(AppCommandError::from)?
         .ok_or_else(|| AppCommandError::not_found(format!("Folder {folder_id} not found")))?;
+    let is_main = folder.is_main();
     let source_path = folder.path;
 
-    // 移除项目 = 移除整个 worktree 家族：先移除挂在 root 下的成员，
-    // 否则它们会以孤儿身份浮到顶层。只从列表移除，不动磁盘上的 worktree。
-    if folder.parent_id.is_none() {
-        let children = folder_service::list_all_folder_details(&db.conn)
+    // 移除主成员 = 移除整个项目：先移除其余成员，否则主成员会改指到它们、项目仍留在列表。
+    // 只从列表移除，不动磁盘上的 worktree。
+    if let Some(project_id) = folder.project_id.filter(|_| is_main) {
+        let children = folder_service::list_project_members(&db.conn, project_id)
             .await
             .map_err(AppCommandError::from)?
             .into_iter()
-            .filter(|f| f.parent_id == Some(folder_id));
+            .filter(|f| f.id != folder_id);
         for child in children {
             Box::pin(remove_folder_from_workspace_core(
                 emitter,
@@ -414,20 +312,47 @@ pub async fn remove_folder_from_workspace_core(
     Ok(())
 }
 
+/// 非主成员所属项目的主成员（worktree 的 git 命令在那里跑）；主成员或不属于项目时为 `None`。
+fn main_of(folder: &FolderDetail) -> Option<i32> {
+    folder
+        .project
+        .as_ref()
+        .map(|project| project.main_folder_id)
+        .filter(|&main| main != folder.id)
+}
+
+/// 删除 worktree 目录（分支保留）。有未提交改动时拒绝，除非 `force`（用户已在确认框里同意丢弃）。
 async fn remove_worktree_directory_core(
     db: &AppDatabase,
     terminal_manager: &crate::terminal::manager::TerminalSessionManager,
     folder_id: i32,
+    force: bool,
 ) -> Result<(), AppCommandError> {
     let folder = get_folder_core(db, folder_id)
         .await
         .map_err(AppCommandError::from)?;
-    let parent_id = folder.parent_id.ok_or_else(|| {
+    // git 命令在主成员里跑；主成员自己不能删。
+    let parent_id = main_of(&folder).ok_or_else(|| {
         AppCommandError::invalid_input("Only a registered worktree can be deleted")
     })?;
     let parent = get_folder_core(db, parent_id)
         .await
         .map_err(AppCommandError::from)?;
+
+    // 失效成员（目录已不在，或已不是 git 检出）：只清掉 git 里的登记，不碰磁盘；
+    // 否则下次列成员又会登记回来。
+    if !std::path::Path::new(&folder.path).join(".git").exists() {
+        let output = crate::platform::process::tokio_command("git")
+            .args(["worktree", "prune"])
+            .current_dir(&parent.path)
+            .output()
+            .await
+            .map_err(AppCommandError::io)?;
+        if !output.status.success() {
+            return Err(git_command_error("worktree prune", &output.stderr));
+        }
+        return Ok(());
+    }
 
     let status = crate::platform::process::tokio_command("git")
         .args(["status", "--porcelain=v1", "-uall"])
@@ -438,7 +363,7 @@ async fn remove_worktree_directory_core(
     if !status.status.success() {
         return Err(git_command_error("status", &status.stderr));
     }
-    if !status.stdout.is_empty() {
+    if !force && !status.stdout.is_empty() {
         return Err(AppCommandError::invalid_input(
             "Worktree has uncommitted changes and cannot be deleted",
         ));
@@ -449,8 +374,13 @@ async fn remove_worktree_directory_core(
         .await
         .map_err(AppCommandError::from)?;
 
-    let output = crate::platform::process::tokio_command("git")
-        .args(["worktree", "remove", "--"])
+    let mut remove = crate::platform::process::tokio_command("git");
+    remove.args(["worktree", "remove"]);
+    if force {
+        remove.arg("--force");
+    }
+    let output = remove
+        .arg("--")
         .arg(&folder.path)
         .current_dir(&parent.path)
         .output()
@@ -485,12 +415,14 @@ pub async fn rename_worktree_core(
 ) -> Result<FolderDetail, AppCommandError> {
     let name = name.trim();
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-        return Err(AppCommandError::invalid_input(format!("Invalid name: {name}")));
+        return Err(AppCommandError::invalid_input(format!(
+            "Invalid name: {name}"
+        )));
     }
     let folder = get_folder_core(db, folder_id)
         .await
         .map_err(AppCommandError::from)?;
-    let parent_id = folder.parent_id.ok_or_else(|| {
+    let parent_id = main_of(&folder).ok_or_else(|| {
         AppCommandError::invalid_input("Only a registered worktree can be renamed")
     })?;
     let parent = get_folder_core(db, parent_id)
@@ -542,19 +474,19 @@ pub async fn rename_worktree_core(
         }
     }
 
-    let new_branch = renamed_branch.map(|_| name.to_owned()).or(old_branch.clone());
-    let detail = folder_service::update_folder_path(
-        &db.conn,
-        folder_id,
-        &to.to_string_lossy(),
-        new_branch,
-    )
-    .await
-    .map_err(AppCommandError::from)?
-    .ok_or_else(|| AppCommandError::not_found("Folder not found"))?;
+    let new_branch = renamed_branch
+        .map(|_| name.to_owned())
+        .or(old_branch.clone());
+    let detail =
+        folder_service::update_folder_path(&db.conn, folder_id, &to.to_string_lossy(), new_branch)
+            .await
+            .map_err(AppCommandError::from)?
+            .ok_or_else(|| AppCommandError::not_found("Folder not found"))?;
 
     // 群环境跟着走；目录已经改好，这一步失败只记日志，下次对账会把新目录当新群。
-    if let Ok(berth_project_core::tasks::Scope { main, .. }) = berth_project_core::tasks::resolve(&to) {
+    if let Ok(berth_project_core::tasks::Scope { main, .. }) =
+        berth_project_core::tasks::resolve(&to)
+    {
         let branch = renamed_branch.map(|old| (old, name));
         if let Err(error) =
             berth_project_core::tasks::group::move_checkout(&main, &from, &to, branch)
@@ -696,9 +628,10 @@ pub async fn remove_folder_from_workspace<R: tauri::Runtime>(
     manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
     folder_id: i32,
     delete_worktree: Option<bool>,
+    force: Option<bool>,
 ) -> Result<(), AppCommandError> {
     if delete_worktree.unwrap_or(false) {
-        remove_worktree_directory_core(&db, &manager, folder_id).await?;
+        remove_worktree_directory_core(&db, &manager, folder_id, force.unwrap_or(false)).await?;
     }
     remove_folder_from_workspace_core(&EventEmitter::tauri(app), &db, folder_id, Some(&manager))
         .await
@@ -717,19 +650,11 @@ pub async fn rename_worktree(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn reconcile_worktree_family<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
+pub async fn list_project_members(
     db: tauri::State<'_, AppDatabase>,
-    manager: tauri::State<'_, crate::terminal::manager::TerminalManager>,
-    folder_id: i32,
-) -> Result<Vec<FolderDetail>, AppCommandError> {
-    reconcile_worktree_family_core(
-        &db,
-        Some(&EventEmitter::tauri(app)),
-        Some(&manager),
-        folder_id,
-    )
-    .await
+    project_id: i32,
+) -> Result<Vec<ProjectMember>, AppCommandError> {
+    list_project_members_core(&db, project_id).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -806,16 +731,30 @@ pub async fn resolve_worktree_folder_core(
 
     let canonical_wt = std::fs::canonicalize(&wt_path).unwrap_or_else(|_| PathBuf::from(&wt_path));
 
+    let same = |path: &str| {
+        std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path)) == canonical_wt
+    };
     let folders = folder_service::list_all_folder_details(&db.conn)
         .await
         .map_err(AppCommandError::from)?;
-    let folder_id = folders
-        .into_iter()
-        .find(|f| {
-            let canon = std::fs::canonicalize(&f.path).unwrap_or_else(|_| PathBuf::from(&f.path));
-            canon == canonical_wt
-        })
-        .map(|f| f.id);
+    let mut folder_id = folders.into_iter().find(|f| same(&f.path)).map(|f| f.id);
+    // 还没登记的 worktree（群组 / 任务刚建的）：登记进仓库所在的项目。
+    if folder_id.is_none() && canonical_wt.is_dir() {
+        if let Some(project) =
+            folder_service::project_for_dir(&db.conn, std::path::Path::new(&repo_path))
+                .await
+                .map_err(AppCommandError::from)?
+        {
+            let entry = folder_service::add_folder_to_project(
+                &db.conn,
+                &canonical_wt.to_string_lossy(),
+                project.id,
+            )
+            .await
+            .map_err(AppCommandError::from)?;
+            folder_id = Some(entry.id);
+        }
+    }
 
     Ok(WorktreeResolution {
         path: Some(canonical_wt.to_string_lossy().to_string()),
@@ -875,7 +814,7 @@ mod tests {
         let root = folder_service::add_folder(&db.conn, "/tmp/berth-family-root")
             .await
             .expect("add root");
-        folder_service::add_folder_with_parent(&db.conn, "/tmp/berth-family-wt", Some(root.id))
+        open_worktree_folder_core(&db, "/tmp/berth-family-wt".into(), root.id)
             .await
             .expect("add worktree");
 
@@ -915,12 +854,9 @@ mod tests {
                 git_branch: Some("automation/3/run-9".to_string()),
                 default_agent_type: None,
                 last_opened_at: chrono::Utc::now(),
-                sort_order: 0,
-                color: "inherit".to_string(),
-                parent_id: Some(1),
+                project_id: Some(1),
+                project: None,
                 kind: FolderKind::Regular,
-                alias: None,
-                pinned_at: None,
             },
         );
 
@@ -929,7 +865,7 @@ mod tests {
         assert_eq!(evt.channel, FOLDER_CHANGED_EVENT);
         assert_eq!(p["kind"], "upsert");
         assert_eq!(p["folder"]["id"], 7);
-        assert_eq!(p["folder"]["parent_id"], 1);
+        assert_eq!(p["folder"]["project_id"], 1);
         assert!(p["folder"].get("project_runtime_id").is_none());
     }
 
@@ -953,8 +889,9 @@ mod tests {
             update_folder_alias_core(&db, entry.id, Some("alias".into()), Some(true), Some(true))
                 .await
                 .expect("pin folder");
-        assert_eq!(pinned.alias.as_deref(), Some("alias"));
-        assert!(pinned.pinned_at.is_some(), "pin must stamp pinned_at");
+        let project = pinned.project.expect("project");
+        assert_eq!(project.name, "alias");
+        assert!(project.pinned_at.is_some(), "pin must stamp pinned_at");
 
         let unpinned = update_folder_alias_core(
             &db,
@@ -965,12 +902,12 @@ mod tests {
         )
         .await
         .expect("unpin folder");
+        let project = unpinned.project.expect("project");
         assert_eq!(
-            unpinned.alias.as_deref(),
-            Some("alias"),
-            "pin updates must preserve the current alias"
+            project.name, "alias",
+            "pin updates must preserve the current name"
         );
-        assert!(unpinned.pinned_at.is_none(), "unpin must clear pinned_at");
+        assert!(project.pinned_at.is_none(), "unpin must clear pinned_at");
     }
 
     #[tokio::test]
@@ -1019,8 +956,8 @@ mod tests {
         let err = open_folder_by_id_core(&db, 99_999)
             .await
             .expect_err("missing id should error");
-        // Either the not_found wrapper (when set_folder_open returns Ok(()) on no-op)
-        // or the underlying DbError propagates — both are acceptable for "missing".
+        // Either the not_found wrapper or the underlying DbError propagates —
+        // both are acceptable for "missing".
         let msg = format!("{err:?}");
         assert!(
             msg.to_lowercase().contains("not found") || msg.to_lowercase().contains("99999"),
@@ -1084,9 +1021,9 @@ mod tests {
         assert_eq!(folders.len(), 2);
         let root_folder = folders
             .iter()
-            .find(|folder| folder.parent_id.is_none())
+            .find(|folder| folder.is_main())
             .expect("root folder");
-        assert_eq!(selected.parent_id, Some(root_folder.id));
+        assert_eq!(main_of(&selected), Some(root_folder.id));
         assert_eq!(
             std::fs::canonicalize(&root_folder.path).expect("canonical root"),
             std::fs::canonicalize(&root).expect("fixture root")
@@ -1099,13 +1036,13 @@ mod tests {
         let root = open_folder_core(&db, "/tmp/codeg-wt-root".into())
             .await
             .expect("open root");
-        assert_eq!(root.parent_id, None, "root folder has no parent");
+        assert_eq!(main_of(&root), None, "root folder has no parent");
 
         let wt = open_worktree_folder_core(&db, "/tmp/codeg-wt-a".into(), root.id)
             .await
             .expect("open worktree");
         assert_eq!(
-            wt.parent_id,
+            main_of(&wt),
             Some(root.id),
             "worktree records its source root folder"
         );
@@ -1125,9 +1062,9 @@ mod tests {
         let grandchild = open_worktree_folder_core(&db, "/tmp/codeg-wt-flat-2".into(), child.id)
             .await
             .expect("open grandchild worktree");
-        assert_eq!(child.parent_id, Some(root.id));
+        assert_eq!(main_of(&child), Some(root.id));
         assert_eq!(
-            grandchild.parent_id,
+            main_of(&grandchild),
             Some(root.id),
             "worktree of a worktree flattens to the original root"
         );
@@ -1140,7 +1077,8 @@ mod tests {
             .await
             .expect("open worktree with no source");
         assert_eq!(
-            wt.parent_id, None,
+            main_of(&wt),
+            None,
             "non-positive / unknown source degrades to a top-level folder"
         );
     }
@@ -1154,242 +1092,15 @@ mod tests {
         let wt = open_worktree_folder_core(&db, "/tmp/codeg-wt-preserve".into(), root.id)
             .await
             .expect("open worktree");
-        assert_eq!(wt.parent_id, Some(root.id));
+        assert_eq!(main_of(&wt), Some(root.id));
         // A plain reopen of the same path must not clear the recorded parent.
         let reopened = open_folder_core(&db, "/tmp/codeg-wt-preserve".into())
             .await
             .expect("reopen plain");
         assert_eq!(
-            reopened.parent_id,
+            main_of(&reopened),
             Some(root.id),
             "plain open_folder must preserve an existing worktree parent"
-        );
-    }
-
-    #[tokio::test]
-    async fn open_worktree_folder_core_unknown_source_demotes_existing_to_root() {
-        let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-demote-root".into())
-            .await
-            .expect("open root");
-        let path = "/tmp/codeg-wt-demote".to_string();
-        let wt = open_worktree_folder_core(&db, path.clone(), root.id)
-            .await
-            .expect("open worktree");
-        assert_eq!(wt.parent_id, Some(root.id));
-        // Reopening the same path as a worktree with an unknown source writes the
-        // authoritative value (top-level) rather than keeping the stale parent.
-        let demoted = open_worktree_folder_core(&db, path, 0)
-            .await
-            .expect("reopen worktree with no source");
-        assert_eq!(
-            demoted.parent_id, None,
-            "explicit worktree open with unknown source demotes to top-level"
-        );
-    }
-
-    #[tokio::test]
-    async fn reconcile_registers_worktrees_added_after_discovery() {
-        let db = fresh_in_memory_db().await;
-        let temp = tempfile::tempdir().expect("tempdir");
-        let root = temp.path().join("main");
-        let linked = temp.path().join("feature");
-        let third = temp.path().join("chore");
-        std::fs::create_dir(&root).expect("create root");
-
-        let run_git = |cwd: &std::path::Path, args: &[&str]| {
-            let output = std::process::Command::new("git")
-                .args(args)
-                .current_dir(cwd)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .output()
-                .expect("run git");
-            assert!(
-                output.status.success(),
-                "git {args:?} failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        };
-        run_git(&root, &["init", "-b", "main"]);
-        std::fs::write(root.join("README.md"), "test").expect("write fixture");
-        run_git(&root, &["add", "README.md"]);
-        run_git(
-            &root,
-            &[
-                "-c",
-                "user.name=Berth Test",
-                "-c",
-                "user.email=test@berth.invalid",
-                "commit",
-                "-m",
-                "init",
-            ],
-        );
-        run_git(
-            &root,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                "feature",
-                linked.to_str().expect("utf8 path"),
-            ],
-        );
-
-        let selected = open_folder_core(&db, linked.to_string_lossy().into_owned())
-            .await
-            .expect("open linked worktree");
-        // 家族外再 add 一个 worktree —— 对账前不出现。
-        run_git(
-            &root,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                "chore",
-                third.to_str().expect("utf8 path"),
-            ],
-        );
-        let family = reconcile_worktree_family_core(&db, None, None, selected.id)
-            .await
-            .expect("reconcile");
-        assert_eq!(family.len(), 3, "reconcile must register the new worktree");
-        assert!(
-            family.iter().any(|f| {
-                std::fs::canonicalize(&f.path).expect("canonical")
-                    == std::fs::canonicalize(&third).expect("canonical third")
-            }),
-            "family must contain the third worktree path"
-        );
-    }
-
-    #[tokio::test]
-    async fn reconcile_removes_worktrees_deleted_outside_berth() {
-        let db = fresh_in_memory_db().await;
-        let temp = tempfile::tempdir().expect("tempdir");
-        let root = temp.path().join("main");
-        let linked = temp.path().join("feature");
-        let stale = temp.path().join("stale");
-        std::fs::create_dir(&root).expect("create root");
-
-        let run_git = |cwd: &std::path::Path, args: &[&str]| {
-            let output = std::process::Command::new("git")
-                .args(args)
-                .current_dir(cwd)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .output()
-                .expect("run git");
-            assert!(
-                output.status.success(),
-                "git {args:?} failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        };
-        run_git(&root, &["init", "-b", "main"]);
-        std::fs::write(root.join("README.md"), "test").expect("write fixture");
-        run_git(&root, &["add", "README.md"]);
-        run_git(
-            &root,
-            &[
-                "-c",
-                "user.name=Berth Test",
-                "-c",
-                "user.email=test@berth.invalid",
-                "commit",
-                "-m",
-                "init",
-            ],
-        );
-        run_git(
-            &root,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                "feature",
-                linked.to_str().expect("utf8 path"),
-            ],
-        );
-
-        run_git(
-            &root,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                "stale",
-                stale.to_str().expect("utf8 path"),
-            ],
-        );
-
-        let selected = open_folder_core(&db, linked.to_string_lossy().into_owned())
-            .await
-            .expect("open linked worktree");
-        assert_eq!(
-            reconcile_worktree_family_core(&db, None, None, selected.id)
-                .await
-                .expect("reconcile")
-                .len(),
-            3
-        );
-
-        // 手工删目录未 prune：git 标记 prunable，同样视为已不存在。
-        std::fs::remove_dir_all(&stale).expect("rm stale worktree");
-
-        // git 侧删掉 worktree（目录随之消失）——对账后家族只剩 root。
-        run_git(
-            &root,
-            &[
-                "worktree",
-                "remove",
-                "--force",
-                linked.to_str().expect("utf8 path"),
-            ],
-        );
-        let family = reconcile_worktree_family_core(&db, None, None, selected.id)
-            .await
-            .expect("reconcile after remove");
-        assert_eq!(
-            family.len(),
-            1,
-            "removed worktree folder must leave the family"
-        );
-        assert_eq!(family[0].parent_id, None, "only the root remains");
-    }
-
-    #[tokio::test]
-    async fn reconcile_missing_folder_is_a_silent_noop() {
-        // 触发方持有已删除 folder（列表刷新竞态）——必须 Ok(空) 而非报错，
-        // 否则每次竞态都会刷一条 console error。
-        let db = fresh_in_memory_db().await;
-        let family = reconcile_worktree_family_core(&db, None, None, 99_999)
-            .await
-            .expect("missing folder must not error");
-        assert!(family.is_empty(), "no family for a missing folder");
-    }
-
-    #[tokio::test]
-    async fn reconcile_is_idempotent() {
-        let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-idem-root".into())
-            .await
-            .expect("open root");
-        let first = reconcile_worktree_family_core(&db, None, None, root.id)
-            .await
-            .expect("reconcile 1");
-        let second = reconcile_worktree_family_core(&db, None, None, root.id)
-            .await
-            .expect("reconcile 2");
-        assert_eq!(first.len(), second.len(), "no-op reconcile must be stable");
-        let rows = folder_service::list_all_folder_details(&db.conn)
-            .await
-            .expect("list");
-        assert_eq!(
-            rows.iter()
-                .filter(|f| f.id == root.id || f.parent_id == Some(root.id))
-                .count(),
-            first.len(),
-            "no duplicate rows after repeated reconcile"
         );
     }
 
@@ -1399,9 +1110,10 @@ mod tests {
         let entry = add_folder_to_history_core(&db, "/tmp/codeg-agent-test".into())
             .await
             .expect("add");
-        let set = update_folder_default_agent_core(&db, entry.id, Some(AgentType::new("claude_code")))
-            .await
-            .expect("set agent");
+        let set =
+            update_folder_default_agent_core(&db, entry.id, Some(AgentType::new("claude_code")))
+                .await
+                .expect("set agent");
         assert_eq!(set.default_agent_type, Some(AgentType::new("claude_code")));
         let cleared = update_folder_default_agent_core(&db, entry.id, None)
             .await

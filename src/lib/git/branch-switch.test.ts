@@ -6,18 +6,25 @@ import {
 } from "@/lib/git/branch-switch"
 import type { FolderDetail, WorktreeResolution } from "@/lib/types"
 
-function mkFolder(p: Partial<FolderDetail> & { id: number }): FolderDetail {
+/** `main`：所属项目的主成员（默认自己）。 */
+function mkFolder({
+  main,
+  ...p
+}: Partial<FolderDetail> & { id: number; main?: number }): FolderDetail {
   return {
     name: `folder-${p.id}`,
     path: `/repo/folder-${p.id}`,
     git_branch: null,
     default_agent_type: null,
     last_opened_at: "2026-01-01T00:00:00Z",
-    sort_order: p.id,
-    color: "blue",
-    parent_id: null,
+    project_id: main ?? p.id,
+    project: {
+      name: "myproject",
+      main_folder_id: main ?? p.id,
+      pinned_at: null,
+      sort_order: 0,
+    },
     kind: "regular",
-    alias: null,
     ...p,
   }
 }
@@ -27,13 +34,13 @@ const wtA = mkFolder({
   id: 2,
   name: "myproject-a",
   path: "/repo/wt-a",
-  parent_id: 1,
+  main: 1,
 })
 const wtB = mkFolder({
   id: 3,
   name: "myproject-b",
   path: "/repo/wt-b",
-  parent_id: 1,
+  main: 1,
 })
 const allFolders = [root, wtA, wtB]
 
@@ -50,7 +57,7 @@ describe("resolveRootFolder", () => {
     expect(resolveRootFolder(wtA, allFolders)).toBe(root)
   })
   it("falls back to itself when the parent is absent", () => {
-    const orphan = mkFolder({ id: 9, parent_id: 404 })
+    const orphan = mkFolder({ id: 9, main: 404 })
     expect(resolveRootFolder(orphan, allFolders)).toBe(orphan)
   })
 })
@@ -102,11 +109,11 @@ describe("planBranchSwitch", () => {
     })
   })
 
-  it("registers + navigates an external worktree, parented to root", () => {
-    expect(plan(wtA, res("/repo/external", null))).toEqual({
-      kind: "navigateExternal",
-      path: "/repo/external",
-      rootId: 1,
+  it("checks out in root when the branch lives outside the project", () => {
+    // 项目里的 worktree 由后端解析时自动登记，folder_id 为空只剩项目外的检出。
+    expect(plan(wtA, res("/elsewhere/external", null))).toEqual({
+      kind: "checkoutInRoot",
+      rootFolder: expect.objectContaining({ id: 1 }),
     })
   })
 

@@ -16,16 +16,15 @@ vi.mock("@/hooks/use-is-active-chat-mode", () => ({
   useIsActiveChatMode: () => false,
 }))
 vi.mock("@/components/layout/aux-panel/aux-panel-file-tree-tab", () => ({
-  FileTreeTab: () => <div data-testid="files" />,
+  FileTreeTab: ({ hideSearch }: { hideSearch?: boolean }) => (
+    <div data-testid="files" data-search={hideSearch ? "hidden" : "shown"} />
+  ),
 }))
 vi.mock("@/components/layout/aux-panel/aux-panel-git-changes-tab", () => ({
   GitChangesTab: () => <div data-testid="changes" />,
 }))
 vi.mock("@/components/layout/aux-panel/aux-panel-git-log-tab", () => ({
   GitLogTab: () => <div data-testid="commits" />,
-}))
-vi.mock("@/components/layout/git/branch-dropdown", () => ({
-  BranchDropdown: () => <div data-testid="branches" />,
 }))
 
 const tabs = enMessages.Folder.auxPanel.tabs
@@ -36,8 +35,7 @@ function folder(id: number, extra: Partial<FolderDetail> = {}): FolderDetail {
     id,
     name: `p${id}`,
     path: `/p/${id}`,
-    parent_id: null,
-    alias: null,
+    project: null,
     git_branch: "main",
     ...extra,
   } as FolderDetail
@@ -55,7 +53,7 @@ describe("ProjectPanel", () => {
   beforeEach(() => {
     localStorage.clear()
     const root = folder(1, { name: "berth" })
-    active.folder = folder(2, { parent_id: 1, git_branch: "dev" })
+    active.folder = folder(2, { git_branch: "dev" })
     useAppWorkspaceStore.setState({
       allFolders: [root, active.folder],
       gitHeads: new Map(),
@@ -77,6 +75,19 @@ describe("ProjectPanel", () => {
     expect(useProjectPanelStore.getState().tab).toBe("changes")
   })
 
+  it("search button toggles the file search box and jumps to files", () => {
+    useProjectPanelStore.setState({ tab: "commits" })
+    renderPanel()
+    const button = screen.getByRole("button", { name: panel.search })
+
+    fireEvent.click(button)
+    expect(useProjectPanelStore.getState().tab).toBe("files")
+    expect(screen.getByTestId("files").dataset.search).toBe("shown")
+
+    fireEvent.click(button)
+    expect(screen.getByTestId("files").dataset.search).toBe("hidden")
+  })
+
   it("renders nothing while collapsed", () => {
     useProjectPanelStore.setState({ collapsed: true })
     renderPanel()
@@ -90,7 +101,7 @@ describe("ProjectPanel", () => {
     expect(useProjectPanelStore.getState().maximized).toBe(true)
   })
 
-  it("restores from maximized, and a non-repo has only files and branches", () => {
+  it("restores from maximized, and a non-repo has only files", () => {
     useAppWorkspaceStore.setState({
       gitHeads: new Map([
         [
@@ -108,7 +119,6 @@ describe("ProjectPanel", () => {
     renderPanel(true)
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       tabs.files,
-      tabs.branches,
     ])
 
     fireEvent.click(screen.getByRole("button", { name: panel.restore }))

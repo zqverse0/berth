@@ -136,6 +136,8 @@ if (data.mode === "inspect") {
       )
     ),
     provider,
+    // 启动目录所在项目的成员（检出、参考目录）或 null；怎么用由插件决定。
+    project: data.project ?? null,
     brief: data.brief,
     unattended: data.unattended,
     paths: Object.freeze(data.paths),

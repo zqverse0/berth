@@ -29,7 +29,6 @@ pub async fn call(
         "group.read" => group::read(&root, &params),
         "group.assign" => group::assign(&root, &params),
         "group.list" => group::list(&root, &params),
-        "group.unread" => group::unread(&root, &params),
         "group.watch" => {
             let launch = launch.ok_or("Berth terminal is unavailable")?;
             group::ensure_watch(&root, &cli()?, &launch)

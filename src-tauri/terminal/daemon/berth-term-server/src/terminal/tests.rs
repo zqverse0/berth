@@ -1253,3 +1253,80 @@ fn read_until_io(
         }
     }
 }
+
+/// 以给定的进程环境建 pane profile，模拟 GUI 从 Dock / 桌面启动时继承的环境。
+#[cfg(unix)]
+fn profile_from_base_environment(base: &[(&str, &str)]) -> TerminalProfile {
+    let base_map: HashMap<String, String> = base
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    let raw_base: Vec<(OsString, OsString)> = base
+        .iter()
+        .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+        .collect();
+    let mut options = OptionStore::new();
+    options
+        .set(
+            ScopeSelector::Global,
+            OptionName::DefaultShell,
+            default_shell_string(),
+            SetOptionMode::Replace,
+        )
+        .expect("default-shell succeeds");
+    TerminalProfile::for_session_with_environment(
+        &EnvironmentStore::new(),
+        &options,
+        &SessionName::new("alpha").expect("valid session name"),
+        7,
+        temp_socket_path().as_path(),
+        Some(&base_map),
+        None,
+        Some(&raw_base),
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("profile")
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_profile_adds_utf8_lang_when_locale_is_missing() {
+    let profile = profile_from_base_environment(&[("PATH", "/usr/bin:/bin")]);
+    let expected = if cfg!(target_os = "macos") {
+        "en_US.UTF-8"
+    } else {
+        "C.UTF-8"
+    };
+    assert_eq!(profile.environment_value("LANG"), Some(expected));
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_profile_keeps_existing_locale() {
+    let profile =
+        profile_from_base_environment(&[("PATH", "/usr/bin:/bin"), ("LC_CTYPE", "zh_CN.UTF-8")]);
+    assert_eq!(profile.environment_value("LANG"), None);
+    assert_eq!(profile.environment_value("LC_CTYPE"), Some("zh_CN.UTF-8"));
+
+    let profile =
+        profile_from_base_environment(&[("PATH", "/usr/bin:/bin"), ("LANG", "ja_JP.UTF-8")]);
+    assert_eq!(profile.environment_value("LANG"), Some("ja_JP.UTF-8"));
+}
+
+/// 在本机真跑 `locale charmap`：补上的 LANG 必须是本系统认得的 UTF-8 locale（CI 在 Linux 与 macOS 上各跑一遍）。
+#[cfg(unix)]
+#[test]
+fn terminal_profile_locale_resolves_to_utf8_on_this_system() {
+    let profile = profile_from_base_environment(&[("PATH", "/usr/bin:/bin")]);
+    let output = std::process::Command::new("locale")
+        .arg("charmap")
+        .env_clear()
+        .envs(profile.raw_environment.iter().cloned())
+        .output()
+        .expect("run locale charmap");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "UTF-8");
+}

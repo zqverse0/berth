@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { useWorkspaceRuntimeDependencies } from "@/hooks/workspace/use-workspace-runtime"
-import { openWorktreeFolder, resolveProjectAgentSession } from "@/lib/api"
+import { resolveProjectAgentSession } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import { workspaceRuntime } from "@/lib/workspace/workspace-runtime"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
@@ -12,13 +12,19 @@ import { useTabStore } from "@/stores/tab-store"
 
 export const trimSlash = (path: string) => path.replace(/[\\/]+$/, "")
 
-/** 目录对应的项目 id；还没打开过的 worktree 按当前项目的仓库家族打开。 */
+/**
+ * 目录对应的成员 id：还没登记的 worktree 先现读一次项目成员（自动登记）；
+ * 仍不在项目里（如 worktree 已删）就归当前成员。
+ */
 export async function folderIdFor(path: string, sourceFolderId: number) {
-  const folder = useAppWorkspaceStore
-    .getState()
-    .allFolders.find((item) => trimSlash(item.path) === trimSlash(path))
-  if (folder) return folder.id
-  return (await openWorktreeFolder(path, sourceFolderId)).id
+  const find = () =>
+    useAppWorkspaceStore
+      .getState()
+      .allFolders.find((item) => trimSlash(item.path) === trimSlash(path))
+  const hit = find()
+  if (hit) return hit.id
+  await useAppWorkspaceStore.getState().refreshProjectMembers(sourceFolderId)
+  return find()?.id ?? sourceFolderId
 }
 
 /**

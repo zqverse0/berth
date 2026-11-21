@@ -1,6 +1,13 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react"
 import { revealItemInDir } from "@/lib/platform"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
@@ -509,7 +516,20 @@ export function RenderNode({
 }
 
 /** 文件树的「粘贴」：菜单打开时才挂载，这时才读剪贴板；没有可粘贴的文件时禁用。 */
-export function PasteMenuItem({ onPaste }: { onPaste: () => void }) {
+/** 菜单项组件：右键菜单与下拉菜单的 Item 都满足它。 */
+export type MenuItemComponent = ComponentType<{
+  disabled?: boolean
+  onSelect?: () => void
+  children?: ReactNode
+}>
+
+export function PasteMenuItem({
+  onPaste,
+  Item = ContextMenuItem,
+}: {
+  onPaste: () => void
+  Item?: MenuItemComponent
+}) {
   const t = useTranslations("Folder.fileTreeTab")
   const [entries, setEntries] = useState<FileTreeClipboardEntry[]>([])
   useEffect(() => {
@@ -528,9 +548,9 @@ export function PasteMenuItem({ onPaste }: { onPaste: () => void }) {
         ? t("pasteNamed", { name: entries[0].name })
         : t("pasteCount", { count: entries.length })
   return (
-    <ContextMenuItem disabled={entries.length === 0} onSelect={onPaste}>
+    <Item disabled={entries.length === 0} onSelect={onPaste}>
       {label}
-    </ContextMenuItem>
+    </Item>
   )
 }
 

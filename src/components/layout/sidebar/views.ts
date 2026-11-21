@@ -37,7 +37,7 @@ export const SIDEBAR_VIEWS: SidebarViewItem[] = [
 ]
 
 /** 侧栏下方「当前项目面板」的标签。 */
-export type ProjectPanelTab = "files" | "changes" | "commits" | "branches"
+export type ProjectPanelTab = "files" | "changes" | "commits"
 
 const PANEL_KEY = "berth.sidebar.projectPanel"
 
@@ -45,7 +45,7 @@ function loadPanel(): { tab: ProjectPanelTab; collapsed: boolean } {
   try {
     const saved = JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}")
     return {
-      tab: ["files", "changes", "commits", "branches"].includes(saved.tab)
+      tab: ["files", "changes", "commits"].includes(saved.tab)
         ? saved.tab
         : "files",
       collapsed: saved.collapsed === true,

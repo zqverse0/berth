@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import {
   AlertTriangle,
   ChevronLeft,
@@ -8,7 +8,6 @@ import {
   Download,
   Loader2,
   Plus,
-  Server,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
@@ -29,16 +28,13 @@ import {
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
 import { useOpenWorkbenchPanel } from "@/hooks/workspace/use-open-workbench-panel"
-import { useDeviceOverview, type Device } from "@/lib/devices"
 import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
-import {
-  deviceFolderId,
-  devicePath,
-  parseDeviceFolderId,
-} from "@/lib/transport/device"
+import { parseDeviceFolderId } from "@/lib/transport/device"
 import type { UsageState } from "@/lib/transport/usage"
 import { cn } from "@/lib/utils"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
+import { mainFolderId } from "@/lib/workspace/projects"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import {
   PANE_POPOVER_FIT,
   TAB_TOOLBAR_BUTTON,
@@ -381,6 +377,13 @@ export function AgentLaunchMenu() {
     useStatusBarLaunchStore.getState()
   const { trackTrigger, content: paneContent } = usePaneBoundary()
   const { activeFolder } = useActiveFolder()
+  // 在项目里运行：启动目录是项目主成员（真实仓库），在某个成员里运行由成员行指定。
+  const home = useAppWorkspaceStore((s) =>
+    activeFolder
+      ? (s.allFolders.find((f) => f.id === mainFolderId(activeFolder)) ??
+        activeFolder)
+      : null
+  )
   // 对方项目：列对方的工具，启动栏、服务商也是对方的（`useLaunchbar` 按项目所属设备取）。
   const { agents } = useAgentProfiles(
     activeFolder ? parseDeviceFolderId(activeFolder.id)?.deviceId : undefined
@@ -420,10 +423,8 @@ export function AgentLaunchMenu() {
             <AgentLaunchForm
               key={agentId}
               agentId={agentId}
-              workingDirectory={
-                preset?.workingDirectory ?? activeFolder?.path ?? ""
-              }
-              folderId={preset?.folderId ?? activeFolder?.id ?? null}
+              workingDirectory={preset?.workingDirectory ?? home?.path ?? ""}
+              folderId={preset?.folderId ?? home?.id ?? null}
               expert={preset?.expert ?? null}
               onClose={closeLaunchShelf}
             />
@@ -434,11 +435,15 @@ export function AgentLaunchMenu() {
             agents={agents}
             onPick={setActiveLaunchAgentId}
             onTerminal={
-              activeFolder
+              home
                 ? () => {
                     closeLaunchShelf()
+                    // 成员行 ▶ 打开时带了成员：终端也开在那个目录。
                     void createAndOpenFolderTerminal(
-                      { cwd: activeFolder.path, folderId: activeFolder.id },
+                      {
+                        cwd: preset?.workingDirectory ?? home.path,
+                        folderId: preset?.folderId ?? home.id,
+                      },
                       tTerminal
                     )
                   }
@@ -557,96 +562,6 @@ function AgentLaunchChooser({
           {tSessions("newTerminal")}
         </span>
       </button>
-    </div>
-  )
-}
-
-/**
- * 设备区域的「+」：先选对方的项目，之后与对方项目里辅助面板的「+」同一套——对方的工具、启动栏、
- * 服务商，本机的 Key 不外传；建出的终端经对方宿主创建，进同一份清单。
- */
-export function DeviceLaunchPanel({
-  device,
-  onClose,
-}: {
-  device: Pick<Device, "id"> & { name?: string }
-  onClose: () => void
-}) {
-  const t = useTranslations("Folder.sidebar.devices")
-  const tTerminal = useTranslations("Folder.terminal")
-  const projects = useDeviceOverview(device.id)?.projects ?? null
-  const { agents } = useAgentProfiles(device.id)
-  const [picked, setPicked] = useState<number | null>(null)
-  const [agentId, setAgentId] = useState<string | null>(null)
-  const project = projects?.find((p) => p.id === picked) ?? projects?.[0]
-  const target = project
-    ? {
-        cwd: devicePath(device.id, project.path),
-        folderId: deviceFolderId(device.id, project.id),
-      }
-    : null
-
-  return (
-    <div className="flex flex-col gap-3 text-xs" data-device-launch>
-      {device.name ? (
-        <p className="flex items-center gap-1.5 text-muted-foreground">
-          <Server className="size-3.5 shrink-0" aria-hidden />
-          {t("runsOn", { name: device.name })}
-        </p>
-      ) : null}
-      {projects == null ? (
-        <p className="flex items-center gap-1.5 text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          {t("launchLoading")}
-        </p>
-      ) : projects.length === 0 ? (
-        <p className="text-muted-foreground">{t("launchNoProjects")}</p>
-      ) : (
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            {t("launchProject")}
-          </span>
-          <select
-            className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
-            value={project?.id ?? ""}
-            onChange={(e) => setPicked(Number(e.target.value))}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {target && agentId ? (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <AgentLaunchHeader
-              agentId={agentId}
-              name={agents.find((a) => a.id === agentId)?.name ?? agentId}
-              onBack={() => setAgentId(null)}
-            />
-          </div>
-          <AgentLaunchForm
-            key={`${target.folderId}:${agentId}`}
-            agentId={agentId}
-            workingDirectory={target.cwd}
-            folderId={target.folderId}
-            onClose={onClose}
-          />
-        </div>
-      ) : target ? (
-        <AgentLaunchChooser
-          label={t("launchRemote")}
-          agents={agents}
-          onPick={setAgentId}
-          onTerminal={() => {
-            onClose()
-            void createAndOpenFolderTerminal(target, tTerminal)
-          }}
-        />
-      ) : null}
     </div>
   )
 }

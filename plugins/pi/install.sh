@@ -14,13 +14,3 @@ if command -v setsid >/dev/null 2>&1; then
 else
   sh "$script" </dev/null
 fi
-
-# 群组 ACP 模式的适配器：锁版本装进插件数据目录（launch.js 的 acp() 从这里起），不用 npx 临时下载。
-acp_dir="${BERTH_HOME:-$HOME/.berth}/state/pi/acp"
-if command -v npm >/dev/null 2>&1; then
-  echo "Installing pi-acp into $acp_dir…"
-  mkdir -p "$acp_dir"
-  npm install --prefix "$acp_dir" --no-save --no-audit --no-fund pi-acp@0.0.34
-else
-  echo "npm not found: skipping pi-acp (Pi cannot join groups until it is installed)"
-fi

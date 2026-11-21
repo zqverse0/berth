@@ -7,7 +7,12 @@ const TEXT = {
   "zh-CN": {
     tabs: { search: "搜索", records: "记录", config: "配置" },
     placeholder: "问题，或粘贴网址直接抓取正文",
-    modes: { all: "综合", zhipu: "中文（智谱）", exa: "可信源（Exa）", c7: "文档（Context7）" },
+    modes: {
+      all: "综合",
+      zhipu: "中文（智谱）",
+      exa: "可信源（Exa）",
+      c7: "文档（Context7）",
+    },
     search: "搜索",
     cancel: "取消",
     waiting: (/** @type {number} */ s) => `已等待 ${s} 秒`,
@@ -48,7 +53,12 @@ const TEXT = {
   en: {
     tabs: { search: "Search", records: "Records", config: "Settings" },
     placeholder: "Question, or paste a URL to fetch the page",
-    modes: { all: "All", zhipu: "Chinese (Zhipu)", exa: "Trusted (Exa)", c7: "Docs (Context7)" },
+    modes: {
+      all: "All",
+      zhipu: "Chinese (Zhipu)",
+      exa: "Trusted (Exa)",
+      c7: "Docs (Context7)",
+    },
     search: "Search",
     cancel: "Cancel",
     waiting: (/** @type {number} */ s) => `Waiting ${s}s`,
@@ -90,10 +100,45 @@ const TEXT = {
 
 /** 配置页分组：键 → 显示名。 */
 const GROUPS = {
-  ai: ["XAI_API_KEY", "XAI_API_URL", "XAI_MODEL", "XAI_TOOLS", "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_API_URL", "OPENAI_COMPATIBLE_MODEL", "OPENAI_COMPATIBLE_STREAM", "AI_TIMEOUT_SECONDS"],
-  sources: ["ZHIPU_API_KEY", "ZHIPU_API_URL", "ZHIPU_SEARCH_ENGINE", "ZHIPU_TIMEOUT_SECONDS", "EXA_API_KEY", "EXA_BASE_URL", "EXA_TIMEOUT_SECONDS", "CONTEXT7_API_KEY", "CONTEXT7_BASE_URL", "CONTEXT7_TIMEOUT_SECONDS"],
-  fetch: ["TAVILY_API_KEY", "TAVILY_API_URL", "TAVILY_ENABLED", "TAVILY_TIMEOUT_SECONDS", "FIRECRAWL_API_KEY", "FIRECRAWL_API_URL"],
-  general: ["SMART_SEARCH_VALIDATION_LEVEL", "SMART_SEARCH_FALLBACK_MODE", "SMART_SEARCH_MINIMUM_PROFILE", "SMART_SEARCH_RETRY_MAX_ATTEMPTS", "SMART_SEARCH_RETRY_MAX_WAIT", "RECORDS_RETENTION_DAYS"],
+  ai: [
+    "XAI_API_KEY",
+    "XAI_API_URL",
+    "XAI_MODEL",
+    "XAI_TOOLS",
+    "OPENAI_COMPATIBLE_API_KEY",
+    "OPENAI_COMPATIBLE_API_URL",
+    "OPENAI_COMPATIBLE_MODEL",
+    "OPENAI_COMPATIBLE_STREAM",
+    "AI_TIMEOUT_SECONDS",
+  ],
+  sources: [
+    "ZHIPU_API_KEY",
+    "ZHIPU_API_URL",
+    "ZHIPU_SEARCH_ENGINE",
+    "ZHIPU_TIMEOUT_SECONDS",
+    "EXA_API_KEY",
+    "EXA_BASE_URL",
+    "EXA_TIMEOUT_SECONDS",
+    "CONTEXT7_API_KEY",
+    "CONTEXT7_BASE_URL",
+    "CONTEXT7_TIMEOUT_SECONDS",
+  ],
+  fetch: [
+    "TAVILY_API_KEY",
+    "TAVILY_API_URL",
+    "TAVILY_ENABLED",
+    "TAVILY_TIMEOUT_SECONDS",
+    "FIRECRAWL_API_KEY",
+    "FIRECRAWL_API_URL",
+  ],
+  general: [
+    "SMART_SEARCH_VALIDATION_LEVEL",
+    "SMART_SEARCH_FALLBACK_MODE",
+    "SMART_SEARCH_MINIMUM_PROFILE",
+    "SMART_SEARCH_RETRY_MAX_ATTEMPTS",
+    "SMART_SEARCH_RETRY_MAX_WAIT",
+    "RECORDS_RETENTION_DAYS",
+  ],
 }
 
 await berth.ready
@@ -117,9 +162,11 @@ function h(tag, props = {}, children = []) {
 }
 
 /** @param {string} script @param {any} input @param {AbortSignal} [signal] */
-const run = (script, input, signal) => berth.scripts.run(`private/${script}.js`, input, { signal })
+const run = (script, input, signal) =>
+  berth.scripts.run(`private/${script}.js`, input, { signal })
 const errorText = (/** @type {any} */ error) => String(error?.message ?? error)
-const isUrl = (/** @type {string} */ text) => /^https?:\/\/\S+$/.test(text.trim())
+const isUrl = (/** @type {string} */ text) =>
+  /^https?:\/\/\S+$/.test(text.trim())
 
 /** 页面状态，按标签分块。 */
 const model = {
@@ -158,11 +205,23 @@ const app = /** @type {HTMLElement} */ (document.getElementById("app"))
 
 function render() {
   tabs.replaceChildren(
-    ...(/** @type {const} */ (["search", "records", "config"])).map((tab) =>
-      h("button", { "aria-selected": String(model.tab === tab), onclick: () => switchTab(tab) }, [t.tabs[tab]])
+    .../** @type {const} */ (["search", "records", "config"]).map((tab) =>
+      h(
+        "button",
+        {
+          "aria-selected": String(model.tab === tab),
+          onclick: () => switchTab(tab),
+        },
+        [t.tabs[tab]]
+      )
     )
   )
-  const body = model.tab === "search" ? renderSearch() : model.tab === "records" ? renderRecords() : renderConfig()
+  const body =
+    model.tab === "search"
+      ? renderSearch()
+      : model.tab === "records"
+        ? renderRecords()
+        : renderConfig()
   app.replaceChildren(...body.filter(Boolean))
 }
 
@@ -198,11 +257,19 @@ function renderSearch() {
     h("div", { class: "row" }, [
       h(
         "select",
-        { onchange: (/** @type {Event} */ e) => (s.mode = /** @type {HTMLSelectElement} */ (e.target).value) },
-        Object.entries(t.modes).map(([id, label]) => h("option", { value: id, selected: s.mode === id }, [label]))
+        {
+          onchange: (/** @type {Event} */ e) =>
+            (s.mode = /** @type {HTMLSelectElement} */ (e.target).value),
+        },
+        Object.entries(t.modes).map(([id, label]) =>
+          h("option", { value: id, selected: s.mode === id }, [label])
+        )
       ),
       h("span", { class: "grow" }),
-      running && h("span", { class: "muted small", id: "waiting" }, [t.waiting(Math.round((Date.now() - s.startedAt) / 1000))]),
+      running &&
+        h("span", { class: "muted small", id: "waiting" }, [
+          t.waiting(Math.round((Date.now() - s.startedAt) / 1000)),
+        ]),
       running
         ? h("button", { onclick: cancelSearch }, [t.cancel])
         : h("button", { class: "primary", onclick: startSearch }, [t.search]),
@@ -213,14 +280,25 @@ function renderSearch() {
     out.push(
       h("section", { class: "muted small" }, [
         t.existing,
-        ...s.existing.slice(0, 3).flatMap((item) => [" ", h("a", { onclick: () => openRecord(item.id) }, [`${item.query}（${byLabel(item.by)} ${shortTime(item.at)}）`])]),
+        ...s.existing
+          .slice(0, 3)
+          .flatMap((item) => [
+            " ",
+            h("a", { onclick: () => openRecord(item.id) }, [
+              `${item.query}（${byLabel(item.by)} ${shortTime(item.at)}）`,
+            ]),
+          ]),
       ])
     )
   if (s.error)
     out.push(
       h("section", { class: "error" }, [
         s.error,
-        s.errorType === "config_error" || s.errorType === "network_error" ? h("div", {}, [h("button", { onclick: () => switchTab("config") }, [t.goConfig])]) : null,
+        s.errorType === "config_error" || s.errorType === "network_error"
+          ? h("div", {}, [
+              h("button", { onclick: () => switchTab("config") }, [t.goConfig]),
+            ])
+          : null,
       ])
     )
   if (s.page) out.push(...renderPage(s.page))
@@ -228,9 +306,17 @@ function renderSearch() {
     out.push(
       h("section", { class: "row small" }, [
         ...s.sources.libraries.map((/** @type {any} */ lib) =>
-          h("button", { "aria-pressed": String(lib.id === s.sources.library_id), disabled: running, onclick: () => switchLibrary(lib.id) }, [
-            `${lib.id === s.sources.library_id ? "• " : ""}${lib.title} ${lib.id}`,
-          ])
+          h(
+            "button",
+            {
+              "aria-pressed": String(lib.id === s.sources.library_id),
+              disabled: running,
+              onclick: () => switchLibrary(lib.id),
+            },
+            [
+              `${lib.id === s.sources.library_id ? "• " : ""}${lib.title} ${lib.id}`,
+            ]
+          )
         ),
       ])
     )
@@ -239,7 +325,15 @@ function renderSearch() {
       h("section", {}, [
         h("div", { class: "row" }, [
           h("strong", { class: "grow" }, [s.sources.library_id]),
-          h("button", { class: "small", onclick: () => attach(`${s.sources.library_id} ${s.query}`, s.sources.text) }, [t.toAgent]),
+          h(
+            "button",
+            {
+              class: "small",
+              onclick: () =>
+                attach(`${s.sources.library_id} ${s.query}`, s.sources.text),
+            },
+            [t.toAgent]
+          ),
         ]),
         h("div", { class: "answer" }, [s.sources.text]),
       ])
@@ -249,9 +343,19 @@ function renderSearch() {
       h("section", {}, [
         h("div", { class: "row" }, [
           h("strong", { class: "grow" }, [t.answer]),
-          s.answer?.content && h("button", { class: "small", onclick: () => attach(s.query, s.answer.content) }, [t.toAgent]),
+          s.answer?.content &&
+            h(
+              "button",
+              {
+                class: "small",
+                onclick: () => attach(s.query, s.answer.content),
+              },
+              [t.toAgent]
+            ),
         ]),
-        s.answer?.content ? h("div", { class: "answer" }, [s.answer.content]) : h("div", { class: "muted" }, [t.answerPending]),
+        s.answer?.content
+          ? h("div", { class: "answer" }, [s.answer.content])
+          : h("div", { class: "muted" }, [t.answerPending]),
       ])
     )
   // 来源已出、AI 回答失败：说明原因，不让回答区默默消失
@@ -259,12 +363,21 @@ function renderSearch() {
     out.push(
       h("section", { class: "muted small" }, [
         `${t.answerFailed}${s.answer.error}`,
-        h("div", {}, [h("button", { onclick: () => switchTab("config") }, [t.goConfig])]),
+        h("div", {}, [
+          h("button", { onclick: () => switchTab("config") }, [t.goConfig]),
+        ]),
       ])
     )
   const items = mergedSources()
-  if (items.length) out.push(h("section", {}, [h("strong", {}, [t.sources]), renderItems(items, s.query)]))
-  else if (!running && (s.sources || s.answer) && !s.error) out.push(h("p", { class: "muted" }, [t.noResults]))
+  if (items.length)
+    out.push(
+      h("section", {}, [
+        h("strong", {}, [t.sources]),
+        renderItems(items, s.query),
+      ])
+    )
+  else if (!running && (s.sources || s.answer) && !s.error)
+    out.push(h("p", { class: "muted" }, [t.noResults]))
   return out
 }
 
@@ -273,7 +386,13 @@ function mergedSources() {
   const s = model.search
   const seen = new Set()
   const out = []
-  for (const list of [s.answer?.primary_sources, s.sources?.primary_sources, s.sources?.results, s.answer?.extra_sources, s.answer?.results])
+  for (const list of [
+    s.answer?.primary_sources,
+    s.sources?.primary_sources,
+    s.sources?.results,
+    s.answer?.extra_sources,
+    s.answer?.results,
+  ])
     for (const item of list ?? []) {
       const url = item.url
       if (!url || seen.has(url) || !/^https?:/.test(url)) continue
@@ -290,18 +409,57 @@ function renderItems(items, query) {
     { class: "items" },
     items.map((item) => {
       const state = model.urls[item.url] ?? {}
-      const snippet = item.description || item.snippet || item.content || (item.highlights ?? []).join(" … ")
+      const snippet =
+        item.description ||
+        item.snippet ||
+        item.content ||
+        (item.highlights ?? []).join(" … ")
       return h("li", {}, [
-        h("div", { class: "title" }, [h("a", { onclick: () => berth.ui.openUrl(item.url) }, [item.title || item.url])]),
-        h("div", { class: "muted small" }, [`${item.provider ?? ""} · ${item.url}`]),
+        h("div", { class: "title" }, [
+          h("a", { onclick: () => berth.ui.openUrl(item.url) }, [
+            item.title || item.url,
+          ]),
+        ]),
+        h("div", { class: "muted small" }, [
+          `${item.provider ?? ""} · ${item.url}`,
+        ]),
         snippet && h("div", { class: "snippet" }, [snippet]),
         h("div", { class: "row actions" }, [
-          h("button", { onclick: () => attach(item.title || item.url, [item.title, item.url, snippet].filter(Boolean).join("\n")) }, [t.toAgent]),
+          h(
+            "button",
+            {
+              onclick: () =>
+                attach(
+                  item.title || item.url,
+                  [item.title, item.url, snippet].filter(Boolean).join("\n")
+                ),
+            },
+            [t.toAgent]
+          ),
           h("button", { onclick: () => berth.ui.openUrl(item.url) }, [t.open]),
-          h("button", { disabled: state.busy, onclick: () => fetchFull(item.url) }, [state.busy && !state.content ? t.fetching : t.fetch]),
+          h(
+            "button",
+            { disabled: state.busy, onclick: () => fetchFull(item.url) },
+            [state.busy && !state.content ? t.fetching : t.fetch]
+          ),
           state.path
-            ? h("button", { class: "saved", onclick: () => berth.files.open(/** @type {string} */ (state.path)) }, [`✓ ${t.saved}`])
-            : h("button", { disabled: state.busy, onclick: () => saveSource(item.url, item.title, query) }, [t.save]),
+            ? h(
+                "button",
+                {
+                  class: "saved",
+                  onclick: () =>
+                    berth.files.open(/** @type {string} */ (state.path)),
+                },
+                [`✓ ${t.saved}`]
+              )
+            : h(
+                "button",
+                {
+                  disabled: state.busy,
+                  onclick: () => saveSource(item.url, item.title, query),
+                },
+                [t.save]
+              ),
         ]),
         state.error && h("div", { class: "error small" }, [state.error]),
         state.content && h("div", { class: "page" }, [state.content]),
@@ -316,11 +474,32 @@ function renderPage(page) {
   return [
     h("section", {}, [
       h("div", { class: "row actions" }, [
-        h("a", { class: "grow", onclick: () => berth.ui.openUrl(page.url) }, [page.url]),
-        h("button", { onclick: () => attach(page.url, `${page.url}\n\n${page.content}`) }, [t.toAgent]),
+        h("a", { class: "grow", onclick: () => berth.ui.openUrl(page.url) }, [
+          page.url,
+        ]),
+        h(
+          "button",
+          { onclick: () => attach(page.url, `${page.url}\n\n${page.content}`) },
+          [t.toAgent]
+        ),
         state.path
-          ? h("button", { class: "saved", onclick: () => berth.files.open(/** @type {string} */ (state.path)) }, [`✓ ${t.saved}`])
-          : h("button", { disabled: state.busy, onclick: () => saveSource(page.url, "", "", page.content) }, [t.save]),
+          ? h(
+              "button",
+              {
+                class: "saved",
+                onclick: () =>
+                  berth.files.open(/** @type {string} */ (state.path)),
+              },
+              [`✓ ${t.saved}`]
+            )
+          : h(
+              "button",
+              {
+                disabled: state.busy,
+                onclick: () => saveSource(page.url, "", "", page.content),
+              },
+              [t.save]
+            ),
       ]),
       state.error && h("div", { class: "error small" }, [state.error]),
       h("div", { class: "page" }, [page.content]),
@@ -334,40 +513,82 @@ async function startSearch() {
   const s = model.search
   const query = queryBox.value.trim()
   if (!query || s.abort) return
-  Object.assign(s, { query, sources: null, answer: null, page: null, error: null, errorType: null, existing: [], record: null })
+  Object.assign(s, {
+    query,
+    sources: null,
+    answer: null,
+    page: null,
+    error: null,
+    errorType: null,
+    existing: [],
+    record: null,
+  })
   const abort = new AbortController()
   s.abort = abort
   s.startedAt = Date.now()
   ticker = window.setInterval(() => {
     const el = document.getElementById("waiting")
-    if (el) el.textContent = t.waiting(Math.round((Date.now() - s.startedAt) / 1000))
+    if (el)
+      el.textContent = t.waiting(Math.round((Date.now() - s.startedAt) / 1000))
   }, 1000)
   render()
-  const settle = (/** @type {(result: any) => void} */ apply) => (/** @type {any} */ result) => {
-    if (s.abort !== abort) return
-    apply(result)
-    if (result?.ok === false && !s.error && !mergedSources().length && !s.page) {
-      s.error = result.error
-      s.errorType = result.error_type
+  const settle =
+    (/** @type {(result: any) => void} */ apply) =>
+    (/** @type {any} */ result) => {
+      if (s.abort !== abort) return
+      apply(result)
+      if (
+        result?.ok === false &&
+        !s.error &&
+        !mergedSources().length &&
+        !s.page
+      ) {
+        s.error = result.error
+        s.errorType = result.error_type
+      }
+      if (result?.existing_records?.length) s.existing = result.existing_records
+      checkSaved()
+      render()
     }
-    if (result?.existing_records?.length) s.existing = result.existing_records
-    checkSaved()
-    render()
-  }
   const failed = (/** @type {any} */ error) => {
     if (s.abort !== abort || error?.reason === "cancelled") return
     s.error = errorText(error)
     render()
   }
   const jobs = []
-  if (isUrl(query)) jobs.push(run("fetch", { url: query }, abort.signal).then(settle((r) => r.ok && (s.page = r)), failed))
+  if (isUrl(query))
+    jobs.push(
+      run("fetch", { url: query }, abort.signal).then(
+        settle((r) => r.ok && (s.page = r)),
+        failed
+      )
+    )
   else if (s.mode === "all") {
     // 来源列表先到先显示，AI 回答随后补上；记录只写 AI 搜索那一次（含补充来源）
-    jobs.push(run("search", { query, mode: "sources", noRecord: true }, abort.signal).then(settle((r) => (s.sources = r)), failed))
-    jobs.push(run("search", { query }, abort.signal).then(settle((r) => ((s.answer = r), (s.record = r.record))), failed))
+    jobs.push(
+      run(
+        "search",
+        { query, mode: "sources", noRecord: true },
+        abort.signal
+      ).then(
+        settle((r) => (s.sources = r)),
+        failed
+      )
+    )
+    jobs.push(
+      run("search", { query }, abort.signal).then(
+        settle((r) => ((s.answer = r), (s.record = r.record))),
+        failed
+      )
+    )
   } else {
     const script = s.mode === "c7" ? "c7" : s.mode
-    jobs.push(run(script, { query }, abort.signal).then(settle((r) => ((s.sources = r), (s.record = r.record))), failed))
+    jobs.push(
+      run(script, { query }, abort.signal).then(
+        settle((r) => ((s.sources = r), (s.record = r.record))),
+        failed
+      )
+    )
   }
   await Promise.allSettled(jobs)
   if (s.abort === abort) finishSearch()
@@ -385,7 +606,8 @@ async function switchLibrary(libraryId) {
     const result = await run("c7", { libraryId, query: s.query }, abort.signal)
     if (s.abort === abort) s.sources = { ...result, libraries }
   } catch (error) {
-    if (s.abort === abort && error?.reason !== "cancelled") s.error = errorText(error)
+    if (s.abort === abort && error?.reason !== "cancelled")
+      s.error = errorText(error)
   }
   if (s.abort === abort) finishSearch()
 }
@@ -403,14 +625,16 @@ function finishSearch() {
 
 /** 当前结果里哪些网址已存到来源。 */
 async function checkSaved() {
-  const urls = [...mergedSources().map((item) => item.url), model.search.page?.url].filter(
-    (url) => url && !(url in model.urls)
-  )
+  const urls = [
+    ...mergedSources().map((item) => item.url),
+    model.search.page?.url,
+  ].filter((url) => url && !(url in model.urls))
   if (!urls.length) return
   for (const url of urls) model.urls[url] = {}
   try {
     const saved = await run("save", { action: "check", urls })
-    for (const [url, path] of Object.entries(saved)) model.urls[url].path = /** @type {string} */ (path)
+    for (const [url, path] of Object.entries(saved))
+      model.urls[url].path = /** @type {string} */ (path)
     render()
   } catch {
     // 不在项目里等：不显示「已存」即可
@@ -428,7 +652,10 @@ async function fetchFull(url) {
   state.error = undefined
   render()
   try {
-    const result = await run("fetch", { url, record: model.search.record ?? undefined })
+    const result = await run("fetch", {
+      url,
+      record: model.search.record ?? undefined,
+    })
     if (result.ok) state.content = result.content
     else state.error = result.error
   } catch (error) {
@@ -445,7 +672,12 @@ async function saveSource(url, title, query, content) {
   state.error = undefined
   render()
   try {
-    const result = await run("save", { url, title: title || undefined, query: query || undefined, content: content ?? state.content })
+    const result = await run("save", {
+      url,
+      title: title || undefined,
+      query: query || undefined,
+      content: content ?? state.content,
+    })
     if (result.ok) state.path = result.path
     else state.error = result.error
   } catch (error) {
@@ -466,8 +698,11 @@ async function attach(label, text) {
 
 // ───────────── 记录 ─────────────
 
-const modeLabel = (/** @type {string} */ mode) => /** @type {any} */ (t.modes)[{ full: "all", context7: "c7" }[mode] ?? mode] ?? mode
-const byLabel = (/** @type {any} */ by) => (!by || by.id === "user" ? t.user : by.expert ? `${by.id}·${by.expert}` : by.id)
+const modeLabel = (/** @type {string} */ mode) =>
+  /** @type {any} */ (t.modes)[{ full: "all", context7: "c7" }[mode] ?? mode] ??
+  mode
+const byLabel = (/** @type {any} */ by) =>
+  !by || by.id === "user" ? t.user : by.expert ? `${by.id}·${by.expert}` : by.id
 const shortTime = (/** @type {string} */ at) => {
   const date = new Date(at)
   const pad = (/** @type {number} */ n) => String(n).padStart(2, "0")
@@ -477,7 +712,9 @@ const shortTime = (/** @type {string} */ at) => {
 async function loadRecords() {
   const r = model.records
   try {
-    r.list = (await run("history", { action: "list", all: r.all, limit: 100 })).records
+    r.list = (
+      await run("history", { action: "list", all: r.all, limit: 100 })
+    ).records
     r.error = null
   } catch (error) {
     r.error = errorText(error)
@@ -502,12 +739,22 @@ function renderRecords() {
   if (r.open) return renderRecord(r.open)
   const out = [
     h("div", { class: "row" }, [
-      h("button", { "aria-pressed": String(!r.all), onclick: () => ((r.all = false), loadRecords()) }, [r.all ? t.thisProject : `• ${t.thisProject}`]),
-      h("button", { onclick: () => ((r.all = true), loadRecords()) }, [r.all ? `• ${t.allProjects}` : t.allProjects]),
+      h(
+        "button",
+        {
+          "aria-pressed": String(!r.all),
+          onclick: () => ((r.all = false), loadRecords()),
+        },
+        [r.all ? t.thisProject : `• ${t.thisProject}`]
+      ),
+      h("button", { onclick: () => ((r.all = true), loadRecords()) }, [
+        r.all ? `• ${t.allProjects}` : t.allProjects,
+      ]),
     ]),
   ]
   if (r.error) out.push(h("p", { class: "error" }, [r.error]))
-  if (r.list && !r.list.length) out.push(h("p", { class: "muted" }, [t.noRecords]))
+  if (r.list && !r.list.length)
+    out.push(h("p", { class: "muted" }, [t.noRecords]))
   out.push(
     h(
       "ul",
@@ -516,7 +763,14 @@ function renderRecords() {
         h("li", { class: "record", onclick: () => openRecord(item.id) }, [
           h("div", {}, [item.query]),
           h("div", { class: "muted small" }, [
-            [item.kind === "fetch" ? t.fetch : modeLabel(item.mode), byLabel(item.by), shortTime(item.at), r.all ? item.project?.name : null].filter(Boolean).join(" · "),
+            [
+              item.kind === "fetch" ? t.fetch : modeLabel(item.mode),
+              byLabel(item.by),
+              shortTime(item.at),
+              r.all ? item.project?.name : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
           ]),
         ])
       )
@@ -528,35 +782,85 @@ function renderRecords() {
 /** @param {any} record */
 function renderRecord(record) {
   const result = record.result ?? {}
-  const sources = [...(result.primary_sources ?? []), ...(result.extra_sources ?? []), ...(result.results ?? [])].filter(
-    (item, index, all) => item.url && /^https?:/.test(item.url) && all.findIndex((other) => other.url === item.url) === index
+  const sources = [
+    ...(result.primary_sources ?? []),
+    ...(result.extra_sources ?? []),
+    ...(result.results ?? []),
+  ].filter(
+    (item, index, all) =>
+      item.url &&
+      /^https?:/.test(item.url) &&
+      all.findIndex((other) => other.url === item.url) === index
   )
-  for (const page of record.pages) (model.urls[page.url] ??= {}).content ??= page.content
+  for (const page of record.pages)
+    (model.urls[page.url] ??= {}).content ??= page.content
   return [
     h("div", { class: "row" }, [
-      h("button", { onclick: () => ((model.records.open = null), loadRecords()) }, [t.back]),
+      h(
+        "button",
+        { onclick: () => ((model.records.open = null), loadRecords()) },
+        [t.back]
+      ),
       h("span", { class: "grow" }),
-      h("button", {
-        onclick: async () => {
-          await run("history", { action: "remove", id: record.id })
-          model.records.open = null
-          loadRecords()
+      h(
+        "button",
+        {
+          onclick: async () => {
+            await run("history", { action: "remove", id: record.id })
+            model.records.open = null
+            loadRecords()
+          },
         },
-      }, [t.remove]),
+        [t.remove]
+      ),
     ]),
     h("h4", {}, [record.query]),
-    h("div", { class: "muted small" }, [[record.kind === "fetch" ? t.fetch : modeLabel(record.mode), byLabel(record.by), shortTime(record.at), record.project?.name].filter(Boolean).join(" · ")]),
+    h("div", { class: "muted small" }, [
+      [
+        record.kind === "fetch" ? t.fetch : modeLabel(record.mode),
+        byLabel(record.by),
+        shortTime(record.at),
+        record.project?.name,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    ]),
     result.ok === false && h("p", { class: "error" }, [result.error]),
     result.content &&
       h("section", {}, [
-        h("div", { class: "row" }, [h("strong", { class: "grow" }, [t.answer]), h("button", { class: "small", onclick: () => attach(record.query, result.content) }, [t.toAgent])]),
+        h("div", { class: "row" }, [
+          h("strong", { class: "grow" }, [t.answer]),
+          h(
+            "button",
+            {
+              class: "small",
+              onclick: () => attach(record.query, result.content),
+            },
+            [t.toAgent]
+          ),
+        ]),
         h("div", { class: "answer" }, [result.content]),
       ]),
-    sources.length && h("section", {}, [h("strong", {}, [t.sources]), renderItems(sources, record.query)]),
+    sources.length &&
+      h("section", {}, [
+        h("strong", {}, [t.sources]),
+        renderItems(sources, record.query),
+      ]),
     record.pages.length &&
       h("section", {}, [
         h("strong", {}, [t.pages]),
-        renderItems(record.pages.filter((/** @type {any} */ page) => !sources.some((item) => item.url === page.url)).map((/** @type {any} */ page) => ({ url: page.url, title: page.url })), record.query),
+        renderItems(
+          record.pages
+            .filter(
+              (/** @type {any} */ page) =>
+                !sources.some((item) => item.url === page.url)
+            )
+            .map((/** @type {any} */ page) => ({
+              url: page.url,
+              title: page.url,
+            })),
+          record.query
+        ),
       ]),
   ]
 }
@@ -596,8 +900,16 @@ function renderConfig() {
   const c = model.config
   const out = [
     h("div", { class: "row" }, [
-      h("button", { disabled: c.busy, onclick: () => configAction({ action: "import" }) }, [t.import]),
-      h("button", { disabled: c.busy, onclick: () => configAction({ action: "test" }) }, [t.test]),
+      h(
+        "button",
+        { disabled: c.busy, onclick: () => configAction({ action: "import" }) },
+        [t.import]
+      ),
+      h(
+        "button",
+        { disabled: c.busy, onclick: () => configAction({ action: "test" }) },
+        [t.test]
+      ),
     ]),
   ]
   if (c.note) out.push(h("p", { class: "muted" }, [c.note]))
@@ -608,7 +920,18 @@ function renderConfig() {
         { class: "items" },
         Object.entries(c.tests).map(([name, test]) =>
           h("li", {}, [
-            h("span", { class: test.status === "ok" ? "status-ok" : test.status === "not_configured" ? "muted" : "status-bad" }, [`${name}: ${test.status}`]),
+            h(
+              "span",
+              {
+                class:
+                  test.status === "ok"
+                    ? "status-ok"
+                    : test.status === "not_configured"
+                      ? "muted"
+                      : "status-bad",
+              },
+              [`${name}: ${test.status}`]
+            ),
             h("div", { class: "muted small" }, [test.message]),
           ])
         )
@@ -616,7 +939,14 @@ function renderConfig() {
     )
   if (!c.values) return out
   for (const [group, keys] of Object.entries(GROUPS))
-    out.push(h("fieldset", {}, [h("legend", {}, [t.groups[/** @type {keyof typeof t.groups} */ (group)]]), ...keys.map((key) => renderField(key, c.values[key]))]))
+    out.push(
+      h("fieldset", {}, [
+        h("legend", {}, [
+          t.groups[/** @type {keyof typeof t.groups} */ (group)],
+        ]),
+        ...keys.map((key) => renderField(key, c.values[key])),
+      ])
+    )
   return out
 }
 
@@ -626,7 +956,11 @@ function renderField(key, entry) {
     h("input", {
       type: entry.secret ? "password" : "text",
       autocomplete: "off",
-      placeholder: entry.secret ? (entry.value ? `${entry.value}（${t.keyHint}）` : t.keyHint) : (entry.default ?? ""),
+      placeholder: entry.secret
+        ? entry.value
+          ? `${entry.value}（${t.keyHint}）`
+          : t.keyHint
+        : (entry.default ?? ""),
       value: entry.secret ? "" : (entry.value ?? ""),
     })
   )
@@ -639,8 +973,21 @@ function renderField(key, entry) {
     h("span", { class: "small muted" }, [key]),
     h("div", { class: "row" }, [
       input,
-      h("button", { class: "small", disabled: model.config.busy, onclick: save }, [t.setValue]),
-      entry.saved && h("button", { class: "small", disabled: model.config.busy, onclick: () => configAction({ action: "unset", key }) }, [t.clear]),
+      h(
+        "button",
+        { class: "small", disabled: model.config.busy, onclick: save },
+        [t.setValue]
+      ),
+      entry.saved &&
+        h(
+          "button",
+          {
+            class: "small",
+            disabled: model.config.busy,
+            onclick: () => configAction({ action: "unset", key }),
+          },
+          [t.clear]
+        ),
     ]),
   ])
 }

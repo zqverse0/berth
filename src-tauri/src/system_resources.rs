@@ -185,7 +185,7 @@ fn group(procs: &[Proc], self_pid: u32) -> Vec<Group> {
     groups
         .into_iter()
         .map(|(kind, mut processes)| {
-            processes.sort_by(|a, b| b.memory.cmp(&a.memory));
+            processes.sort_by_key(|b| std::cmp::Reverse(b.memory));
             Group {
                 kind,
                 cpu_percent: processes.iter().map(|proc| proc.cpu_percent).sum(),

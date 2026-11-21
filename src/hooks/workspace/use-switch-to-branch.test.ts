@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   resolveWorktreeFolder: vi.fn(),
   gitCheckout: vi.fn(),
   requestAgentLaunch: vi.fn(),
-  openWorktreeFolder: vi.fn(),
 }))
 
 vi.mock("next-intl", () => ({
@@ -48,19 +47,28 @@ vi.mock("@/stores/agent-launch-store", () => ({
 
 import { useSwitchToBranch } from "./use-switch-to-branch"
 
-function makeFolder(
-  overrides: Partial<FolderDetail> & { id: number; path: string }
-): FolderDetail {
+/** `main`：所属项目的主成员（默认自己）。 */
+function makeFolder({
+  main,
+  ...overrides
+}: Partial<FolderDetail> & {
+  id: number
+  path: string
+  main?: number
+}): FolderDetail {
   return {
     name: overrides.name ?? `folder-${overrides.id}`,
     git_branch: overrides.git_branch ?? "main",
     default_agent_type: null,
     last_opened_at: "2026-01-01T00:00:00.000Z",
-    sort_order: overrides.id,
-    color: "#000000",
-    parent_id: overrides.parent_id ?? null,
+    project_id: main ?? overrides.id,
+    project: {
+      name: "repo",
+      main_folder_id: main ?? overrides.id,
+      pinned_at: null,
+      sort_order: overrides.id,
+    },
     kind: "regular",
-    alias: null,
     ...overrides,
   }
 }
@@ -71,7 +79,6 @@ beforeEach(() => {
   mocks.resolveWorktreeFolder.mockReset()
   mocks.gitCheckout.mockReset()
   mocks.requestAgentLaunch.mockReset()
-  mocks.openWorktreeFolder.mockReset()
 })
 
 afterEach(() => {
@@ -86,7 +93,7 @@ describe("useSwitchToBranch", () => {
       id: 2,
       path: "/tmp/repo-feature",
       git_branch: "feature",
-      parent_id: 1,
+      main: 1,
     })
     useAppWorkspaceStore.setState({
       folders: [root, worktree],
@@ -117,7 +124,7 @@ describe("useSwitchToBranch", () => {
       id: 2,
       path: "/tmp/repo-feature",
       git_branch: "feature",
-      parent_id: 1,
+      main: 1,
     })
     useAppWorkspaceStore.setState({
       folders: [root, worktree],

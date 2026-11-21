@@ -19,6 +19,7 @@ pub(crate) fn launch(script: &Path, args: &[String]) -> ! {
     let extras = berth_plugin_api::agent::LaunchExtras {
         brief,
         project: Box::new(current_project),
+        project_view: crate::member::current_view_json,
     };
     std::process::exit(berth_plugin_api::agent::launch(script, &args, extras))
 }

@@ -220,6 +220,14 @@ adapter 直接调用共享 service，不启动 `berth` 子进程。两端都通�
 使用同一 termd 会话。CLI 需要文件、项目或窗口等桌面能力时，通过
 `berth-control-proto` 请求可选 GUI provider；headless 发现与检查不拉起 GUI。
 
+## 项目成员
+
+Agent 的启动目录始终是项目里的一个真实目录：启动栏 / 「终端」默认是项目主成员（放 `.berth/` 的 checkout），
+成员行可指定某个检出或参考目录。项目的成员每次都附带——`launch.js` 拿到 `ctx.project`
+（`{ name, home, checkouts[], references[] }`，同 `berth project . member ls --json`），系统提示词只加一行指路
+`berth project . member ls`。成员怎么用（`--add-dir`、参考只读、有 Agent 在跑的检出不写）由插件决定，
+Berth 不按 Agent 分支，也不做沙箱。
+
 ## 安全与验证
 
 - binding 生成 argv/env 数组，不经过 shell；program 不能来自不可信 action input。

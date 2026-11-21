@@ -14,6 +14,9 @@ use super::validation::{clamp_grid, input_text};
 use crate::terminal::error::TerminalErrorCode;
 use crate::terminal::protocol::{AttachPace, SubscriberControl, TerminalSnapshot};
 
+/// 已附着终端的输入串行锁、取消令牌与节奏。
+type AttachInputContext = (Arc<Mutex<()>>, Arc<CancellationToken>, AttachPace);
+
 impl TerminalSessionManager {
     /// Delivers background text and its submit key as one completed daemon action.
     pub fn send_text_then_key(
@@ -59,8 +62,7 @@ impl TerminalSessionManager {
         &self,
         terminal_id: &str,
         client_id: &str,
-    ) -> Result<(Arc<Mutex<()>>, Arc<CancellationToken>, AttachPace), TerminalOperationError>
-    {
+    ) -> Result<AttachInputContext, TerminalOperationError> {
         let sessions = self.inner.sessions.lock().expect("terminal index lock");
         let record = sessions
             .get(terminal_id)

@@ -62,8 +62,6 @@ pub async fn init_database(
     berth_project_core::service::app_metadata_service::update_app_version(&conn, app_version)
         .await?;
 
-    berth_project_core::service::folder_service::ensure_distinct_folder_aliases(&conn).await?;
-
     Ok(AppDatabase { conn })
 }
 

@@ -163,7 +163,7 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
-    // 首个结果只作基线；之后指纹变化才对账（worktree 以 git 为准）。
+    // 首个结果只作基线；之后指纹变化才现读项目成员（worktree 以 git 为准）。
     let lastFingerprint: string | null | undefined
 
     const FOCUSED_REPO_DELAY = 10_000
@@ -185,7 +185,7 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
         store.applyGitHead(folderId, head)
         const fingerprint = head.worktrees_fingerprint ?? null
         if (lastFingerprint !== undefined && fingerprint !== lastFingerprint) {
-          void store.refreshWorktreeFamily(folderId)
+          void store.refreshProjectMembers(folderId)
         }
         lastFingerprint = fingerprint
         // Poll a focused repo briskly to catch branch switches; a blurred

@@ -21,22 +21,13 @@ import {
   CloudOff,
   GitBranch,
   GitBranchPlus,
-  GitCompare,
   Hash,
   RefreshCw,
   RotateCcw,
-  Upload,
   User,
   X,
 } from "lucide-react"
-import {
-  Commit,
-  CommitContent,
-  CommitCopyButton,
-  CommitHeader,
-} from "@/components/ai-elements/commit"
 import { cn } from "@/lib/utils"
-import { GitFileTree } from "@/components/layout/git/git-file-tree"
 import { LineCounts } from "@/components/layout/git/line-counts"
 import { parseDate } from "@/components/layout/git/git-log-timeline"
 import { Button } from "@/components/ui/button"
@@ -82,21 +73,13 @@ import {
 } from "@/lib/git/git-folder-cache"
 import {
   getGitBranch,
-  gitCommitBranches,
-  gitCommitFiles,
   gitCurrentUser,
   gitListAllBranches,
   gitNewBranch,
   gitReset,
   gitSearchAuthors,
-  openPushWindow,
 } from "@/lib/api"
-import type {
-  GitBranchList,
-  GitLogEntry,
-  GitLogFileChange,
-  GitResetMode,
-} from "@/lib/types"
+import type { GitBranchList, GitLogEntry, GitResetMode } from "@/lib/types"
 import { toast } from "@/lib/notify"
 import { isNotAGitRepoError, toErrorMessage } from "@/lib/app-error"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -238,19 +221,6 @@ function formatRelativeTime(
   if (diffHour > 0) return t("time.hoursAgo", { count: diffHour })
   if (diffMin > 0) return t("time.minsAgo", { count: diffMin })
   return t("time.justNow", { count: 0 })
-}
-
-function filterRecordByCommitHashes<T>(
-  record: Record<string, T>,
-  hashes: Set<string>
-): Record<string, T> {
-  const next: Record<string, T> = {}
-  for (const [key, value] of Object.entries(record)) {
-    if (hashes.has(key)) {
-      next[key] = value
-    }
-  }
-  return next
 }
 
 function getPushStatusMeta(
@@ -932,11 +902,7 @@ function LogHeader({
   )
 }
 
-export function GitLogTab({
-  onOpenPush,
-}: {
-  onOpenPush?: () => void
-} = {}) {
+export function GitLogTab() {
   const t = useTranslations("Folder.gitLogTab")
   const tCommon = useTranslations("Folder.common")
   const isMobile = useIsMobile()
@@ -954,7 +920,7 @@ export function GitLogTab({
   // folder (openers default to it when folderId is omitted — see
   // resolveTargetFolder). Clears the instant the deferred render catches up.
   const folderStale = activeFolder?.id !== folder?.id
-  const { openCommitDiff, openFilePreview } = useWorkspaceRuntimeActions()
+  const { openCommitDiff } = useWorkspaceRuntimeActions()
   const workspaceState = useWorkspaceStateStore(folder?.path ?? null)
   const isGitRepo = workspaceState.isGitRepo
   const [entries, setEntries] = useState<GitLogEntry[]>([])
@@ -962,15 +928,6 @@ export function GitLogTab({
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notAGitRepo, setNotAGitRepo] = useState(false)
-  const [openByCommit, setOpenByCommit] = useState<Record<string, boolean>>({})
-  const [branchesByCommit, setBranchesByCommit] = useState<
-    Record<string, string[]>
-  >({})
-  const [branchesLoading, setBranchesLoading] = useState<
-    Record<string, boolean>
-  >({})
-  const [branchesError, setBranchesError] = useState<Record<string, string>>({})
-
   // Branch filter state
   const [branchList, setBranchList] = useState<GitBranchList>({
     local: [],
@@ -1016,14 +973,6 @@ export function GitLogTab({
   const selectedAuthorRef = useRef(selectedAuthor)
   selectedAuthorRef.current = selectedAuthor
 
-  // Lazy per-commit file changes: the log list is fetched without file stats
-  // (withFiles=false) for speed; a commit's files load on demand when its row is
-  // expanded (mirrors branchesByCommit above).
-  const [filesByCommit, setFilesByCommit] = useState<
-    Record<string, GitLogFileChange[]>
-  >({})
-  const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({})
-  const [filesError, setFilesError] = useState<Record<string, string>>({})
   const [newBranchTarget, setNewBranchTarget] =
     useState<CommitBranchTarget | null>(null)
   const [newBranchName, setNewBranchName] = useState("")
@@ -1070,13 +1019,6 @@ export function GitLogTab({
   // refreshCurrentUser).
   const folderPathRef = useRef(folder?.path ?? null)
   folderPathRef.current = folder?.path ?? null
-  // Bumped ONLY when the per-commit file maps are cleared (a non-inline full
-  // reload / folder switch). fetchCommitFiles captures it so a request from a
-  // superseded view discards its loading/error/data writes — preventing a stale
-  // request from masking a newer one after the maps were cleared and re-fetched.
-  // Deliberately NOT bumped on an inline refresh (which keeps the maps), so a
-  // pending request's finally still clears its loading flag (no latch).
-  const filesGenRef = useRef(0)
 
   // Close the create-branch / reset dialogs the instant the ACTIVE folder
   // changes (keyed on the live id, not the deferred `folder`) so a dialog opened
@@ -1098,12 +1040,6 @@ export function GitLogTab({
     }),
     [t]
   )
-  const folderName = useMemo(() => {
-    const path = folder?.path ?? ""
-    const parts = path.split(/[\\/]/).filter(Boolean)
-    return (parts[parts.length - 1] ?? path) || t("workspace")
-  }, [folder?.path, t])
-
   const handleBranchChange = useCallback(
     (branch: string | null) => {
       setSelectedBranch(branch)
@@ -1223,74 +1159,6 @@ export function GitLogTab({
     setRecentAuthors(folder?.path ? loadRecentAuthors(folder.path) : [])
   }, [folder?.path])
 
-  const fetchCommitBranches = useCallback(
-    async (fullHash: string) => {
-      if (!folder?.path) return
-      if (branchesByCommit[fullHash] || branchesLoading[fullHash]) return
-
-      setBranchesLoading((prev) => ({ ...prev, [fullHash]: true }))
-      setBranchesError((prev) => {
-        if (!prev[fullHash]) return prev
-        const next = { ...prev }
-        delete next[fullHash]
-        return next
-      })
-
-      try {
-        const branches = await gitCommitBranches(folder.path, fullHash)
-        setBranchesByCommit((prev) => ({ ...prev, [fullHash]: branches }))
-      } catch (e) {
-        setBranchesError((prev) => ({
-          ...prev,
-          [fullHash]: toErrorMessage(e),
-        }))
-      } finally {
-        setBranchesLoading((prev) => ({ ...prev, [fullHash]: false }))
-      }
-    },
-    [branchesByCommit, branchesLoading, folder?.path]
-  )
-
-  // Lazy-load a commit's file changes on expand (git_log runs with
-  // withFiles=false so the list stays fast). Mirrors fetchCommitBranches, guarded
-  // by filesGenRef: every write is skipped once a full reload / folder switch has
-  // cleared the maps (bumping the gen), so a superseded request can neither latch
-  // "loading" nor mask a newer request's result with a stale error. An inline
-  // refresh does NOT bump the gen, so a pending request still settles normally.
-  const fetchCommitFiles = useCallback(
-    async (fullHash: string) => {
-      if (!folder?.path) return
-      if (filesByCommit[fullHash] || filesLoading[fullHash]) return
-
-      const clearError = (prev: Record<string, string>) => {
-        if (!prev[fullHash]) return prev
-        const next = { ...prev }
-        delete next[fullHash]
-        return next
-      }
-
-      const gen = filesGenRef.current
-      setFilesLoading((prev) => ({ ...prev, [fullHash]: true }))
-      setFilesError(clearError)
-
-      try {
-        const files = await gitCommitFiles(folder.path, fullHash)
-        if (gen !== filesGenRef.current) return
-        setFilesByCommit((prev) => ({ ...prev, [fullHash]: files }))
-        // Clear any prior error so a stale error can't mask loaded files.
-        setFilesError(clearError)
-      } catch (e) {
-        if (gen !== filesGenRef.current) return
-        setFilesError((prev) => ({ ...prev, [fullHash]: toErrorMessage(e) }))
-      } finally {
-        if (gen === filesGenRef.current) {
-          setFilesLoading((prev) => ({ ...prev, [fullHash]: false }))
-        }
-      }
-    },
-    [filesByCommit, filesLoading, folder?.path]
-  )
-
   const fetchLog = useCallback(
     async (options?: { inline?: boolean; branch?: string | null }) => {
       const inline = options?.inline ?? false
@@ -1300,16 +1168,6 @@ export function GitLogTab({
         setRefreshing(true)
       } else {
         setLoading(true)
-        setOpenByCommit({})
-        setBranchesByCommit({})
-        setBranchesLoading({})
-        setBranchesError({})
-        setFilesByCommit({})
-        setFilesLoading({})
-        setFilesError({})
-        // Invalidate any in-flight fetchCommitFiles bound to the now-cleared
-        // maps so a superseded result can't overwrite the fresh view.
-        filesGenRef.current++
       }
       setError(null)
       setNotAGitRepo(false)
@@ -1323,7 +1181,7 @@ export function GitLogTab({
       try {
         // selectedBranch === null → the default "all branches" view. Always
         // skip file stats (withFiles=false) for speed; a commit's files load
-        // lazily on expand.
+        // in the center overview it opens.
         const result = await loadCachedGitLog(folder.path, {
           limit: PAGE_SIZE,
           branch: branch ?? undefined,
@@ -1338,32 +1196,6 @@ export function GitLogTab({
         const more = result.entries.length >= PAGE_SIZE
         setHasMore(more)
         hasMoreRef.current = more
-        if (inline) {
-          const commitHashes = new Set(
-            result.entries.map((entry) => entry.full_hash)
-          )
-          setOpenByCommit((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setBranchesByCommit((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setBranchesLoading((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setBranchesError((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setFilesByCommit((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setFilesLoading((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-          setFilesError((prev) =>
-            filterRecordByCommitHashes(prev, commitHashes)
-          )
-        }
       } catch (e) {
         if (gen !== logGenRef.current) return
         if (isNotAGitRepoError(e)) {
@@ -1780,268 +1612,101 @@ export function GitLogTab({
                   onScroll={handleVirtuaScroll}
                 >
                   {(entry, index) => {
-                    const commitKey = entry.full_hash
                     const commitDate = parseDate(entry.date)
                     const pushStatus = getPushStatusMeta(
                       entry.pushed,
                       pushStatusLabels
                     )
                     const PushStatusIcon = pushStatus.icon
-                    const commitBranches = branchesByCommit[commitKey]
-                    const isBranchLoading = !!branchesLoading[commitKey]
-                    const branchError = branchesError[commitKey]
-                    // Lazily-loaded file changes for this commit (undefined until
-                    // its row is first expanded).
-                    const commitFiles = filesByCommit[commitKey]
-                    const isFilesLoading = !!filesLoading[commitKey]
-                    const filesLoadError = filesError[commitKey]
-                    const isOpen = !!openByCommit[commitKey]
 
                     return (
                       <div key={entry.full_hash}>
                         <ContextMenu>
                           <ContextMenuTrigger asChild>
-                            {/* px-2 floats the card off both rims; the first row
+                            {/* px-2 floats the row off both rims; the first row
                                 adds pt-2 so its gap below the header matches the
-                                8px side gaps. The whole commit is one card (push
-                                glyph lives inside the header), so right-clicking
-                                anywhere on the row — padding included — opens its
-                                menu. */}
+                                8px side gaps. 侧栏只列提交，点击在中间阅读区打开
+                                提交总览（信息 + 改动文件）；右键整行（含 padding）
+                                出菜单。透明边框保持推送图标落在 13px 对齐线上。 */}
                             <div
                               className={cn(
                                 "px-2 py-0.5",
                                 index === 0 && "pt-2"
                               )}
                             >
-                              <Commit
-                                className={cn(
-                                  "rounded-lg border transition-colors",
-                                  isOpen
-                                    ? "border-border/60 bg-muted/20"
-                                    : "border-transparent bg-transparent"
-                                )}
-                                onOpenChange={(open) => {
-                                  setOpenByCommit((prev) => ({
-                                    ...prev,
-                                    [commitKey]: open,
-                                  }))
-                                  if (open) {
-                                    void fetchCommitBranches(commitKey)
-                                    void fetchCommitFiles(commitKey)
-                                  }
-                                }}
-                                open={isOpen}
+                              <button
+                                type="button"
+                                className="group flex w-full items-start gap-2 rounded-lg border border-transparent px-1 py-2 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() =>
+                                  void openCommitDiff(
+                                    entry.full_hash,
+                                    undefined,
+                                    entry.message
+                                  )
+                                }
                               >
-                                {/* Push glyph and chevron both land on the 13px
-                                    guide — 8px row + 1px card border + 4px — now
-                                    that the header's branch AND refresh glyphs
-                                    both sit 13px off their own edge. px-1 is
-                                    symmetric (RTL-safe): left = right = 13px. */}
-                                <CommitHeader className="items-start gap-2 py-2 px-1 hover:opacity-100">
-                                  {/* Push-status glyph leads the row — pushed /
+                                {/* Push-status glyph leads the row — pushed /
                                       not-pushed / unknown, tinted by
                                       getPushStatusMeta. mt-0.5 centers it on the
                                       first message line. */}
-                                  <span
-                                    className="mt-0.5 flex shrink-0"
-                                    title={pushStatus.label}
-                                    aria-label={pushStatus.label}
-                                    role="img"
-                                  >
-                                    <PushStatusIcon
-                                      className={cn(
-                                        "size-4",
-                                        pushStatus.className
-                                      )}
-                                      aria-hidden
-                                    />
-                                  </span>
-                                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                    {/* Dim by default, darken on hover/open
+                                <span
+                                  className="mt-0.5 flex shrink-0"
+                                  title={pushStatus.label}
+                                  aria-label={pushStatus.label}
+                                  role="img"
+                                >
+                                  <PushStatusIcon
+                                    className={cn(
+                                      "size-4",
+                                      pushStatus.className
+                                    )}
+                                    aria-hidden
+                                  />
+                                </span>
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                  {/* Dim by default, darken on hover/open
                                         (group = CommitHeader) instead of a hover
                                         background — widens the readable area.
                                         Single line: the subject. */}
-                                    <p className="truncate text-[13px] font-medium leading-snug text-foreground/70 transition-colors group-hover:text-foreground group-data-[state=open]:text-foreground">
-                                      {entry.message}
-                                    </p>
-                                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                                      <span className="min-w-0 truncate">
-                                        {entry.author}
-                                      </span>
-                                      <span className="shrink-0 opacity-50">
-                                        ·
-                                      </span>
-                                      <time
-                                        className="shrink-0"
-                                        dateTime={commitDate?.toISOString()}
-                                        title={
-                                          commitDate
-                                            ? commitDate.toLocaleString()
-                                            : entry.date
-                                        }
-                                      >
-                                        {formatRelativeTime(entry.date, t)}
-                                      </time>
-                                      <LineCounts
-                                        additions={entry.additions}
-                                        deletions={entry.deletions}
-                                      />
-                                      {/* Short hash pinned to this line's end:
+                                  <p className="truncate text-[13px] font-medium leading-snug text-foreground/70 transition-colors group-hover:text-foreground group-data-[state=open]:text-foreground">
+                                    {entry.message}
+                                  </p>
+                                  <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <span className="min-w-0 truncate">
+                                      {entry.author}
+                                    </span>
+                                    <span className="shrink-0 opacity-50">
+                                      ·
+                                    </span>
+                                    <time
+                                      className="shrink-0"
+                                      dateTime={commitDate?.toISOString()}
+                                      title={
+                                        commitDate
+                                          ? commitDate.toLocaleString()
+                                          : entry.date
+                                      }
+                                    >
+                                      {formatRelativeTime(entry.date, t)}
+                                    </time>
+                                    <LineCounts
+                                      additions={entry.additions}
+                                      deletions={entry.deletions}
+                                    />
+                                    {/* Short hash pinned to this line's end:
                                           a # glyph + the abbrev, no chip
                                           background. ms-auto (not ml-auto) so it
                                           stays on the trailing edge under RTL. */}
-                                      <span
-                                        className="ms-auto flex shrink-0 items-center gap-0.5 font-mono text-[10px] text-primary/80"
-                                        title={entry.full_hash}
-                                      >
-                                        <Hash
-                                          className="size-2.5"
-                                          aria-hidden
-                                        />
-                                        <code>{entry.hash}</code>
-                                      </span>
-                                    </div>
+                                    <span
+                                      className="ms-auto flex shrink-0 items-center gap-0.5 font-mono text-[10px] text-primary/80"
+                                      title={entry.full_hash}
+                                    >
+                                      <Hash className="size-2.5" aria-hidden />
+                                      <code>{entry.hash}</code>
+                                    </span>
                                   </div>
-                                  <ChevronRight
-                                    className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:text-muted-foreground group-data-[state=open]:rotate-90"
-                                    aria-hidden
-                                  />
-                                </CommitHeader>
-                                <CommitContent className="p-2.5">
-                                  <div className="space-y-3">
-                                    <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
-                                      <span className="text-muted-foreground">
-                                        {t("hash")}
-                                      </span>
-                                      <span className="group/hash flex items-center gap-1 min-w-0">
-                                        <code
-                                          className="block min-w-0 flex-1 truncate font-mono"
-                                          title={entry.full_hash}
-                                        >
-                                          {entry.full_hash}
-                                        </code>
-                                        <CommitCopyButton
-                                          aria-label={t(
-                                            "copyFullCommitHashAria",
-                                            {
-                                              hash: entry.full_hash,
-                                            }
-                                          )}
-                                          className="size-5 shrink-0 opacity-0 [@media(hover:none)]:opacity-100 transition-opacity group-hover/hash:opacity-100 group-focus-within/hash:opacity-100"
-                                          hash={entry.full_hash}
-                                          title={t("copyHash")}
-                                        />
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        {t("author")}
-                                      </span>
-                                      <span className="min-w-0 flex items-center gap-1">
-                                        <span className="min-w-0 truncate">
-                                          {entry.author}
-                                        </span>
-                                        <span className="shrink-0 text-muted-foreground">
-                                          ·
-                                        </span>
-                                        <time
-                                          className="shrink-0"
-                                          dateTime={commitDate?.toISOString()}
-                                        >
-                                          {commitDate
-                                            ? commitDate.toLocaleString()
-                                            : entry.date}
-                                        </time>
-                                      </span>
-                                    </div>
-                                    <div className="group/msg relative rounded-lg border border-border/60 bg-muted/20 p-2.5">
-                                      <p className="text-xs whitespace-pre-wrap break-words pr-6">
-                                        {entry.message}
-                                      </p>
-                                      <CommitCopyButton
-                                        className="absolute top-1.5 right-1.5 size-5 opacity-0 [@media(hover:none)]:opacity-100 transition-opacity group-hover/msg:opacity-100 group-focus-within/msg:opacity-100"
-                                        hash={entry.message}
-                                        title={t("copyMessage")}
-                                      />
-                                    </div>
-                                    {/* File changes load lazily on expand (the
-                                        list query runs with withFiles=false).
-                                        CommitFilesTree renders its own "Files"
-                                        header, so the loading/error/empty states
-                                        supply their own. */}
-                                    {isFilesLoading && !commitFiles ? (
-                                      <div className="space-y-1">
-                                        <p className="text-[11px] text-muted-foreground">
-                                          {t("filesTitle")}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                          {t("loadingFiles")}
-                                        </p>
-                                      </div>
-                                    ) : filesLoadError ? (
-                                      <div className="space-y-1">
-                                        <p className="text-[11px] text-muted-foreground">
-                                          {t("filesTitle")}
-                                        </p>
-                                        <p className="text-xs text-destructive">
-                                          {filesLoadError}
-                                        </p>
-                                      </div>
-                                    ) : commitFiles &&
-                                      commitFiles.length > 0 ? (
-                                      <GitFileTree
-                                        files={commitFiles}
-                                        folderName={folderName}
-                                        onOpenDiff={(path) =>
-                                          void openCommitDiff(
-                                            entry.full_hash,
-                                            path
-                                          )
-                                        }
-                                        onOpenFilePreview={openFilePreview}
-                                      />
-                                    ) : (
-                                      <div className="space-y-1">
-                                        <p className="text-[11px] text-muted-foreground">
-                                          {t("filesTitle")}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                          {t("noFileChangeDetails")}
-                                        </p>
-                                      </div>
-                                    )}
-                                    <div className="pt-3 space-y-1">
-                                      <p className="text-[11px] text-muted-foreground">
-                                        {t("branchesTitle")}
-                                      </p>
-                                      {isBranchLoading ? (
-                                        <p className="text-xs text-muted-foreground">
-                                          {t("loadingBranches")}
-                                        </p>
-                                      ) : branchError ? (
-                                        <p className="text-xs text-destructive">
-                                          {branchError}
-                                        </p>
-                                      ) : commitBranches &&
-                                        commitBranches.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1">
-                                          {commitBranches.map((branch) => (
-                                            <span
-                                              key={`${commitKey}-${branch}`}
-                                              className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                                              title={branch}
-                                            >
-                                              {branch}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="text-xs text-muted-foreground">
-                                          {t("noContainingBranches")}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </CommitContent>
-                              </Commit>
+                                </div>
+                              </button>
                             </div>
                           </ContextMenuTrigger>
                           <ContextMenuContent>
@@ -2052,18 +1717,6 @@ export function GitLogTab({
                             >
                               <GitBranchPlus className="h-3.5 w-3.5" />
                               {t("newBranch")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              onSelect={() => {
-                                void openCommitDiff(
-                                  entry.full_hash,
-                                  undefined,
-                                  entry.message
-                                )
-                              }}
-                            >
-                              <GitCompare className="h-3.5 w-3.5" />
-                              {tCommon("viewDiff")}
                             </ContextMenuItem>
                             <ContextMenuItem
                               disabled={!isResetAllowed}
@@ -2086,27 +1739,6 @@ export function GitLogTab({
                             >
                               <RefreshCw className="size-3.5" />
                               {tCommon("refresh")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              onSelect={() => {
-                                if (onOpenPush) {
-                                  onOpenPush()
-                                  return
-                                }
-                                if (!folder) return
-                                openPushWindow(folder.id).catch((err) => {
-                                  const msg = toErrorMessage(err)
-                                  toast.error(
-                                    t("toasts.openPushWindowFailed"),
-                                    {
-                                      description: msg,
-                                    }
-                                  )
-                                })
-                              }}
-                            >
-                              <Upload className="size-3.5" />
-                              {tCommon("push")}
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -2133,24 +1765,6 @@ export function GitLogTab({
             >
               <RefreshCw className="size-3.5" />
               {tCommon("refresh")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                if (onOpenPush) {
-                  onOpenPush()
-                  return
-                }
-                if (!folder) return
-                openPushWindow(folder.id).catch((err) => {
-                  const msg = toErrorMessage(err)
-                  toast.error(t("toasts.openPushWindowFailed"), {
-                    description: msg,
-                  })
-                })
-              }}
-            >
-              <Upload className="size-3.5" />
-              {tCommon("push")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

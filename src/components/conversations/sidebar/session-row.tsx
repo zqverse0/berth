@@ -32,7 +32,7 @@ export const SessionRow = memo(function SessionRow({
   trailing?: ReactNode
   onSelect: () => void
 }) {
-  const t = useTranslations("WorkspaceGroups")
+  const t = useTranslations("SidebarSessions")
   return (
     <button
       type="button"

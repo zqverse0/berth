@@ -33,21 +33,10 @@ pub struct Model {
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
-    pub is_open: bool,
-    pub sort_order: i32,
-    pub color: String,
-    /// Root folder this one was created under (for worktree folders). NULL for
-    /// top-level folders. Flattened: a worktree of a worktree still points at the
-    /// original root, never an intermediate worktree.
-    pub parent_id: Option<i32>,
+    /// 所属项目（[`super::project`]）。一个目录只属于一个项目；chat folder 与墓碑为 NULL。
+    pub project_id: Option<i32>,
     /// See [`FolderKind`]. Replaces the former `is_chat` boolean.
     pub kind: FolderKind,
-    /// User-supplied display alias. NULL means "no alias" — the UI falls back to
-    /// the path-derived `name`. When set, surfaces render `alias [name]`.
-    pub alias: Option<String>,
-    /// When the user pinned this folder; `None` means not pinned. Drives the
-    /// project/folder list's pinned-first ordering (most-recently pinned first).
-    pub pinned_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

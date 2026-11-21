@@ -14,13 +14,24 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/stores/app-workspace-store", () => ({
   useAppWorkspaceStore: {
     getState: () => ({
-      allFolders: [{ id: 1, name: "berth-dev", alias: "Berth" }],
+      allFolders: [
+        {
+          id: 1,
+          name: "berth-dev",
+          project: {
+            name: "Berth",
+            main_folder_id: 1,
+            pinned_at: null,
+            sort_order: 0,
+          },
+        },
+      ],
     }),
   },
 }))
 
 describe("fetchTerminalHandle", () => {
-  it("uses the project dir name (not alias) and pane number like `terminal ls`", async () => {
+  it("uses the project dir name (not the project name) and pane number like `terminal ls`", async () => {
     expect(await fetchTerminalHandle("a")).toBe("berth-dev:8")
   })
   it("falls back to the bare number, then the raw target ref", async () => {

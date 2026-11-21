@@ -10,7 +10,9 @@
 use std::path::PathBuf;
 
 use berth_control_proto::{ProjectEntry, ProjectScope};
-use berth_project_core::instance::{self, BuildInstance, DataInstance, InstanceAccess, InstanceState};
+use berth_project_core::instance::{
+    self, BuildInstance, DataInstance, InstanceAccess, InstanceState,
+};
 use berth_project_core::open::open_or_upgrade;
 use berth_project_core::service::catalog::{list_catalog, CatalogEntry, CatalogScope};
 use berth_project_core::service::folder_service;
@@ -92,6 +94,61 @@ pub(crate) async fn open_folders(
         .map_err(|error| InstanceState::Incompatible {
             detail: error.to_string(),
         })
+}
+
+/// `dir` 所在项目的视图（检出、参考；检出的 `agents` 留空）；不在任何项目里为 `None`。
+pub(crate) async fn project_view_at(
+    instance: &DataInstance,
+    dir: &std::path::Path,
+) -> Result<Option<berth_project_core::service::folder::ProjectView>, InstanceState> {
+    let conn = ready_conn!(instance);
+    let incompatible = |error: berth_project_core::DbError| InstanceState::Incompatible {
+        detail: error.to_string(),
+    };
+    let Some(project) = folder_service::project_for_dir(&conn, dir)
+        .await
+        .map_err(incompatible)?
+    else {
+        return Ok(None);
+    };
+    folder_service::project_view(&conn, &project)
+        .await
+        .map(Some)
+        .map_err(incompatible)
+}
+
+/// 给 `dir` 所在项目加入（`add`）或移除参考成员；返回（项目名, 是否有改动）。不在项目里为 `None`。
+/// 参考成员只是本机的路径引用，GUI 每次列成员时现读，写库不经 GUI。
+pub(crate) async fn edit_reference(
+    instance: &DataInstance,
+    dir: &std::path::Path,
+    path: &str,
+    add: bool,
+) -> Result<Option<(String, bool)>, InstanceState> {
+    let conn = ready_conn!(instance);
+    let incompatible = |error: berth_project_core::DbError| InstanceState::Incompatible {
+        detail: error.to_string(),
+    };
+    let Some(project) = folder_service::project_for_dir(&conn, dir)
+        .await
+        .map_err(incompatible)?
+    else {
+        return Ok(None);
+    };
+    let changed = if add {
+        let before = folder_service::list_references(&conn, project.id)
+            .await
+            .map_err(incompatible)?;
+        let stored = folder_service::add_reference(&conn, project.id, path)
+            .await
+            .map_err(incompatible)?;
+        !before.contains(&stored)
+    } else {
+        folder_service::remove_reference(&conn, project.id, path)
+            .await
+            .map_err(incompatible)?
+    };
+    Ok(Some((project.name, changed)))
 }
 
 pub(crate) async fn list_entries(
@@ -333,7 +390,6 @@ mod tests {
     use berth_project_core::service::folder_service;
 
     /// 建库 + 建项目，模拟「GUI 未运行」的既有数据实例。
-    /// `add_folder` 按持久列把新项目标为 open（与 GUI 打开项目同语义）。
     async fn fixture(projects: &[&str]) -> DataInstance {
         let dir = tempfile::tempdir().expect("fixture dir");
         // 目录需活过整个用例：keep() 交出所有权，不再自动删除。
@@ -354,27 +410,12 @@ mod tests {
         DataInstance::existing_only(&path, "berth.db")
     }
 
-    /// 关闭指定项目的持久 `is_open`（模拟 GUI 里关掉项目、但没有 live Terminal）。
+    /// 「关闭」= 项目目录已不在：已注册项目只剩登记 / 墓碑两态，打开集合只列目录仍在的项目。
     async fn close_projects(instance: &DataInstance, names: &[&str]) {
-        // 准备夹具的写动作走 owner 策略；只读查询返回的连接不能用于写入。
-        let owner = DataInstance::create_if_missing(instance.data_dir(), instance.db_file_name());
-        let (conn, state) = open_or_upgrade(&owner).await;
-        assert_eq!(state, InstanceState::Ready);
-        let conn = conn.expect("connection");
-        let details = folder_service::list_all_folder_details(&conn)
-            .await
-            .expect("list");
         for name in names {
-            let id = details
-                .iter()
-                .find(|detail| &detail.name == name)
-                .unwrap_or_else(|| panic!("fixture project {name}"))
-                .id;
-            folder_service::set_folder_open(&conn, id, false)
-                .await
-                .expect("close project");
+            std::fs::remove_dir_all(instance.data_dir().join("projects").join(name))
+                .expect("remove project dir");
         }
-        conn.close().await.expect("close");
     }
 
     #[tokio::test]
@@ -386,15 +427,15 @@ mod tests {
             .expect("headless listing");
         let mut names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
         names.sort();
-        // 无 live Terminal、已关闭的项目仍然出现在 list 里（数量不变）。
+        // 无 live Terminal、目录已不在的项目仍然出现在 list 里（数量不变）。
         assert_eq!(names, vec!["alpha", "beta", "gamma"]);
         assert_eq!(entries.iter().filter(|entry| entry.is_open).count(), 1);
     }
 
     #[tokio::test]
-    async fn scope_open_follows_the_persisted_is_open_column() {
+    async fn scope_open_lists_projects_whose_directory_exists() {
         let instance = fixture(&["alpha", "beta", "gamma"]).await;
-        // add_folder 把三个项目都标为 open；显式关掉两个后 Open 只剩一个。
+        // 三个项目目录都在；删掉两个后 Open 只剩一个。
         let all_open = list_entries(&instance, ProjectScope::Open)
             .await
             .expect("open scope");
@@ -416,7 +457,7 @@ mod tests {
         assert_eq!(
             all.iter().filter(|entry| entry.is_open).count(),
             1,
-            "只有持久列标记为 open 的项目是 *"
+            "只有目录仍在的项目是 *"
         );
     }
 

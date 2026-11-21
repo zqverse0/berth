@@ -39,6 +39,7 @@ import { isVirtualPreviewPath } from "@/lib/files/file-open-target"
 import { sourceKindFromTab } from "@/lib/content-reference/source-kind"
 import type { FileWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
+import { DiffOverviewToolbar } from "@/components/files/diff-overview-toolbar"
 
 const LazyTranscriptToolbar = lazy(() =>
   import("@/sessions/components/transcript-toolbar").then((m) => ({
@@ -279,6 +280,12 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
               task={activeFileTab.taskDirName}
             />
           </Suspense>
+        )}
+        {activeFileTab.kind === "diff" && (
+          <DiffOverviewToolbar
+            key={activeFileTab.id}
+            tabId={activeFileTab.id}
+          />
         )}
       </div>
     )

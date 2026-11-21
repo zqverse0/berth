@@ -1,4 +1,5 @@
 import { findOwningFolder } from "@/lib/files/file-open-target"
+import { projectIdOf } from "@/stores/app-workspace-store"
 
 export type TabFolderScope = number | null
 
@@ -43,7 +44,7 @@ export function fileTabFolderScope(
 }
 
 /**
- * 钉住（lifetime: "global"）的 tab 在所有项目显示；其余只在文件所属的项目显示，
+ * 钉住（lifetime: "global"）的 tab 在所有项目显示；其余只在文件所属的项目（含它的各成员）显示，
  * 与在哪个项目打开无关。不属于任何项目的文件显示在打开它的项目。
  */
 export function fileTabIsInFolderScope(
@@ -53,8 +54,15 @@ export function fileTabIsInFolderScope(
 ): boolean {
   if (tab.lifetime === "global") return true
   const owner = fileTabFolderScope(tab, folders)
-  if (owner != null) return owner === folderId
-  return (tab.openedInFolderId ?? null) === folderId
+  if (owner != null) return sameProject(owner, folderId)
+  return sameProject(tab.openedInFolderId ?? null, folderId)
+}
+
+/** tab 按项目显示：同一项目的各成员（main、worktree）看到同一组 tab。 */
+export function sameProject(a: TabFolderScope, b: TabFolderScope): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return false
+  return projectIdOf(a) === projectIdOf(b)
 }
 
 /**
@@ -68,7 +76,7 @@ export function primaryTabIsInFolderScope(
   folderId: TabFolderScope
 ): boolean {
   if (tab.isPinned === true) return true
-  return tab.folderId === folderId
+  return sameProject(tab.folderId, folderId)
 }
 
 /** pinned tab 全局显示，其余按项目过滤。 */

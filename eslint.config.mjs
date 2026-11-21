@@ -25,6 +25,8 @@ const eslintConfig = defineConfig([
     "REMOVE/**",
     "perf/**",
     "outputs/**",
+    // 打包的第三方产物（pi-acp）
+    "plugins/pi/private/acp/**",
   ]),
   eslintConfigPrettier,
   eslintPluginPrettierRecommended,

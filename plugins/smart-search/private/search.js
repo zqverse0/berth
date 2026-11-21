@@ -16,10 +16,19 @@ const USAGE = `berth tools run smart-search private/search.js <问题> [选项]
 export async function run(input) {
   const { deps, cfg, project, by } = await context()
   const query = String(input.query ?? "").trim()
-  const existing = input.record ? [] : await records.find(deps, query, project?.root)
+  const existing = input.record
+    ? []
+    : await records.find(deps, query, project?.root)
   const result = await route.search(deps, cfg, { ...input, query })
   result.existing_records = existing.filter((item) => item.id !== input.record)
-  const entry = { kind: "search", query, mode: input.mode ?? "full", project, by, result }
+  const entry = {
+    kind: "search",
+    query,
+    mode: input.mode ?? "full",
+    project,
+    by,
+    result,
+  }
   // 页面综合模式并发两次：来源列表那次不单独记，AI 搜索那次的记录已含补充来源
   if (input.noRecord) return result
   result.record = input.record

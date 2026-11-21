@@ -124,6 +124,27 @@ export function getTaskView(folderId: number, task: string) {
   return call<BerthTaskView>(folderId, "task.view", { task })
 }
 
+/** 群级收尾的检查结果（`dryRun`）：全部任务结束、已合并、目录干净时 `ready`。 */
+export interface GroupFinishPlan {
+  ready: boolean
+  openTasks: string[]
+  dirty: string[]
+  merged: boolean
+  baseBranch: string
+}
+
+/**
+ * 群 worktree 的收尾（删 worktree 与群，分支保留）：与 `berth task finish --group` 同一实现。
+ * `dryRun` 只返回检查结果。
+ */
+export function finishGroup(folderId: number, group: string, dryRun: boolean) {
+  return call<GroupFinishPlan>(folderId, "task.finish", {
+    group,
+    dryRun,
+    keepBranch: true,
+  })
+}
+
 /** 显式改变任务状态，不清理群组环境、不关闭成员终端。 */
 export function changeTaskState(
   folderId: number,

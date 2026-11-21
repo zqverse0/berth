@@ -22,7 +22,6 @@ import {
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { createFileTreeEntry } from "@/lib/api"
 import { createUniqueRootFile } from "@/lib/files/create-unique-root-file"
-import { openInPlaceOptions } from "@/lib/files/file-open-target"
 import type { WorkspaceFileOpenOptions } from "@/lib/workspace/workspace-runtime"
 import { toErrorMessage } from "@/lib/app-error"
 import { toast } from "@/lib/notify"
@@ -246,7 +245,7 @@ function NewFileButton() {
         }
         return path
       },
-      (path) => openInPlaceOptions(path, activeFolder.path)
+      () => undefined
     )
 
   return (

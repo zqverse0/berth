@@ -533,18 +533,6 @@ export function listGroups(folderId: number, all = false) {
   }>(folderId, "group.list", all ? { all } : {})
 }
 
-/** 项目行未读数：本项目各 checkout 群的未读条数（键是 worktree 路径）；带 `seen` 先记该群已读到 `seq`。 */
-export function readGroupUnread(
-  folderId: number,
-  seen?: { group: string; seq: number }
-) {
-  return call<{ worktrees: Record<string, number> }>(
-    folderId,
-    "group.unread",
-    seen ? { seen } : {}
-  )
-}
-
 /** 把任务分配给群组；群组 = worktree，一个群组可有多个任务。 */
 export function assignTask(folderId: number, task: string, group: string) {
   return call<{ taskDirName: string; group: string }>(

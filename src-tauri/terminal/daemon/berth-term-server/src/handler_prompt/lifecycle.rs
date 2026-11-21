@@ -42,9 +42,7 @@ impl RequestHandler {
             }
             Err(error) => return Err(error),
         };
-        let attach_pid = match managed {
-            ManagedClient::Attach(attach_pid) => attach_pid,
-        };
+        let ManagedClient::Attach(attach_pid) = managed;
 
         let (prompt, outcome) = if plan.background {
             (
@@ -92,9 +90,7 @@ impl RequestHandler {
             }
             Err(error) => return Err(error),
         };
-        let attach_pid = match managed {
-            ManagedClient::Attach(attach_pid) => attach_pid,
-        };
+        let ManagedClient::Attach(attach_pid) = managed;
 
         let (prompt, outcome) = if plan.background {
             (

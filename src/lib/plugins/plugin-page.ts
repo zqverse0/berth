@@ -1,5 +1,9 @@
 import { readWorkspaceFileBase64 } from "@/lib/api"
 import { openUrl } from "@/lib/platform"
+import {
+  handleDevicesCall,
+  watchDevicesForPage,
+} from "@/lib/plugins/plugin-devices"
 import { isRemoteBrowser } from "@/lib/transport/detect"
 import {
   callPluginBackend,
@@ -339,6 +343,16 @@ export async function handlePageCall(
       return null
   }
   const namespace = method.split(".")[0]
+  if (namespace === "devices") {
+    if (!host.permissions.includes("devices")) {
+      throw new PageError(
+        "denied",
+        'devices needs permission "devices" in tool.json'
+      )
+    }
+    const result = await handleDevicesCall(method, params)
+    if (result !== undefined) return result
+  }
   if (namespace === "storage" || namespace === "data") {
     return callPluginBackend({
       plugin: host.plugin,
@@ -495,6 +509,10 @@ export function connectPluginPage(
     attributes: true,
     attributeFilter: ["class", "style"],
   })
+  // 设备面板：设备或状态变化、宿主要选中某台设备时通知页面
+  const unwatchDevices = initial.permissions.includes("devices")
+    ? watchDevicesForPage((method, params) => post({ method, params }))
+    : null
 
   const connection: PageConnection = {
     send: (method, params) => post({ method, params }),
@@ -534,6 +552,7 @@ export function connectPluginPage(
       notifyEditorViews(host)
       window.removeEventListener("message", onMessage)
       themeObserver.disconnect()
+      unwatchDevices?.()
       for (const waiter of waiting.values())
         waiter.reject(new Error("page closed"))
       waiting.clear()

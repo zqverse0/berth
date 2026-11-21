@@ -80,11 +80,15 @@ impl TestEventBus {
 /// - **Noop**: 不需要流式进度的路径与部分测试。
 /// - **Test**（仅测试 / `test-utils`）：给单测一个带 bus 的发射器。生产不再有
 ///   独立 HTTP/WS server。
+/// 桌面宿主发事件的回调。
+#[cfg(feature = "tauri-runtime")]
+pub type EmitFn = dyn Fn(&str, &serde_json::Value) + Send + Sync;
+
 #[derive(Clone)]
 pub enum EventEmitter {
     /// 桌面宿主（Wry 或无界面 MockRuntime）：只留发事件的能力，发射器不随运行时泛型化。
     #[cfg(feature = "tauri-runtime")]
-    Tauri(Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync>),
+    Tauri(Arc<EmitFn>),
     /// 测试用：直接持有 broadcaster + bus。
     #[cfg(any(test, feature = "test-utils"))]
     Test { broadcaster: Arc<TestEventBus> },

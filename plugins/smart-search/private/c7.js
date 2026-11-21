@@ -12,19 +12,42 @@ export async function run(input) {
   const { deps, cfg, project, by } = await context()
   const query = String(input.query ?? "").trim()
   let result
-  if (input.libraryId) result = await route.context7Docs(deps, cfg, input.libraryId, query)
-  else if (input.library) result = await route.context7Library(deps, cfg, input.library, query)
+  if (input.libraryId)
+    result = await route.context7Docs(deps, cfg, input.libraryId, query)
+  else if (input.library)
+    result = await route.context7Library(deps, cfg, input.library, query)
   else {
     // 整句搜库时排在第一的常不是要找的库：前 5 个里取可信度最高的，候选一并返回供切换
     const found = await route.context7Library(deps, cfg, query, "")
     const best = found.ok
-      ? found.results.slice(0, 5).reduce((a, b) => ((b.trust_score ?? 0) > (a.trust_score ?? 0) ? b : a), found.results[0])
+      ? found.results
+          .slice(0, 5)
+          .reduce(
+            (a, b) => ((b.trust_score ?? 0) > (a.trust_score ?? 0) ? b : a),
+            found.results[0]
+          )
       : null
-    result = best ? { ...(await route.context7Docs(deps, cfg, best.id, query)), libraries: found.results.slice(0, 5) } : found
+    result = best
+      ? {
+          ...(await route.context7Docs(deps, cfg, best.id, query)),
+          libraries: found.results.slice(0, 5),
+        }
+      : found
   }
   result.record = await records.write(
     deps,
-    { kind: "search", query: input.libraryId ? `${input.libraryId} ${query}` : input.library ? `${input.library} ${query}`.trim() : query, mode: "context7", project, by, result },
+    {
+      kind: "search",
+      query: input.libraryId
+        ? `${input.libraryId} ${query}`
+        : input.library
+          ? `${input.library} ${query}`.trim()
+          : query,
+      mode: "context7",
+      project,
+      by,
+      result,
+    },
     cfg.retentionDays
   )
   return result
@@ -36,8 +59,10 @@ export default entry({
   cli: (argv) => {
     const { positional } = parseArgs(argv)
     const [action, target, ...rest] = positional
-    if (action === "library" && target) return run({ library: target, query: rest.join(" ") })
-    if (action === "docs" && target && rest.length) return run({ libraryId: target, query: rest.join(" ") })
+    if (action === "library" && target)
+      return run({ library: target, query: rest.join(" ") })
+    if (action === "docs" && target && rest.length)
+      return run({ libraryId: target, query: rest.join(" ") })
     throw new UsageError("用法不对")
   },
 })

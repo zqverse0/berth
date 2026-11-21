@@ -4,8 +4,10 @@
 //! （`~/.ssh/config`、密钥）负责；连得上与否以一次 `ssh … true` 为准。
 //! 对方装了 berth 即为节点设备（见下）；没装的只能开 SSH 终端，装上后重新检测即成为节点设备。
 //!
-//! - `device.list` → `[{ id, name, target, localDir, node }]`；`localDir`（`remote/<id>`）是从设备打开的
-//!   SSH 终端的起始目录，前端据此把终端归到设备下
+//! - `device.list` → `[{ id, name, target, localDir, node, shown }]`；`localDir`（`remote/<id>`）是从设备打开的
+//!   SSH 终端的起始目录，前端据此把终端归到设备下；`shown` 是挑到侧栏的对方项目（主成员路径）
+//! - `device.show { deviceId, path, shown }` → 新的 `shown`（存 `<数据目录>/devices/<id>/shown.json`）
+//! - `device.local` → `{ host, os, arch }`：本机，项目列表与设备面板把它当一台设备显示
 //! - `device.check { target, deviceId? }` → `{ ok, message }`
 //! - `device.add { name, target }` → 先测连接，连得上才保存
 //! - `device.remove { id }`
@@ -95,9 +97,26 @@ pub async fn dispatch(
                         "target": row.ssh_target,
                         "localDir": local_dir,
                         "node": node_json(mount_root, row.id),
+                        "shown": shown_projects(mount_root, row.id),
                     })
                 })
                 .collect::<Vec<_>>()))
+        }
+        "device.show" => {
+            let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
+            let path = params["path"].as_str().ok_or("path is required")?;
+            let mut shown = shown_projects(mount_root, id);
+            shown.retain(|item| item != path);
+            if params["shown"].as_bool().unwrap_or(false) {
+                shown.push(path.to_owned());
+            }
+            std::fs::create_dir_all(node_dir(mount_root, id)).map_err(|error| error.to_string())?;
+            std::fs::write(
+                node_dir(mount_root, id).join("shown.json"),
+                json!(shown).to_string(),
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(json!(shown))
         }
         "device.check" => {
             let target = valid_target(params["target"].as_str().unwrap_or_default())?;
@@ -108,7 +127,11 @@ pub async fn dispatch(
                 let id = id as i32;
                 // 对方可能刚装上 / 升级挪了位置：每次上线重新探测，记下的路径仍可用就沿用。
                 let stored = stored_berth(mount_root, id);
-                store_berth(mount_root, id, probe(target, stored.as_deref()).await.as_deref());
+                store_berth(
+                    mount_root,
+                    id,
+                    probe(target, stored.as_deref()).await.as_deref(),
+                );
                 let row = device::Entity::find_by_id(id)
                     .one(conn)
                     .await
@@ -168,6 +191,12 @@ pub async fn dispatch(
             let _ = std::fs::remove_dir_all(node_dir(mount_root, id));
             Ok(Value::Null)
         }
+        // 本机：项目列表与设备面板把它当作一台设备显示
+        "device.local" => Ok(json!({
+            "host": sysinfo::System::host_name().unwrap_or_default(),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        })),
         "device.candidates" => {
             let added: Vec<String> = device::Entity::find()
                 .all(conn)
@@ -260,10 +289,12 @@ pub async fn dispatch(
             let node = connected(params)?;
             let request: Request = serde_json::from_value(params["request"].clone())
                 .map_err(|error| format!("invalid request: {error}"))?;
-            Ok(match node.data.request(&request, &[], OVERVIEW_DEADLINE).await {
-                Ok((result, _)) => json!({ "result": result }),
-                Err(error) => json!({ "error": error }),
-            })
+            Ok(
+                match node.data.request(&request, &[], OVERVIEW_DEADLINE).await {
+                    Ok((result, _)) => json!({ "result": result }),
+                    Err(error) => json!({ "error": error }),
+                },
+            )
         }
         "device.transfer" => {
             let id = params["deviceId"].as_i64().ok_or("deviceId is required")? as i32;
@@ -431,6 +462,14 @@ fn node_dir(mount_root: &Path, id: i32) -> PathBuf {
     mount_root.with_file_name("devices").join(id.to_string())
 }
 
+/// 挑到侧栏显示的对方项目（主成员在对方的路径）；项目本身由对方 Berth 定义，本机只记这份选择。
+fn shown_projects(mount_root: &Path, id: i32) -> Vec<String> {
+    std::fs::read(node_dir(mount_root, id).join("shown.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 fn stored_berth(mount_root: &Path, id: i32) -> Option<String> {
     let bytes = std::fs::read(node_dir(mount_root, id).join("node.json")).ok()?;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
@@ -486,7 +525,8 @@ fn node(emitter: &EventEmitter, mount_root: &Path, row: &device::Model) -> Optio
     if let Some(node) = nodes.get(&id) {
         return Some(node.clone());
     }
-    let (data, pushes) = Client::start(client::ssh(target.to_owned(), client::node_command(&berth)));
+    let (data, pushes) =
+        Client::start(client::ssh(target.to_owned(), client::node_command(&berth)));
     let mut status = data.status();
     let events = emitter.clone();
     tokio::spawn(async move {

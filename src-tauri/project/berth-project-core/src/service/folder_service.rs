@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use sea_orm::{
@@ -6,14 +8,13 @@ use sea_orm::{
 };
 
 use crate::agent::AgentType;
-use crate::entities::folder;
 use crate::entities::folder::FolderKind;
+use crate::entities::{automation_run, folder, project, project_reference};
 use crate::error::DbError;
-use crate::service::folder::{FolderDetail, FolderHistoryEntry};
-
-/// Theme color sentinel stored in the DB. The frontend leaves the folder group
-/// unscoped so it inherits the app-wide appearance theme color.
-pub const DEFAULT_FOLDER_COLOR: &str = "inherit";
+use crate::service::folder::{
+    CheckoutView, FolderDetail, FolderHistoryEntry, ProjectMember, ProjectSummary, ProjectView,
+    ReferenceView, UntrackedCheckout,
+};
 
 fn to_entry(m: folder::Model) -> FolderHistoryEntry {
     FolderHistoryEntry {
@@ -29,23 +30,55 @@ fn parse_agent_type(s: &Option<String>) -> Option<AgentType> {
         .and_then(|v| serde_json::from_value(serde_json::Value::String(v.to_string())).ok())
 }
 
-fn to_detail(m: folder::Model) -> FolderDetail {
+async fn projects_by_id<C: ConnectionTrait>(
+    conn: &C,
+) -> Result<HashMap<i32, project::Model>, DbError> {
+    Ok(project::Entity::find()
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|p| (p.id, p))
+        .collect())
+}
+
+fn to_detail(m: folder::Model, projects: &HashMap<i32, project::Model>) -> FolderDetail {
     let default_agent_type = parse_agent_type(&m.default_agent_type);
     FolderDetail {
         id: m.id,
+        project_id: m.project_id,
+        project: m
+            .project_id
+            .and_then(|id| projects.get(&id))
+            .map(|p| ProjectSummary {
+                name: p.name.clone(),
+                main_folder_id: p.main_folder_id,
+                pinned_at: p.pinned_at,
+                sort_order: p.sort_order,
+            }),
         name: m.name,
         path: m.path,
         project_runtime_id: m.project_runtime_id,
         git_branch: m.git_branch,
         default_agent_type,
         last_opened_at: m.last_opened_at,
-        sort_order: m.sort_order,
-        color: m.color,
-        parent_id: m.parent_id,
         kind: m.kind,
-        alias: m.alias,
-        pinned_at: m.pinned_at,
     }
+}
+
+async fn detail_of<C: ConnectionTrait>(
+    conn: &C,
+    m: folder::Model,
+) -> Result<FolderDetail, DbError> {
+    let projects = match m.project_id {
+        Some(id) => project::Entity::find_by_id(id)
+            .one(conn)
+            .await?
+            .into_iter()
+            .map(|p| (p.id, p))
+            .collect(),
+        None => HashMap::new(),
+    };
+    Ok(to_detail(m, &projects))
 }
 
 pub async fn get_folder_by_id(
@@ -56,43 +89,306 @@ pub async fn get_folder_by_id(
         .filter(folder::Column::DeletedAt.is_null())
         .one(conn)
         .await?;
-
-    Ok(row.map(to_detail))
+    match row {
+        Some(row) => Ok(Some(detail_of(conn, row).await?)),
+        None => Ok(None),
+    }
 }
 
-/// How [`add_folder_inner`] writes the `parent_id` column. The two callers want
-/// different semantics on reopen of an existing path, which a bare `Option<i32>`
-/// could not express (it conflates "no parent" with "don't touch the parent").
-enum ParentWrite {
-    /// Plain open: leave an existing row's `parent_id` untouched (insert NULL).
-    /// A plain reopen must never clear a worktree's recorded root.
-    Preserve,
-    /// Worktree open: write this exact value on both insert and reopen — so the
-    /// stored relationship always reflects the latest call (including `None` to
-    /// demote to a top-level folder) and can never go stale.
-    Set(Option<i32>),
+pub async fn get_project(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Option<project::Model>, DbError> {
+    Ok(project::Entity::find_by_id(project_id).one(conn).await?)
 }
 
+/// 项目的代码成员（未删除的 folder 行），主成员排第一。
+pub async fn list_project_members(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Vec<FolderDetail>, DbError> {
+    let mut members: Vec<FolderDetail> = list_all_folder_details(conn)
+        .await?
+        .into_iter()
+        .filter(|f| f.project_id == Some(project_id))
+        .collect();
+    members.sort_by_key(|f| !f.is_main());
+    Ok(members)
+}
+
+/// 主成员的 `git worktree list`（跳过 `prunable`）：(规范化路径, 分支)。主成员不是 git checkout
+/// 根目录（项目是仓库子目录时 git 列的是仓库根）或 git 不可用时为 `None`。
+fn live_checkouts(main: &std::path::Path) -> Option<Vec<(std::path::PathBuf, Option<String>)>> {
+    if !main.join(".git").exists() {
+        return None;
+    }
+    let output = std::process::Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(main)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(
+        parse_worktrees(&String::from_utf8_lossy(&output.stdout))
+            .into_iter()
+            .map(|(path, branch)| (canonical_or_raw(&path), branch))
+            .collect(),
+    )
+}
+
+/// GUI 列成员：先登记 Berth 自己建的 worktree 群目录（群组在 CLI 侧建 worktree，不写库），再同
+/// [`read_members`]。成员以手动为准，Berth 之外用 git 建的检出不登记，只在 [`untracked_checkouts`] 提示。
+pub async fn discover_members(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Vec<ProjectMember>, DbError> {
+    let members = list_project_members(conn, project_id).await?;
+    let Some(main) = members.first() else {
+        return Ok(Vec::new());
+    };
+    let groups = crate::tasks::group_worktrees(std::path::Path::new(&main.path));
+    if !groups.is_empty() {
+        // ponytail: 用户移出过的群目录（墓碑）下次仍会被登记回来；要记住移出再加排除表
+        let registered: Vec<std::path::PathBuf> = list_all_folder_details(conn)
+            .await?
+            .iter()
+            .filter(|f| f.project_id.is_some())
+            .map(|f| canonical_or_raw(&f.path))
+            .collect();
+        for dir in groups {
+            let dir = canonical_or_raw(&dir.to_string_lossy());
+            if dir.is_dir() && !registered.contains(&dir) {
+                add_folder_to_project(conn, &dir.to_string_lossy(), project_id).await?;
+            }
+        }
+    }
+    read_members(conn, project_id).await
+}
+
+/// 列出项目的代码成员（主成员在前）与失效 / 临时 / 分支。成员以手动为准：只在添加项目、
+/// 新建 worktree、用户加入 / 改挂时登记，这里不登记也不删；git 新出现的检出见 [`untracked_checkouts`]。
+pub async fn read_members(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Vec<ProjectMember>, DbError> {
+    let members = list_project_members(conn, project_id).await?;
+    let Some(main) = members.first() else {
+        return Ok(Vec::new());
+    };
+    let live = live_checkouts(std::path::Path::new(&main.path));
+    member_states(conn, project_id, live).await
+}
+
+/// 失效：目录不在（成员可来自别的仓库，不按主成员的 git 列表判）。
+/// 临时：自动化运行的 worktree、任务都已结束的群。
+async fn member_states(
+    conn: &DatabaseConnection,
+    project_id: i32,
+    live: Option<Vec<(std::path::PathBuf, Option<String>)>>,
+) -> Result<Vec<ProjectMember>, DbError> {
+    let members = list_project_members(conn, project_id).await?;
+    let Some(main) = members.first().cloned() else {
+        return Ok(Vec::new());
+    };
+    let ids: Vec<i32> = members.iter().map(|f| f.id).collect();
+    let run_worktrees: std::collections::HashSet<i32> = automation_run::Entity::find()
+        .filter(automation_run::Column::WorktreeFolderId.is_in(ids))
+        .all(conn)
+        .await?
+        .into_iter()
+        .filter_map(|run| run.worktree_folder_id)
+        .collect();
+    let ended: Vec<std::path::PathBuf> =
+        crate::tasks::ended_group_worktrees(std::path::Path::new(&main.path))
+            .iter()
+            .map(|path| canonical_or_raw(&path.to_string_lossy()))
+            .collect();
+    Ok(members
+        .into_iter()
+        .map(|folder| {
+            let dir = canonical_or_raw(&folder.path);
+            let is_main = folder.id == main.id;
+            let listed = live
+                .as_ref()
+                .map(|live| live.iter().find(|(path, _)| *path == dir));
+            let stale = !dir.is_dir();
+            let temporary =
+                !is_main && (run_worktrees.contains(&folder.id) || ended.contains(&dir));
+            let branch = match listed {
+                Some(hit) => hit.and_then(|(_, branch)| branch.clone()),
+                None => folder.git_branch.clone(),
+            };
+            ProjectMember {
+                folder,
+                branch,
+                stale,
+                temporary,
+            }
+        })
+        .collect())
+}
+
+/// 主成员的 `git worktree list` 里还没登记进任何项目的检出（只提示，由用户决定加入）。
+/// 用户移出过的检出也会在这里出现。主成员不是 git checkout 根目录时为空。
+pub async fn untracked_checkouts(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Vec<UntrackedCheckout>, DbError> {
+    let members = list_project_members(conn, project_id).await?;
+    let Some(main) = members.first() else {
+        return Ok(Vec::new());
+    };
+    let registered: Vec<std::path::PathBuf> = list_all_folder_details(conn)
+        .await?
+        .iter()
+        .filter(|f| f.project_id.is_some())
+        .map(|f| canonical_or_raw(&f.path))
+        .collect();
+    Ok(live_checkouts(std::path::Path::new(&main.path))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(dir, _)| !registered.contains(dir))
+        .map(|(dir, branch)| UntrackedCheckout {
+            path: dir.to_string_lossy().into_owned(),
+            branch,
+        })
+        .collect())
+}
+
+/// 把成员设为所在项目的主成员。
+pub async fn set_main_member(conn: &DatabaseConnection, folder_id: i32) -> Result<(), DbError> {
+    let folder = get_folder_by_id(conn, folder_id)
+        .await?
+        .ok_or_else(|| DbError::NotFound(format!("Folder {folder_id} not found")))?;
+    let project_id = folder
+        .project_id
+        .ok_or_else(|| DbError::Validation(format!("{} is not in a project", folder.path)))?;
+    set_project_main(conn, project_id, folder_id).await
+}
+
+/// `dir` 所在的项目：路径是 `dir` 或其祖先的成员里最深的那个所属的项目。
+pub async fn project_for_dir(
+    conn: &DatabaseConnection,
+    dir: &std::path::Path,
+) -> Result<Option<project::Model>, DbError> {
+    let dir = canonical_or_raw(&dir.to_string_lossy());
+    let owner = list_all_folder_details(conn)
+        .await?
+        .into_iter()
+        .filter(|f| f.project_id.is_some() && dir.starts_with(canonical_or_raw(&f.path)))
+        .max_by_key(|f| f.path.len());
+    match owner.and_then(|f| f.project_id) {
+        Some(id) => get_project(conn, id).await,
+        None => Ok(None),
+    }
+}
+
+/// 只读的项目视图（检出 + 参考）；检出的 `agents` 留空给调用方填。
+pub async fn project_view(
+    conn: &DatabaseConnection,
+    project: &project::Model,
+) -> Result<ProjectView, DbError> {
+    let checkouts: Vec<CheckoutView> = read_members(conn, project.id)
+        .await?
+        .into_iter()
+        .map(|member| CheckoutView {
+            main: member.folder.id == project.main_folder_id,
+            path: member.folder.path,
+            branch: member.branch,
+            stale: member.stale,
+            temporary: member.temporary,
+            agents: Vec::new(),
+        })
+        .collect();
+    Ok(ProjectView {
+        name: project.name.clone(),
+        home: checkouts
+            .iter()
+            .find(|checkout| checkout.main)
+            .map(|checkout| checkout.path.clone())
+            .unwrap_or_default(),
+        checkouts,
+        references: list_references(conn, project.id)
+            .await?
+            .into_iter()
+            .map(|path| ReferenceView { path })
+            .collect(),
+        untracked: untracked_checkouts(conn, project.id).await?,
+    })
+}
+
+/// 项目的参考成员路径（加入顺序）。
+pub async fn list_references(
+    conn: &DatabaseConnection,
+    project_id: i32,
+) -> Result<Vec<String>, DbError> {
+    Ok(project_reference::Entity::find()
+        .filter(project_reference::Column::ProjectId.eq(project_id))
+        .order_by_asc(project_reference::Column::Id)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|reference| reference.path)
+        .collect())
+}
+
+/// 加入参考成员：必须是已存在的目录，存规范化路径；已在时不重复。返回存下的路径。
+pub async fn add_reference(
+    conn: &DatabaseConnection,
+    project_id: i32,
+    path: &str,
+) -> Result<String, DbError> {
+    let dir = std::fs::canonicalize(path)
+        .ok()
+        .filter(|dir| dir.is_dir())
+        .ok_or_else(|| DbError::NotFound(format!("{path} is not an existing directory")))?;
+    let path = dir.to_string_lossy().into_owned();
+    if !list_references(conn, project_id).await?.contains(&path) {
+        project_reference::ActiveModel {
+            id: NotSet,
+            project_id: Set(project_id),
+            path: Set(path.clone()),
+            created_at: Set(Utc::now()),
+        }
+        .insert(conn)
+        .await?;
+    }
+    Ok(path)
+}
+
+/// 移除参考成员（按路径，软链与真实路径都认）；不在时返回 `false`。不动磁盘上的目录。
+pub async fn remove_reference(
+    conn: &DatabaseConnection,
+    project_id: i32,
+    path: &str,
+) -> Result<bool, DbError> {
+    let path = canonical_or_raw(path).to_string_lossy().into_owned();
+    let removed = project_reference::Entity::delete_many()
+        .filter(project_reference::Column::ProjectId.eq(project_id))
+        .filter(project_reference::Column::Path.eq(path))
+        .exec(conn)
+        .await?;
+    Ok(removed.rows_affected > 0)
+}
+
+/// 打开（登记）一个目录：已属于某项目就保持；新目录自成一个项目，自己是主成员。
 pub async fn add_folder(
     conn: &DatabaseConnection,
     path: &str,
 ) -> Result<FolderHistoryEntry, DbError> {
-    add_folder_inner(conn, path, ParentWrite::Preserve).await
+    add_folder_inner(conn, path, None).await
 }
 
-/// Like [`add_folder`] but authoritatively sets `parent_id` — the *root* folder
-/// this path was created under (used by the worktree flow so a worktree folder
-/// remembers its originating repo folder). The value is written on both insert
-/// and reopen, so it always reflects the latest worktree relationship and never
-/// a stale one.
-pub async fn add_folder_with_parent(
+/// 把目录登记为 `project_id` 的代码成员（新建 worktree、用户加入 / 改挂）。
+/// 原来属于别的项目时改挂过来，旧项目没有成员了就一并删掉。
+pub async fn add_folder_to_project(
     conn: &DatabaseConnection,
     path: &str,
-    parent_id: Option<i32>,
+    project_id: i32,
 ) -> Result<FolderHistoryEntry, DbError> {
-    add_folder_inner(conn, path, ParentWrite::Set(parent_id)).await
+    add_folder_inner(conn, path, Some(project_id)).await
 }
-
 /// Parse `git worktree list --porcelain` into `(worktree_path, branch)` pairs.
 /// Each porcelain block starts with a `worktree <path>` line and is terminated
 /// by a blank line; a `branch refs/heads/<name>` line carries the checked-out
@@ -136,9 +432,9 @@ fn canonical_or_raw(path: &str) -> std::path::PathBuf {
 async fn open_detail(
     conn: &DatabaseConnection,
     path: &std::path::Path,
-    parent: ParentWrite,
+    project_id: Option<i32>,
 ) -> Result<FolderDetail, DbError> {
-    let entry = add_folder_inner(conn, &path.to_string_lossy(), parent).await?;
+    let entry = add_folder_inner(conn, &path.to_string_lossy(), project_id).await?;
     get_folder_by_id(conn, entry.id)
         .await?
         .ok_or_else(|| DbError::NotFound("Folder not found after add".into()))
@@ -146,20 +442,19 @@ async fn open_detail(
 
 /// 添加（打开）项目：GUI「添加项目」与无 GUI 时的 `berth project add` 共用。
 ///
-/// git 仓库按 worktree 家族登记：主 worktree 是唯一的根，其余 linked worktree 挂在它下面，
-/// 选中家族任一成员都得到同一组。已归组的项目、普通目录（含非 git）只做普通打开：切换到
-/// 已有项目保持便宜稳定，worktree 发现只在首次添加时做；顶层的旧 linked worktree 借此入组一次。
+/// 已登记的目录、普通目录（含非 git）只做普通打开。首次添加 git 仓库时，`git worktree list`
+/// 的各 checkout 并成一个项目：主成员是带 hub 标记（`berth init`）的 checkout，没有就是 git 主 worktree；
+/// 同仓库已有 checkout 属于某个项目时并进那个项目。
 pub async fn open_project(conn: &DatabaseConnection, path: &str) -> Result<FolderDetail, DbError> {
     let canonical = canonical_or_raw(path);
-    let registered = list_all_folder_details(conn)
-        .await?
-        .into_iter()
-        .find(|folder| canonical_or_raw(&folder.path) == canonical);
-    let linked_worktree = canonical.join(".git").is_file();
-    if registered.is_some_and(|folder| folder.parent_id.is_some() || !linked_worktree)
-        || !canonical.join(".git").exists()
-    {
-        return open_detail(conn, &canonical, ParentWrite::Preserve).await;
+    let all = list_all_folder_details(conn).await?;
+    let registered_project = |dir: &std::path::Path| {
+        all.iter()
+            .find(|folder| canonical_or_raw(&folder.path) == dir)
+            .and_then(|folder| folder.project_id)
+    };
+    if registered_project(&canonical).is_some() || !canonical.join(".git").exists() {
+        return open_detail(conn, &canonical, None).await;
     }
 
     let output = std::process::Command::new("git")
@@ -173,31 +468,115 @@ pub async fn open_project(conn: &DatabaseConnection, path: &str) -> Result<Folde
             String::from_utf8_lossy(&output.stderr).trim()
         ))));
     }
-    let worktrees = parse_worktrees(&String::from_utf8_lossy(&output.stdout));
-    let Some((main_path, _)) = worktrees.first() else {
-        return open_detail(conn, &canonical, ParentWrite::Set(None)).await;
+    let worktrees: Vec<std::path::PathBuf> =
+        parse_worktrees(&String::from_utf8_lossy(&output.stdout))
+            .into_iter()
+            .map(|(path, _)| canonical_or_raw(&path))
+            .collect();
+    let Some(main) = worktrees
+        .iter()
+        .find(|dir| dir.join(crate::tasks::HUB_MARKER).is_file())
+        .or(worktrees.first())
+    else {
+        return open_detail(conn, &canonical, None).await;
     };
 
-    // git porcelain 先列主 worktree：登记为根，其余 linked worktree 平铺挂在它下面。
-    let main = canonical_or_raw(main_path);
-    let root = open_detail(conn, &main, ParentWrite::Set(None)).await?;
-    let mut selected = (main == canonical).then(|| root.clone());
-    for (worktree, _) in worktrees.iter().skip(1) {
-        let worktree = canonical_or_raw(worktree);
-        let detail = open_detail(conn, &worktree, ParentWrite::Set(Some(root.id))).await?;
-        if worktree == canonical {
+    let existing = worktrees.iter().find_map(|dir| registered_project(dir));
+    let main_detail = open_detail(conn, main, existing).await?;
+    let project_id = main_detail
+        .project_id
+        .ok_or_else(|| DbError::NotFound("Project not found after add".into()))?;
+    set_project_main(conn, project_id, main_detail.id).await?;
+    let mut selected = (*main == canonical).then_some(main_detail);
+    for worktree in worktrees.iter().filter(|dir| *dir != main) {
+        let detail = open_detail(conn, worktree, Some(project_id)).await?;
+        if *worktree == canonical {
             selected = Some(detail);
         }
     }
-    selected.ok_or_else(|| {
+    let selected = selected.ok_or_else(|| {
         DbError::NotFound("Selected folder was not present in git worktree list".into())
-    })
+    })?;
+    // 主成员可能刚换过：重读一次，派生字段才对。
+    get_folder_by_id(conn, selected.id)
+        .await?
+        .ok_or_else(|| DbError::NotFound("Folder not found after add".into()))
+}
+
+async fn set_project_main(
+    conn: &DatabaseConnection,
+    project_id: i32,
+    main_folder_id: i32,
+) -> Result<(), DbError> {
+    conn.execute(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "UPDATE project SET main_folder_id = ?, updated_at = ? WHERE id = ? AND main_folder_id <> ?",
+        [
+            main_folder_id.into(),
+            Utc::now().into(),
+            project_id.into(),
+            main_folder_id.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// 新目录自成项目：项目名取目录名，与已有项目重名时加 ` · <folder id>` 区分。
+async fn create_project<C: ConnectionTrait>(
+    conn: &C,
+    main: &folder::Model,
+) -> Result<i32, DbError> {
+    let now = Utc::now();
+    let taken = project::Entity::find()
+        .filter(project::Column::Name.eq(main.name.as_str()))
+        .one(conn)
+        .await?
+        .is_some();
+    let max_order = project::Entity::find()
+        .order_by_desc(project::Column::SortOrder)
+        .one(conn)
+        .await?
+        .map_or(0, |p| p.sort_order);
+    let created = project::ActiveModel {
+        id: NotSet,
+        name: Set(if taken {
+            format!("{} · {}", main.name, main.id)
+        } else {
+            main.name.clone()
+        }),
+        main_folder_id: Set(main.id),
+        sort_order: Set(max_order + 1),
+        pinned_at: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+    }
+    .insert(conn)
+    .await?;
+    Ok(created.id)
+}
+
+/// 成员变动后收尾：没有成员的项目删掉（连同参考成员），主成员已不在的改指最早登记的成员。
+async fn prune_projects<C: ConnectionTrait>(conn: &C) -> Result<(), DbError> {
+    const LIVE: &str = "SELECT id FROM folder WHERE deleted_at IS NULL AND project_id = project.id";
+    for sql in [
+        format!("DELETE FROM project WHERE NOT EXISTS ({LIVE})"),
+        "DELETE FROM project_reference WHERE project_id NOT IN (SELECT id FROM project)".to_owned(),
+        format!(
+            "UPDATE project SET main_folder_id = ({LIVE} ORDER BY id LIMIT 1) \
+             WHERE main_folder_id NOT IN ({LIVE})"
+        ),
+    ] {
+        conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
+            .await?;
+    }
+    Ok(())
 }
 
 async fn add_folder_inner(
     conn: &DatabaseConnection,
     path: &str,
-    parent: ParentWrite,
+    project_id: Option<i32>,
 ) -> Result<FolderHistoryEntry, DbError> {
     let now = Utc::now();
     // 目录别名不是项目身份：软链与真实路径必须复用同一 ID / runtime UUID。
@@ -235,21 +614,12 @@ async fn add_folder_inner(
         active.last_opened_at = Set(now);
         active.updated_at = Set(now);
         active.deleted_at = Set(None);
-        active.is_open = Set(true);
-        // Plain reopen leaves the relationship as-is; the worktree flow writes
-        // the authoritative value (including NULL) so it can never go stale.
-        if let ParentWrite::Set(parent_id) = parent {
-            active.parent_id = Set(parent_id);
+        if project_id.is_some() {
+            active.project_id = Set(project_id);
         }
         active.update(conn).await?
     } else {
-        let max_order = folder::Entity::find()
-            .order_by_desc(folder::Column::SortOrder)
-            .one(conn)
-            .await?
-            .map(|m| m.sort_order)
-            .unwrap_or(0);
-        let active = folder::ActiveModel {
+        folder::ActiveModel {
             id: NotSet,
             name: Set(name.clone()),
             path: Set(path.to_string()),
@@ -260,36 +630,28 @@ async fn add_folder_inner(
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_open: Set(true),
-            sort_order: Set(max_order + 1),
-            color: Set(DEFAULT_FOLDER_COLOR.to_string()),
-            parent_id: Set(match parent {
-                ParentWrite::Preserve => None,
-                ParentWrite::Set(parent_id) => parent_id,
-            }),
+            project_id: Set(project_id),
             kind: Set(FolderKind::Regular),
-            alias: Set(None),
-            pinned_at: Set(None),
-        };
-        active.insert(conn).await?
+        }
+        .insert(conn)
+        .await?
     };
 
-    ensure_distinct_folder_aliases(conn).await?;
+    // 改挂、重开都可能留下空项目或失效的项目引用：先收尾，再给仍无项目的目录建一个。
+    prune_projects(conn).await?;
+    let has_project = match model.project_id {
+        Some(id) => project::Entity::find_by_id(id).one(conn).await?.is_some(),
+        None => false,
+    };
+    let model = if has_project {
+        model
+    } else {
+        let id = create_project(conn, &model).await?;
+        let mut active = model.into_active_model();
+        active.project_id = Set(Some(id));
+        active.update(conn).await?
+    };
     Ok(to_entry(model))
-}
-
-/// 同名项目统一填充普通别名；已有别名不覆盖，自动发现和手动添加走同一规则。
-pub async fn ensure_distinct_folder_aliases(conn: &DatabaseConnection) -> Result<(), DbError> {
-    conn.execute(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "UPDATE folder SET alias = name || ' · ' || id, updated_at = ? \
-         WHERE alias IS NULL AND deleted_at IS NULL AND kind = 'regular' \
-         AND name IN (SELECT name FROM folder WHERE deleted_at IS NULL AND kind = 'regular' \
-         GROUP BY name HAVING COUNT(*) > 1)",
-        [Utc::now().into()],
-    ))
-    .await?;
-    Ok(())
 }
 
 /// Create a dedicated hidden folder backing a single chat-mode conversation.
@@ -297,21 +659,16 @@ pub async fn ensure_distinct_folder_aliases(conn: &DatabaseConnection) -> Result
 /// Unlike [`add_folder`], the display name is a fixed sentinel ("Chat") rather
 /// than derived from the path, and `kind = chat` is set so the frontend routes
 /// this folder's conversations to the sidebar "Chat" group and hides
-/// folder-bound chrome. `path` is a freshly generated per-conversation scratch dir, so it
-/// never collides on the `UNIQUE(path)` constraint. Returns the full
-/// [`FolderDetail`] so the caller can hand it straight to the frontend.
+/// folder-bound chrome. Chat folders belong to no project. `path` is a freshly
+/// generated per-conversation scratch dir, so it never collides on the
+/// `UNIQUE(path)` constraint. Returns the full [`FolderDetail`] so the caller
+/// can hand it straight to the frontend.
 pub async fn add_chat_folder(
     conn: &DatabaseConnection,
     path: &str,
 ) -> Result<FolderDetail, DbError> {
     let now = Utc::now();
-    let max_order = folder::Entity::find()
-        .order_by_desc(folder::Column::SortOrder)
-        .one(conn)
-        .await?
-        .map(|m| m.sort_order)
-        .unwrap_or(0);
-    let active = folder::ActiveModel {
+    let model = folder::ActiveModel {
         id: NotSet,
         name: Set("Chat".to_string()),
         path: Set(path.to_string()),
@@ -322,24 +679,17 @@ pub async fn add_chat_folder(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_open: Set(true),
-        sort_order: Set(max_order + 1),
-        color: Set(DEFAULT_FOLDER_COLOR.to_string()),
-        parent_id: Set(None),
+        project_id: Set(None),
         kind: Set(FolderKind::Chat),
-        alias: Set(None),
-        pinned_at: Set(None),
-    };
-    let model = active.insert(conn).await?;
-    Ok(to_detail(model))
+    }
+    .insert(conn)
+    .await?;
+    Ok(to_detail(model, &HashMap::new()))
 }
 
-/// Sets (or clears) a folder's display alias. `alias = None` clears it; callers
-/// are expected to have already normalized empty/whitespace input to `None`.
+/// 改 folder 所属项目的名称或置顶。`alias = None` 恢复为主成员目录名；调用方已把空白输入归一成 `None`。
 ///
-/// `pinned = Some(true)` stamps `pinned_at` to now; `Some(false)` clears it.
-/// `None` leaves the pin state unchanged. Pinning is a view preference and
-/// reuses this command so the folders command surface does not grow.
+/// `pinned = Some(true)` 置顶（记当前时间），`Some(false)` 取消，`None` 不动。
 pub async fn update_folder_alias(
     conn: &DatabaseConnection,
     folder_id: i32,
@@ -347,28 +697,35 @@ pub async fn update_folder_alias(
     update_alias: bool,
     pinned: Option<bool>,
 ) -> Result<Option<FolderDetail>, DbError> {
-    let row = folder::Entity::find_by_id(folder_id)
-        .filter(folder::Column::DeletedAt.is_null())
-        .one(conn)
-        .await?;
-
-    let Some(row) = row else {
+    let Some(project_id) = get_folder_by_id(conn, folder_id)
+        .await?
+        .and_then(|folder| folder.project_id)
+    else {
         return Ok(None);
     };
+    let Some(row) = project::Entity::find_by_id(project_id).one(conn).await? else {
+        return Ok(None);
+    };
+    let main_name = folder::Entity::find_by_id(row.main_folder_id)
+        .one(conn)
+        .await?
+        .map(|main| main.name);
 
     let mut active = row.into_active_model();
     if update_alias {
-        active.alias = Set(alias);
+        if let Some(name) = alias.or(main_name) {
+            active.name = Set(name);
+        }
     }
     if let Some(pinned) = pinned {
         active.pinned_at = Set(if pinned { Some(Utc::now()) } else { None });
     }
     active.updated_at = Set(Utc::now());
-    let updated = active.update(conn).await?;
-    Ok(Some(to_detail(updated)))
+    active.update(conn).await?;
+    get_folder_by_id(conn, folder_id).await
 }
 
-/// 目录搬家（worktree 改名）后改写路径、名字与分支，保留 id：会话、tab、别名都按 id 挂着。
+/// 目录搬家（worktree 改名）后改写路径、名字与分支，保留 id：会话、tab 都按 id 挂着。
 pub async fn update_folder_path(
     conn: &DatabaseConnection,
     folder_id: i32,
@@ -391,7 +748,7 @@ pub async fn update_folder_path(
     active.name = Set(name);
     active.git_branch = Set(git_branch);
     active.updated_at = Set(Utc::now());
-    Ok(Some(to_detail(active.update(conn).await?)))
+    Ok(Some(detail_of(conn, active.update(conn).await?).await?))
 }
 
 pub async fn update_folder_default_agent(
@@ -418,7 +775,7 @@ pub async fn update_folder_default_agent(
     active.default_agent_type = Set(serialized);
     active.updated_at = Set(Utc::now());
     let updated = active.update(conn).await?;
-    Ok(Some(to_detail(updated)))
+    Ok(Some(detail_of(conn, updated).await?))
 }
 
 pub async fn list_folders(conn: &DatabaseConnection) -> Result<Vec<FolderHistoryEntry>, DbError> {
@@ -448,6 +805,7 @@ pub async fn remove_folder(conn: &DatabaseConnection, path: &str) -> Result<(), 
         active.deleted_at = Set(Some(now));
         active.updated_at = Set(now);
         active.update(conn).await?;
+        prune_projects(conn).await?;
     }
     Ok(())
 }
@@ -456,6 +814,7 @@ pub async fn remove_folder(conn: &DatabaseConnection, path: &str) -> Result<(), 
 ///
 /// The old row remains as a hidden foreign-key anchor, but its real path is
 /// replaced so adding that path again creates a new folder/runtime identity.
+/// The folder leaves its project; a project left without members is deleted.
 pub async fn forget_folder<C: ConnectionTrait>(
     conn: &C,
     folder_id: i32,
@@ -474,46 +833,39 @@ pub async fn forget_folder<C: ConnectionTrait>(
     active.path = Set(format!("berth-forgotten://{tombstone}"));
     active.project_runtime_id = Set(tombstone.to_string());
     active.deleted_at = Set(Some(now));
-    active.is_open = Set(false);
     active.git_branch = Set(None);
     active.default_agent_type = Set(None);
-    active.parent_id = Set(None);
-    active.alias = Set(None);
-    active.pinned_at = Set(None);
+    active.project_id = Set(None);
     active.updated_at = Set(now);
     active.update(conn).await?;
+    prune_projects(conn).await?;
 
     Ok(path)
-}
-
-pub async fn set_folder_open(
-    conn: &DatabaseConnection,
-    folder_id: i32,
-    is_open: bool,
-) -> Result<(), DbError> {
-    let row = folder::Entity::find_by_id(folder_id).one(conn).await?;
-
-    if let Some(row) = row {
-        let mut active = row.into_active_model();
-        active.is_open = Set(is_open);
-        active.updated_at = Set(Utc::now());
-        active.update(conn).await?;
-    }
-    Ok(())
 }
 
 pub async fn list_open_folders(
     conn: &DatabaseConnection,
 ) -> Result<Vec<FolderHistoryEntry>, DbError> {
-    let rows = folder::Entity::find()
-        .filter(folder::Column::DeletedAt.is_null())
-        .filter(folder::Column::IsOpen.eq(true))
-        .filter(folder::Column::Kind.eq(FolderKind::Regular))
-        .order_by_desc(folder::Column::LastOpenedAt)
-        .all(conn)
-        .await?;
+    Ok(list_folders(conn)
+        .await?
+        .into_iter()
+        .filter(|row| std::path::Path::new(&row.path).is_dir())
+        .collect())
+}
 
-    Ok(rows.into_iter().map(to_entry).collect())
+/// 按项目排序（`sort_order`），同项目内最近打开的在前。
+fn sorted_details(
+    rows: Vec<folder::Model>,
+    projects: &HashMap<i32, project::Model>,
+) -> Vec<FolderDetail> {
+    let mut details: Vec<FolderDetail> = rows.into_iter().map(|m| to_detail(m, projects)).collect();
+    details.sort_by(|a, b| {
+        let order = |d: &FolderDetail| d.project.as_ref().map_or(0, |p| p.sort_order);
+        order(a)
+            .cmp(&order(b))
+            .then(b.last_opened_at.cmp(&a.last_opened_at))
+    });
+    details
 }
 
 pub async fn list_open_folder_details(
@@ -524,19 +876,14 @@ pub async fn list_open_folder_details(
     // can still resolve an active chat conversation's cwd / active folder by id.
     let rows = folder::Entity::find()
         .filter(folder::Column::DeletedAt.is_null())
-        .filter(folder::Column::IsOpen.eq(true))
         .filter(folder::Column::Kind.eq(FolderKind::Regular))
-        .order_by_asc(folder::Column::SortOrder)
-        .order_by_desc(folder::Column::LastOpenedAt)
         .all(conn)
-        .await?;
-
-    // 只列仍存在的目录（被删、临时目录被清的不列；记录保留）：GUI、CLI 与设备概览同一口径。
-    Ok(rows
+        .await?
         .into_iter()
+        // 只列仍存在的目录（被删、临时目录被清的不列；记录保留）：GUI、CLI 与设备概览同一口径。
         .filter(|row| std::path::Path::new(&row.path).is_dir())
-        .map(to_detail)
-        .collect())
+        .collect();
+    Ok(sorted_details(rows, &projects_by_id(conn).await?))
 }
 
 pub async fn list_all_folder_details(
@@ -544,12 +891,9 @@ pub async fn list_all_folder_details(
 ) -> Result<Vec<FolderDetail>, DbError> {
     let rows = folder::Entity::find()
         .filter(folder::Column::DeletedAt.is_null())
-        .order_by_asc(folder::Column::SortOrder)
-        .order_by_desc(folder::Column::LastOpenedAt)
         .all(conn)
         .await?;
-
-    Ok(rows.into_iter().map(to_detail).collect())
+    Ok(sorted_details(rows, &projects_by_id(conn).await?))
 }
 
 /// Paths of all *live* (non-deleted) chat scratch folders. Consumed by the
@@ -568,31 +912,33 @@ pub async fn list_live_chat_folder_paths(
     Ok(rows.into_iter().map(|m| m.path).collect())
 }
 
+/// 按 folder 顺序给它们所属的项目排序（同项目的多个 folder 取第一次出现的位置）。
 pub async fn reorder_folders(conn: &DatabaseConnection, ids: Vec<i32>) -> Result<(), DbError> {
-    if ids.is_empty() {
-        return Ok(());
+    let projects: HashMap<i32, Option<i32>> = folder::Entity::find()
+        .filter(folder::Column::Id.is_in(ids.iter().copied()))
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|f| (f.id, f.project_id))
+        .collect();
+    let mut ordered: Vec<i32> = Vec::new();
+    for project_id in ids
+        .iter()
+        .filter_map(|id| projects.get(id).copied().flatten())
+    {
+        if !ordered.contains(&project_id) {
+            ordered.push(project_id);
+        }
     }
-
     let now = Utc::now();
-    let now_str = now.format("%Y-%m-%d %H:%M:%S %:z").to_string();
-    let case_expr = ids
-        .iter()
-        .enumerate()
-        .map(|(idx, id)| format!("WHEN {} THEN {}", id, idx + 1))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let id_list = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let sql = format!(
-        "UPDATE folder SET sort_order = CASE id {case_expr} END, updated_at = '{now_str}' WHERE id IN ({id_list})"
-    );
-    conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
+    for (idx, project_id) in ordered.into_iter().enumerate() {
+        conn.execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "UPDATE project SET sort_order = ?, updated_at = ? WHERE id = ?",
+            [(idx as i32 + 1).into(), now.into(), project_id.into()],
+        ))
         .await?;
-
+    }
     Ok(())
 }
 

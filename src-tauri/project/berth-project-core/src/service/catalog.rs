@@ -34,7 +34,7 @@ pub struct CatalogEntry {
 /// 唯一目录投影。
 ///
 /// - 隐藏的 `chat` folder 对项目目录不可见；
-/// - `is_open` 判据是「出现在打开集合里」，即持久列 `is_open` 的投影。
+/// - `is_open` 判据是「出现在打开集合里」：未删除且目录仍在。
 pub async fn list_catalog(
     conn: &DatabaseConnection,
     scope: CatalogScope,

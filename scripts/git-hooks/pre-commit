@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# 提交前只检查这次暂存的 JS / TS 文件（eslint 含 prettier 规则），与公开仓库 Test 的 Lint 同一份配置。
+# 启用：git config core.hooksPath scripts/git-hooks（所有 worktree 共用）；临时跳过：git commit --no-verify
+set -euo pipefail
+
+files=()
+while IFS= read -r -d '' file; do files+=("$file"); done < <(
+  git diff --cached --name-only --diff-filter=ACMR -z -- '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx'
+)
+[ ${#files[@]} -eq 0 ] && exit 0
+
+if ! pnpm exec eslint --no-warn-ignored --quiet -- "${files[@]}"; then
+  echo "pre-commit: 上面的文件没过 eslint；格式问题可先跑 pnpm exec prettier --write <文件>" >&2
+  exit 1
+fi

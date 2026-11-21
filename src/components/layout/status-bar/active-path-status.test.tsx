@@ -5,6 +5,7 @@ import {
   ActivePathStatus,
   getRelativeOrCleanPath,
 } from "@/components/layout/status-bar/active-path-status"
+import { useDiffOverviewStatusStore } from "@/lib/files/diff-overview-status"
 
 const layoutMocks = vi.hoisted(() => ({
   activeWorkspaceTab: null as unknown,
@@ -48,7 +49,7 @@ const appWorkspaceMocks = vi.hoisted(() => ({
     id: number
     path: string
     name: string
-    alias?: string | null
+    project: FolderDetail["project"]
     git_branch?: string | null
   }>,
   activeFolderId: null as number | null,
@@ -71,15 +72,24 @@ vi.mock("@/stores/terminal-runtime-store", () => ({
   ) => selector(terminalRuntimeMocks),
 }))
 
+function project(name: string, main: number): FolderDetail["project"] {
+  return { name, main_folder_id: main, pinned_at: null, sort_order: 0 }
+}
+
 describe("getRelativeOrCleanPath helper", () => {
   const folders = [
     {
       id: 1,
       path: "/home/user/project/my-app",
       name: "my-app",
-      alias: "MyApp",
+      project: project("MyApp", 1),
     },
-    { id: 2, path: "/home/user/project/my-app/sub", name: "sub", alias: null },
+    {
+      id: 2,
+      path: "/home/user/project/my-app/sub",
+      name: "sub",
+      project: null,
+    },
   ]
 
   it("extracts project alias and relative path for project file", () => {
@@ -122,7 +132,7 @@ describe("ActivePathStatus component", () => {
         id: 1,
         path: "/home/user/repo",
         name: "repo",
-        alias: "MyRepo",
+        project: project("MyRepo", 1),
         git_branch: "main",
       },
     ]
@@ -263,5 +273,51 @@ describe("ActivePathStatus component", () => {
     await user.click(pathBtn)
 
     expect(writeTextSpy).toHaveBeenCalledWith("/home/user/repo/src/App.tsx")
+  })
+
+  it("renders diff overview badge and line count stats in the bottom status bar", async () => {
+    const user = userEvent.setup()
+    const writeTextSpy = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextSpy },
+      configurable: true,
+      writable: true,
+    })
+
+    const diffTabId = "diff:commit:1:abcdef1234567890"
+    layoutMocks.activeWorkspaceTab = { kind: "file", id: diffTabId }
+    fileStoreMocks.fileTabs = [
+      { id: diffTabId, kind: "diff", path: null, title: "Commit abcdef1" },
+    ] as unknown as typeof fileStoreMocks.fileTabs
+    useDiffOverviewStatusStore.getState().setStatus(diffTabId, {
+      kind: "commit",
+      badge: "abcdef1",
+      copyText: "abcdef1234567890",
+      description: null,
+      fileCount: 3,
+      additions: 42,
+      deletions: 7,
+      author: "Alice",
+      date: "2026-11-20T10:00:00Z",
+      pushed: false,
+      allExpanded: false,
+      fileFilter: "",
+      onToggleAllFiles: vi.fn(),
+      onFileFilterChange: vi.fn(),
+    })
+
+    const { unmount } = render(<ActivePathStatus />)
+
+    const badgeBtn = screen.getByRole("button", { name: "abcdef1" })
+    await user.click(badgeBtn)
+    expect(writeTextSpy).toHaveBeenCalledWith("abcdef1234567890")
+
+    const stats = screen.getByTestId("diff-status-info")
+    expect(stats.textContent).toContain("+42")
+    expect(stats.textContent).toContain("-7")
+    expect(stats.textContent).toContain("Alice")
+
+    unmount()
+    useDiffOverviewStatusStore.getState().clearStatus(diffTabId)
   })
 })

@@ -1,0 +1,165 @@
+/* 颜色与字体取宿主的 --berth-* 变量，随主题变化；列表用宿主侧栏的行样式，不用卡片。 */
+:root {
+  color-scheme: light dark;
+  --radius: var(--berth-radius, 6px);
+  --hover: var(--berth-accent, rgba(127, 127, 127, 0.15));
+  --muted: var(--berth-muted-foreground, gray);
+  --line: var(--berth-border, rgba(127, 127, 127, 0.25));
+}
+body {
+  margin: 0;
+  padding: 6px 8px 16px;
+  font: 13px/1.5 var(--berth-font-sans, system-ui, sans-serif);
+  color: var(--berth-foreground);
+  background: transparent;
+}
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button.outline {
+  border: 1px solid var(--line);
+}
+button.danger {
+  color: var(--berth-destructive, #d33);
+}
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 11px;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error {
+  color: var(--berth-destructive, #d33);
+  white-space: pre-wrap;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.5;
+}
+.dot[data-state="online"] {
+  background: #10b981;
+  opacity: 1;
+}
+section {
+  margin-top: 14px;
+}
+h2 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.form {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+dt {
+  color: var(--muted);
+}
+dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+.check[data-state="ok"] .mark {
+  color: #10b981;
+}
+.check[data-state="fail"] .mark {
+  color: var(--berth-destructive, #d33);
+}
+.check .why {
+  grid-column: 3;
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.check[data-state="fail"] .why {
+  color: var(--berth-destructive, #d33);
+}
+.project {
+  padding: 3px 2px;
+  border-radius: var(--radius);
+}
+.project:hover {
+  background: var(--hover);
+}
+.project input {
+  width: auto;
+  margin: 0;
+}
+.dirs li button {
+  width: 100%;
+  text-align: left;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

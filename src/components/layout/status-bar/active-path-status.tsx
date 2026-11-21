@@ -1,5 +1,9 @@
 "use client"
 
+import {
+  memberLabel,
+  projectName as nameOfProject,
+} from "@/lib/workspace/projects"
 import { useMemo, useState, useCallback } from "react"
 import { useTranslations } from "next-intl"
 import {
@@ -23,8 +27,10 @@ import { useTabStore } from "@/stores/tab-store"
 import { useTerminalRuntimeStore } from "@/stores/terminal-runtime-store"
 import { copyTextToClipboard } from "@/lib/utils"
 import { isVirtualPreviewPath } from "@/lib/files/file-open-target"
+import type { FolderDetail } from "@/lib/types"
 import type { WorkspaceLayoutProjection } from "@/lib/workspace/workspace-layout-projection"
 import { isTextFileTab } from "@/lib/files/file-workspace-tab"
+import { useDiffOverviewStatusStore } from "@/lib/files/diff-overview-status"
 import { FileStatusInfo } from "@/components/layout/status-bar/file-status-info"
 
 interface LocationPresentation {
@@ -43,7 +49,7 @@ export function getRelativeOrCleanPath(
     id: number
     path: string
     name: string
-    alias?: string | null
+    project: FolderDetail["project"]
   }[]
 ): { projectName: string | null; relativePath: string } {
   if (!fullPath) return { projectName: null, relativePath: "" }
@@ -58,7 +64,7 @@ export function getRelativeOrCleanPath(
   )
 
   if (matched) {
-    const projectName = matched.alias || matched.name
+    const projectName = memberLabel(matched)
     if (fullPath === matched.path) {
       return { projectName, relativePath: "" }
     }
@@ -111,6 +117,9 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
     activeWorkspaceTab?.kind === "file"
       ? (fileTabs.find((tab) => tab.id === activeWorkspaceTab.id) ?? null)
       : null
+  const diffOverviewStatus = useDiffOverviewStatusStore((state) =>
+    activeFile?.kind === "diff" ? (state.byTabId[activeFile.id] ?? null) : null
+  )
   const activePrimary =
     activeWorkspaceTab?.kind === "primary"
       ? (primaryTabs.find((tab) => tab.id === activeWorkspaceTab.id) ?? null)
@@ -126,6 +135,18 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
   const presentation = useMemo<LocationPresentation | null>(() => {
     // 1. 文件页面
     if (activeFile) {
+      // 1.1 差异总览页：左侧放标号（commit 短 hash / 分支 / 工作区），点它直接复制完整 hash
+      if (diffOverviewStatus) {
+        return {
+          icon: GitCommit,
+          projectName: null,
+          subInfo: diffOverviewStatus.badge,
+          rawPath: diffOverviewStatus.copyText,
+          relativePath: null,
+          tooltip: diffOverviewStatus.copyText ?? diffOverviewStatus.badge,
+          kind: "file",
+        }
+      }
       const filePath = activeFile.path ?? ""
       // 内存预览（README、专家产出）的虚拟路径对用户无意义：显示来源，复制来源
       if (isVirtualPreviewPath(filePath)) {
@@ -174,9 +195,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
           : null
         const { projectName: matchedProject, relativePath } =
           getRelativeOrCleanPath(rawCwd, allFolders)
-        const projectName = folder
-          ? folder.alias || folder.name
-          : matchedProject
+        const projectName = folder ? nameOfProject(folder) : matchedProject
         const termTitle = activePrimary.title?.trim()
 
         let subInfo = ""
@@ -205,7 +224,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
         const folder =
           allFolders.find((f) => f.id === activePrimary.folderId) ?? null
         const projectName = folder
-          ? folder.alias || folder.name
+          ? nameOfProject(folder)
           : activePrimary.isChat
             ? null
             : "Chat"
@@ -287,7 +306,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
       if (activeFolder) {
         return {
           icon: Folder,
-          projectName: activeFolder.alias || activeFolder.name,
+          projectName: nameOfProject(activeFolder),
           subInfo: "",
           rawPath: activeFolder.path,
           relativePath: null,
@@ -304,6 +323,7 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
     activePrimary,
     activeWorkspaceTab,
     allFolders,
+    diffOverviewStatus,
     runtimeCwd,
   ])
 
@@ -359,6 +379,58 @@ export function ActivePathStatus({ part = "all" }: { part?: ActivePathPart }) {
           <FileStatusInfo tab={activeFile} />
         </div>
       ) : null}
+      {diffOverviewStatus ? (
+        <div
+          data-testid="diff-status-info"
+          className="ml-auto flex shrink-0 items-center gap-3 pl-2 font-mono text-[11px] text-muted-foreground"
+        >
+          {diffOverviewStatus.pushed !== null && (
+            <span
+              className={cn(
+                diffOverviewStatus.pushed
+                  ? "text-muted-foreground"
+                  : "text-amber-600 dark:text-amber-400"
+              )}
+            >
+              {diffOverviewStatus.pushed
+                ? t("diff.pushed")
+                : t("diff.unpushed")}
+            </span>
+          )}
+          {diffOverviewStatus.author && (
+            <span className="max-w-[140px] truncate font-sans">
+              {diffOverviewStatus.author}
+            </span>
+          )}
+          {diffOverviewStatus.date && (
+            <span className="hidden lg:inline">
+              {formatStatusDate(diffOverviewStatus.date)}
+            </span>
+          )}
+          <span>
+            {t("diff.fileCount", { count: diffOverviewStatus.fileCount })}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-green-600 dark:text-green-400">
+              +{diffOverviewStatus.additions}
+            </span>
+            <span className="text-red-600 dark:text-red-400">
+              -{diffOverviewStatus.deletions}
+            </span>
+          </span>
+        </div>
+      ) : null}
     </div>
   )
+}
+
+function formatStatusDate(raw: string): string {
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed)
 }

@@ -295,14 +295,10 @@ export interface FolderDetail {
   git_branch: string | null
   default_agent_type: AgentType | null
   last_opened_at: string
-  sort_order: number
-  color: string
-  /**
-   * Root folder this one was created under (worktree folders only); null for
-   * top-level folders. Flattened — a worktree of a worktree still points at the
-   * original root. Drives the sidebar merge and worktree-branch detection.
-   */
-  parent_id: number | null
+  /** 所属项目；chat folder 为 null。 */
+  project_id: number | null
+  /** 所属项目的属性（每个成员同一份）；chat folder、对方设备的项目为 null。 */
+  project: ProjectSummary | null
   /**
    * Folder classification. `chat` folders back folderless chat-mode
    * conversations: kept in `allFolders` so cwd / active-folder resolve, but
@@ -310,18 +306,22 @@ export interface FolderDetail {
    * sidebar "Chat" group and folder-bound chrome is hidden while one is active.
    */
   kind: FolderKind
-  /**
-   * User-supplied display alias, or null when unset. When present, the sidebar
-   * folder header and conversation header render `alias [name]`
-   * (see `formatFolderLabelWithAlias`). Display-only — never used for the
-   * folder's real `path`/`id`.
-   */
-  alias: string | null
-  /**
-   * When the user pinned this folder. Null/absent means not pinned. The
-   * project and folder lists sort pinned folders first by this timestamp.
-   */
-  pinned_at?: string | null
+}
+
+/** 项目级属性：项目名、主成员、置顶、排序只存在项目上。 */
+export interface ProjectSummary {
+  name: string
+  main_folder_id: number
+  pinned_at: string | null
+  sort_order: number
+}
+
+/** 项目的代码成员：`list_project_members` 现读 git 得到。 */
+export interface ProjectMember extends FolderDetail {
+  /** 失效：目录不在，或已不在主成员的 `git worktree list` 里。 */
+  stale: boolean
+  /** 临时：自动化每次运行建的 worktree，或所属群的任务都已结束。 */
+  temporary: boolean
 }
 
 /**
@@ -1452,6 +1452,7 @@ export interface GitConflictFileVersions {
 
 export interface GitCommitResult {
   committed_files: number
+  hash: string
 }
 
 export interface GitRemote {

@@ -167,9 +167,11 @@ describe("createTerminalWebglController", () => {
     b.controller.setVisible(true)
     await flush()
     b.controller.setVisible(false)
+    const pages: HTMLCanvasElement[] = []
     // 默认上限 16 页、预留 2 页：首页之外第 13 页触发；同一页经两个终端各报一次只算一页
     for (let i = 0; i < 12; i++) {
       const page = document.createElement("canvas")
+      pages.push(page)
       a.addons[0].addPage(page)
       b.addons[0].addPage(page)
     }
@@ -183,19 +185,24 @@ describe("createTerminalWebglController", () => {
     // 可见的立即换新，隐藏的等再显示
     expect(a.term.loadAddon).toHaveBeenCalledTimes(2)
     expect(b.term.loadAddon).toHaveBeenCalledTimes(1)
+    // 换掉的图集页立即交还显存，不等 GC
+    expect(pages.every((page) => page.width === 0 && page.height === 0)).toBe(
+      true
+    )
   })
 
   it("loses the GL context explicitly after disposing the addon", async () => {
     const loseContext = vi.fn()
+    const glCanvas = document.createElement("canvas")
     const gl = {
       MAX_TEXTURE_IMAGE_UNITS: 0x8872,
+      canvas: glCanvas,
       getParameter: () => 16,
       getExtension: () => ({ loseContext }),
     }
     const element = document.createElement("div")
     const layer = document.createElement("canvas")
     layer.classList.add("xterm-link-layer")
-    const glCanvas = document.createElement("canvas")
     glCanvas.getContext = vi.fn(
       () => gl
     ) as unknown as typeof glCanvas.getContext
@@ -213,6 +220,8 @@ describe("createTerminalWebglController", () => {
     controller.dispose()
     expect(addon.dispose).toHaveBeenCalledTimes(1)
     expect(loseContext).toHaveBeenCalledTimes(1)
+    expect(glCanvas.width).toBe(0)
+    expect(glCanvas.height).toBe(0)
   })
 
   it("clears every atlas after a suspend-sized timer gap", async () => {

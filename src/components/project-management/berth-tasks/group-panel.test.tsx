@@ -15,7 +15,7 @@ const finishTask = vi.fn()
 const terminateTerminalSession = vi.fn()
 const requestAgentLaunch = vi.fn()
 const setActiveFolderId = vi.fn()
-const refreshWorktreeFamily = vi.fn()
+const refreshProjectMembers = vi.fn()
 const jump = vi.fn()
 const openTaskTab = vi.fn()
 const closeFileTab = vi.fn()
@@ -95,7 +95,7 @@ vi.mock("@/stores/app-workspace-store", () => {
     // 正看着任务的 worktree 项目：收尾后应回到主项目。
     activeFolderId: 8,
     setActiveFolderId,
-    refreshWorktreeFamily,
+    refreshProjectMembers,
   })
   const useAppWorkspaceStore = (
     select: (s: ReturnType<typeof state>) => unknown
@@ -261,7 +261,7 @@ beforeEach(() => {
     ensureGroupWatch,
     requestAgentLaunch,
     setActiveFolderId,
-    refreshWorktreeFamily,
+    refreshProjectMembers,
     finishTask,
     terminateTerminalSession,
     jump,

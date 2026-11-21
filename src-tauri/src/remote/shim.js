@@ -92,16 +92,6 @@
 
   const WINDOW_READS =
     /^(is_|inner_|outer_|scale_factor|title$|theme$|current_monitor|primary_monitor|available_monitors|monitor_from_point|cursor_position|get_)/
-  const WINDOW_ROUTES = {
-    open_commit_window: (a) => `/commit?folderId=${a.folderId}`,
-    open_stash_window: (a) => `/stash?folderId=${a.folderId}`,
-    open_push_window: (a) => `/push?folderId=${a.folderId}`,
-    open_merge_window: (a) =>
-      `/merge?folderId=${a.folderId}&operation=${encodeURIComponent(a.operation)}` +
-      (a.upstreamCommit
-        ? `&upstreamCommit=${encodeURIComponent(a.upstreamCommit)}`
-        : ""),
-  }
   const BROWSER_UNAVAILABLE = new Set(["perform_app_update", "restart_app"])
   const HOST_ONLY_NOOPS = new Set([
     "open_logs_dir",
@@ -123,14 +113,6 @@
     if (cmd === "plugin:event|unlisten") {
       unlisten(args.event, args.eventId)
       return null
-    }
-    if (WINDOW_ROUTES[cmd]) {
-      const path = WINDOW_ROUTES[cmd](args)
-      window.open(
-        path,
-        cmd.replace("open_", "").replace("_window", "") + "-" + args.folderId
-      )
-      return { path }
     }
     if (BROWSER_UNAVAILABLE.has(cmd)) {
       throw "Not available in the browser; use the Berth desktop app."

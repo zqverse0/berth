@@ -181,6 +181,28 @@ declare module "berth" {
 
   export type LaunchInputs = Readonly<Record<string, string | number | boolean>>
 
+  /** launch.js 的 `ctx.project`。 */
+  export interface ProjectView {
+    readonly name: string
+    /** 主成员目录（放 `.berth/` 的 checkout）。 */
+    readonly home: string
+    /** main 与各 worktree，主成员在前。stale：目录不在或已不在 git 列表里；temporary：自动化运行或已结束的群。 */
+    readonly checkouts: readonly {
+      readonly path: string
+      readonly branch: string | null
+      readonly main: boolean
+      readonly stale: boolean
+      readonly temporary: boolean
+      /** 在这个检出里跑的 Agent（插件 id 与终端短名）。 */
+      readonly agents: readonly {
+        readonly agent: string
+        readonly terminal: string
+      }[]
+    }[]
+    /** 参考目录（只读约定，Berth 不做沙箱）。 */
+    readonly references: readonly { readonly path: string }[]
+  }
+
   export interface LaunchContext {
     /** `args(inputs)` 加用户手动追加的参数。 */
     readonly args: string[]
@@ -194,6 +216,11 @@ declare module "berth" {
     readonly assets: Readonly<Record<string, readonly ExpertAsset[]>>
     /** 选了自定义服务商才有；没有 = 用 Agent 自己的登录。 */
     readonly provider: Provider | null
+    /**
+     * 启动目录所在项目的成员（同 `berth project . member ls --json`）；不在项目里为 null。
+     * 要不要交给 `--add-dir`、参考是否只读、有 Agent 在跑的检出给不给写，由插件决定。
+     */
+    readonly project: ProjectView | null
     /** Berth 能力索引，追加进系统提示词；取不到为空串。 */
     readonly brief: string
     /** 无人值守（定时任务）：没人能点确认框。 */
@@ -433,6 +460,91 @@ declare module "berth" {
     attach(item: { label: string; text: string; path?: string }): Promise<void>
   }
 
+  /** 一台设备（可经 SSH 连接的其他机器）。 */
+  export interface DeviceInfo {
+    id: number
+    name: string
+    /** 传给 ssh 的目标：`user@host`、域名或 `~/.ssh/config` 的 Host 别名。 */
+    target: string
+    /** 对方装了 Berth（节点设备）；否则只能开 SSH 终端。 */
+    node: boolean
+    /** 显示在侧栏的对方项目（主成员在对方的路径）。 */
+    shown: string[]
+    status: "checking" | "online" | "offline"
+    /** 连不上时 ssh 的错误或 `device.*` 错误码。 */
+    message: string | null
+    /** 因为要密码而连不上：配置免密登录可解决。 */
+    keyMissing: boolean
+    /** 本机（id 0）：没有 SSH 目标、检查清单与显示开关，不能移除。 */
+    local?: true
+  }
+
+  /** 检查清单一项（插件自用，`devices/ui/checklist.js`）；`reason.key` 是原因码，文字按语言给出。 */
+  export interface DeviceCheckItem {
+    id: "ssh" | "key" | "berth" | "version" | "host"
+    state: "ok" | "fail" | "pending" | "skipped"
+    reason?: { key: string; values?: Record<string, string> }
+    /** 原文（ssh 错误、路径、版本号）。 */
+    raw?: string | null
+  }
+
+  /**
+   * devices@1 · 仅页面 · 权限 `devices`。设备管理：增删、检测、挑选显示在侧栏的对方项目、在对方建项目、
+   * 开 SSH 终端、配置免密。连接与对方项目 / 终端并入本机由宿主负责。本机是列表里 id 0 的设备。
+   */
+  export interface DevicesApi {
+    /** 全部设备；`selected` 是宿主要求选中的设备（从侧栏设备分组打开面板时）。 */
+    list(): Promise<{ devices: DeviceInfo[]; selected: number | null }>
+    /** `~/.ssh/config` 里尚未添加的 Host 别名。 */
+    candidates(): Promise<string[]>
+    /** 先测连接，连得上才保存；失败 reject（`device.*` 错误码或 ssh 原文）。 */
+    add(name: string, target: string): Promise<{ id: number }>
+    remove(id: number): Promise<void>
+    /**
+     * 重新检测，返回原始结果：ssh 检测、对方 berth 路径、概览（离线时为缓存）、本机版本、到对方 GUI 的
+     * 连线（连上为 open；没连上带原因）。检查清单由插件自己得出。
+     */
+    inspect(id: number): Promise<{
+      check: { ok: boolean; message: string | null }
+      berth: string | null
+      localVersion: string | null
+      line: { open: boolean; error: string | null } | null
+      overview: {
+        host: string
+        os: string
+        arch?: string
+        version?: string
+        /** 对方 GUI 的设备 socket；GUI 没在运行为 null，旧版不报（字段缺失） */
+        window?: string | null
+        /** GUI 没在运行但能起无界面宿主 */
+        hostable?: boolean
+        projects: {
+          id: number
+          name: string
+          path: string
+          project?: { name: string; main_folder_id: number } | null
+        }[]
+      } | null
+    }>
+    /** 「显示在侧栏」开关；返回新的选择。 */
+    show(id: number, path: string, shown: boolean): Promise<string[]>
+    /** 浏览对方目录（限对方家目录之内）；`path` 省略为家目录。 */
+    dirs(
+      id: number,
+      path?: string | null
+    ): Promise<{ path: string; dirs: string[] }>
+    /** 在对方 Berth 里登记项目（不挂载）；本机（id 0）不传 `path`，弹目录选择框，取消为 null。 */
+    addProject(
+      id: number,
+      path?: string
+    ): Promise<{ id?: number; name: string } | null>
+    openTerminal(id: number): Promise<void>
+    /** 开终端跑 ssh-copy-id：已添加的传 id，添加前传 SSH 目标。 */
+    setupKey(device: number | string): Promise<void>
+    onChange(listener: () => void): () => void
+    onSelect(listener: (id: number) => void): () => void
+  }
+
   /** storage@1 · 两者 · 无需权限。插件自己的键值数据。 */
   export interface StorageApi {
     get<T = unknown>(key: string): Promise<T | undefined>
@@ -627,6 +739,7 @@ declare module "berth" {
     readonly data: DataApi
     readonly http: HttpApi
     readonly editor: EditorApi
+    readonly devices: DevicesApi
   }
 }
 

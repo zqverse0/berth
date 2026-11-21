@@ -25,10 +25,7 @@ import {
   hasFileTreeDragType,
   readFileTreeDragPayload,
 } from "@/lib/files/file-tree-dnd"
-import {
-  isPathUnderRoot,
-  openInPlaceOptions,
-} from "@/lib/files/file-open-target"
+import { isPathUnderRoot } from "@/lib/files/file-open-target"
 import { SidebarHeaderTabs } from "@/components/layout/sidebar/sidebar-header"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { cn } from "@/lib/utils"
@@ -186,7 +183,14 @@ export function PluginPageFrame({
 }
 
 /** 侧栏的第 2 层视图：`files.*` 与 `env.project` 取当前项目。 */
-export function PluginSidebarPage({ view }: { view: PluginView }) {
+export function PluginSidebarPage({
+  view,
+  active,
+}: {
+  view: PluginView
+  /** 切走后页面保持挂载只隐藏；标题栏标签经 portal 渲染在外面，只在当前视图时挂 */
+  active: boolean
+}) {
   const { activeFolder } = useActiveFolder()
   const locale = useLocale()
   const { openFilePreview } = useWorkspaceRuntimeActions()
@@ -227,11 +231,7 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
         )
       },
       setHeaderTabs,
-      openFile: (path) =>
-        void openFilePreview(
-          path,
-          openInPlaceOptions(path, activeFolder?.path)
-        ),
+      openFile: (path) => void openFilePreview(path),
       notify: (message, kind) =>
         kind === "error" ? toast.error(message) : toast(message),
       sendToAgent: (text) => void sendToAgent(text),
@@ -240,7 +240,7 @@ export function PluginSidebarPage({ view }: { view: PluginView }) {
   )
   return (
     <>
-      {header.tabs.length ? (
+      {active && header.tabs.length ? (
         <SidebarHeaderTabs
           tabs={header.tabs}
           value={header.value}

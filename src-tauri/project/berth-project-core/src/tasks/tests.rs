@@ -828,29 +828,6 @@ fn channel_idempotent_append_and_addressed_read() {
 }
 
 #[test]
-fn unread_counts_messages_for_the_user_after_the_read_mark() {
-    let repo = Repo::new();
-    let main = &repo.main;
-    group::create(main, "g").unwrap();
-    let post = |event: Value| group::append(main, "g", event).unwrap();
-    post(serde_json::json!({"kind": "message", "author": "a", "to": "user", "text": "旧"}));
-    // 第一次读：历史不算未读。
-    assert_eq!(group::unread(main, "g", None).unwrap(), 0);
-    post(serde_json::json!({"kind": "message", "author": "a", "to": "user", "text": "给我"}));
-    post(serde_json::json!({"kind": "message", "author": "a", "text": "全体"}));
-    post(serde_json::json!({"kind": "message", "author": "a", "to": "b", "text": "给别人"}));
-    post(serde_json::json!({"kind": "message", "author": "user", "to": "a", "text": "我发的"}));
-    let last = post(serde_json::json!({"kind": "joined", "author": "c"}));
-    assert_eq!(group::unread(main, "g", None).unwrap(), 2);
-    assert_eq!(group::unread(main, "g", Some(group::seq(&last))).unwrap(), 0);
-    // 已读位置不倒退。
-    assert_eq!(group::unread(main, "g", Some(1)).unwrap(), 0);
-    // 账本没变时走缓存；一追加就重算。
-    post(serde_json::json!({"kind": "message", "author": "a", "text": "又来"}));
-    assert_eq!(group::unread(main, "g", None).unwrap(), 1);
-}
-
-#[test]
 fn a_renamed_worktree_keeps_its_group_and_tasks() {
     let repo = Repo::new();
     let (group, old) = repo.start();
@@ -1771,4 +1748,128 @@ fn cached_git_queries_follow_commits_and_worktrees() {
     assert_eq!(ahead(&repo.main), "1");
     sh(&tree, &["git", "switch", "-q", "-c", "other"]);
     assert_eq!(git::current_branch(&tree).as_deref(), Some("other"));
+}
+
+/// 主项目提交一条想法与一篇笔记，再建 worktree `wt-<branch>`。
+fn repo_with_main_only(branch: &str) -> (Repo, PathBuf) {
+    let repo = Repo::new();
+    fs::create_dir_all(repo.main.join(".berth/ideas")).unwrap();
+    fs::write(repo.main.join(".berth/ideas/a.idea.md"), "a").unwrap();
+    fs::write(repo.main.join(".berth/knowledge/k.md"), "k").unwrap();
+    sh(&repo.main, &["git", "add", "-A"]);
+    sh(&repo.main, &["git", "commit", "-qm", "ideas"]);
+    let wt = repo.worktree(branch);
+    (repo, wt)
+}
+
+fn has_main_only(dir: &Path) -> [bool; 2] {
+    [".berth/ideas", ".berth/knowledge"].map(|rel| dir.join(rel).exists())
+}
+
+#[test]
+fn a_worktree_drops_ideas_and_knowledge_but_keeps_tasks() {
+    let (repo, wt) = repo_with_main_only("feat");
+    assert_eq!(has_main_only(&wt), [true, true]);
+
+    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Excluded);
+    assert_eq!(has_main_only(&wt), [false, false]);
+    assert!(wt.join(".berth/tasks/10-01-demo/prd.md").is_file());
+    assert_eq!(sh(&wt, &["git", "status", "--porcelain"]), "");
+    // 幂等；主项目自己不动。
+    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Skipped);
+    assert_eq!(exclude_main_only(&repo.main), MainOnlyCopy::Skipped);
+    assert_eq!(has_main_only(&repo.main), [true, true]);
+
+    // worktree 的提交合并回主项目，两个目录照旧。
+    fs::write(wt.join("code.rs"), "x").unwrap();
+    sh(&wt, &["git", "add", "-A"]);
+    sh(&wt, &["git", "commit", "-qm", "code"]);
+    sh(&repo.main, &["git", "merge", "-q", "feat"]);
+    assert_eq!(has_main_only(&repo.main), [true, true]);
+    assert!(repo.main.join(".berth/ideas/a.idea.md").is_file());
+}
+
+#[test]
+fn the_git_main_worktree_is_excluded_when_the_hub_is_elsewhere() {
+    let tmp = tempfile::tempdir().unwrap();
+    let first = tmp.path().join("first");
+    fs::create_dir_all(first.join(".berth/ideas")).unwrap();
+    fs::create_dir_all(first.join(".berth/knowledge")).unwrap();
+    fs::create_dir_all(first.join(".berth/tasks")).unwrap();
+    fs::write(first.join(".berth/ideas/a.idea.md"), "a").unwrap();
+    fs::write(first.join(".berth/knowledge/k.md"), "k").unwrap();
+    fs::write(first.join(".berth/tasks/t.md"), "t").unwrap();
+    sh(&first, &["git", "init", "-q", "-b", "main"]);
+    sh(&first, &["git", "add", "-A"]);
+    sh(&first, &["git", "commit", "-qm", "x"]);
+    let hub = tmp.path().join("hub");
+    let hub_arg = hub.to_str().unwrap();
+    sh(
+        &first,
+        &["git", "worktree", "add", "-q", "-b", "dev", hub_arg],
+    );
+    fs::create_dir_all(hub.join(".berth/local")).unwrap();
+    fs::write(hub.join(HUB_MARKER), "{}").unwrap();
+
+    assert_eq!(exclude_main_only(&first), MainOnlyCopy::Excluded);
+    assert_eq!(has_main_only(&first), [false, false]);
+    assert!(first.join(".berth/tasks/t.md").is_file());
+    assert_eq!(has_main_only(&hub), [true, true]);
+}
+
+#[test]
+fn an_unsaved_copy_is_left_alone() {
+    let (_repo, wt) = repo_with_main_only("dirty");
+    fs::write(wt.join(".berth/ideas/a.idea.md"), "changed").unwrap();
+    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Dirty(lines) if lines.len() == 1));
+    assert_eq!(has_main_only(&wt), [true, true]);
+
+    sh(&wt, &["git", "checkout", "--", ".berth/ideas"]);
+    fs::write(wt.join(".berth/knowledge/new.md"), "n").unwrap();
+    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Dirty(_)));
+    assert!(wt.join(".berth/knowledge/new.md").is_file());
+}
+
+#[test]
+fn existing_sparse_rules_are_kept() {
+    let (_repo, wt) = repo_with_main_only("sparse");
+    sh(
+        &wt,
+        &[
+            "git",
+            "sparse-checkout",
+            "set",
+            "--no-cone",
+            "/*",
+            "!/docs/",
+        ],
+    );
+    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Excluded);
+    let rules = sh(&wt, &["git", "sparse-checkout", "list"]);
+    for rule in ["/*", "!/docs/", "!/.berth/ideas/", "!/.berth/knowledge/"] {
+        assert!(rules.lines().any(|line| line == rule), "{rules}");
+    }
+    assert_eq!(has_main_only(&wt), [false, false]);
+}
+
+#[test]
+fn cone_mode_sparse_is_reported_not_overwritten() {
+    let (_repo, wt) = repo_with_main_only("cone");
+    sh(&wt, &["git", "sparse-checkout", "set", "--cone", ".berth"]);
+    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Failed(_)));
+    assert_eq!(has_main_only(&wt), [true, true]);
+}
+
+#[test]
+fn a_group_whose_tasks_all_completed_is_ended() {
+    let repo = Repo::new();
+    let (_, wt) = repo.start();
+    assert!(
+        ended_group_worktrees(&repo.main).is_empty(),
+        "open task keeps the group live"
+    );
+    complete(&repo.main, Some("demo")).unwrap();
+    let ended = ended_group_worktrees(&repo.main);
+    assert_eq!(ended.len(), 1);
+    assert!(git::same_path(&ended[0], &wt));
 }

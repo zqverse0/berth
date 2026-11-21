@@ -12,7 +12,6 @@ import {
   type GroupRead,
 } from "@/lib/agent/berth-group"
 import { getBerthStatus } from "@/lib/agent/berth-project"
-import { refreshGroupUnread } from "@/lib/agent/group-unread"
 import { onAgentChanged } from "@/lib/terminal/agent-panes"
 
 const POLL_MS = 2_000
@@ -60,7 +59,6 @@ interface GroupFeed {
   holders: number
   cursor: number
   snapshot: string
-  marked: string | null
   loading: Promise<void> | null
   again: boolean
   stop: (() => void) | null
@@ -80,7 +78,6 @@ function feedOf(folderId: number): GroupFeed {
       holders: 0,
       cursor: 0,
       snapshot: "",
-      marked: null,
       loading: null,
       again: false,
       stop: null,
@@ -152,15 +149,6 @@ async function readOnce(feed: GroupFeed) {
   feed.cursor = switched ? 0 : Math.max(after, result.nextAfter)
   if (result.name && result.name !== previous && feed.holders > 0) {
     ensureWatch(feed)
-  }
-  // 只在视图激活且窗口可见时读，读到即算看过：项目行未读数清零。
-  const mark = `${result.name}:${result.nextAfter}`
-  if (result.name && feed.marked !== mark) {
-    feed.marked = mark
-    void refreshGroupUnread(feed.folderId, {
-      group: result.name,
-      seq: result.nextAfter,
-    })
   }
 }
 

@@ -7,7 +7,7 @@ import {
   type WorkspaceTabRef,
 } from "@/lib/workspace/workspace-tab-placement"
 
-export const WORKSPACE_TAB_ORDER_STATE_KEY = "berth:workspace-tab-order:v1"
+export const WORKSPACE_TAB_ORDER_STATE_KEY = "berth:workspace-tab-order:v2"
 
 export type WorkspaceTabOrderByScope = Record<string, string[]>
 

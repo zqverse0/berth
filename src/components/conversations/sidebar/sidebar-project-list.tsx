@@ -1,33 +1,19 @@
 "use client"
 
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
 import {
-  Copy,
-  ExternalLink,
-  FolderGit2,
-  FolderInput,
   FolderOpenDot,
-  FolderPlus,
-  MoreHorizontal,
-  Pin,
+  ChevronDown,
+  ChevronRight,
+  Plus,
   Search,
   Server,
-  PencilLine,
-  Tag,
-  Trash2,
   X,
-  XCircle,
 } from "lucide-react"
+import { createAndOpenFolderTerminal } from "@/lib/terminal/create-and-open-primary-terminal"
+import { useReferenceBrowseStore } from "@/lib/workspace/reference-browse"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useOpenFolderPicker } from "@/hooks/workspace/use-open-folder-picker"
@@ -37,95 +23,50 @@ import {
   OPEN_SESSION_SWITCHER_EVENT,
 } from "@/components/layout/commands/commands"
 import { tabFromDescriptor } from "@/lib/terminal/create-and-open-primary-terminal"
-import {
-  refreshTerminalInventory,
-  useTerminalInventorySnapshot,
-} from "@/lib/terminal/terminal-inventory-query"
+import { useTerminalInventorySnapshot } from "@/lib/terminal/terminal-inventory-query"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
-import { deviceFolderId, parseDeviceRef } from "@/lib/transport/device"
-import { renameWorktree, updateFolderAlias } from "@/lib/api"
-import { isDesktop, revealItemInDir } from "@/lib/platform"
+import { parseDeviceRef } from "@/lib/transport/device"
+import { useDeviceSnapshotStore, useDeviceTransfers } from "@/lib/devices"
+import { updateFolderAlias } from "@/lib/api"
+import { revealItemInDir } from "@/lib/platform"
 import { toErrorMessage } from "@/lib/app-error"
 import { cn } from "@/lib/utils"
-import {
-  assignWorkspaceGroup,
-  createWorkspaceGroup,
-  defaultGroupId,
-  moveWorkspaceGroup,
-  normalizeWorkspaceGroups,
-  pruneWorkspaceMembers,
-  removeWorkspaceGroup,
-  renameWorkspaceGroup,
-  useWorkspaceGroupsStore,
-  type WorkspaceGroup,
-  type WorkspaceGroupsState,
-} from "@/lib/workspace-groups"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { agentTypeForTool } from "@/hooks/use-agent-profiles"
-import { copyPathToClipboard } from "@/components/layout/file-tree/file-tree-node"
 import {
   SidebarHeaderActions,
   SidebarHeaderButton,
-  SidebarHeaderTitle,
 } from "@/components/layout/sidebar/sidebar-header"
 import { useProjectPanelStore } from "@/components/layout/sidebar/views"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { sessionIndent } from "./project-row-face"
+import { ProjectRow } from "./project-row"
+import { useRemoveProject } from "./remove-project-dialog"
+import { useRenameWorktree } from "./rename-worktree-dialog"
+import { pickAndAddReference, projectMemberOp } from "./project-references"
+import { AgentIcons } from "./agent-icons"
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  ProjectRowButton,
-  projectBlockClass,
-  sessionIndent,
-} from "./project-row-face"
-import { ProjectGroupBadge } from "./project-group-badge"
-import { useGroupUnreadPolling } from "@/lib/agent/group-unread"
-import {
-  NewWorktreeDialog,
-  type NewWorktreeSource,
-} from "./new-worktree-dialog"
+  ProjectMembers,
+  type MemberFolder,
+  type MemberHandlers,
+} from "./project-members"
 import {
   DeviceFeed,
-  DeviceProjectMenuItems,
-  useDeviceDrop,
+  DeviceTransfers,
+  shownDeviceFolders,
   useOsFileDropToDevices,
   type DeviceFeedState,
 } from "./device-projects"
 import {
-  AddDeviceDialog,
   STATUS_DOT,
-  notifyDevicesChanged,
+  openDevicesPanel,
+  useDeviceErrorText,
   useDevices,
-  type DeviceStatus,
+  useDevicesPanelView,
 } from "@/components/devices/devices"
-import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { SessionRow } from "./session-row"
 import {
   buildSidebarSessions,
@@ -133,403 +74,14 @@ import {
   type SidebarSession,
 } from "./sidebar-sessions"
 import { SessionSwitcher } from "./session-switcher"
-import { useSidebarDrag } from "./use-sidebar-drag"
+import { sidebarRows, type RowFolder } from "./sidebar-rows"
 import {
-  WorkspaceGroupDialog,
-  WorkspaceGroupHeader,
-  WorkspaceSwitcher,
-} from "./workspace-group-header"
-import {
-  workspaceSections,
-  workspaceSwitchTarget,
-  type SectionFolder,
-  type WorkspaceLast,
-} from "./workspace-sections"
+  isMainMember,
+  mainFolderId,
+  projectName,
+} from "@/lib/workspace/projects"
 
 const RECONCILE_AFTER_SLIDE_MS = 300
-/** 用户手动设过的工作区「完整 / 只看运行中」：界面状态，存本地，不进工作区文件。 */
-const EXPANDED_KEY = "berth.sidebar.workspaceGroups.expanded"
-
-/** 每个工作区上次停留的项目与标签页：界面状态，存本地。 */
-const WORKSPACE_LAST_KEY = "berth.sidebar.workspaceLast"
-
-function loadWorkspaceLast(): Record<string, WorkspaceLast> {
-  try {
-    return JSON.parse(localStorage.getItem(WORKSPACE_LAST_KEY) ?? "{}")
-  } catch {
-    return {}
-  }
-}
-
-function loadExpanded(): Record<string, boolean> {
-  try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(EXPANDED_KEY) ?? "{}"
-    )
-    return value && typeof value === "object"
-      ? (value as Record<string, boolean>)
-      : {}
-  } catch {
-    return {}
-  }
-}
-
-/** 对方项目在行上要用的：所在设备与它的在线状态。 */
-interface RowDevice {
-  id: number
-  name: string
-  state: DeviceStatus
-}
-
-const ProjectRow = memo(function ProjectRow({
-  folderId,
-  folderName,
-  folderAlias,
-  folderPath,
-  pinned,
-  selected,
-  worktree,
-  nested,
-  worktreeBranch,
-  device,
-  idle,
-  groups,
-  groupId,
-  onSelect,
-  onNewWorktree,
-  onRemoveFromWorkspace,
-  onDeleteWorktree,
-  onSetAlias,
-  onRenameWorktree,
-  onSetPinned,
-  onOpenInSystemExplorer,
-  onMoveToGroup,
-  onDragStart,
-  onOfflineReason,
-}: {
-  folderId: number
-  folderName: string
-  /** User-set alias, or null. When present the row shows `alias [name]`. */
-  folderAlias: string | null
-  folderPath: string
-  pinned: boolean
-  selected: boolean
-  /** git worktree 行：FolderGit2 图标 + 分支名，只能删除不能仅从列表移除。 */
-  worktree: boolean
-  /** 挂在 root 下：右移一级并画连接线。 */
-  nested: boolean
-  worktreeBranch: string | null
-  /** 对方设备的项目；本机为 null（本机不标）。 */
-  device: RowDevice | null
-  /** 没有会话：名称淡色。 */
-  idle: boolean
-  /** 可移到的工作区；worktree 跟着 root，为 null。 */
-  groups: readonly WorkspaceGroup[] | null
-  groupId: string
-  onSelect: (folderId: number) => void
-  onNewWorktree: (folderId: number) => void
-  onRemoveFromWorkspace: (folderId: number) => void
-  onDeleteWorktree: (folderId: number) => void
-  onSetAlias: (folderId: number, alias: string | null) => void
-  /** worktree：目录与分支一起改名。 */
-  onRenameWorktree: (folderId: number, name: string) => void
-  onSetPinned: (folderId: number, pinned: boolean) => void
-  onOpenInSystemExplorer: (folderId: number) => void
-  onMoveToGroup: (folderId: number, groupId: string) => void
-  onDragStart: (folderId: number, event: PointerEvent) => void
-  onOfflineReason: (deviceId: number) => void
-}) {
-  // Own the translations here rather than receiving `t` as a prop: next-intl
-  // returns a fresh `t` on every parent render, which would defeat this memo.
-  const t = useTranslations("Folder.sidebar")
-  const tFileTree = useTranslations("Folder.fileTreeTab")
-  const tBranch = useTranslations("Folder.branchDropdown")
-  const tGroups = useTranslations("WorkspaceGroups")
-  const live = device?.state === "online"
-  const deviceDrop = useDeviceDrop(device?.id ?? 0, device != null && live)
-  const systemExplorerLabel =
-    typeof navigator === "undefined"
-      ? tFileTree("openInFileManager")
-      : (() => {
-          const platform =
-            `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
-          if (platform.includes("mac")) return tFileTree("openInFinder")
-          if (platform.includes("win")) return tFileTree("openInExplorer")
-          return tFileTree("openInFileManager")
-        })()
-  // `revealItemInDir` only works inside Tauri; disable the entry elsewhere.
-  const isDesktopMode = isDesktop()
-
-  // Alias / rename dialog is a sibling of the ContextMenu so it survives the
-  // menu closing on select. Seeded from the current alias / directory name.
-  const [nameDialog, setNameDialog] = useState<"alias" | "rename" | null>(null)
-  const [aliasValue, setAliasValue] = useState("")
-  const openAliasDialog = useCallback(() => {
-    setAliasValue(folderAlias ?? "")
-    setNameDialog("alias")
-  }, [folderAlias])
-  const openRenameDialog = useCallback(() => {
-    setAliasValue(folderPath.split(/[\\/]/).filter(Boolean).pop() ?? "")
-    setNameDialog("rename")
-  }, [folderPath])
-  const confirmAlias = useCallback(() => {
-    const trimmed = aliasValue.trim()
-    if (nameDialog === "rename") {
-      if (trimmed) onRenameWorktree(folderId, trimmed)
-    } else {
-      // Empty / whitespace clears the alias (null); the backend re-normalizes too.
-      onSetAlias(folderId, trimmed ? trimmed : null)
-    }
-    setNameDialog(null)
-  }, [aliasValue, folderId, nameDialog, onRenameWorktree, onSetAlias])
-
-  const offline = device?.state === "offline"
-  const moveMenu = groups ? (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
-        <FolderInput className="h-4 w-4" />
-        {tGroups("moveTo")}
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent>
-        {groups.map((group) => (
-          <ContextMenuItem
-            key={group.id}
-            disabled={group.id === groupId}
-            onSelect={() => onMoveToGroup(folderId, group.id)}
-          >
-            {group.emoji ? <span aria-hidden>{group.emoji}</span> : null}
-            {group.name}
-          </ContextMenuItem>
-        ))}
-      </ContextMenuSubContent>
-    </ContextMenuSub>
-  ) : null
-
-  return (
-    <>
-      <div
-        onClick={(event) => {
-          if ((event.target as HTMLElement).closest("button")) return
-          onSelect(folderId)
-        }}
-        onPointerDown={
-          groups ? (event) => onDragStart(folderId, event) : undefined
-        }
-        className={cn(projectBlockClass(selected), offline && "opacity-60")}
-      >
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div className="relative h-[2rem]">
-              <div className="flex h-[1.9375rem] w-full items-center">
-                <ProjectRowButton
-                  data-folder-id={folderId}
-                  onClick={() => onSelect(folderId)}
-                  name={folderName}
-                  alias={folderAlias}
-                  path={folderPath}
-                  pinned={pinned}
-                  selected={selected}
-                  worktree={worktree}
-                  nested={nested}
-                  branch={worktreeBranch}
-                  dim={idle}
-                  disabled={device != null && !live}
-                  badge={
-                    device ? (
-                      <span className="flex shrink-0 items-center gap-1 text-xs font-normal text-muted-foreground">
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "size-1.5 rounded-full",
-                            STATUS_DOT[device.state]
-                          )}
-                        />
-                        {device.name}
-                      </span>
-                    ) : null
-                  }
-                  {...(device ? deviceDrop(folderPath) : {})}
-                />
-                {/* 行尾的群组未读 / 等待标记。 */}
-                {device ? null : (
-                  <ProjectGroupBadge
-                    folderId={folderId}
-                    folderPath={folderPath}
-                  />
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    // Re-open the SAME context menu as right-click: dispatch a
-                    // synthetic contextmenu event that bubbles to the trigger.
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    e.currentTarget.dispatchEvent(
-                      new MouseEvent("contextmenu", {
-                        bubbles: true,
-                        cancelable: true,
-                        button: 2,
-                        clientX: rect.left,
-                        clientY: rect.bottom,
-                      })
-                    )
-                  }}
-                  title={t("moreOptions")}
-                  aria-label={t("moreOptions")}
-                  aria-haspopup="menu"
-                  className={cn(
-                    "mr-[0.375rem] flex h-6 w-6 shrink-0 cursor-pointer items-center justify-end rounded-[0.375rem] outline-none text-muted-foreground/90",
-                    "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
-                    "transition-[opacity,color] duration-150 hover:text-sidebar-foreground"
-                  )}
-                >
-                  <MoreHorizontal className="h-[0.875rem] w-[0.875rem]" />
-                </button>
-              </div>
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            {device ? (
-              <>
-                <DeviceProjectMenuItems
-                  deviceId={device.id}
-                  path={folderPath}
-                />
-                {moveMenu ? (
-                  <>
-                    <ContextMenuSeparator />
-                    {moveMenu}
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <>
-                {!worktree ? (
-                  <>
-                    <ContextMenuItem onSelect={() => onNewWorktree(folderId)}>
-                      <FolderGit2 className="h-4 w-4" />
-                      {tBranch("newWorktree")}
-                    </ContextMenuItem>
-                    <ContextMenuSeparator />
-                  </>
-                ) : null}
-                <ContextMenuItem
-                  disabled={!isDesktopMode}
-                  onSelect={() => onOpenInSystemExplorer(folderId)}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {systemExplorerLabel}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onSelect={() =>
-                    void copyPathToClipboard(
-                      folderPath,
-                      tFileTree("toasts.copyPathFailed")
-                    )
-                  }
-                >
-                  <Copy className="h-4 w-4" />
-                  {tFileTree("copyPath")}
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  onSelect={() => onSetPinned(folderId, !pinned)}
-                >
-                  <Pin className="h-4 w-4" />
-                  {pinned
-                    ? t("folderHeaderMenu.unpinProject")
-                    : t("folderHeaderMenu.pinProject")}
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={openAliasDialog}>
-                  <Tag className="h-4 w-4" />
-                  {t("folderHeaderMenu.setAlias")}
-                </ContextMenuItem>
-                {worktree ? (
-                  <ContextMenuItem onSelect={openRenameDialog}>
-                    <PencilLine className="h-4 w-4" />
-                    {t("folderHeaderMenu.renameWorktree")}
-                  </ContextMenuItem>
-                ) : null}
-                {moveMenu}
-                <ContextMenuSeparator />
-                {/* worktree 跟随 git：只能删除，不能仅从列表移除（下次对账会回来）。 */}
-                {worktree ? (
-                  <ContextMenuItem
-                    variant="destructive"
-                    onSelect={() => onDeleteWorktree(folderId)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t("folderHeaderMenu.deleteWorktree")}
-                  </ContextMenuItem>
-                ) : (
-                  <ContextMenuItem
-                    variant="destructive"
-                    onSelect={() => onRemoveFromWorkspace(folderId)}
-                  >
-                    <XCircle className="h-4 w-4" />
-                    {t("folderHeaderMenu.removeFromWorkspace")}
-                  </ContextMenuItem>
-                )}
-              </>
-            )}
-          </ContextMenuContent>
-        </ContextMenu>
-        {offline && device ? (
-          <button
-            type="button"
-            onClick={() => onOfflineReason(device.id)}
-            className="block h-6 w-full truncate text-left text-xs text-muted-foreground hover:text-foreground"
-            style={{ paddingLeft: sessionIndent(nested) }}
-          >
-            {tGroups("offlineReason")}
-          </button>
-        ) : null}
-      </div>
-
-      <Dialog
-        open={nameDialog != null}
-        onOpenChange={(open) => !open && setNameDialog(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {nameDialog === "rename"
-                ? t("folderHeaderMenu.renameWorktreeTitle")
-                : t("folderHeaderMenu.setAliasTitle")}
-            </DialogTitle>
-          </DialogHeader>
-          {nameDialog === "rename" ? (
-            <p className="text-xs text-muted-foreground">
-              {t("folderHeaderMenu.renameWorktreeHint")}
-            </p>
-          ) : null}
-          <Input
-            value={aliasValue}
-            onChange={(e) => setAliasValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.key === "Process") return
-              if (e.key === "Enter") confirmAlias()
-            }}
-            placeholder={
-              nameDialog === "rename"
-                ? undefined
-                : t("folderHeaderMenu.setAliasPlaceholder")
-            }
-            autoFocus
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNameDialog(null)}>
-              {t("folderHeaderMenu.setAliasCancel")}
-            </Button>
-            <Button onClick={confirmAlias}>
-              {t("folderHeaderMenu.setAliasSave")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-})
 
 export interface SidebarProjectListProps {
   /**
@@ -537,46 +89,38 @@ export interface SidebarProjectListProps {
    * hidden + inert and the terminal inventory projection is paused.
    */
   visible?: boolean
-  /** 下方面板最大化：列表保持挂载（滚动位置不丢），上面盖一行当前工作区摘要，点击还原。 */
+  /** 下方面板最大化：列表保持挂载（滚动位置不丢），上面盖一行当前项目摘要，点击还原。 */
   summaryOnly?: boolean
 }
 
 /** 列表里一个项目（本机或对方）：显示用的字段与所在设备。 */
-interface ListFolder extends SectionFolder {
-  alias: string | null
+interface ListFolder extends RowFolder {
   git_branch: string | null
   device: number
 }
 
-type DragItem =
-  | { kind: "project"; device: number; path: string }
-  | { kind: "group"; id: string }
-
 /**
- * 侧栏项目视图：按工作区分节——当前工作区完整（项目 → worktree → 会话），其他只看运行中的会话；
- * 本机与设备项目在同一张列表里；不属于任何项目的会话在「未归属会话」。
+ * 侧栏项目视图：项目 → worktree → 会话；本机与设备项目在同一张列表里；
+ * 不属于任何项目的会话在「未归属会话」。
  */
+const COLLAPSED_DEVICES_KEY = "berth.sidebar.collapsedDevices"
+
 export function SidebarProjectList({
   visible = true,
   summaryOnly = false,
 }: SidebarProjectListProps) {
   const t = useTranslations("Folder.sidebar")
-  const tCommon = useTranslations("Folder.common")
-  const tTerminal = useTranslations("Folder.terminal")
+  const tDevices = useTranslations("Folder.sidebar.devices")
   const tFolderDropdown = useTranslations("Folder.folderNameDropdown")
   const tFileTree = useTranslations("Folder.fileTreeTab")
-  const tGroups = useTranslations("WorkspaceGroups")
+  const tTerminal = useTranslations("Folder.terminal")
+  const tSessions = useTranslations("SidebarSessions")
+  const tMembers = useTranslations("ProjectMembers")
   const folders = useAppWorkspaceStore((s) => s.folders)
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
-  const foldersHydrated = useAppWorkspaceStore((s) => s.foldersHydrated)
-  const removeFolderFromWorkspace = useAppWorkspaceStore(
-    (s) => s.removeFolderFromWorkspace
-  )
+  const memberFlags = useAppWorkspaceStore((s) => s.memberFlags)
   const refreshFolder = useAppWorkspaceStore((s) => s.refreshFolder)
   const { activeFolder } = useActiveFolder()
-  const activeIsRepo = useAppWorkspaceStore((s) =>
-    activeFolder ? s.gitHeads.get(activeFolder.id)?.is_repo === true : false
-  )
   const activeTabId = useTabStore((s) => s.activeTabId)
   const allPrimaryTabs = useTabStore((s) => s.tabs)
   // The shared inventory store refreshes at explicit boundaries only (no poll);
@@ -584,13 +128,8 @@ export function SidebarProjectList({
   const terminalInventory = useTerminalInventorySnapshot(visible)
   const panes = useAllAgentPanes(visible)
   const seen = useAgentPaneStore((s) => s.seen)
-  const {
-    closeTabsByFolder,
-    activateFolderWorkspace,
-    leaveFolderWorkspace,
-    openTerminalTab,
-    switchTab,
-  } = useTabActions()
+  const { activateFolderWorkspace, openTerminalTab, switchTab } =
+    useTabActions()
   const { openFolderPicker } = useOpenFolderPicker()
 
   const folderById = useMemo(
@@ -622,57 +161,44 @@ export function SidebarProjectList({
       window.removeEventListener(OPEN_PROJECT_SWITCHER_EVENT, openProjectList)
   }, [openSearch])
 
-  // 项目视图每次变为可见，对全部 root 与 git 对账一次：worktree 以 git 为准，
-  // 非活动项目没有 HEAD 轮询，靠这里补齐。不依赖列表内容，避免对账结果回灌再触发。
+  // 项目视图每次变为可见，现读全部项目的成员一次：worktree 以 git 为准，
+  // 非活动项目没有 HEAD 轮询，靠这里补齐。不依赖列表内容，避免结果回灌再触发。
   const hasProjects = folders.length > 0
   // 每个 root 起一个 git 进程；等侧栏滑入动画（240ms）结束再发，不跟动画抢主线程。
   // 动画期间又关上则取消。
   useEffect(() => {
     if (!visible || !hasProjects) return
     const timer = window.setTimeout(() => {
-      const { folders: openFolders, refreshWorktreeFamily } =
+      const { folders: openFolders, refreshProjectMembers } =
         useAppWorkspaceStore.getState()
-      const rootIds = openFolders
-        .filter((f) => f.parent_id == null)
-        .map((f) => f.id)
-      void refreshWorktreeFamily(...rootIds)
+      const mainIds = openFolders.filter(isMainMember).map((f) => f.id)
+      void refreshProjectMembers(...mainIds)
     }, RECONCILE_AFTER_SLIDE_MS)
     return () => window.clearTimeout(timer)
   }, [hasProjects, visible])
 
-  // 主项目一次返回它所有 worktree 群的未读数；角标只在项目列表里，列表隐藏时不轮询。
-  useGroupUnreadPolling(
-    useMemo(
-      () =>
-        folders
-          .filter((f) => f.parent_id == null)
-          .map((f) => ({ id: f.id, path: f.path })),
-      [folders]
-    ),
-    visible
-  )
-
   // ── Devices ────────────────────────────────────────────────────────────────
-  const {
-    devices,
-    loaded: devicesLoaded,
-    statusOf,
-    reportProblem,
-  } = useDevices()
-  const { openDeviceTab } = useWorkspaceRuntimeActions()
+  const { devices, statusOf } = useDevices()
+  const errorText = useDeviceErrorText()
   useOsFileDropToDevices()
+  // 拖到设备的文件：进度显示在所在设备的分组下
+  const { transfers, dismiss: dismissTransfer } = useDeviceTransfers(
+    null,
+    (dest) =>
+      toast.success(
+        tDevices("remote.transferDone", { name: dest.split("/").pop() ?? dest })
+      )
+  )
   const [feeds, setFeeds] = useState<Record<number, DeviceFeedState>>({})
   const handleFeed = useCallback(
-    (deviceId: number, feed: DeviceFeedState) => {
-      reportProblem(deviceId, feed.problem)
+    (deviceId: number, feed: DeviceFeedState) =>
       setFeeds((prev) =>
         prev[deviceId]?.overview === feed.overview &&
         prev[deviceId]?.problem === feed.problem
           ? prev
           : { ...prev, [deviceId]: feed }
-      )
-    },
-    [reportProblem]
+      ),
+    []
   )
   const rowDevices = useMemo(
     () =>
@@ -684,14 +210,8 @@ export function SidebarProjectList({
       ),
     [devices, statusOf]
   )
-  // 离线项目「查看原因」：打开该设备的设备页（检查清单写明哪一步不通）
-  const handleOfflineReason = useCallback(
-    (deviceId: number) => {
-      const device = devices.find((item) => item.id === deviceId)
-      if (device) openDeviceTab({ deviceId, title: device.name })
-    },
-    [devices, openDeviceTab]
-  )
+  // 设备面板（`devices` 插件）：概览、检查清单（离线时写明哪一步不通）、挑选显示的项目；没装插件不给入口
+  const devicesPanel = useDevicesPanelView()
 
   // ── Projects of every device, one list ─────────────────────────────────────
   // 对方项目用概览（离线时为缓存）：id 换成本机身份（负数），路径保留对方的原样（工作区归属按它记）。
@@ -701,17 +221,11 @@ export function SidebarProjectList({
       device: 0,
     }))
     const remote = devices.flatMap((device) =>
-      (feeds[device.id]?.overview?.projects ?? []).map(
-        (project): ListFolder => ({
-          ...project,
-          id: deviceFolderId(device.id, project.id),
-          parent_id:
-            project.parent_id == null
-              ? null
-              : deviceFolderId(device.id, project.parent_id),
-          device: device.id,
-        })
-      )
+      shownDeviceFolders(
+        device.id,
+        feeds[device.id]?.overview,
+        device.shown
+      ).map((project): ListFolder => ({ ...project, device: device.id }))
     )
     return [...local, ...remote]
   }, [devices, feeds, folders])
@@ -729,240 +243,58 @@ export function SidebarProjectList({
       inventory: terminalInventory,
       folders: listFolders,
       seen,
-      // 不属于项目的终端：对方 GUI 的终端按 id 认设备，从设备开的 SSH 终端按起始目录认
+      // 不属于项目的终端：对方 GUI 的终端属于没勾选显示的项目，不列出；从设备开的 SSH 终端按起始目录认
       detachedDevice: (descriptor) =>
-        parseDeviceRef(descriptor.terminalId)?.deviceId ??
-        deviceByDir.get(descriptor.initialCwd) ??
-        0,
+        parseDeviceRef(descriptor.terminalId)
+          ? null
+          : (deviceByDir.get(descriptor.initialCwd) ?? 0),
     })
   }, [allPrimaryTabs, devices, listFolders, panes, seen, terminalInventory])
 
-  // ── Workspace groups ───────────────────────────────────────────────────────
-  const storedGroups = useWorkspaceGroupsStore((s) => s.state)
-  const loadGroups = useWorkspaceGroupsStore((s) => s.load)
-  const updateGroups = useWorkspaceGroupsStore((s) => s.update)
-  const defaultName = tGroups("defaultName")
-  useEffect(() => {
-    if (useWorkspaceGroupsStore.getState().state) return
-    loadGroups(defaultName).catch((error) =>
-      toast.error(tGroups("loadFailed"), {
-        description: toErrorMessage(error),
-      })
-    )
-  }, [defaultName, loadGroups, tGroups])
-  // 读不到时（后端出错）按只有「默认」显示，不写文件
-  const groups = useMemo(
-    () => storedGroups ?? normalizeWorkspaceGroups(null, defaultName),
-    [defaultName, storedGroups]
-  )
-  const changeGroups = useCallback(
-    (change: (state: WorkspaceGroupsState) => WorkspaceGroupsState) =>
-      updateGroups(change).catch((error) =>
-        toast.error(tGroups("saveFailed"), {
-          description: toErrorMessage(error),
-        })
-      ),
-    [tGroups, updateGroups]
-  )
-
-  const [expanded, setExpanded] = useState(loadExpanded)
-  useEffect(() => {
-    try {
-      localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded))
-    } catch {
-      // 存不下只影响重启后的展开状态
-    }
-  }, [expanded])
-
-  // 切到没有项目的工作区：没有当前项目可推导，记下它；选中项目后自动失效
-  const [emptyGroup, setEmptyGroup] = useState<string | null>(null)
-
-  const current = useMemo(() => {
-    if (activeFolder == null || !listFolderById.has(activeFolder.id))
-      return null
-    return {
-      device: listFolderById.get(activeFolder.id)!.device,
-      folderId: activeFolder.id,
-    }
-  }, [activeFolder, listFolderById])
-
-  const { sections, unassigned } = useMemo(
+  const { rows, unassigned } = useMemo(
     () =>
-      workspaceSections({
-        state: groups,
-        devices: [
+      sidebarRows(
+        [
           { device: 0, folders: listFolders.filter((f) => f.device === 0) },
           ...devices.map((device) => ({
             device: device.id,
             folders: listFolders.filter((f) => f.device === device.id),
           })),
         ],
-        sessions,
-        current,
-        selectedGroup: activeFolder == null ? emptyGroup : null,
-        manual: expanded,
+        sessions
+      ),
+    [devices, listFolders, sessions]
+  )
+
+  // 项目列表按设备分组：本机在前，与其他设备一样可折叠、可打开设备面板
+  const local = useDeviceSnapshotStore((state) => state.local)
+  const deviceGroups = useMemo(
+    () => [
+      {
+        id: 0,
+        name: local?.host || tDevices("local"),
+        state: "online" as const,
+        title: local?.host || tDevices("local"),
+      },
+      ...devices.map((device) => {
+        const { state, message, keyMissing } = statusOf(device)
+        const problem = feeds[device.id]?.problem
+        return {
+          id: device.id,
+          name: device.name,
+          state,
+          title: [
+            `${device.name} · ${tDevices(keyMissing ? "status.needsKey" : `status.${state}`)}`,
+            state === "offline" ? errorText(message) : null,
+            problem ? tDevices(problem) : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        }
       }),
-    [
-      activeFolder,
-      current,
-      devices,
-      emptyGroup,
-      expanded,
-      groups,
-      listFolders,
-      sessions,
-    ]
+    ],
+    [devices, errorText, feeds, local, statusOf, tDevices]
   )
-  const currentGroupId = sections.find((section) => section.current)?.group.id
-
-  // 每个工作区上次停留的项目与标签页：切回来时恢复
-  const lastByGroup = useRef<Record<string, WorkspaceLast> | null>(null)
-  lastByGroup.current ??= loadWorkspaceLast()
-  const activeFolderId = activeFolder?.id
-  useEffect(() => {
-    if (!currentGroupId || activeFolderId == null) return
-    lastByGroup.current![currentGroupId] = {
-      folderId: activeFolderId,
-      tabId: activeTabId,
-    }
-    try {
-      localStorage.setItem(
-        WORKSPACE_LAST_KEY,
-        JSON.stringify(lastByGroup.current)
-      )
-    } catch {
-      // 存不下只影响重启后切回工作区的落点
-    }
-  }, [activeFolderId, activeTabId, currentGroupId])
-
-  /** root 项目的（设备, 路径）：worktree 跟着 root，孤儿 worktree 用自己的。 */
-  const rootOf = useCallback(
-    (folderId: number) => {
-      const folder = listFolderById.get(folderId)
-      if (!folder) return null
-      const root =
-        folder.parent_id == null ? folder : listFolderById.get(folder.parent_id)
-      return { device: folder.device, path: (root ?? folder).path }
-    },
-    [listFolderById]
-  )
-
-  // 新打开的项目进当前工作区（从某个空工作区点「添加项目」则进那个工作区）。
-  // 每台设备第一次读到的项目是已有的，不算新打开。
-  const seenRoots = useRef<Map<number, Set<string>>>(new Map())
-  const lastGroup = useRef<string | null>(null)
-  const addTarget = useRef<string | null>(null)
-  useEffect(() => {
-    if (!foldersHydrated || !storedGroups) return
-    const fresh: { device: number; path: string }[] = []
-    const byDevice = new Map<number, string[]>()
-    for (const folder of listFolders) {
-      if (folder.parent_id != null && listFolderById.has(folder.parent_id))
-        continue
-      byDevice.set(folder.device, [
-        ...(byDevice.get(folder.device) ?? []),
-        folder.path,
-      ])
-    }
-    for (const [device, paths] of byDevice) {
-      const known = seenRoots.current.get(device)
-      if (known)
-        for (const path of paths)
-          if (!known.has(path)) fresh.push({ device, path })
-      seenRoots.current.set(device, new Set(paths))
-    }
-    const target = addTarget.current ?? lastGroup.current
-    if (fresh.length > 0 && target) {
-      addTarget.current = null
-      void changeGroups((state) =>
-        fresh.reduce(
-          (next, root) =>
-            assignWorkspaceGroup(next, root.device, root.path, target),
-          state
-        )
-      )
-    }
-    if (currentGroupId) lastGroup.current = currentGroupId
-  }, [
-    changeGroups,
-    currentGroupId,
-    foldersHydrated,
-    listFolderById,
-    listFolders,
-    storedGroups,
-  ])
-
-  // 丢掉失效的登记：本机项目已移除、设备已移除（设备离线不算）。
-  useEffect(() => {
-    if (!foldersHydrated || !devicesLoaded || !storedGroups) return
-    const localPaths = new Set(
-      allFolders.filter((f) => f.id > 0).map((f) => f.path)
-    )
-    const deviceIds = new Set(devices.map((device) => device.id))
-    void changeGroups((state) =>
-      pruneWorkspaceMembers(state, localPaths, deviceIds)
-    )
-  }, [
-    allFolders,
-    changeGroups,
-    devices,
-    devicesLoaded,
-    foldersHydrated,
-    storedGroups,
-  ])
-
-  const handleMoveToGroup = useCallback(
-    (folderId: number, groupId: string) => {
-      const root = rootOf(folderId)
-      if (!root) return
-      void changeGroups((state) =>
-        assignWorkspaceGroup(state, root.device, root.path, groupId)
-      )
-    },
-    [changeGroups, rootOf]
-  )
-  const startDrag = useSidebarDrag<DragItem>((item, groupId) => {
-    if (item.kind === "project") {
-      void changeGroups((state) =>
-        assignWorkspaceGroup(state, item.device, item.path, groupId)
-      )
-      return
-    }
-    if (item.id === groupId) return
-    void changeGroups((state) =>
-      moveWorkspaceGroup(
-        state,
-        item.id,
-        state.groups.findIndex((group) => group.id === groupId)
-      )
-    )
-  })
-  const handleRowDrag = useCallback(
-    (folderId: number, event: PointerEvent) => {
-      // 行上的按钮（更多、会话）自己处理
-      if ((event.target as HTMLElement).closest("[aria-haspopup]")) return
-      const root = rootOf(folderId)
-      if (root) startDrag({ kind: "project", ...root }, event)
-    },
-    [rootOf, startDrag]
-  )
-
-  // 工作区的新建 / 改名 / 删除
-  const [editingGroup, setEditingGroup] = useState<{
-    group: WorkspaceGroup | null
-  } | null>(null)
-  const [deletingGroup, setDeletingGroup] = useState<WorkspaceGroup | null>(
-    null
-  )
-  const saveGroup = (name: string, emoji: string | null) => {
-    const group = editingGroup?.group
-    setEditingGroup(null)
-    void changeGroups((state) =>
-      group
-        ? renameWorkspaceGroup(state, group.id, name, emoji)
-        : createWorkspaceGroup(state, crypto.randomUUID(), name, emoji)
-    )
-  }
 
   // ── Row actions ────────────────────────────────────────────────────────────
   const handleSelectFolder = useCallback(
@@ -970,10 +302,27 @@ export function SidebarProjectList({
       const folder = folderById.get(folderId)
       if (!folder) return
       activateFolderWorkspace(folderId)
+      // 点成员行（含当前成员）就回到它自己的文件树，不再看参考目录。
+      useReferenceBrowseStore.getState().browse(folderId, null)
       // 群组是项目主页：恢复上次的文件，辅助面板切到该项目的群；开不开由用户自己决定。
       useAppUiStore.setState({ auxView: "group" })
     },
     [activateFolderWorkspace, folderById]
+  )
+  // 点项目行：回到这个项目上次停留的成员，没有就是主成员。
+  const handleSelectProject = useCallback(
+    (folderId: number) => {
+      const folder = folderById.get(folderId)
+      if (!folder) return
+      const main = mainFolderId(folder)
+      const { recentFolderIds } = useAppWorkspaceStore.getState()
+      const last = recentFolderIds.find((id) => {
+        const recent = folderById.get(id)
+        return recent != null && mainFolderId(recent) === main
+      })
+      handleSelectFolder(last ?? folderId)
+    },
+    [folderById, handleSelectFolder]
   )
 
   const selectSession = useCallback(
@@ -1000,49 +349,10 @@ export function SidebarProjectList({
     [openTerminalTab, switchTab]
   )
 
-  const listViewport = useRef<HTMLElement | null>(null)
-  const switchWorkspace = useCallback(
-    (groupId: string) => {
-      if (groupId === currentGroupId) return
-      const section = sections.find((item) => item.group.id === groupId)
-      if (!section) return
-      // 切换后两个工作区回到自动收放，列表回到顶部
-      setExpanded((prev) => {
-        const next = { ...prev }
-        delete next[groupId]
-        if (currentGroupId) delete next[currentGroupId]
-        return next
-      })
-      if (listViewport.current) listViewport.current.scrollTop = 0
-      const target = workspaceSwitchTarget(
-        section,
-        lastByGroup.current?.[groupId]
-      )
-      if (target.kind === "session") selectSession(target.session)
-      else if (target.kind === "folder") handleSelectFolder(target.folderId)
-      else {
-        setEmptyGroup(groupId)
-        leaveFolderWorkspace()
-      }
-    },
-    [
-      currentGroupId,
-      handleSelectFolder,
-      leaveFolderWorkspace,
-      sections,
-      selectSession,
-    ]
-  )
-
-  // 所有工作区（含收起的）与未归属的会话，按列表顺序
+  // 各项目与未归属的会话，按列表顺序
   const listedSessions = useMemo(
-    () => [
-      ...sections.flatMap((section) =>
-        section.rows.flatMap((row) => row.sessions)
-      ),
-      ...unassigned,
-    ],
-    [sections, unassigned]
+    () => [...rows.flatMap((row) => row.sessions), ...unassigned],
+    [rows, unassigned]
   )
   // 需关注：点一次跳到当前之后的下一个
   const attention = useMemo(
@@ -1063,7 +373,7 @@ export function SidebarProjectList({
     const openSwitcher = (event: Event) =>
       setSwitcherRecent((event as CustomEvent<readonly string[]>).detail)
     const nextAttention = () => {
-      if (attention.length === 0) toast.info(tGroups("noAttention"))
+      if (attention.length === 0) toast.info(tSessions("noAttention"))
       else jumpToAttention()
     }
     window.addEventListener(OPEN_SESSION_SWITCHER_EVENT, openSwitcher)
@@ -1072,37 +382,29 @@ export function SidebarProjectList({
       window.removeEventListener(OPEN_SESSION_SWITCHER_EVENT, openSwitcher)
       window.removeEventListener(NEXT_ATTENTION_EVENT, nextAttention)
     }
-  }, [attention.length, jumpToAttention, tGroups])
+  }, [attention.length, jumpToAttention, tSessions])
 
-  const handleSetFolderAlias = useCallback(
-    async (folderId: number, alias: string | null) => {
+  // 项目名记在项目记录上（接口沿用旧名 alias），与目录名无关。
+  const handleRenameProject = useCallback(
+    async (folderId: number, name: string) => {
       try {
-        await updateFolderAlias(folderId, alias)
+        await updateFolderAlias(folderId, name)
         await refreshFolder(folderId)
       } catch (err) {
         toast.error(
-          t("toasts.setFolderAliasFailed", { message: toErrorMessage(err) })
+          t("toasts.renameProjectFailed", { message: toErrorMessage(err) })
         )
       }
     },
     [refreshFolder, t]
   )
 
-  const handleRenameWorktree = useCallback(
-    async (folderId: number, name: string) => {
-      try {
-        await renameWorktree(folderId, name)
-        // 路径变了：旧路径下的文件 tab 已失效，关掉后按新路径重开。
-        closeTabsByFolder(folderId)
-        await useAppWorkspaceStore.getState().fetchFolders()
-        toast.success(t("toasts.worktreeRenamed", { name }))
-      } catch (err) {
-        toast.error(
-          t("toasts.worktreeRenameFailed", { message: toErrorMessage(err) })
-        )
-      }
-    },
-    [closeTabsByFolder, t]
+  const handleAddReference = useCallback(
+    (folderId: number) =>
+      void pickAndAddReference(folderId, (message) =>
+        tMembers("addReferenceFailed", { message })
+      ),
+    [tMembers]
   )
 
   const handleSetFolderPinned = useCallback(
@@ -1131,90 +433,115 @@ export function SidebarProjectList({
     [folderById, tFileTree]
   )
 
-  // 项目视图只有一个「新建 worktree」对话框，行菜单与顶栏按钮共用。
-  const [addDeviceOpen, setAddDeviceOpen] = useState(false)
-  const [worktreeSource, setWorktreeSource] =
-    useState<NewWorktreeSource | null>(null)
-  const handleNewWorktree = useCallback(
-    (folderId: number) => {
-      const folder = folderById.get(folderId)
-      if (folder) setWorktreeSource({ folderId, folderPath: folder.path })
-    },
-    [folderById]
-  )
+  // 手动展开 / 收起过的项目（键 `设备:主成员`）；没动过的按「当前成员在不在里面」。
+  const [openOverride, setOpenOverride] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map())
 
-  const [removeConfirm, setRemoveConfirm] = useState<{
-    folderId: number
-    folderName: string
-    terminalCount: number
-    deleteWorktree: boolean
-  } | null>(null)
-
-  const requestRemove = useCallback(
-    (folderId: number, deleteWorktree: boolean) => {
-      const folderName = folderById.get(folderId)?.name ?? String(folderId)
-      void (async () => {
-        let terminalCount = 0
-        try {
-          const terminals = await refreshTerminalInventory()
-          terminalCount = terminals.filter(
-            (item) => item.folderId === folderId && item.status === "running"
-          ).length
-        } catch {
-          terminalCount = 0
-        }
-        setRemoveConfirm({
-          folderId,
-          folderName,
-          terminalCount,
-          deleteWorktree,
-        })
-      })()
-    },
-    [folderById]
-  )
-  const handleRemoveFromWorkspace = useCallback(
-    (folderId: number) => requestRemove(folderId, false),
-    [requestRemove]
-  )
-  const handleDeleteWorktree = useCallback(
-    (folderId: number) => requestRemove(folderId, true),
-    [requestRemove]
-  )
-
-  const handleRemoveConfirm = useCallback(async () => {
-    if (!removeConfirm) return
-    const { folderId, folderName, deleteWorktree } = removeConfirm
-    // 移除 root 会连带移除其 worktree 家族，先记下成员以便关闭它们的 tab。
-    const familyIds = useAppWorkspaceStore
-      .getState()
-      .allFolders.filter((f) => f.parent_id === folderId)
-      .map((f) => f.id)
-    try {
-      await removeFolderFromWorkspace(folderId, deleteWorktree)
-      for (const id of [folderId, ...familyIds]) closeTabsByFolder(id)
-      toast.success(
-        deleteWorktree
-          ? t("toasts.worktreeDeleted", { name: folderName })
-          : t("toasts.folderRemoved", { name: folderName })
-      )
-    } catch (e) {
-      const message = toErrorMessage(e)
-      toast.error(
-        deleteWorktree
-          ? t("toasts.worktreeDeleteFailed", { message })
-          : t("toasts.removeFolderFailed", { message })
-      )
-    } finally {
-      setRemoveConfirm(null)
+  // 折叠的设备分组，跨重启记住。
+  const [collapsedDevices, setCollapsedDevices] = useState<ReadonlySet<number>>(
+    () => {
+      try {
+        return new Set(
+          JSON.parse(localStorage.getItem(COLLAPSED_DEVICES_KEY) ?? "[]")
+        )
+      } catch {
+        return new Set()
+      }
     }
-  }, [removeConfirm, closeTabsByFolder, removeFolderFromWorkspace, t])
+  )
+  const toggleDevice = useCallback((deviceId: number) => {
+    setCollapsedDevices((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(deviceId)) next.add(deviceId)
+      localStorage.setItem(COLLAPSED_DEVICES_KEY, JSON.stringify([...next]))
+      return next
+    })
+  }, [])
+
+  const { requestRemove, removeDialog } = useRemoveProject()
+  const handleRemoveFromWorkspace = useCallback(
+    (folderId: number) => requestRemove(folderId, "remove"),
+    [requestRemove]
+  )
+  const { requestRename, renameDialog } = useRenameWorktree()
+
+  // 成员归属的改动（设主成员、改挂）：完成后重读涉及的项目（`also` 是目标项目里的成员）。
+  const memberOp = useCallback(
+    async (
+      folderId: number,
+      action: "main" | "move",
+      params?: Record<string, unknown>,
+      also?: number
+    ) => {
+      try {
+        await projectMemberOp(folderId, action, params)
+      } catch (err) {
+        toast.error(
+          tMembers("memberOpFailed", { message: toErrorMessage(err) })
+        )
+      }
+      await useAppWorkspaceStore
+        .getState()
+        .refreshProjectMembers(folderId, ...(also == null ? [] : [also]))
+    },
+    [tMembers]
+  )
+
+  // 成员行的操作：开终端，看改动，设主成员 / 改挂 / 移出，改名 / 删除 / 清理。
+  const memberHandlers = useMemo<MemberHandlers>(
+    () => ({
+      onSelect: handleSelectFolder,
+      onReveal: handleOpenInSystemExplorer,
+      onOpenSession: selectSession,
+      onOpenTerminal: (folder: MemberFolder) =>
+        void createAndOpenFolderTerminal(
+          { cwd: folder.path, folderId: folder.id },
+          tTerminal
+        ),
+      onViewChanges: (folderId: number) => {
+        handleSelectFolder(folderId)
+        useProjectPanelStore.getState().showPanel("changes")
+      },
+      onRename: requestRename,
+      onDelete: (folderId: number) => requestRemove(folderId, "delete"),
+      onPrune: (folderId: number) => requestRemove(folderId, "prune"),
+      onDetach: (folderId: number) => requestRemove(folderId, "detach"),
+      onSetMain: (folderId: number) => void memberOp(folderId, "main"),
+      onMove: (folderId: number, projectId: number) => {
+        const target = useAppWorkspaceStore
+          .getState()
+          .allFolders.find((f) => f.project_id === projectId)
+        void memberOp(folderId, "move", { project: projectId }, target?.id)
+      },
+      onJoined: (mainId: number) =>
+        void useAppWorkspaceStore.getState().refreshProjectMembers(mainId),
+      onBrowseReference: (folderId: number, path: string | null) => {
+        useReferenceBrowseStore.getState().browse(folderId, path)
+        useProjectPanelStore.getState().showPanel("files")
+      },
+      onReferenceTerminal: (mainId: number, path: string) =>
+        void createAndOpenFolderTerminal(
+          { cwd: path, folderId: mainId },
+          tTerminal
+        ),
+    }),
+    [
+      handleOpenInSystemExplorer,
+      handleSelectFolder,
+      memberOp,
+      requestRemove,
+      requestRename,
+      selectSession,
+      tTerminal,
+    ]
+  )
 
   // ── Search ─────────────────────────────────────────────────────────────────
   const q = query.trim().toLocaleLowerCase()
   const matches = useCallback(
     (folder: ListFolder) =>
-      [folder.name, folder.alias, folder.path, folder.git_branch]
+      [projectName(folder), folder.name, folder.path, folder.git_branch]
         .filter(Boolean)
         .some((value) => value?.toLocaleLowerCase().includes(q)),
     [q]
@@ -1222,13 +549,13 @@ export function SidebarProjectList({
   const searchHits = useMemo(
     () =>
       q
-        ? sections.flatMap((section) =>
-            section.rows.filter((row) =>
-              matches(listFolderById.get(row.slot.folderId)!)
+        ? rows.filter((row) =>
+            row.members.some((member) =>
+              matches(listFolderById.get(member.folderId)!)
             )
           )
         : [],
-    [listFolderById, matches, q, sections]
+    [listFolderById, matches, q, rows]
   )
   const sessionHits = useMemo(
     () =>
@@ -1241,10 +568,10 @@ export function SidebarProjectList({
   )
   const pickSearchedFolder = useCallback(
     (folderId: number) => {
-      handleSelectFolder(folderId)
+      handleSelectProject(folderId)
       closeSearch()
     },
-    [closeSearch, handleSelectFolder]
+    [closeSearch, handleSelectProject]
   )
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1260,35 +587,25 @@ export function SidebarProjectList({
     </Button>
   )
 
-  /** 项目所在项目名（「项目 ⎇ 分支」）：只看运行中、未归属的会话行右侧用。 */
+  /** 会话所在「项目 ⎇ 成员」（主成员只写项目名）：搜索结果、折叠项目的会话行与会话切换器用。 */
   const projectLabel = (folderId: number | null) => {
     const folder = folderId == null ? null : listFolderById.get(folderId)
     if (!folder) return null
-    const root =
-      folder.parent_id == null ? null : listFolderById.get(folder.parent_id)
-    const name = (root ?? folder).alias || (root ?? folder).name
-    return root ? `${name} ⎇ ${folder.git_branch ?? folder.name}` : name
+    const name = projectName(folder)
+    return isMainMember(folder) ? name : `${name} ⎇ ${folder.name}`
   }
-
-  const switcherEntries = (() => {
-    if (!switcherRecent) return []
-    const groupOf = new Map(
-      sections.flatMap((section) =>
-        section.rows.flatMap((row) =>
-          row.sessions.map(
-            (session) => [session.id, section.group.name] as const
-          )
-        )
+  const switcherEntries = switcherRecent
+    ? switcherOrder(listedSessions, switcherRecent, activeTabId).map(
+        (session) => ({
+          session,
+          project:
+            projectLabel(session.folderId) ??
+            (session.device === 0
+              ? tSessions("unassigned")
+              : (rowDevices.get(session.device)?.name ?? "")),
+        })
       )
-    )
-    return switcherOrder(listedSessions, switcherRecent, activeTabId).map(
-      (session) => ({
-        session,
-        project: projectLabel(session.folderId),
-        group: groupOf.get(session.id) ?? tGroups("unassigned"),
-      })
-    )
-  })()
+    : []
 
   const renderSession = (
     session: SidebarSession,
@@ -1312,63 +629,80 @@ export function SidebarProjectList({
     />
   )
 
+  // 「移到项目」的候选：本机的项目（设备项目的成员不能改挂到本机）。
+  const moveTargets = rows.flatMap((row) => {
+    const head = row.device === 0 ? folderById.get(row.mainId) : undefined
+    return head?.project_id != null
+      ? [{ projectId: head.project_id, name: projectName(head) }]
+      : []
+  })
+
+  /**
+   * 一个项目：项目行 + 展开的成员行；收起时行尾汇总各成员的 Agent 图标。
+   * 项目没有目录、不能选中：点项目行只展开 / 收起（默认展开当前成员所在的项目）；
+   * 搜索结果里点它则跳到它上次停留的成员。
+   */
   const renderRow = (
-    row: (typeof sections)[number]["rows"][number],
-    groupId: string,
-    withSessions: boolean,
-    onSelect = handleSelectFolder
+    row: (typeof rows)[number],
+    onPick?: (folderId: number) => void
   ) => {
-    const folder = listFolderById.get(row.slot.folderId)!
+    const head =
+      listFolderById.get(row.mainId) ??
+      listFolderById.get(row.members[0].folderId)!
+    const current = row.members.some(
+      (member) => member.folderId === activeFolder?.id
+    )
+    const key = `${row.device}:${row.mainId}`
+    const expanded = openOverride.get(key) ?? current
     return (
-      <div key={folder.id}>
+      <div
+        key={key}
+        // 当前成员所在的项目：整组淡底，一眼看出成员属于哪个项目
+        className={cn(current && expanded && "rounded-xl bg-sidebar-accent/40")}
+      >
         <ProjectRow
-          folderId={folder.id}
-          folderName={folder.name}
-          folderAlias={folder.alias}
-          folderPath={folder.path}
-          pinned={folder.pinned_at != null}
-          selected={activeFolder?.id === folder.id}
-          worktree={row.slot.worktree}
-          nested={row.slot.nested}
-          worktreeBranch={folder.git_branch}
+          folderId={head.id}
+          folderName={projectName(head)}
+          pinned={head.project?.pinned_at != null}
+          selected={current && !expanded}
           device={rowDevices.get(row.device) ?? null}
           idle={row.sessions.length === 0}
-          groups={row.slot.worktree ? null : groups.groups}
-          groupId={groupId}
-          onSelect={onSelect}
-          onNewWorktree={handleNewWorktree}
-          onRemoveFromWorkspace={handleRemoveFromWorkspace}
-          onDeleteWorktree={handleDeleteWorktree}
-          onSetAlias={handleSetFolderAlias}
-          onRenameWorktree={handleRenameWorktree}
-          onSetPinned={handleSetFolderPinned}
-          onOpenInSystemExplorer={handleOpenInSystemExplorer}
-          onMoveToGroup={handleMoveToGroup}
-          onDragStart={handleRowDrag}
-          onOfflineReason={handleOfflineReason}
-        />
-        {withSessions
-          ? row.sessions.map((session) =>
-              renderSession(session, sessionIndent(row.slot.nested))
+          current={current}
+          expanded={expanded}
+          trailing={
+            expanded ? null : (
+              <AgentIcons sessions={row.sessions} onOpen={selectSession} />
             )
-          : null}
+          }
+          onToggle={
+            onPick
+              ? () => onPick(head.id)
+              : () =>
+                  setOpenOverride((prev) => new Map(prev).set(key, !expanded))
+          }
+          onRemoveFromWorkspace={handleRemoveFromWorkspace}
+          onRename={handleRenameProject}
+          onSetPinned={handleSetFolderPinned}
+          onAddReference={handleAddReference}
+        />
+        {expanded ? (
+          <ProjectMembers
+            row={row}
+            device={rowDevices.get(row.device) ?? null}
+            moveTargets={moveTargets.filter(
+              (target) =>
+                target.projectId !== folderById.get(head.id)?.project_id
+            )}
+            folderOf={(id) => listFolderById.get(id)}
+            activeFolderId={activeFolder?.id ?? null}
+            flags={memberFlags}
+            visible={visible}
+            handlers={memberHandlers}
+          />
+        ) : null}
       </div>
     )
   }
-
-  const sectionSummary = (section: (typeof sections)[number]) =>
-    section.attention + section.working > 0
-      ? [
-          section.attention > 0
-            ? tGroups("attentionCount", { count: section.attention })
-            : null,
-          section.working > 0
-            ? tGroups("workingCount", { count: section.working })
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" ")
-      : tGroups("projectCount", { count: section.projectCount })
 
   const runningIndent = sessionIndent(false)
   let body: React.ReactNode
@@ -1388,9 +722,7 @@ export function SidebarProjectList({
     body = (
       <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
         <div className="flex flex-col pt-1">
-          {searchHits.map((row) =>
-            renderRow(row, "", false, pickSearchedFolder)
-          )}
+          {searchHits.map((row) => renderRow(row, pickSearchedFolder))}
           {sessionHits.map((session) =>
             renderSession(
               session,
@@ -1409,84 +741,75 @@ export function SidebarProjectList({
     )
   } else {
     body = (
-      <ScrollArea
-        className="min-h-0 flex-1 px-1.5 pb-1.5"
-        onViewportRef={(element) => {
-          listViewport.current = element
-        }}
-      >
+      <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
         <div className="flex flex-col">
-          {sections.map((section) => {
-            const { group } = section
+          {deviceGroups.map((group) => {
+            const collapsed = collapsedDevices.has(group.id)
+            const Chevron = collapsed ? ChevronRight : ChevronDown
+            const sessionsHere = unassigned.filter(
+              (session) => session.device === group.id
+            )
             return (
               <section key={group.id} aria-label={group.name}>
-                <WorkspaceGroupHeader
-                  group={group}
-                  current={section.current}
-                  full={section.full}
-                  summary={sectionSummary(section)}
-                  onSwitch={() => switchWorkspace(group.id)}
-                  onToggle={() =>
-                    setExpanded((prev) => ({
-                      ...prev,
-                      [group.id]: !section.full,
-                    }))
-                  }
-                  onDragStart={(event) =>
-                    startDrag({ kind: "group", id: group.id }, event)
-                  }
-                  onRename={() => setEditingGroup({ group })}
-                  onCreate={() => setEditingGroup({ group: null })}
-                  onDelete={() => setDeletingGroup(group)}
+                <div className="group mt-1 flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/50">
+                  <button
+                    type="button"
+                    onClick={() => toggleDevice(group.id)}
+                    aria-expanded={!collapsed}
+                    title={group.title}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                  >
+                    <Chevron aria-hidden className="size-3.5 shrink-0" />
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "size-1.5 shrink-0 rounded-full",
+                        STATUS_DOT[group.state]
+                      )}
+                    />
+                    <span className="truncate">{group.name}</span>
+                  </button>
+                  {devicesPanel ? (
+                    <button
+                      type="button"
+                      onClick={() => openDevicesPanel(group.id)}
+                      title={tDevices("openPage")}
+                      aria-label={tDevices("openPage")}
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded hover:text-sidebar-foreground",
+                        group.state !== "offline" &&
+                          "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      )}
+                    >
+                      <Server className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+                <DeviceTransfers
+                  transfers={transfers.filter(
+                    (item) => item.deviceId === group.id
+                  )}
+                  dismiss={dismissTransfer}
                 />
-                {section.full ? (
-                  section.rows.length > 0 ? (
-                    section.rows.map((row) => renderRow(row, group.id, true))
-                  ) : (
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
-                      <span className="min-w-0 truncate">
-                        {tGroups("noProjects")}
-                      </span>
-                      <button
-                        type="button"
-                        className="shrink-0 text-primary hover:underline"
-                        onClick={() => {
-                          addTarget.current = group.id
-                          void openFolderPicker()
-                        }}
-                      >
-                        {t("addProject")}
-                      </button>
-                    </div>
-                  )
-                ) : (
-                  section.running.map((session) =>
-                    renderSession(
-                      session,
-                      runningIndent,
-                      projectLabel(session.folderId)
-                    )
-                  )
+                {collapsed ? null : (
+                  <>
+                    {rows
+                      .filter((row) => row.device === group.id)
+                      .map((row) => renderRow(row))}
+                    {/* 本机的未归属终端单列一小节；对方的直接列在设备下 */}
+                    {group.id === 0 && sessionsHere.length > 0 ? (
+                      <div className="mt-1 flex h-7 items-center px-1.5 text-xs font-medium text-muted-foreground">
+                        {tSessions("unassigned")}
+                      </div>
+                    ) : null}
+                    {sessionsHere.map((session) =>
+                      renderSession(session, runningIndent)
+                    )}
+                  </>
                 )}
               </section>
             )
           })}
-          {unassigned.length > 0 ? (
-            <section aria-label={tGroups("unassigned")}>
-              <div className="mt-1 flex h-7 items-center px-1.5 text-xs font-medium text-muted-foreground">
-                {tGroups("unassigned")}
-              </div>
-              {unassigned.map((session) =>
-                renderSession(
-                  session,
-                  runningIndent,
-                  session.device === 0
-                    ? null
-                    : rowDevices.get(session.device)?.name
-                )
-              )}
-            </section>
-          ) : null}
         </div>
       </ScrollArea>
     )
@@ -1508,6 +831,7 @@ export function SidebarProjectList({
             key={device.id}
             deviceId={device.id}
             live={statusOf(device).state === "online"}
+            shown={device.shown}
             onUpdate={handleFeed}
           />
         ) : null
@@ -1516,54 +840,32 @@ export function SidebarProjectList({
         <button
           type="button"
           onClick={() => useProjectPanelStore.getState().setMaximized(false)}
-          title={tGroups("restoreList")}
+          title={tSessions("restoreList")}
           className="absolute inset-0 z-10 flex items-start gap-1.5 truncate bg-sidebar px-3 pt-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
         >
-          {(() => {
-            const section = sections.find((item) => item.current)
-            return [
-              section
-                ? `${section.group.emoji ?? ""} ${section.group.name}`.trim()
-                : null,
-              tGroups("workingCount", {
-                count: sections.reduce((n, item) => n + item.working, 0),
-              }),
-              tGroups("attentionCount", { count: attention.length }),
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          })()}
+          {[
+            activeFolder ? projectLabel(activeFolder.id) : null,
+            tSessions("workingCount", {
+              count: listedSessions.filter((item) => item.dot === "working")
+                .length,
+            }),
+            tSessions("attentionCount", { count: attention.length }),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </button>
       ) : null}
-      <SidebarHeaderTitle>
-        <WorkspaceSwitcher
-          items={sections.map((section) => ({
-            group: section.group,
-            current: section.current,
-            summary: sectionSummary(section),
-          }))}
-          onSwitch={switchWorkspace}
-          onCreate={() => setEditingGroup({ group: null })}
-        />
-      </SidebarHeaderTitle>
       <SidebarHeaderActions>
         {attention.length > 0 ? (
           <button
             type="button"
             onClick={jumpToAttention}
-            title={tGroups("nextAttention")}
+            title={tSessions("nextAttention")}
             className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[0.6875rem] font-medium text-amber-600 hover:bg-accent dark:text-amber-400"
           >
             <span aria-hidden className="size-1.5 rounded-full bg-amber-500" />
-            {tGroups("attentionCount", { count: attention.length })}
+            {tSessions("attentionCount", { count: attention.length })}
           </button>
-        ) : null}
-        {activeFolder && activeIsRepo ? (
-          <SidebarHeaderButton
-            icon={FolderGit2}
-            label={t("newWorktreeForActive")}
-            onClick={() => handleNewWorktree(activeFolder.id)}
-          />
         ) : null}
         <SidebarHeaderButton
           icon={Search}
@@ -1571,14 +873,9 @@ export function SidebarProjectList({
           onClick={searching ? closeSearch : openSearch}
         />
         <SidebarHeaderButton
-          icon={FolderPlus}
+          icon={Plus}
           label={t("addProject")}
           onClick={() => void openFolderPicker()}
-        />
-        <SidebarHeaderButton
-          icon={Server}
-          label={t("devices.addTitle")}
-          onClick={() => setAddDeviceOpen(true)}
         />
       </SidebarHeaderActions>
 
@@ -1603,15 +900,17 @@ export function SidebarProjectList({
                   return
                 // 回车切项目：有搜索词取第一条匹配，空搜索回到上一个项目
                 const { recentFolderIds } = useAppWorkspaceStore.getState()
+                const here = activeFolder ? mainFolderId(activeFolder) : null
                 const target = q
-                  ? searchHits[0]?.slot.folderId
-                  : recentFolderIds.find(
-                      (id) => id !== activeFolder?.id && folderById.has(id)
-                    )
+                  ? searchHits[0]?.members[0].folderId
+                  : recentFolderIds.find((id) => {
+                      const recent = folderById.get(id)
+                      return recent != null && mainFolderId(recent) !== here
+                    })
                 if (target == null) {
                   if (!sessionHits[0]) return
                   selectSession(sessionHits[0])
-                } else handleSelectFolder(target)
+                } else handleSelectProject(target)
                 event.preventDefault()
                 closeSearch()
               }}
@@ -1634,13 +933,6 @@ export function SidebarProjectList({
 
       {body}
 
-      <AddDeviceDialog
-        // 每次打开重新挂载，表单从空白开始。
-        key={addDeviceOpen ? "add-device-open" : "add-device-closed"}
-        open={addDeviceOpen}
-        onOpenChange={setAddDeviceOpen}
-        onAdded={notifyDevicesChanged}
-      />
       <SessionSwitcher
         open={switcherRecent != null}
         onOpenChange={(open) => {
@@ -1650,91 +942,8 @@ export function SidebarProjectList({
         onSelect={selectSession}
       />
 
-      {editingGroup ? (
-        <WorkspaceGroupDialog
-          state={groups}
-          editing={editingGroup}
-          onClose={() => setEditingGroup(null)}
-          onSave={saveGroup}
-        />
-      ) : null}
-
-      <AlertDialog
-        open={deletingGroup !== null}
-        onOpenChange={(open) => !open && setDeletingGroup(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {tGroups("deleteTitle", { name: deletingGroup?.name ?? "" })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {tGroups("deleteDescription", {
-                name:
-                  groups.groups.find(
-                    (group) => group.id === defaultGroupId(groups)
-                  )?.name ?? "",
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const id = deletingGroup?.id
-                setDeletingGroup(null)
-                if (id)
-                  void changeGroups((state) => removeWorkspaceGroup(state, id))
-              }}
-            >
-              {tCommon("confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <NewWorktreeDialog
-        source={worktreeSource}
-        onClose={() => setWorktreeSource(null)}
-        onCreated={(detail) => activateFolderWorkspace(detail.id)}
-      />
-
-      <AlertDialog
-        open={removeConfirm !== null}
-        onOpenChange={(open) => !open && setRemoveConfirm(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {removeConfirm?.deleteWorktree
-                ? t("deleteWorktreeConfirmTitle")
-                : t("removeFolderConfirmTitle")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {removeConfirm?.deleteWorktree
-                ? t("deleteWorktreeConfirmDescription", {
-                    name: removeConfirm.folderName,
-                  })
-                : t("removeFolderConfirmDescription", {
-                    name: removeConfirm?.folderName ?? "",
-                  })}
-              {(removeConfirm?.terminalCount ?? 0) > 0 ? (
-                <span className="mt-2 block">
-                  {tTerminal("folderTerminateDescription", {
-                    count: removeConfirm?.terminalCount ?? 0,
-                  })}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRemoveConfirm}>
-              {tCommon("confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {removeDialog}
+      {renameDialog}
     </div>
   )
 }

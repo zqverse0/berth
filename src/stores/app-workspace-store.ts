@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { mainFolderId } from "@/lib/workspace/projects"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
 import {
   getFolder as apiGetFolder,
@@ -8,9 +9,8 @@ import {
   openFolder as apiOpenFolder,
   openFolderById as apiOpenFolderById,
   openWorktreeFolder as apiOpenWorktreeFolder,
-  reconcileWorktreeFamily,
+  listProjectMembers,
   removeFolderFromWorkspace as apiRemoveFolderFromWorkspace,
-  reorderFolders as apiReorderFolders,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import { parseDeviceFolderId } from "@/lib/transport/device"
@@ -20,6 +20,7 @@ import type {
   DbConversationSummary,
   FolderDetail,
   GitHeadInfo,
+  ProjectMember,
 } from "@/lib/types"
 
 /**
@@ -67,6 +68,10 @@ export interface AppWorkspaceStoreState {
   activeFolderId: number | null
   /** 最近激活的项目，最新在前（含当前项目）；仅本次运行内有效，供切换器排序。 */
   recentFolderIds: number[]
+  /** 代码成员的失效 / 临时标记，`refreshProjectMembers` 现读 git 时得到；没读过的成员按正常处理。 */
+  memberFlags: ReadonlyMap<number, MemberFlags>
+  /** 目录已不在的失效成员：folder 列表不列它们，成员区靠这里给出「清理」。 */
+  staleMembers: readonly FolderDetail[]
 
   fetchFolders: () => Promise<void>
   /**
@@ -116,14 +121,16 @@ export interface AppWorkspaceStoreState {
   addFolderToWorkspaceById: (folderId: number) => Promise<FolderDetail>
   removeFolderFromWorkspace: (
     folderId: number,
-    deleteWorktree?: boolean
+    deleteWorktree?: boolean,
+    force?: boolean
   ) => Promise<void>
-  reorderFolders: (ids: number[]) => Promise<void>
   refreshFolder: (id: number) => Promise<void>
-  /** 对账各 folder 所在的 worktree 家族（登记新增/移除已删），再全量刷新一次文件夹列表。 */
-  refreshWorktreeFamily: (...folderIds: number[]) => Promise<void>
+  /** 现读各 folder 所属项目的成员（登记 git 新出现的 worktree），再全量刷新一次文件夹列表。 */
+  refreshProjectMembers: (...folderIds: number[]) => Promise<void>
   setActiveFolderId: (id: number | null) => void
 }
+
+export type MemberFlags = Pick<ProjectMember, "stale" | "temporary">
 
 function computeStats(conversations: DbConversationSummary[]): AgentStats {
   const byAgent = new Map<AgentType, number>()
@@ -325,6 +332,8 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
     stats: null,
     activeFolderId: null,
     recentFolderIds: [],
+    memberFlags: new Map(),
+    staleMembers: [],
 
     fetchFolders: async () => {
       set({ foldersLoading: true })
@@ -799,14 +808,9 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
         void refreshConversations([detail.id], false)
       }
 
-      // A first-time Git project add may register its complete worktree family
-      // in one backend operation. Refresh only for that structural add (or when
-      // a legacy top-level worktree has just joined its root); ordinary project
-      // switching remains a single cheap open call.
-      if (
-        !previous ||
-        (previous.parent_id == null && detail.parent_id != null)
-      ) {
+      // 第一次加入 git 项目会一次登记整个项目的成员；已有目录并进别的项目时同样要重读。
+      // 普通的切换项目仍只是一次 open 调用。
+      if (!previous || previous.project_id !== detail.project_id) {
         await fetchFolders()
       }
       return detail
@@ -835,8 +839,12 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       return detail
     },
 
-    removeFolderFromWorkspace: async (folderId, deleteWorktree = false) => {
-      await apiRemoveFolderFromWorkspace(folderId, deleteWorktree)
+    removeFolderFromWorkspace: async (
+      folderId,
+      deleteWorktree = false,
+      force = false
+    ) => {
+      await apiRemoveFolderFromWorkspace(folderId, deleteWorktree, force)
       const {
         folders,
         allFolders,
@@ -846,10 +854,10 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
         activeFolderId,
         refreshConversations,
       } = get()
-      // 后端移除 root 时会连带移除其 worktree 家族，这里同步剔除。
+      // 后端移除主成员时会连带移除整个项目，这里同步剔除。
       const removedIds = new Set(
         allFolders
-          .filter((f) => f.id === folderId || f.parent_id === folderId)
+          .filter((f) => f.id === folderId || mainFolderId(f) === folderId)
           .map((f) => f.id)
       )
       removedIds.add(folderId)
@@ -887,39 +895,6 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       void refreshConversations(undefined, false)
     },
 
-    reorderFolders: async (ids) => {
-      const { folders: prevFolders, allFolders: prevAllFolders } = get()
-
-      const reorderByIds = (prev: FolderDetail[]) => {
-        const byId = new Map(prev.map((f) => [f.id, f]))
-        const next: FolderDetail[] = []
-        ids.forEach((id, idx) => {
-          const folder = byId.get(id)
-          if (folder) {
-            next.push({ ...folder, sort_order: idx + 1 })
-            byId.delete(id)
-          }
-        })
-        // Keep folders not included in `ids` at the end, preserving relative order.
-        for (const f of prev) {
-          if (byId.has(f.id)) next.push(f)
-        }
-        return next
-      }
-
-      set({
-        folders: reorderByIds(prevFolders),
-        allFolders: reorderByIds(prevAllFolders),
-      })
-
-      try {
-        await apiReorderFolders(ids)
-      } catch (err) {
-        set({ folders: prevFolders, allFolders: prevAllFolders })
-        throw err
-      }
-    },
-
     refreshFolder: async (id) => {
       try {
         const detail = await apiGetFolder(id)
@@ -952,18 +927,33 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       }
     },
 
-    refreshWorktreeFamily: async (...folderIds) => {
-      // 对账可能增/删 folder（git 侧 worktree add/remove），结果以全量
-      // 重拉为准。某个项目对账失败不能拦住重拉：其他项目已删的 worktree
-      // 会一直留在列表里，点进去就是 `Folder does not exist`。
-      // 每个 root 一个 git 进程；项目多时一次全发会占满远程通道，挡住其他请求。
-      const queue = [...folderIds]
+    refreshProjectMembers: async (...folderIds) => {
+      // 现读可能新增 folder（git 侧 worktree add），结果以全量重拉为准；某个项目失败
+      // 不能拦住重拉。每个项目一个 git 进程；项目多时一次全发会占满远程通道，挡住其他请求。
+      const { allFolders } = get()
+      const queue = [
+        ...new Set(
+          folderIds
+            .map((id) => allFolders.find((f) => f.id === id)?.project_id)
+            .filter((id): id is number => id != null)
+        ),
+      ]
       const worker = async () => {
         for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
           try {
-            await reconcileWorktreeFamily(id)
+            const members = await listProjectMembers(id)
+            const memberFlags = new Map(get().memberFlags)
+            for (const { id, stale, temporary } of members)
+              memberFlags.set(id, { stale, temporary })
+            set({
+              memberFlags,
+              staleMembers: [
+                ...get().staleMembers.filter((f) => f.project_id !== id),
+                ...members.filter((m) => m.stale),
+              ],
+            })
           } catch (err) {
-            console.error("[AppWorkspace] refreshWorktreeFamily failed:", err)
+            console.error("[AppWorkspace] refreshProjectMembers failed:", err)
           }
         }
       }
@@ -1010,3 +1000,23 @@ export function resetAppWorkspaceStore() {
 // Reset this backend-scoped store on any (currently-unreachable) in-realm
 // backend switch. See `backend-scoped-store-reset.ts`.
 registerBackendScopedStoreReset(resetAppWorkspaceStore)
+
+let projectIndex: {
+  folders: FolderDetail[]
+  byId: Map<number, number>
+} | null = null
+
+/**
+ * folder 所属项目（主成员 id）。tab 范围、布局按它比较，渲染路径上每个 tab 都会调，
+ * 所以按 `allFolders` 数组身份缓存成 Map。不认识的 folder 自成一个项目。
+ */
+export function projectIdOf(folderId: number): number {
+  const folders = useAppWorkspaceStore.getState().allFolders
+  if (projectIndex?.folders !== folders) {
+    projectIndex = {
+      folders,
+      byId: new Map(folders.map((folder) => [folder.id, mainFolderId(folder)])),
+    }
+  }
+  return projectIndex.byId.get(folderId) ?? folderId
+}

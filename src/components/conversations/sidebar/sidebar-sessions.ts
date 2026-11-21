@@ -6,10 +6,10 @@ import {
 } from "@/lib/terminal/agent-panes"
 import { parseDeviceFolderId } from "@/lib/transport/device"
 import type { TerminalDescriptor } from "@/lib/types"
-import type { SectionSession } from "./workspace-sections"
+import type { RowSession } from "./sidebar-rows"
 
 /** 侧栏一行会话：已打开的 tab，或 termd 里运行中、还没 tab 的终端。 */
-export interface SidebarSession extends SectionSession {
+export interface SidebarSession extends RowSession {
   title: string
   /** Agent 图标；普通终端为 null。 */
   agentType: string | null
@@ -61,7 +61,8 @@ function deviceOf(folderId: number | null): number {
 /**
  * 全部会话，一行一个：终端以 termd 清单为准，按所在目录挂到最深的项目 / worktree；
  * 清单里还没有的 tab（首轮未到、对话 tab）按 tab 显示。项目已不在列表里的终端 `folderId` 为 null（未归属）。
- * `detachedDevice` 给出未归属终端所在的设备（从设备开的 SSH 终端等），默认本机 0。
+ * `detachedDevice` 给出未归属终端所在的设备（从设备开的 SSH 终端等），默认本机 0；返回 null 的不列出
+ * （对方 GUI 里不属于已显示项目的终端）。
  */
 export function buildSidebarSessions(input: {
   tabs: readonly SessionTab[]
@@ -70,7 +71,7 @@ export function buildSidebarSessions(input: {
   inventory: readonly TerminalDescriptor[]
   folders: readonly { id: number; path: string }[]
   seen: SeenAttention
-  detachedDevice: (descriptor: TerminalDescriptor) => number
+  detachedDevice: (descriptor: TerminalDescriptor) => number | null
 }): SidebarSession[] {
   const { tabs, panes, inventory, folders, seen, detachedDevice } = input
   const known = new Set(folders.map((folder) => folder.id))
@@ -98,6 +99,9 @@ export function buildSidebarSessions(input: {
       descriptor.folderId != null && known.has(descriptor.folderId)
         ? paneFolderId(descriptor, folders)
         : null
+    const device =
+      folderId == null ? detachedDevice(descriptor) : deviceOf(folderId)
+    if (device == null) continue
     const row = rows.get(terminalId)
     const notification =
       row?.state === "attention"
@@ -105,8 +109,7 @@ export function buildSidebarSessions(input: {
         : null
     sessions.push({
       id: tab?.id ?? `terminal:${terminalId}`,
-      device:
-        folderId == null ? detachedDevice(descriptor) : deviceOf(folderId),
+      device,
       folderId,
       dot: row && descriptor.agentId ? paneDot(row, seen) : null,
       title: sessionTitle(tab?.title, descriptor),
@@ -143,7 +146,7 @@ export function buildSidebarSessions(input: {
  * 再后为其余的。`recent` 为最近激活的 tab id，新的在前。
  */
 export function switcherOrder<
-  S extends { tabId: string | null; dot: SectionSession["dot"] },
+  S extends { tabId: string | null; dot: RowSession["dot"] },
 >(
   sessions: readonly S[],
   recent: readonly string[],

@@ -1,0 +1,34 @@
+{
+  "$schema": "urn:berth:tool-asset:1",
+  "protocol": "berth.tool/1",
+  "id": "devices",
+  "version": "0.1.0",
+  "permissions": [
+    "devices"
+  ],
+  "contributes": {
+    "identity": {
+      "name": "Devices",
+      "roles": [],
+      "tags": [
+        "devices",
+        "ssh",
+        "remote"
+      ],
+      "description": "Manage the other machines Berth reaches over SSH: add and remove devices, check the connection, pick which of their projects show in the sidebar, register projects there, open SSH terminals and set up key login."
+    },
+    "view": [
+      {
+        "id": "devices",
+        "title": {
+          "en": "Devices",
+          "zh-CN": "设备"
+        },
+        "icon": "icon.svg",
+        "location": "sidebar",
+        "page": "ui/index.html"
+      }
+    ]
+  },
+  "resources": {}
+}

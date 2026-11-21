@@ -26,7 +26,7 @@ describe("workspace tab placement persistence", () => {
 
   it("uses an explicit global scope", () => {
     expect(workspacePlacementScope(null)).toBe("global")
-    expect(workspacePlacementScope(7)).toBe("folder:7")
+    expect(workspacePlacementScope(7)).toBe("project:7")
   })
 
   it("rejects corrupt documents and filters malformed entries", () => {
@@ -36,7 +36,7 @@ describe("workspace tab placement persistence", () => {
         JSON.stringify({
           version: 1,
           scopes: {
-            "folder:1": {
+            "project:1": {
               "primary:valid": "files",
               invalid: "files",
               "file:bad-pane": "middle",
@@ -45,6 +45,6 @@ describe("workspace tab placement persistence", () => {
           },
         })
       )
-    ).toEqual({ "folder:1": { "primary:valid": "files" } })
+    ).toEqual({ "project:1": { "primary:valid": "files" } })
   })
 })

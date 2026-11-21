@@ -1,7 +1,7 @@
 # 想法（`.berth/ideas/`）
 
-用户随手记的想法 / 问题（侧栏「想法」），在主项目的 `.berth/ideas/`（worktree 里也写主项目那一份：
-`berth project . knowledge root` 的上两级目录）。一条一个文件 `<创建时间>.idea.md`，id 就是文件名（不含 `.idea.md`）；
+用户随手记的想法 / 问题（侧栏「想法」），全项目只有主项目的 `.berth/ideas/` 一份。worktree 等其他 checkout
+里没有这个目录（不检出），有也是旧副本：不读不写当前目录的 `.berth/ideas/`，路径一律从下面的 `list` 取。一条一个文件 `<创建时间>.idea.md`，id 就是文件名（不含 `.idea.md`）；
 关闭的在 `.berth/ideas/归档/`。
 
 ```markdown
@@ -23,7 +23,8 @@ tags: [性能]          # 可选
 → 任务 10-17-cache
 ```
 
-- 列出开放的想法：`ls .berth/ideas/*.idea.md`，看 frontmatter 的 `status`。
+- 列出想法：`berth tools call ideas ui/api.js --input '{"action":"list"}'`，返回 `main`（主项目目录）和每条的
+  `id`、`path`（相对 `main`）、`status`；读写用 `<main>/<path>` 的绝对路径。
 - 原话不动；讨论与结论只追加到对应小节末尾，每条一行。
 - 关闭和重开只走下面的 `setStatus` 命令；`待讨论` / `讨论中` 之间可以直接改 `status`。
 

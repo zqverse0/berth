@@ -1,3 +1,5 @@
+import { sameProject } from "@/lib/workspace/tab-scope"
+
 export type FolderWorkspacePane = "conversation" | "file"
 
 export type FolderWorkspaceResume = {
@@ -21,7 +23,7 @@ type ResumeTab = {
 }
 
 /**
- * 进入一个项目时选哪张 tab：优先上次停留的 tab，其次当前激活 tab，
+ * 进入一个项目（任一成员）时选哪张 tab：优先上次停留的 tab，其次当前激活 tab，
  * 再退到该项目的第一张；项目没有 tab 时返回 null。
  */
 export function resolveFolderWorkspaceActivation(input: {
@@ -31,7 +33,9 @@ export function resolveFolderWorkspaceActivation(input: {
   activeTabId?: string | null
 }): FolderWorkspaceActivation {
   const pane = input.resume?.pane ?? "conversation"
-  const scope = input.rawTabs.filter((tab) => tab.folderId === input.folderId)
+  const scope = input.rawTabs.filter((tab) =>
+    sameProject(tab.folderId, input.folderId)
+  )
 
   if (input.resume) {
     const hit = scope.find((tab) => tab.id === input.resume!.primaryTabId)
@@ -94,7 +98,9 @@ export function pickTabInFolder(
   preferredId?: string | null
 ): string | null {
   const scope =
-    folderId == null ? tabs : tabs.filter((tab) => tab.folderId === folderId)
+    folderId == null
+      ? tabs
+      : tabs.filter((tab) => sameProject(tab.folderId, folderId))
   if (preferredId != null && scope.some((tab) => tab.id === preferredId)) {
     return preferredId
   }

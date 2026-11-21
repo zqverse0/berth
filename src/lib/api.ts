@@ -1,6 +1,4 @@
-import { getTransport, isDesktop } from "./transport"
-
-import { getCurrentEffectiveAppLocale } from "./i18n"
+import { getTransport } from "./transport"
 import type {
   AgentType,
   AppLocale,
@@ -11,6 +9,7 @@ import type {
   RawTurn,
   ReadTurns,
   FolderDetail,
+  ProjectMember,
   CreateChatConversationResult,
   CreateChatDirResult,
   WorktreeResolution,
@@ -374,13 +373,16 @@ export async function openFolderById(folderId: number): Promise<FolderDetail> {
   return getTransport().call("open_folder_by_id", { folderId })
 }
 
+/** `force`：删除 worktree 时连同未提交改动一起丢弃（用户已确认）。 */
 export async function removeFolderFromWorkspace(
   folderId: number,
-  deleteWorktree = false
+  deleteWorktree = false,
+  force = false
 ): Promise<void> {
   return getTransport().call("remove_folder_from_workspace", {
     folderId,
     deleteWorktree,
+    force,
   })
 }
 
@@ -671,62 +673,6 @@ export async function gitContinueOperation(
   return getTransport().call("git_continue_operation", { path, operation })
 }
 
-export async function openMergeWindow(
-  folderId: number,
-  operation: string,
-  upstreamCommit?: string | null
-): Promise<void> {
-  const locale = getCurrentEffectiveAppLocale()
-  if (isDesktop()) {
-    return getTransport().call("open_merge_window", {
-      folderId,
-      operation,
-      upstreamCommit: upstreamCommit ?? null,
-      locale,
-    })
-  }
-  const result = await getTransport().call<{ path: string }>(
-    "open_merge_window",
-    {
-      folderId,
-      operation,
-      upstreamCommit: upstreamCommit ?? null,
-      locale,
-    }
-  )
-  window.open(result.path, `merge-${folderId}`)
-}
-
-export async function openStashWindow(folderId: number): Promise<void> {
-  const locale = getCurrentEffectiveAppLocale()
-  if (isDesktop()) {
-    return getTransport().call("open_stash_window", {
-      folderId,
-      locale,
-    })
-  }
-  const result = await getTransport().call<{ path: string }>(
-    "open_stash_window",
-    { folderId, locale }
-  )
-  window.open(result.path, `stash-${folderId}`)
-}
-
-export async function openPushWindow(folderId: number): Promise<void> {
-  const locale = getCurrentEffectiveAppLocale()
-  if (isDesktop()) {
-    return getTransport().call("open_push_window", {
-      folderId,
-      locale,
-    })
-  }
-  const result = await getTransport().call<{ path: string }>(
-    "open_push_window",
-    { folderId, locale }
-  )
-  window.open(result.path, `push-${folderId}`)
-}
-
 export async function gitStashPush(
   path: string,
   message?: string,
@@ -864,13 +810,15 @@ export async function gitCommit(
   path: string,
   message: string,
   files: string[],
-  folderId?: number | null
+  folderId?: number | null,
+  amend?: boolean
 ): Promise<GitCommitResult> {
   return getTransport().call("git_commit", {
     path,
     message,
     files,
     folderId: folderId ?? null,
+    amend: amend ?? false,
   })
 }
 
@@ -908,13 +856,13 @@ export async function openWorktreeFolder(
 }
 
 /**
- * 以 folder 所属 repo 家族为单位与 `git worktree list` 对账：登记新 worktree、
- * 移除已删除的（后端决定 open/closed 的清理深度）。返回对账后的家族详情。
+ * 现读项目的代码成员：后端按主成员的 `git worktree list` 登记新 worktree，
+ * 不删成员，只标失效 / 临时。主成员在前。
  */
-export async function reconcileWorktreeFamily(
-  folderId: number
-): Promise<FolderDetail[]> {
-  return getTransport().call("reconcile_worktree_family", { folderId })
+export async function listProjectMembers(
+  projectId: number
+): Promise<ProjectMember[]> {
+  return getTransport().call("list_project_members", { projectId })
 }
 
 /**
@@ -929,21 +877,6 @@ export async function resolveWorktreeFolder(
   branch: string
 ): Promise<WorktreeResolution> {
   return getTransport().call("resolve_worktree_folder", { repoPath, branch })
-}
-
-export async function openCommitWindow(folderId: number): Promise<void> {
-  const locale = getCurrentEffectiveAppLocale()
-  if (isDesktop()) {
-    return getTransport().call("open_commit_window", {
-      folderId,
-      locale,
-    })
-  }
-  const result = await getTransport().call<{ path: string }>(
-    "open_commit_window",
-    { folderId, locale }
-  )
-  window.open(result.path, `commit-${folderId}`)
 }
 
 // Cross-window handoff for the project launcher, which lives in its own

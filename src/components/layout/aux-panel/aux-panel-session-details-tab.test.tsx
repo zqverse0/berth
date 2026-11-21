@@ -5,13 +5,6 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import type { DbConversationSummary } from "@/lib/types"
 import enMessages from "@/i18n/messages/en.json"
 
-// Regression guard: the branch selector was REMOVED from this tab — it lives in
-// the surrounding sidebar controls now. Stub it so that if it is ever
-// re-added here, its test id surfaces and the "no actions bar" assertions below
-// fail.
-vi.mock("@/components/layout/git/branch-dropdown", () => ({
-  BranchDropdown: () => <div data-testid="branch-dropdown" />,
-}))
 // The agent icon renders inline SVG with a <title> that duplicates the label.
 vi.mock("@/components/agent-icon", () => ({ AgentIcon: () => null }))
 // Stats are always supplied here, so the cold-fetch path must never fire; stub
@@ -109,10 +102,8 @@ describe("SessionDetailsTab", () => {
   })
 
   it("renders the active session's details with no folder-actions bar", () => {
-    // Branch + command belong to the surrounding sidebar, so the tab shows the
-    // details alone — no branch/command controls here.
     setupScene({ hasActiveConversation: true })
-    const { getByText, getByTestId, queryByTestId } = renderTab()
+    const { getByText, getByTestId } = renderTab()
     expect(getByTestId("session-details-tab")).toHaveClass(
       "min-w-0",
       "w-full",
@@ -120,13 +111,11 @@ describe("SessionDetailsTab", () => {
     )
     expect(getByText("My session")).toBeTruthy()
     expect(getByText("Claude Code")).toBeTruthy()
-    expect(queryByTestId("branch-dropdown")).toBeNull()
   })
 
   it("shows the empty state when there is no active session", () => {
     setupScene({ hasActiveConversation: false })
-    const { getByText, queryByTestId } = renderTab()
+    const { getByText } = renderTab()
     expect(getByText("No active session")).toBeTruthy()
-    expect(queryByTestId("branch-dropdown")).toBeNull()
   })
 })

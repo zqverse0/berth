@@ -18,6 +18,8 @@ import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 
 interface FileWorkspaceTabItemProps {
   tab: FileWorkspaceTab
+  /** 同名文件来自不同成员时显示的成员名。 */
+  member?: string
   active: boolean
   adjacentActive?: "before" | "after"
   onSwitch: (ref: WorkspaceTabRef) => void
@@ -36,6 +38,7 @@ interface FileWorkspaceTabItemProps {
 
 export const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
   tab,
+  member,
   active,
   adjacentActive,
   onSwitch,
@@ -80,7 +83,7 @@ export const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
           />
         )
       }
-      label={`${tab.title}${isDirty ? " *" : ""}`}
+      label={`${tab.title}${member ? ` · ${member}` : ""}${isDirty ? " *" : ""}`}
       title={tab.description ?? tab.title}
       closeLabel={tFile("closeFileTab")}
       onSelect={() => onSwitch(dragRef)}

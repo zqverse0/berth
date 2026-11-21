@@ -12,7 +12,9 @@
         __berth_call(method, JSON.stringify(params ?? {}))
       )
       return reply.error
-        ? Promise.reject(failure(reply.error.reason, reply.error.message, reply.error.data))
+        ? Promise.reject(
+            failure(reply.error.reason, reply.error.message, reply.error.data)
+          )
         : Promise.resolve(reply.result)
     } catch (error) {
       return Promise.reject(error)

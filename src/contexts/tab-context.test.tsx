@@ -106,9 +106,8 @@ const defaultFoldersMock: FolderDetail[] = [
     last_opened_at: "2026-05-24T00:00:00Z",
     sort_order: 0,
     color: "blue",
-    parent_id: null,
+    project: null,
     kind: "regular",
-    alias: null,
   },
   {
     id: 2,
@@ -119,9 +118,8 @@ const defaultFoldersMock: FolderDetail[] = [
     last_opened_at: "2026-05-24T00:00:00Z",
     sort_order: 1,
     color: "green",
-    parent_id: null,
+    project: null,
     kind: "regular",
-    alias: null,
   },
 ]
 
@@ -429,9 +427,8 @@ describe("TabProvider tab state transitions", () => {
       last_opened_at: "2026-06-11T00:00:00Z",
       sort_order: 99,
       color: "inherit",
-      parent_id: null,
+      project: null,
       kind: "chat",
-      alias: null,
     }
     act(() => {
       useAppWorkspaceStore.setState({
@@ -463,9 +460,8 @@ describe("TabProvider tab state transitions", () => {
       last_opened_at: "2026-06-11T00:00:00Z",
       sort_order: 99,
       color: "inherit",
-      parent_id: null,
+      project: null,
       kind: "chat",
-      alias: null,
     }
     act(() => {
       useAppWorkspaceStore.setState({

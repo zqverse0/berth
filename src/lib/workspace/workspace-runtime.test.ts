@@ -313,7 +313,7 @@ describe("workspace runtime", () => {
     }
     const [a, b, c] = useWorkspaceFileStore.getState().fileTabs
     useWorkspaceLayoutStore.setState({
-      placementByScope: { "folder:1": { [`file:${c.id}`]: "files-split" } },
+      placementByScope: { "project:1": { [`file:${c.id}`]: "files-split" } },
     })
     useWorkspaceLayoutStore
       .getState()

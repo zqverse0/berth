@@ -87,6 +87,47 @@ describe("handlePageCall", () => {
     )
     expect(sendToAgent).toHaveBeenCalledWith("hi")
   })
+  it("serves devices only with the devices permission, with host status and selection", async () => {
+    const { useDeviceSnapshotStore, useDevicesPanelStore } =
+      await import("@/lib/devices")
+    const device = {
+      id: 3,
+      name: "gpu",
+      target: "gpu",
+      localDir: "/d/3",
+      node: { berth: "/b/berth", status: null },
+      shown: ["/home/k/app"],
+    }
+    useDeviceSnapshotStore.setState({
+      devices: [device],
+      statusOf: () => ({ state: "online", message: null, keyMissing: false }),
+    })
+    useDevicesPanelStore.setState({ selected: 3 })
+    await expect(
+      handlePageCall(host(), "devices.list", {})
+    ).rejects.toMatchObject({ reason: "denied" })
+    expect(
+      await handlePageCall(
+        host({ permissions: ["devices"] }),
+        "devices.list",
+        {}
+      )
+    ).toEqual({
+      devices: [
+        {
+          id: 3,
+          name: "gpu",
+          target: "gpu",
+          node: true,
+          shown: ["/home/k/app"],
+          status: "online",
+          message: null,
+          keyMissing: false,
+        },
+      ],
+      selected: 3,
+    })
+  })
 })
 
 describe("connectPluginPage", () => {

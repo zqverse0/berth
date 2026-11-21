@@ -26,13 +26,15 @@ import { cn } from "@/lib/utils"
 import {
   copyPathToClipboard,
   PasteMenuItem,
+  type MenuItemComponent,
 } from "@/components/layout/file-tree/file-tree-node"
 import { usePasteFileTreeEntry } from "@/hooks/workspace/use-paste-file-tree-entry"
-import { ContextMenuItem } from "@/components/ui/context-menu"
 import { connectDevice } from "@/lib/transport"
 import { refreshTerminalInventory } from "@/lib/terminal/terminal-inventory-query"
 import { refreshAgentPanes } from "@/lib/terminal/agent-panes"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { isMainMember, mainFolderId } from "@/lib/workspace/projects"
+import type { FolderDetail } from "@/lib/types"
 import {
   deviceFolderId,
   deviceLineState,
@@ -237,14 +239,47 @@ export function DeviceTransfers({
 }
 
 /**
- * 设备概览到达且在线：对方打开的项目以本机身份进工作区（`transport/device.ts`），并连上对方 GUI，
+ * 挑到侧栏的对方项目连同成员（成员由对方给出），换成本机身份（负 id）；路径保留对方原样。
+ */
+export function shownDeviceFolders(
+  deviceId: number,
+  overview: NodeOverview | null | undefined,
+  shown: readonly string[]
+): FolderDetail[] {
+  if (!overview || shown.length === 0) return []
+  const mains = new Set(
+    overview.projects
+      .filter((item) => isMainMember(item) && shown.includes(item.path))
+      .map((item) => item.id)
+  )
+  return overview.projects
+    .filter((item) => mains.has(mainFolderId(item)))
+    .map((item) => ({
+      ...item,
+      id: deviceFolderId(deviceId, item.id),
+      project_id: null,
+      project: item.project
+        ? {
+            ...item.project,
+            main_folder_id: deviceFolderId(
+              deviceId,
+              item.project.main_folder_id
+            ),
+          }
+        : null,
+    }))
+}
+
+/**
+ * 设备概览到达且在线：挑到侧栏的对方项目以本机身份进工作区（`transport/device.ts`），并连上对方 GUI，
  * 它的终端从此并入本机终端清单——项目下的终端、Agent 状态、点开终端都与本机项目同一套。
  * 对方 GUI 没开时在后台重试，打开后自动连上。返回连线状态。
  */
 function useDeviceWorkspace(
   deviceId: number,
   overview: NodeOverview | null,
-  live: boolean
+  live: boolean,
+  shownKey: string
 ) {
   useEffect(() => {
     if (!overview || !live) return
@@ -254,18 +289,14 @@ function useDeviceWorkspace(
     )
     useAppWorkspaceStore.getState().syncDeviceFolders(
       deviceId,
-      overview.projects.map((item) => ({
-        ...item,
-        id: deviceFolderId(deviceId, item.id),
-        path: devicePath(deviceId, item.path),
-        parent_id:
-          item.parent_id == null
-            ? null
-            : deviceFolderId(deviceId, item.parent_id),
-      }))
+      shownDeviceFolders(
+        deviceId,
+        overview,
+        shownKey ? shownKey.split("\n") : []
+      ).map((item) => ({ ...item, path: devicePath(deviceId, item.path) }))
     )
     connectDevice(deviceId)
-  }, [deviceId, overview, live])
+  }, [deviceId, overview, live, shownKey])
   const state = useSyncExternalStore(watchDeviceLines, () =>
     deviceLineState(deviceId)
   )
@@ -302,21 +333,23 @@ export interface DeviceFeedState {
 }
 
 /**
- * 节点设备的数据源（不渲染）：读概览（离线时用缓存）、在线时把对方项目并入本机工作区并连上对方 GUI，
+ * 节点设备的数据源（不渲染）：读概览（离线时用缓存）、在线时把挑过的对方项目并入本机工作区并连上对方 GUI，
  * 结果上报给项目列表，对方项目与本机项目在同一张列表里按工作区显示。
  */
 export function DeviceFeed({
   deviceId,
   live,
+  shown,
   onUpdate,
 }: {
   deviceId: number
   /** 数据通道在线；否则只用缓存。 */
   live: boolean
+  shown: readonly string[]
   onUpdate: (deviceId: number, feed: DeviceFeedState) => void
 }) {
   const overview = useDeviceOverview(deviceId)
-  const line = useDeviceWorkspace(deviceId, overview, live)
+  const line = useDeviceWorkspace(deviceId, overview, live, shown.join("\n"))
   const problem = live && line && !line.open ? lineProblem(line.error) : null
   useEffect(() => {
     onUpdate(deviceId, { overview, problem })
@@ -324,27 +357,30 @@ export function DeviceFeed({
   return null
 }
 
-/** 对方项目行右键菜单里的对方专属项：复制路径、粘贴到对方。 */
+/** 对方成员菜单里的对方专属项：复制路径、粘贴到对方。 */
 export function DeviceProjectMenuItems({
   deviceId,
   path,
+  Item,
 }: {
   deviceId: number
   path: string
+  Item: MenuItemComponent
 }) {
   const tFileTree = useTranslations("Folder.fileTreeTab")
   const paste = usePasteFileTreeEntry()
   return (
     <>
-      <ContextMenuItem
+      <Item
         onSelect={() =>
           void copyPathToClipboard(path, tFileTree("toasts.copyPathFailed"))
         }
       >
         <Copy className="h-4 w-4" />
         {tFileTree("copyPath")}
-      </ContextMenuItem>
+      </Item>
       <PasteMenuItem
+        Item={Item}
         onPaste={() => void paste(devicePath(deviceId, path), "")}
       />
     </>

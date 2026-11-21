@@ -15,6 +15,7 @@ mod gui_launch;
 mod guide;
 mod init;
 mod knowledge;
+mod member;
 #[cfg(unix)]
 mod node;
 mod project;
@@ -55,6 +56,7 @@ Berth 命令行：与 GUI 同一套功能。
   任务      berth project <项目> task create | list | show | start | assign | finish | reopen
   群组      berth project <项目> group who | read | post | spawn | join --acp
   会话      berth project <项目> session ls | show | last
+  成员      berth project <项目> member ls | add | rm（检出来自 git，add / rm 管参考目录）
   记忆      berth project <项目> knowledge search | for | show | lint | digest | root | inbox
 
 常用：
@@ -228,6 +230,13 @@ enum Command {
         /// 子命令与参数（`berth group --help` 列出全部子命令）。
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, num_args = 0..)]
         args: Vec<OsString>,
+    },
+
+    /// 项目成员：检出（main 与各 worktree，来自 git）与参考目录。写作 `berth project <项目> member`。
+    #[command(hide = true)]
+    Member {
+        #[command(subcommand)]
+        command: member::MemberCommand,
     },
 
     /// 专家：`ls` 列出全部专家与它们在项目群里的终端，`show <id>` 看一个专家的终端。写作 `berth project <项目> expert`。
@@ -772,7 +781,7 @@ impl CliError {
 }
 
 /// 作用于单个项目的命令：写成 berth project <项目> <命令> …
-const PROJECT_SCOPED: [&str; 5] = ["knowledge", "task", "group", "session", "expert"];
+const PROJECT_SCOPED: [&str; 6] = ["knowledge", "task", "group", "session", "expert", "member"];
 
 /// berth [选项] project <项目> <项目级命令> … → (`<项目>`, 去掉 `project <项目>` 的 argv)。
 /// 其他形式原样返回、项目为 `None`。项目级命令都按当前目录找项目，调用方切到项目目录后照常解析。
@@ -1044,6 +1053,18 @@ fn run(cli: Cli) -> Result<(), CliError> {
         _ => {}
     }
 
+    if let Command::Member { command } = &cli.command {
+        // 只读终端库存给检出标在跑的 Agent：与 group 同一端点规则，端点不存在时不连。
+        let explicit = cli.socket_path.is_some()
+            || cli.socket_name.is_some()
+            || std::env::var_os("BERTH").is_some();
+        let socket = resolve_endpoint(cli.socket_name.as_deref(), cli.socket_path.as_deref())
+            .ok()
+            .map(LocalEndpoint::into_path)
+            .filter(|path| explicit || path.exists());
+        return member::run(command.clone(), socket.as_deref());
+    }
+
     match &cli.command {
         Command::Group { .. } | Command::Expert { .. } => {
             // `berth project . expert …` 由 group 子命令的 expert 实现（同一套群账本与终端探测）。
@@ -1304,7 +1325,7 @@ async fn run_control(command: Command, socket: PathBuf) -> Result<(), CliError> 
     let terminal = connect_sdk(&socket).await?;
     match command {
         Command::Ls => list_sessions(&terminal).await,
-        Command::Attach { .. } | Command::Lock { .. } | Command::Group { .. } | Command::Expert { .. } | Command::Task(..) => {
+        Command::Attach { .. } | Command::Lock { .. } | Command::Group { .. } | Command::Expert { .. } | Command::Member { .. } | Command::Task(..) => {
             unreachable!("attach and lock are handled before creating the async runtime")
         }
         Command::InstallShim
@@ -1649,6 +1670,7 @@ mod tests {
             (Some("codeg".into()), "berth -L s knowledge search x".into())
         );
         assert_eq!(split("berth project . task list"), (Some(".".into()), "berth task list".into()));
+        assert_eq!(split("berth project . member ls"), (Some(".".into()), "berth member ls".into()));
         // 项目自己的子命令、非项目级命令、出现在参数里的 project 都不改写。
         for line in ["berth project ls", "berth project codeg terminal ls", "berth knowledge search project x task"] {
             assert_eq!(split(line), (None, line.into()));

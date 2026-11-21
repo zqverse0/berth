@@ -191,6 +191,7 @@ pub struct GitConflictFileVersions {
 #[derive(Debug, Serialize)]
 pub struct GitCommitResult {
     pub committed_files: usize,
+    pub hash: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -522,8 +523,8 @@ pub struct GitHeadInfo {
     /// Short commit hash; present when detached and at least one commit exists.
     pub short_sha: Option<String>,
     /// 链接 worktree 指纹（`<common-dir>/worktrees/*` 条目名 + 目录是否仍在）。
-    /// `git worktree add/remove/prune` 与手工删目录都会改变它，前端据此触发
-    /// 家族对账；未解析出 common dir（unborn / 非仓库）时为 `None`。
+    /// `git worktree add/remove/prune` 与手工删目录都会改变它，前端据此现读
+    /// 项目成员（`list_project_members`）；未解析出 common dir（unborn / 非仓库）时为 `None`。
     pub worktrees_fingerprint: Option<String>,
 }
 
@@ -1610,47 +1611,58 @@ pub(crate) async fn git_commit_core(
     path: &str,
     message: &str,
     files: &[String],
+    amend: bool,
 ) -> Result<GitCommitResult, AppCommandError> {
-    // Find files already staged for deletion — git add would fail on these
-    // because they no longer exist in either the working tree or the index.
-    let staged_deletions: std::collections::HashSet<String> = crate::platform::process::tokio_command("git")
-        .args(["diff", "--cached", "--name-only", "--diff-filter=D", "-z"])
-        .current_dir(path)
-        .output()
-        .await
-        .ok()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .split('\0')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    if message.trim().is_empty() {
+        return Err(AppCommandError::invalid_input(
+            "Commit message cannot be empty",
+        ));
+    }
 
-    // Stage only files that aren't already staged deletions
-    let files_to_add: Vec<_> = files
-        .iter()
-        .filter(|f| !staged_deletions.contains(f.as_str()))
-        .collect();
+    // 改写上一条提交的信息：`--only` 不带路径时只改信息，不碰暂存区与工作区。
+    if !amend {
+        // Find files already staged for deletion — git add would fail on these
+        // because they no longer exist in either the working tree or the index.
+        let staged_deletions: std::collections::HashSet<String> =
+            crate::platform::process::tokio_command("git")
+                .args(["diff", "--cached", "--name-only", "--diff-filter=D", "-z"])
+                .current_dir(path)
+                .output()
+                .await
+                .ok()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .split('\0')
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
 
-    if !files_to_add.is_empty() {
-        let mut add_args = vec!["add".to_string(), "--".to_string()];
-        add_args.extend(
-            files_to_add
-                .iter()
-                .map(|file| to_git_literal_pathspec(file)),
-        );
+        // Stage only files that aren't already staged deletions
+        let files_to_add: Vec<_> = files
+            .iter()
+            .filter(|f| !staged_deletions.contains(f.as_str()))
+            .collect();
 
-        let add_output = crate::platform::process::tokio_command("git")
-            .args(&add_args)
-            .current_dir(path)
-            .output()
-            .await
-            .map_err(AppCommandError::io)?;
+        if !files_to_add.is_empty() {
+            let mut add_args = vec!["add".to_string(), "--".to_string()];
+            add_args.extend(
+                files_to_add
+                    .iter()
+                    .map(|file| to_git_literal_pathspec(file)),
+            );
 
-        if !add_output.status.success() {
-            return Err(git_command_error("add", &add_output.stderr));
+            let add_output = crate::platform::process::tokio_command("git")
+                .args(&add_args)
+                .current_dir(path)
+                .output()
+                .await
+                .map_err(AppCommandError::io)?;
+
+            if !add_output.status.success() {
+                return Err(git_command_error("add", &add_output.stderr));
+            }
         }
     }
 
@@ -1667,7 +1679,11 @@ pub(crate) async fn git_commit_core(
             &format!("user.email={email}"),
         ]);
     }
-    commit_cmd.args(["commit", "-m", message]).current_dir(path);
+    commit_cmd.arg("commit");
+    if amend {
+        commit_cmd.args(["--amend", "--only"]);
+    }
+    commit_cmd.args(["-m", message]).current_dir(path);
 
     let commit_output = commit_cmd.output().await.map_err(AppCommandError::io)?;
 
@@ -1675,9 +1691,19 @@ pub(crate) async fn git_commit_core(
         return Err(git_command_error("commit", &commit_output.stderr));
     }
 
+    let hash = crate::platform::process::tokio_command("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(path)
+        .output()
+        .await
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
     let committed_files = count_files_in_commit(path, "HEAD")
         .await
-        .unwrap_or(files.len());
+        .unwrap_or(if amend { 0 } else { files.len() });
 
     if let Some(folder_id) = folder_id {
         crate::event_bridge::emit_event(
@@ -1690,28 +1716,34 @@ pub(crate) async fn git_commit_core(
         );
     }
 
-    Ok(GitCommitResult { committed_files })
+    Ok(GitCommitResult {
+        committed_files,
+        hash,
+    })
 }
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn git_commit<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
-    window: tauri::WebviewWindow<R>,
     db: tauri::State<'_, AppDatabase>,
     path: String,
     message: String,
     files: Vec<String>,
     folder_id: Option<i32>,
+    amend: Option<bool>,
 ) -> Result<GitCommitResult, AppCommandError> {
-    let folder_id = folder_id.or_else(|| {
-        window
-            .label()
-            .strip_prefix("commit-")
-            .and_then(|value| value.parse::<i32>().ok())
-    });
     let emitter = EventEmitter::tauri(app.clone());
-    git_commit_core(&emitter, folder_id, &db.conn, &path, &message, &files).await
+    git_commit_core(
+        &emitter,
+        folder_id,
+        &db.conn,
+        &path,
+        &message,
+        &files,
+        amend.unwrap_or(false),
+    )
+    .await
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

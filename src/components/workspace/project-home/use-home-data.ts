@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { gitLog } from "@/lib/api"
+import { mainFolderId } from "@/lib/workspace/projects"
 import type { FolderDetail } from "@/lib/types"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { listGroups } from "@/lib/agent/berth-group"
@@ -124,21 +125,19 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
   return { data, reload: useCallback(() => setRevision((r) => r + 1), []) }
 }
 
-/** worktree 家族：根项目 + 挂在它下面的 worktree，根在前。 */
-export function useWorktreeFamily(
-  folder: Pick<FolderDetail, "id" | "parent_id">
+/** 项目成员（不含 chat folder），主成员在前、其余按目录名。 */
+export function useProjectMembers(
+  folder: Pick<FolderDetail, "id" | "project">
 ) {
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
-  const root = folder.parent_id ?? folder.id
+  const main = mainFolderId(folder)
   return useMemo(
     () =>
       allFolders
-        .filter(
-          (f) => f.kind !== "chat" && (f.id === root || f.parent_id === root)
-        )
+        .filter((f) => f.kind !== "chat" && mainFolderId(f) === main)
         .sort((a, b) =>
-          a.id === root ? -1 : b.id === root ? 1 : a.name.localeCompare(b.name)
+          a.id === main ? -1 : b.id === main ? 1 : a.name.localeCompare(b.name)
         ),
-    [allFolders, root]
+    [allFolders, main]
   )
 }

@@ -1,11 +1,11 @@
 "use client"
 
 import type { ComponentProps, ReactNode } from "react"
-import { FolderGit2, FolderOpen, Pin } from "lucide-react"
+import { Folder, FolderOpen, GitBranch, House, Pin } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FolderAliasLabel } from "./folder-alias-label"
 
-/** 行图标中心所在的轴线；嵌套 worktree 右移一级，连接线画在顶层轴线上。 */
+/** 行图标中心所在的轴线；成员行右移一级，连接线（`MemberRail`）画在顶层轴线上。 */
 export const RAIL_AXIS = "0.875rem"
 export const NESTED_STEP = "1.25rem"
 /** 会话行的左缩进：根项目下与项目名对齐，嵌套 worktree 下再右移一级。 */
@@ -13,6 +13,18 @@ export function sessionIndent(nested: boolean) {
   return nested
     ? `calc(${RAIL_AXIS} + ${NESTED_STEP} * 2 + 0.875rem)`
     : `calc(${RAIL_AXIS} + ${NESTED_STEP} + 0.875rem)`
+}
+
+/** 展开项目的成员连接线：从项目图标下沿垂到最后一行，包住成员区的容器需 `relative`。 */
+export function MemberRail() {
+  return (
+    <span
+      aria-hidden
+      data-project-rail
+      className="pointer-events-none absolute w-0.5 -translate-x-1/2 bg-sidebar-border"
+      style={{ top: "-0.5rem", bottom: "0.75rem", left: RAIL_AXIS }}
+    />
+  )
 }
 
 /** 项目行的底色：悬停、选中。 */
@@ -36,6 +48,8 @@ export function ProjectRowButton({
   selected,
   worktree,
   nested,
+  open = false,
+  strong = false,
   branch,
   icon,
   badge,
@@ -45,13 +59,19 @@ export function ProjectRowButton({
 }: {
   name: string
   alias: string | null
-  path: string
+  /** 悬停提示的路径；项目行没有目录，不给。 */
+  path?: string
   pinned: boolean
   selected: boolean
-  /** git worktree 行：FolderGit2 图标 + 分支名。 */
+  /** worktree 成员：分支图标。 */
   worktree: boolean
-  /** 挂在 root 下：右移一级并画连接线。 */
+  /** 成员行：右移一级；不是 worktree 就是主成员（房子图标）。 */
   nested: boolean
+  /** 项目行已展开：打开的文件夹图标。 */
+  open?: boolean
+  /** 当前成员所在的项目：名称加粗高亮。 */
+  strong?: boolean
+  /** 灰色分支名：与名称不同时显示。 */
   branch: string | null
   /** 替换默认图标（如加载中）。 */
   icon?: ReactNode
@@ -74,21 +94,6 @@ export function ProjectRowButton({
       style={{ paddingLeft: `calc(${axis} + 0.875rem)` }}
       {...button}
     >
-      {/* 连接线：嵌套行在顶层轴线上画一段竖线，相邻行首尾相接成一条线。 */}
-      {nested ? (
-        <span
-          aria-hidden
-          data-project-rail
-          className="pointer-events-none absolute z-0 bg-sidebar-border"
-          style={{
-            top: "-0.0625rem",
-            bottom: "-0.0625rem",
-            left: RAIL_AXIS,
-            width: "0.125rem",
-            transform: "translateX(-50%)",
-          }}
-        />
-      ) : null}
       <span
         aria-hidden
         className="pointer-events-none absolute flex items-center justify-center"
@@ -100,11 +105,16 @@ export function ProjectRowButton({
           transform: "translate(-50%, -50%)",
         }}
       >
+        {/* 图标只表示身份：项目文件夹、主成员房子、worktree 分支、参考书（由调用方给） */}
         {icon ??
           (worktree ? (
-            <FolderGit2 className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-          ) : (
+            <GitBranch className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+          ) : nested ? (
+            <House className="h-3.5 w-3.5 text-chart-3" />
+          ) : open ? (
             <FolderOpen className="h-3.5 w-3.5 text-chart-3" />
+          ) : (
+            <Folder className="h-3.5 w-3.5 text-chart-3" />
           ))}
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-[0.5rem]">
@@ -114,20 +124,22 @@ export function ProjectRowButton({
         <span
           className={cn(
             "min-w-0 flex-shrink truncate text-left text-[0.875rem] font-medium text-sidebar-foreground",
-            !selected && "text-sidebar-foreground/85",
-            dim && !selected && "text-muted-foreground"
+            strong && "font-semibold",
+            !selected && !strong && "text-sidebar-foreground/85",
+            dim && !selected && !strong && "text-muted-foreground"
           )}
         >
-          {worktree && !alias?.trim() ? (
-            (branch ?? name)
-          ) : (
-            <FolderAliasLabel
-              name={name}
-              alias={alias}
-              bracketClassName="text-sidebar-foreground"
-            />
-          )}
+          <FolderAliasLabel
+            name={name}
+            alias={alias}
+            bracketClassName="text-sidebar-foreground"
+          />
         </span>
+        {branch && branch !== name ? (
+          <span className="min-w-0 shrink truncate text-xs font-normal text-muted-foreground">
+            {branch}
+          </span>
+        ) : null}
         {badge}
       </div>
     </button>

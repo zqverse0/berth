@@ -16,20 +16,16 @@ import {
 } from "@/components/layout/sidebar/views"
 import { parseDeviceFolderId } from "@/lib/transport/device"
 import { useAppUiStore } from "@/stores/app-ui-store"
+import { isMainMember, projectName } from "@/lib/workspace/projects"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 /**
- * 状态栏的项目段，同时是侧栏下方当前项目面板的标题与开关：显示「项目 ⎇ 分支」，点击收起或展开面板。
+ * 状态栏的项目段，同时是侧栏下方当前项目面板的标题与开关：显示「项目 ⎇ 成员」（主成员显示分支），点击收起或展开面板。
  * 不在项目视图或侧栏已收起时，点击先回到项目视图再展开，面板收起后这里是唯一的展开入口。
  */
 export function StatusBarProject() {
   const t = useTranslations("ProjectPanel")
   const { activeFolder } = useActiveFolder()
-  const root = useAppWorkspaceStore((s) =>
-    activeFolder?.parent_id == null
-      ? null
-      : s.allFolders.find((f) => f.id === activeFolder.parent_id)
-  )
   const branch = useAppWorkspaceStore((s) =>
     activeFolder
       ? (s.branches.get(activeFolder.id) ?? activeFolder.git_branch ?? null)
@@ -43,8 +39,9 @@ export function StatusBarProject() {
     useProjectPanelStore()
   const { isActive: settingsActive, closeSettings } = useSettingsWorkspace()
 
-  const named = root ?? activeFolder
-  const name = named ? named.alias || named.name : t("noProject")
+  const name = activeFolder ? projectName(activeFolder) : t("noProject")
+  const member =
+    activeFolder && !isMainMember(activeFolder) ? activeFolder.name : branch
   const remote = activeFolder ? parseDeviceFolderId(activeFolder.id) : null
   const shown = sidebarOpen && view === "projects" && (!collapsed || maximized)
   const action = shown ? t("collapse") : t("expand")
@@ -84,10 +81,10 @@ export function StatusBarProject() {
       <span className="min-w-0 truncate font-medium text-foreground/90">
         {name}
       </span>
-      {branch ? (
+      {member ? (
         <span className="flex min-w-0 shrink items-center gap-0.5">
           <GitBranch aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{branch}</span>
+          <span className="truncate">{member}</span>
         </span>
       ) : null}
       {shown ? (

@@ -14,9 +14,7 @@ import {
   AgentLaunchForm,
   AgentLaunchHeader,
   AgentLaunchMenu,
-  DeviceLaunchPanel,
 } from "@/components/layout/sidebar/agent-launch"
-import { deviceFolderId } from "@/lib/transport/device"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useToolsSettingsStore } from "@/stores/tools-settings-store"
@@ -35,7 +33,6 @@ const mocks = vi.hoisted(() => ({
   getPreviewToolStatus: vi.fn(),
   checkToolUpdate: vi.fn(),
   installPreviewTool: vi.fn(),
-  deviceOverview: vi.fn(),
   sessionItems: [] as Array<{
     externalId: string
     title: string | null
@@ -51,11 +48,6 @@ vi.mock("@/lib/terminal/create-and-open-primary-terminal", () => ({
   tabFromDescriptor: (descriptor: { terminalId: string }) => ({
     id: `terminal:${descriptor.terminalId}`,
   }),
-}))
-
-vi.mock("@/lib/devices", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/devices")>()),
-  useDeviceOverview: (...args: unknown[]) => mocks.deviceOverview(...args),
 }))
 
 vi.mock("@/lib/platform", async (importOriginal) => ({
@@ -585,106 +577,5 @@ describe("AgentLaunchMenu", () => {
       expect.any(Function)
     )
     expect(useStatusBarLaunchStore.getState().launchOpen).toBe(false)
-  })
-})
-
-describe("DeviceLaunchPanel", () => {
-  beforeEach(() => {
-    localStorage.clear()
-    mocks.deviceOverview.mockReturnValue({
-      host: "macmini",
-      os: "macos",
-      projects: [{ id: 4, path: "/Users/k/app", name: "app", is_open: true }],
-    })
-    mocks.loadLaunchbar
-      .mockReset()
-      .mockImplementation((request: { type: string }) =>
-        Promise.resolve(
-          request.type === "list_agents"
-            ? { type: "agents", agents: [demoProfile], directory: "/tools" }
-            : {
-                type: "file",
-                file: {
-                  agent: "claude",
-                  config: {
-                    version: 1,
-                    items: [
-                      {
-                        id: "provider",
-                        component: "select",
-                        label: "Provider",
-                        optionsFrom: "providerVendor",
-                        protocols: ["claude"],
-                      },
-                    ],
-                  },
-                  diagnostics: [],
-                },
-              }
-        )
-      )
-    mocks.listModelProviders.mockReset().mockResolvedValue([])
-    mocks.listLoginCards.mockReset().mockResolvedValue([])
-    mocks.createTerminal.mockReset().mockResolvedValue({
-      terminalId: "berth-device://2#abc",
-    })
-    mocks.createFolderTerminal.mockReset()
-  })
-
-  const renderPanel = (onClose = vi.fn()) => {
-    render(
-      <NextIntlClientProvider locale="en" messages={en}>
-        <DeviceLaunchPanel
-          device={{ id: 2, name: "macmini" }}
-          onClose={onClose}
-        />
-      </NextIntlClientProvider>
-    )
-    return onClose
-  }
-
-  it("launches with the same launch bar, reading tools and providers from the device", async () => {
-    const user = userEvent.setup()
-    const onClose = renderPanel()
-
-    expect(screen.getByText("Runs on macmini")).toBeDefined()
-    await user.click(
-      await screen.findByRole("menuitem", { name: "Claude Code" })
-    )
-    await user.click(await screen.findByRole("button", { name: /^Start / }))
-
-    // 工具、启动栏、服务商、登录凭证都发给设备 2；终端建在对方项目里。
-    expect(mocks.loadLaunchbar).toHaveBeenCalledWith({ type: "list_agents" }, 2)
-    expect(mocks.loadLaunchbar).toHaveBeenCalledWith(
-      { type: "load", agent: "claude" },
-      2
-    )
-    expect(mocks.listModelProviders).toHaveBeenCalledWith(false, 2)
-    expect(mocks.listLoginCards).toHaveBeenCalledWith(2)
-    await waitFor(() =>
-      expect(mocks.createTerminal).toHaveBeenCalledWith(
-        expect.objectContaining({
-          cwd: "berth-device://2/Users/k/app",
-          folderId: deviceFolderId(2, 4),
-          agentContractId: "claude",
-        })
-      )
-    )
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
-  })
-
-  it("opens a plain terminal in the chosen project on the device", async () => {
-    const user = userEvent.setup()
-    const onClose = renderPanel()
-
-    await user.click(
-      await screen.findByRole("menuitem", { name: "New Terminal" })
-    )
-
-    expect(mocks.createFolderTerminal).toHaveBeenCalledWith(
-      { cwd: "berth-device://2/Users/k/app", folderId: deviceFolderId(2, 4) },
-      expect.any(Function)
-    )
-    expect(onClose).toHaveBeenCalled()
   })
 })

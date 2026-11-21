@@ -211,7 +211,7 @@ fn resume_is_preferred_when_declared() {
 #[test]
 fn missing_session_starts_over_and_says_so() {
     let mut fx = Fixture::new(&[]);
-    let state = MemberState { session_id: Some("s-gone".into()), ..Default::default() };
+    let state = MemberState { session_id: Some("s-gone".into()) };
     save_state(&fx.main, group::MAIN_GROUP, MEMBER, &format!("{PREFIX}{MEMBER}"), &state);
     let seq = fx.post("say again");
     fx.system("context_lost");
@@ -221,7 +221,7 @@ fn missing_session_starts_over_and_says_so() {
 #[test]
 fn other_restore_errors_are_reported_not_hidden() {
     let mut fx = Fixture::new(&[("FAKE_LOAD_FAIL", "1")]);
-    let state = MemberState { session_id: Some("s-any".into()), ..Default::default() };
+    let state = MemberState { session_id: Some("s-any".into()) };
     save_state(&fx.main, group::MAIN_GROUP, MEMBER, &format!("{PREFIX}{MEMBER}"), &state);
     let seq = fx.post("say x");
     let failed = fx.system("turn_failed");

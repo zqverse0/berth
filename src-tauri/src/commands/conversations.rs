@@ -1451,7 +1451,7 @@ pub enum ConversationRead {
 #[serde(untagged)]
 pub enum ConversationReadResult {
     Detail(Box<DbConversationDetail>),
-    Toc(ConversationToc),
+    Toc(Box<ConversationToc>),
     Parts(ReadTurns<PartTurn>),
     Raw(ReadTurns<RawTurn>),
     Context(Vec<ContextSource>),
@@ -1561,12 +1561,12 @@ pub async fn read_folder_conversation_core(
                     .and_then(|id| crate::sessions::declarative::source_revision(agent_type, id))
             });
             let group_link = group_link_of(conn, &summary).await;
-            ConversationReadResult::Toc(ConversationToc {
+            ConversationReadResult::Toc(Box::new(ConversationToc {
                 summary,
                 source_revision,
                 group_link,
                 toc,
-            })
+            }))
         }
         Loaded::Other(ConversationReadResult::Raw(mut raw)) => {
             let (children, outcomes) = delegation_children(conn, conversation_id).await;

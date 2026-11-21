@@ -16,7 +16,7 @@ import {
   resetAppWorkspaceStore,
   useAppWorkspaceStore,
 } from "@/stores/app-workspace-store"
-import { useGroupUnreadStore } from "@/lib/agent/group-unread"
+import { useReferenceBrowseStore } from "@/lib/workspace/reference-browse"
 import enMessages from "@/i18n/messages/en.json"
 import {
   _resetTerminalInventoryQuery,
@@ -24,10 +24,6 @@ import {
 } from "@/lib/terminal/terminal-inventory-query"
 import { tabsForFolderScope } from "@/lib/workspace/tab-scope"
 import { useProjectPanelStore } from "@/components/layout/sidebar/views"
-import {
-  useWorkspaceGroupsStore,
-  type WorkspaceGroupsState,
-} from "@/lib/workspace-groups"
 
 // Mutable backing store the mocked tab-context hook reads from (workspace data
 // now lives in the real zustand store, seeded per test below). `tabs` is
@@ -54,7 +50,7 @@ const stableWorkspaceFns = vi.hoisted(() => ({
   removeFolderFromWorkspace: async () => {},
   openFolder: vi.fn(async () => ({}) as FolderDetail),
   refreshFolder: async () => {},
-  refreshWorktreeFamily: async () => {},
+  refreshProjectMembers: async () => {},
 }))
 
 const stableTabFns = vi.hoisted(() => ({
@@ -67,6 +63,12 @@ const stableTabFns = vi.hoisted(() => ({
   activateFolderWorkspace: vi.fn(),
   leaveFolderWorkspace: vi.fn(),
   openNewConversationTab: () => {},
+}))
+
+const bridge = vi.hoisted(() => ({
+  references: [] as string[],
+  untracked: [] as { path: string; branch: string | null }[],
+  calls: [] as { method: string; params?: unknown }[],
 }))
 
 const folderApi = vi.hoisted(() => ({
@@ -91,8 +93,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   }
 })
 
-// 工作区读写与设备列表走 runtime bridge：工作区文件在内存里，没有设备。
-const bridge = vi.hoisted(() => ({ set: vi.fn() }))
+// 设备列表走 runtime bridge：没有设备。
 vi.mock("@/lib/runtime-bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/runtime-bridge")>()
   return {
@@ -100,18 +101,19 @@ vi.mock("@/lib/runtime-bridge", async (importOriginal) => {
     runtimeBridgeOperation: async (
       args: Parameters<typeof actual.runtimeBridgeOperation>[0]
     ) => {
-      if (args.method === "workspaceGroups.set") {
-        bridge.set(args.params?.state)
-        return { ok: true, result: null }
-      }
-      if (
-        args.method === "workspaceGroups.get" ||
-        args.method === "device.list"
-      )
+      if (args.method === "device.list") return { ok: true, result: [] }
+      if (args.method === "project.member.ls")
         return {
           ok: true,
-          result: args.method === "device.list" ? [] : null,
+          result: {
+            references: bridge.references.map((path) => ({ path })),
+            untracked: bridge.untracked,
+          },
         }
+      if (args.method.startsWith("project.member.")) {
+        bridge.calls.push({ method: args.method, params: args.params })
+        return { ok: true, result: {} }
+      }
       return actual.runtimeBridgeOperation(args)
     },
   }
@@ -176,21 +178,28 @@ function conv(
   }
 }
 
+/** `mainId` 是所属项目的主成员（默认自己）；项目名默认取主成员目录名。 */
 function folder(
   id: number,
   name: string,
-  parentId: number | null = null,
-  overrides: Partial<FolderDetail> = {}
+  mainId: number | null = null,
+  overrides: Partial<FolderDetail> = {},
+  project: Partial<NonNullable<FolderDetail["project"]>> = {}
 ): FolderDetail {
+  const main = mainId ?? id
   return {
     id,
     name,
     path: `/p/${id}`,
-    color: "blue",
     default_agent_type: null,
-    parent_id: parentId,
-    sort_order: id,
-    pinned_at: null,
+    project_id: main,
+    project: {
+      name: main === id ? name : "Repo",
+      main_folder_id: main,
+      pinned_at: null,
+      sort_order: main,
+      ...project,
+    },
     ...overrides,
   } as unknown as FolderDetail
 }
@@ -225,10 +234,11 @@ beforeEach(() => {
   resetAppWorkspaceStore()
   terminalApi.listTerminalSessions.mockReset()
   terminalApi.listTerminalSessions.mockResolvedValue([])
+  bridge.references = []
+  bridge.untracked = []
+  bridge.calls = []
   folderApi.updateFolderAlias.mockClear()
   store.activeFolder = null
-  useWorkspaceGroupsStore.setState({ state: null })
-  bridge.set.mockClear()
   stableWorkspaceFns.openFolder.mockClear()
   stableTabFns.activateFolderWorkspace.mockClear()
   stableTabFns.openTerminalTab.mockClear()
@@ -259,16 +269,16 @@ describe("SidebarProjectList — project explorer mode", () => {
       git_branch: "feature-x",
     } as unknown as FolderDetail
     const folders = [folder(1, "Repo"), wt]
-    refreshWorktreeFamily.mockClear()
+    refreshProjectMembers.mockClear()
     useAppWorkspaceStore.setState({
       folders,
       allFolders: folders,
       conversations: [conv(11, 1), conv(21, 2)],
-      refreshWorktreeFamily,
+      refreshProjectMembers,
     })
   })
 
-  const refreshWorktreeFamily = vi.fn(async (...ids: number[]) => {
+  const refreshProjectMembers = vi.fn(async (...ids: number[]) => {
     void ids
   })
 
@@ -283,23 +293,37 @@ describe("SidebarProjectList — project explorer mode", () => {
       const { rerender } = render(harness(false))
       rerender(harness(true))
       // 滑入动画期间不发 git 对账。
-      expect(refreshWorktreeFamily).not.toHaveBeenCalled()
+      expect(refreshProjectMembers).not.toHaveBeenCalled()
       vi.advanceTimersByTime(300)
-      expect(refreshWorktreeFamily).toHaveBeenCalledTimes(1)
-      expect(refreshWorktreeFamily).toHaveBeenCalledWith(1)
+      expect(refreshProjectMembers).toHaveBeenCalledTimes(1)
+      expect(refreshProjectMembers).toHaveBeenCalledWith(1)
 
       // 刚打开又关上：取消这一轮。
       rerender(harness(false))
       rerender(harness(true))
       rerender(harness(false))
       vi.advanceTimersByTime(300)
-      expect(refreshWorktreeFamily).toHaveBeenCalledTimes(1)
+      expect(refreshProjectMembers).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it("renders projects and worktrees without rendering conversation rows", () => {
+  it("groups local projects under a collapsible local-machine header", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <ProjectHarness />
+      </NextIntlClientProvider>
+    )
+
+    const header = screen.getByRole("button", { name: "This machine" })
+    expect(header.getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(header)
+    expect(header.getAttribute("aria-expanded")).toBe("false")
+    expect(document.body.textContent).not.toContain("Repo")
+  })
+
+  it("lists a project as one row until it is the current project", () => {
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness />
@@ -308,22 +332,34 @@ describe("SidebarProjectList — project explorer mode", () => {
 
     const text = document.body.textContent ?? ""
     expect(text).toContain("Repo")
-    expect(text).toContain("feature-x")
     expect(text).not.toContain("conv-11")
-    expect(text).not.toContain("conv-21")
-    const repoRow = document.querySelector(
-      '[data-folder-id="1"]'
-    ) as HTMLButtonElement
+    // 不是当前项目：成员不展开。
+    expect(document.querySelector('[data-folder-id="2"]')).toBeNull()
+  })
+
+  it("expands the current project into member rows with gray branches", () => {
+    store.activeFolder = folder(2, "wt-feature", 1)
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <ProjectHarness />
+      </NextIntlClientProvider>
+    )
+
+    // 项目行不是成员，不带 folder id；主成员是单独一行
+    expect(document.querySelector('[data-project-id="1"]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-folder-id="1"]')).toHaveLength(1)
     const wtRow = document.querySelector(
       '[data-folder-id="2"]'
     ) as HTMLButtonElement
-    // worktree 行缩进一级并画连接线；root 行不画。
-    expect(repoRow.querySelector("[data-project-rail]")).toBeNull()
-    expect(wtRow.querySelector("[data-project-rail]")).not.toBeNull()
-    expect(wtRow.style.paddingLeft).not.toBe(repoRow.style.paddingLeft)
+    expect(wtRow.textContent).toContain("wt-feature")
+    expect(wtRow.textContent).toContain("feature-x")
+    expect(wtRow.getAttribute("aria-current")).toBe("location")
+    // 展开的项目只有一条连续的连接线，画在成员区上，不在行里。
+    expect(document.querySelectorAll("[data-project-rail]")).toHaveLength(1)
+    expect(wtRow.querySelector("[data-project-rail]")).toBeNull()
   })
 
-  it("covers the list with the workspace summary while the panel is maximized", () => {
+  it("covers the list with the current project summary while the panel is maximized", () => {
     store.activeFolder = folder(1, "Repo")
     useProjectPanelStore.setState({ maximized: true })
     render(
@@ -334,13 +370,14 @@ describe("SidebarProjectList — project explorer mode", () => {
 
     // 列表仍挂着（滚动位置不丢），上面盖一行摘要，点击还原
     expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
-    const summary = screen.getByTitle(enMessages.WorkspaceGroups.restoreList)
-    expect(summary.textContent).toContain("Default")
+    const summary = screen.getByTitle(enMessages.SidebarSessions.restoreList)
+    expect(summary.textContent).toContain("Repo")
     fireEvent.click(summary)
     expect(useProjectPanelStore.getState().maximized).toBe(false)
   })
 
-  it("activates a registered project without reopening the folder", async () => {
+  it("activates a member without reopening the folder", async () => {
+    store.activeFolder = folder(1, "Repo")
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness />
@@ -359,24 +396,29 @@ describe("SidebarProjectList — project explorer mode", () => {
     expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
   })
 
-  it("keeps the project list after clicking a project", async () => {
+  it("clicking a project only folds its members, never selects it", async () => {
     store.activeFolder = folder(1, "Repo")
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness />
       </NextIntlClientProvider>
     )
-
-    expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
+    const project = document.querySelector(
+      '[data-project-id="1"]'
+    ) as HTMLElement
+    expect(project.getAttribute("aria-expanded")).toBe("true")
 
     await act(async () => {
-      fireEvent.click(
-        document.querySelector('[data-folder-id="2"]') as HTMLElement
-      )
+      fireEvent.click(project)
     })
+    expect(project.getAttribute("aria-expanded")).toBe("false")
+    expect(document.querySelector('[data-folder-id="1"]')).toBeNull()
+    expect(stableTabFns.activateFolderWorkspace).not.toHaveBeenCalled()
 
-    expect(stableTabFns.activateFolderWorkspace).toHaveBeenCalledWith(2)
-    expect(document.querySelector('[data-folder-id="2"]')).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(project)
+    })
+    expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
   })
 
   it("keeps file-tree and terminal entries off the context menu", () => {
@@ -398,17 +440,17 @@ describe("SidebarProjectList — project explorer mode", () => {
   })
 
   it("pins a project without rewriting its alias", async () => {
-    store.activeFolder = folder(1, "Repo", null, { alias: "Current alias" })
+    store.activeFolder = folder(1, "Repo", null, {}, { name: "Current alias" })
+    useAppWorkspaceStore.setState({
+      folders: [store.activeFolder],
+      allFolders: [store.activeFolder],
+    })
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness />
       </NextIntlClientProvider>
     )
 
-    fireEvent.click(screen.getByRole("button", { name: /Repo/ }))
-    await waitFor(() => {
-      expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
-    })
     fireEvent.click(
       document.querySelector('[aria-label="More options"]') as HTMLElement
     )
@@ -424,31 +466,35 @@ describe("SidebarProjectList — project explorer mode", () => {
     })
   })
 
-  it("shows editable aliases for worktrees instead of hiding them behind branch names", () => {
+  it("shows the project name on the project row and directory names on member rows", () => {
     const folders = [
-      folder(1, "Repo"),
-      folder(2, "Repo", 1, { alias: "Repo · 2", git_branch: "feature" }),
-      folder(3, "Repo", 1, { git_branch: "unaliased-branch" }),
+      folder(1, "berth-dev", null, {}, { name: "Berth" }),
+      folder(2, "berth", 1, { git_branch: "main" }),
     ]
     useAppWorkspaceStore.setState({ folders, allFolders: folders })
+    store.activeFolder = folders[1]
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <ProjectHarness />
       </NextIntlClientProvider>
     )
-    expect(
-      document.querySelector('[data-folder-id="2"]')?.textContent
-    ).toContain("Repo · 2")
-    expect(
-      document.querySelector('[data-folder-id="3"]')?.textContent
-    ).toContain("unaliased-branch")
+    const project = document.querySelector('[data-project-id="1"]')!
+    const main = document.querySelector('[data-folder-id="1"]')!
+    expect(project.textContent).toBe("Berth")
+    expect(main.textContent).toBe("berth-dev")
+    expect(document.querySelector('[data-folder-id="2"]')?.textContent).toBe(
+      "berthmain"
+    )
   })
 
   it("lists pinned projects before unpinned ones", () => {
-    const pinned = folder(2, "wt-feature", 1, {
-      git_branch: "feature-x",
-      pinned_at: "2026-08-20T12:00:00.000Z",
-    })
+    const pinned = folder(
+      3,
+      "Pinned",
+      null,
+      {},
+      { pinned_at: "2026-08-20T12:00:00.000Z" }
+    )
     const folders = [folder(1, "Repo"), pinned]
     useAppWorkspaceStore.setState({
       folders,
@@ -461,28 +507,10 @@ describe("SidebarProjectList — project explorer mode", () => {
       </NextIntlClientProvider>
     )
 
-    const ids = Array.from(document.querySelectorAll("[data-folder-id]")).map(
-      (el) => el.getAttribute("data-folder-id")
+    const ids = Array.from(document.querySelectorAll("[data-project-id]")).map(
+      (el) => el.getAttribute("data-project-id")
     )
-    expect(ids[0]).toBe("2")
-    expect(ids).toContain("1")
-  })
-
-  it("shows the group unread count on the project row", () => {
-    const repo = useAppWorkspaceStore
-      .getState()
-      .folders.find((folder) => folder.id === 1)!
-    useGroupUnreadStore.setState({ byPath: { [repo.path]: 3 } })
-
-    render(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <ProjectHarness />
-      </NextIntlClientProvider>
-    )
-
-    const badge = document.querySelector("[data-group-unread]")
-    expect(badge?.textContent).toBe("3")
-    expect(badge?.getAttribute("aria-label")).toBe("3 unread group messages")
+    expect(ids).toEqual(["3", "1"])
   })
 
   it("keeps the normal empty state when there are no projects or terminals", () => {
@@ -661,20 +689,7 @@ describe("SidebarProjectList — visibility prop", () => {
   })
 })
 
-describe("SidebarProjectList — workspaces", () => {
-  function groups(
-    members: WorkspaceGroupsState["members"]
-  ): WorkspaceGroupsState {
-    return {
-      version: 1,
-      groups: [
-        { id: "default", name: "Default", emoji: null, isDefault: true },
-        { id: "lab", name: "Lab", emoji: null, isDefault: false },
-      ],
-      members,
-    }
-  }
-
+describe("SidebarProjectList — sessions", () => {
   function renderList() {
     return render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
@@ -694,13 +709,10 @@ describe("SidebarProjectList — workspaces", () => {
       conversations: [],
       foldersHydrated: true,
     })
-    useWorkspaceGroupsStore.setState({
-      state: groups([{ device: 0, path: "/p/3", groupId: "lab" }]),
-    })
     store.activeFolder = folders[0]
   })
 
-  it("shows the current workspace in full and the others by running sessions only", async () => {
+  it("shows agents as icons on the project row, not plain terminals", async () => {
     terminalApi.listTerminalSessions.mockResolvedValue([
       terminal("idle-paper", 3),
       {
@@ -718,48 +730,121 @@ describe("SidebarProjectList — workspaces", () => {
     await refreshTerminalInventory()
     renderList()
 
-    // Default 是当前（Repo 所在）：项目行都在；Lab 只看运行中：项目行不显示，需关注的会话写着项目名
-    expect(document.querySelector('[data-folder-id="1"]')).not.toBeNull()
-    expect(document.querySelector('[data-folder-id="3"]')).toBeNull()
-    const busy = await screen.findByLabelText("busy-paper")
-    expect(busy.textContent).toContain("Paper")
-    expect(busy.textContent).toContain(enMessages.WorkspaceGroups.attention)
-    expect(screen.queryByLabelText("idle-paper")).toBeNull()
+    expect(document.querySelector('[data-project-id="1"]')).not.toBeNull()
+    expect(document.querySelector('[data-project-id="3"]')).not.toBeNull()
+    // 普通终端不进侧栏；Agent 是行尾图标，带状态。
+    expect(screen.queryByLabelText(/idle-paper/)).toBeNull()
+    const busy = await screen.findByLabelText(
+      `busy-paper · ${enMessages.SidebarSessions.attention}`
+    )
+    expect(busy.querySelector("[data-status-dot=attention]")).not.toBeNull()
 
     fireEvent.click(busy)
     expect(stableTabFns.openTerminalTab).toHaveBeenCalledWith(
       expect.objectContaining({ terminalId: "busy-paper", folderId: 3 }),
       true
     )
-
-    // 手动点开 Lab：完整显示，空闲的会话也在；当前工作区不变
-    fireEvent.click(screen.getByRole("button", { name: /^Lab: / }))
-    expect(document.querySelector('[data-folder-id="3"]')).not.toBeNull()
-    expect(screen.getByLabelText("idle-paper")).toBeTruthy()
-    expect(stableTabFns.activateFolderWorkspace).not.toHaveBeenCalled()
   })
 
-  it("switches workspace from its title to the first project and marks the current one", () => {
-    stableTabFns.activateFolderWorkspace.mockClear()
+  it("expands the current project into members: temporary folded, stale only cleans up", () => {
+    const folders = [
+      folder(1, "Repo"),
+      folder(2, "wt-a", 1, { git_branch: "task/a" }),
+      folder(4, "run-1", 1),
+      folder(5, "gone", 1),
+      folder(3, "Paper"),
+    ]
+    useAppWorkspaceStore.setState({
+      folders,
+      allFolders: folders,
+      memberFlags: new Map([
+        [4, { stale: false, temporary: true }],
+        [5, { stale: true, temporary: false }],
+      ]),
+    })
+    store.activeFolder = folders[1]
     renderList()
+
+    const ids = Array.from(
+      document.querySelectorAll("[data-project-id], [data-folder-id]")
+    ).map(
+      (el) =>
+        el.getAttribute("data-project-id") ?? el.getAttribute("data-folder-id")
+    )
+    // 项目行、主成员、worktree、失效成员；临时的收起，其他项目折叠。
+    expect(ids).toEqual(["1", "1", "5", "2", "3"])
+    expect(screen.getByText("task/a")).toBeTruthy()
+    const toggle = screen.getByText("+ 1 temporary worktree")
+    fireEvent.click(toggle)
+    expect(document.querySelector('[data-folder-id="4"]')).not.toBeNull()
     expect(
-      screen.getByRole("button", { name: /^Default/, current: true })
-    ).toBeTruthy()
-
-    fireEvent.click(screen.getByRole("button", { name: /^Lab\b(?!:)/ }))
-    expect(stableTabFns.activateFolderWorkspace).toHaveBeenCalledWith(3)
+      screen.getAllByRole("button", {
+        name: enMessages.ProjectMembers.prune,
+      })
+    ).toHaveLength(1)
   })
 
-  it("switching to a workspace without projects leaves the current project", () => {
-    stableTabFns.leaveFolderWorkspace.mockClear()
-    useWorkspaceGroupsStore.setState({ state: groups([]) })
+  it("hints git worktrees outside any project and adds one only via +", async () => {
+    bridge.untracked = [{ path: "/repos/repo-agent", branch: "agent" }]
     renderList()
 
-    fireEvent.click(screen.getByRole("button", { name: /^Lab\b(?!:)/ }))
-    expect(stableTabFns.leaveFolderWorkspace).toHaveBeenCalled()
+    fireEvent.click(await screen.findByText("+ 1 untracked worktree(s)"))
+    fireEvent.click(screen.getByText("repo-agent"))
+    expect(bridge.calls).toEqual([])
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add to project" }))
+    })
+    expect(bridge.calls).toEqual([
+      {
+        method: "project.member.join",
+        params: { path: "/repos/repo-agent" },
+      },
+    ])
   })
 
-  it("keeps search folded until opened, finds sessions across workspaces and closes on Escape", async () => {
+  it("offers set-main / move / remove-from-project on worktree members only", async () => {
+    const folders = [
+      folder(1, "Repo"),
+      folder(2, "wt-a", 1, { git_branch: "task/a" }),
+      folder(3, "Paper"),
+    ]
+    useAppWorkspaceStore.setState({ folders, allFolders: folders })
+    store.activeFolder = folders[1]
+    renderList()
+
+    const menuOf = (folderId: number) => {
+      const row = document.querySelector(
+        `[data-folder-id="${folderId}"]`
+      )!.parentElement!
+      const trigger = row.querySelector('[aria-label="More options"]')!
+      fireEvent.keyDown(trigger, { key: "Enter" })
+      const items = screen.getAllByRole("menuitem").map((el) => el.textContent)
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" })
+      return items
+    }
+    const worktree = menuOf(2)
+    expect(worktree).toContain("Make main member")
+    expect(worktree).toContain("Move to project")
+    expect(worktree).toContain("Remove from project…")
+    const main = menuOf(1)
+    expect(main).toContain("Move to project")
+    expect(main).not.toContain("Make main member")
+    expect(main).not.toContain("Remove from project…")
+  })
+
+  it("lists the project's references and browses one in the file panel", async () => {
+    bridge.references = ["/ref/OpenMausBot"]
+    renderList()
+
+    expect(await screen.findByText("References")).toBeTruthy()
+    fireEvent.click(await screen.findByText("OpenMausBot"))
+    expect(useReferenceBrowseStore.getState()).toMatchObject({
+      folderId: 1,
+      path: "/ref/OpenMausBot",
+    })
+  })
+
+  it("keeps search folded until opened, finds sessions and closes on Escape", async () => {
     terminalApi.listTerminalSessions.mockResolvedValue([
       terminal("busy-paper", 3),
     ])
@@ -777,39 +862,5 @@ describe("SidebarProjectList — workspaces", () => {
 
     fireEvent.keyDown(input, { key: "Escape" })
     expect(screen.queryByPlaceholderText(placeholder)).toBeNull()
-  })
-
-  it("puts a newly opened project into the current workspace", async () => {
-    store.activeFolder = folder(3, "Paper")
-    renderList()
-
-    const opened = [folder(1, "Repo"), folder(3, "Paper"), folder(4, "Notes")]
-    act(() => {
-      useAppWorkspaceStore.setState({ folders: opened, allFolders: opened })
-    })
-
-    await waitFor(() =>
-      expect(useWorkspaceGroupsStore.getState().state?.members).toContainEqual({
-        device: 0,
-        path: "/p/4",
-        groupId: "lab",
-      })
-    )
-    expect(bridge.set).toHaveBeenCalled()
-  })
-
-  it("forgets projects that were removed from Berth", async () => {
-    useWorkspaceGroupsStore.setState({
-      state: groups([
-        { device: 0, path: "/p/3", groupId: "lab" },
-        { device: 0, path: "/p/gone", groupId: "lab" },
-      ]),
-    })
-    renderList()
-    await waitFor(() =>
-      expect(useWorkspaceGroupsStore.getState().state?.members).toEqual([
-        { device: 0, path: "/p/3", groupId: "lab" },
-      ])
-    )
   })
 })

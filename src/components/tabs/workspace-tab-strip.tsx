@@ -23,6 +23,8 @@ import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import type { FileWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import { isTerminalTab } from "@/lib/workspace/primary-tabs"
+import { fileTabFolderScope } from "@/lib/workspace/tab-scope"
+import { memberLabel } from "@/lib/workspace/projects"
 import { terminateTerminalSession } from "@/lib/api"
 import {
   workspaceTabKey,
@@ -136,6 +138,24 @@ export function WorkspaceTabStrip({
     for (const folder of allFolders) map.set(folder.id, { name: folder.name })
     return map
   }, [allFolders])
+
+  // tab 按项目显示后 main 与 worktree 的同名文件会并排：同名的标题带成员名。
+  const fileMembers = useMemo(() => {
+    const files = entries.flatMap((entry) =>
+      entry.fileTab ? [entry.fileTab] : []
+    )
+    const counts = new Map<string, number>()
+    for (const file of files)
+      counts.set(file.title, (counts.get(file.title) ?? 0) + 1)
+    const labels = new Map<string, string>()
+    for (const file of files) {
+      if ((counts.get(file.title) ?? 0) < 2) continue
+      const owner = fileTabFolderScope(file, allFolders)
+      const folder = allFolders.find((item) => item.id === owner)
+      if (folder) labels.set(file.id, memberLabel(folder))
+    }
+    return labels
+  }, [allFolders, entries])
 
   const scrollRef = useRef<HTMLDivElement>(null)
   // While a tab is dragged it leaves every strip; the target strip shows a
@@ -376,6 +396,7 @@ export function WorkspaceTabStrip({
               <FileWorkspaceTabItem
                 key={entry.key}
                 tab={entry.fileTab}
+                member={fileMembers.get(entry.fileTab.id)}
                 active={active}
                 adjacentActive={adjacentActive}
                 onSwitch={selectTab}

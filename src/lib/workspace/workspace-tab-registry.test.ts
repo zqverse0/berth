@@ -12,7 +12,6 @@ const readerTypes: WorkspaceTabType[] = [
   "transcript",
   "task",
   "berth-session",
-  "device",
   "conversation",
   "global",
 ]

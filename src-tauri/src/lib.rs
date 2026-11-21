@@ -46,7 +46,6 @@ pub mod berth_tasks;
 pub mod translate;
 pub mod update;
 pub mod versioned_file_responder;
-pub mod workspace_groups;
 pub mod workspace_state;
 
 /// Sweep leftover ACP binary cache trash from the retired installer path.
@@ -206,8 +205,6 @@ mod tauri_app {
         let app = builder
             .manage(TerminalManager::new())
             .manage(control::CurrentTerminalSelection::default())
-            .manage(windows::CommitWindowState::new())
-            .manage(windows::MergeWindowState::new())
             .manage(workspace_resources)
             .manage(workspace_transfer)
             // Source of truth for an in-flight app self-update so the upgrade
@@ -528,35 +525,6 @@ mod tauri_app {
             .on_window_event(|window, event| {
                 let label = window.label().to_string();
 
-                if label.starts_with("commit-")
-                    && matches!(
-                        event,
-                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-                    )
-                {
-                    let app = window.app_handle();
-                    if let Some(state) = app.try_state::<windows::CommitWindowState>() {
-                        windows::restore_window_after_commit(app, &state, &label);
-                    }
-                }
-
-                if label.starts_with("merge-")
-                    && matches!(
-                        event,
-                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-                    )
-                {
-                    let app = window.app_handle();
-                    if let Some(state) = app.try_state::<windows::MergeWindowState>() {
-                        windows::restore_window_after_merge(app, &state, &label);
-                    }
-                    let app_clone = window.app_handle().clone();
-                    let label_clone = label.clone();
-                    tauri::async_runtime::spawn(async move {
-                        windows::cleanup_dangling_merge(&app_clone, &label_clone).await;
-                    });
-                }
-
                 if label == "main" {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         // The close button does one of two things, depending
@@ -640,7 +608,7 @@ mod tauri_app {
                 folders::open_folder_in_workspace,
                 folders::open_folder_by_id,
                 folders::remove_folder_from_workspace,
-                folders::reconcile_worktree_family,
+                folders::list_project_members,
                 folders::reorder_folders,
                 folders::update_folder_alias,
                 folders::rename_worktree,
@@ -721,10 +689,6 @@ mod tauri_app {
                 git::git_commit_files,
                 git::git_search_authors,
                 git::git_commit_branches,
-                windows::open_commit_window,
-                windows::open_merge_window,
-                windows::open_stash_window,
-                windows::open_push_window,
                 pdf_preview_commands::open_local_pdf_source,
                 pdf_preview_commands::read_local_pdf_range,
                 pdf_preview_commands::close_local_pdf_source,

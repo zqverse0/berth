@@ -29,6 +29,9 @@ pub struct LaunchExtras {
     pub brief: fn() -> String,
     /// 当前项目 `{id, name, root}` 或 null（`env.project`）。
     pub project: crate::rpc::ProjectLookup,
+    /// `ctx.project`：启动目录所在项目的成员视图 `{name, home, checkouts[], references[]}`
+    /// （同 `berth project . member ls --json`）或 null；怎么用由插件决定。
+    pub project_view: fn() -> Value,
 }
 
 /// 运行 Agent 插件；返回进程退出码。宿主侧错误打印 `launch: …` 并返回 2（同 Python 运行时）。
@@ -104,6 +107,7 @@ fn prepare_and_run(script: &Path, argv: &[String], extras: LaunchExtras) -> Resu
     data["passthrough"] = json!(request.passthrough);
     data["expert"] = expert.unwrap_or(Value::Null);
     data["provider"] = provider.unwrap_or(Value::Null);
+    data["project"] = (extras.project_view)();
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     data["paths"] = json!({
         "package": package.to_string_lossy(),
@@ -922,7 +926,7 @@ mod tests {
         for index in 0..MANIFEST_KEEP {
             std::fs::write(dir.join(format!("{:013}-1.json", index)), "{}").unwrap();
         }
-        let extras = LaunchExtras { brief: String::new, project: Box::new(|| Value::Null) };
+        let extras = LaunchExtras { brief: String::new, project: Box::new(|| Value::Null), project_view: || Value::Null };
         let code = launch(&package.join("launch.js"), &argv, extras);
         let path = PathBuf::from(std::env::var_os(LAUNCH_MANIFEST_ENV).unwrap());
         let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -1012,6 +1016,7 @@ mod tests {
         let extras = || LaunchExtras {
             brief: String::new,
             project: Box::new(|| Value::Null),
+            project_view: || Value::Null,
         };
         let code = launch(&package.join("launch.js"), &argv, extras());
         let bad = launch(
@@ -1067,6 +1072,7 @@ mod tests {
             let extras = LaunchExtras {
                 brief: || "BRIEF".to_owned(),
                 project: Box::new(|| Value::Null),
+                project_view: || Value::Null,
             };
             launch(&package.join("launch.js"), &argv, extras)
         };
@@ -1085,5 +1091,43 @@ mod tests {
             (Some("demo"), Some("dev"), Some(0))
         );
         assert_eq!(record["plan"]["skills"][0], "tdd");
+    }
+
+    #[test]
+    fn launch_hands_the_project_view_to_ctx_project() {
+        let _lock = berth_tool_core::paths::TEST_ENV_LOCK
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let previous = std::env::var_os("BERTH_HOME");
+        std::env::set_var("BERTH_HOME", home.path());
+        let package = home.path().join("tools/demo");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("tool.json"), r#"{"id":"demo"}"#).unwrap();
+        std::fs::write(package.join("launchbar.json"), r#"{"items":[]}"#).unwrap();
+        // 退出码 = 检出数 × 10 + 参考数；没有项目时 1。
+        std::fs::write(
+            package.join("launch.js"),
+            r#"export default { launch: (ctx) => ctx.project ? ctx.project.checkouts.length * 10 + ctx.project.references.length : 1 }"#,
+        )
+        .unwrap();
+        let run = |project_view: fn() -> Value| {
+            let extras = LaunchExtras {
+                brief: String::new,
+                project: Box::new(|| Value::Null),
+                project_view,
+            };
+            launch(&package.join("launch.js"), &[], extras)
+        };
+        let with_project = run(|| {
+            json!({"name": "p", "home": "/p", "checkouts": [{"path": "/p"}, {"path": "/p-wt"}], "references": [{"path": "/r"}]})
+        });
+        let without = run(|| Value::Null);
+        match previous {
+            Some(value) => std::env::set_var("BERTH_HOME", value),
+            None => std::env::remove_var("BERTH_HOME"),
+        }
+        assert_eq!((with_project, without), (21, 1));
     }
 }

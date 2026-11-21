@@ -262,7 +262,7 @@ describe("refreshConversations — scoped cache reconciliation", () => {
     await Promise.resolve()
 
     await useAppWorkspaceStore.getState().removeFolderFromWorkspace(7)
-    expect(mockRemoveFolderFromWorkspace).toHaveBeenCalledWith(7, false)
+    expect(mockRemoveFolderFromWorkspace).toHaveBeenCalledWith(7, false, false)
     expect(useAppWorkspaceStore.getState().conversations).toEqual([])
     expect(
       useAppWorkspaceStore.getState().folders.map((folder) => folder.id)
@@ -284,19 +284,19 @@ describe("refreshConversations — scoped cache reconciliation", () => {
 
   it("forwards physical worktree deletion explicitly", async () => {
     useAppWorkspaceStore.setState({
-      folders: [makeFolder({ id: 8, parent_id: 1 })],
+      folders: [makeFolder({ id: 8, main: 1 })],
     })
 
     await useAppWorkspaceStore.getState().removeFolderFromWorkspace(8, true)
 
-    expect(mockRemoveFolderFromWorkspace).toHaveBeenCalledWith(8, true)
+    expect(mockRemoveFolderFromWorkspace).toHaveBeenCalledWith(8, true, false)
     expect(useAppWorkspaceStore.getState().folders).toEqual([])
   })
 
-  it("drops the whole worktree family when removing a root", async () => {
+  it("drops the whole project when removing its main member", async () => {
     const family = [
       makeFolder({ id: 1 }),
-      makeFolder({ id: 2, parent_id: 1 }),
+      makeFolder({ id: 2, main: 1 }),
       makeFolder({ id: 3 }),
     ]
     useAppWorkspaceStore.setState({
@@ -421,20 +421,25 @@ describe("updateConversationLocal — stats reference stability", () => {
   })
 })
 
-function makeFolder(
-  overrides: Partial<FolderDetail> & { id: number }
-): FolderDetail {
+/** `main`：所属项目的主成员（默认自己）。 */
+function makeFolder({
+  main,
+  ...overrides
+}: Partial<FolderDetail> & { id: number; main?: number }): FolderDetail {
   return {
     name: "repo",
     path: "/tmp/repo",
     git_branch: null,
     default_agent_type: null,
     last_opened_at: "2026-01-01T00:00:00.000Z",
-    sort_order: 1,
-    color: "#000000",
-    parent_id: null,
+    project_id: main ?? overrides.id,
+    project: {
+      name: "repo",
+      main_folder_id: main ?? overrides.id,
+      pinned_at: null,
+      sort_order: 1,
+    },
     kind: "regular",
-    alias: null,
     ...overrides,
   }
 }

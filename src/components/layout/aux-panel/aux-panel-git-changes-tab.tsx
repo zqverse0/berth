@@ -1,24 +1,18 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { CloudUpload, Loader2, RefreshCw } from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "@/lib/notify"
 import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
 import {
   SidebarHeaderActions,
   SidebarHeaderButton,
 } from "@/components/layout/sidebar/sidebar-header"
 import { GitFileTree } from "@/components/layout/git/git-file-tree"
-import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Textarea } from "@/components/ui/textarea"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useGitCredential } from "@/contexts/git-credential-context"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
-import { gitCommit, gitPush, gitPushInfo, gitStatus } from "@/lib/api"
-import { invalidateGitFolderCache } from "@/lib/git/git-folder-cache"
-import { toErrorMessage } from "@/lib/app-error"
+import { gitStatus } from "@/lib/api"
 import { subscribe } from "@/lib/platform"
 import type { GitLogFileChange, GitStatusEntry } from "@/lib/types"
 
@@ -34,19 +28,14 @@ function sameEntries(a: GitStatusEntry[], b: GitStatusEntry[]): boolean {
   )
 }
 
-/** 工作区变更：文件树（点文件在中心区看 diff）+ 侧栏内联的提交 / 推送。 */
+/** 工作区变更：文件树（点文件在中心区看 diff）。 */
 export function GitChangesTab() {
   const t = useTranslations("Folder.gitChangesTab")
   const tCommon = useTranslations("Folder.common")
-  const tCommit = useTranslations("Folder.commitDialog")
-  const tPush = useTranslations("Folder.pushWindow")
-  const { withCredentialRetry } = useGitCredential()
   const { activeFolder: folder } = useActiveFolder()
   const { openWorkingTreeDiff, openFilePreview } = useWorkspaceRuntimeActions()
   const [entries, setEntries] = useState<GitStatusEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState("")
-  const [busy, setBusy] = useState<"commit" | "push" | null>(null)
   const seq = useRef(0)
   const folderId = folder?.id ?? null
   const folderPath = folder?.path ?? null
@@ -114,67 +103,6 @@ export function GitChangesTab() {
   )
   if (!folder) return <AuxPanelNoFolderEmpty />
 
-  const push = async () => {
-    // 无远程时 git 只会报 "'origin' does not appear to be a git repository"，
-    // 先拦住并指路。
-    const info = await gitPushInfo(folder.path)
-    if (info.remotes.length === 0) throw new Error(t("toasts.noRemote"))
-    const result = await withCredentialRetry(
-      (creds) => gitPush(folder.path, null, creds, folder.id),
-      { folderPath: folder.path }
-    )
-    invalidateGitFolderCache(folder.path)
-    if (result.upstream_set) {
-      toast.success(
-        tPush("toasts.upstreamSetAndPushed", { count: result.pushed_commits })
-      )
-    } else if (result.pushed_commits === 0) {
-      toast.info(tPush("toasts.noCommitsToPush"))
-    } else {
-      toast.success(
-        tPush("toasts.pushedCommits", { count: result.pushed_commits })
-      )
-    }
-  }
-
-  // andPush: 提交成功后接着推送；提交失败则不推。
-  const run = async (kind: "commit" | "push", andPush = false) => {
-    setBusy(kind)
-    try {
-      if (kind === "commit") {
-        const result = await gitCommit(
-          folder.path,
-          message.trim(),
-          entries.map((e) => e.file),
-          folder.id
-        )
-        invalidateGitFolderCache(folder.path)
-        setMessage("")
-        toast.success(tCommit("toasts.commitCompleted"), {
-          description: tCommit("toasts.committedFiles", {
-            count: result.committed_files,
-          }),
-        })
-        void load()
-        if (!andPush) return
-      }
-      await push()
-    } catch (error) {
-      toast.error(
-        tCommit(
-          kind === "commit" && !andPush
-            ? "toasts.commitFailed"
-            : "toasts.pushFailed"
-        ),
-        { description: toErrorMessage(error) }
-      )
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const canCommit = entries.length > 0 && message.trim() !== "" && !busy
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeaderActions>
@@ -183,12 +111,6 @@ export function GitChangesTab() {
           label={tCommon("refresh")}
           onClick={() => void load()}
           disabled={loading}
-        />
-        <SidebarHeaderButton
-          icon={busy === "push" ? Loader2 : CloudUpload}
-          label={tCommon("push")}
-          onClick={() => void run("push")}
-          disabled={busy !== null}
         />
       </SidebarHeaderActions>
       {entries.length === 0 ? (
@@ -209,41 +131,6 @@ export function GitChangesTab() {
           />
         </ScrollArea>
       )}
-      <div className="shrink-0 space-y-2 border-t border-border/50 p-2">
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
-              e.preventDefault()
-              void run("commit")
-            }
-          }}
-          placeholder={tCommit("commitMessagePlaceholder")}
-          aria-label={tCommit("commitMessage")}
-          rows={3}
-          className="resize-none text-sm"
-        />
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            className="flex-1"
-            disabled={!canCommit}
-            onClick={() => void run("commit")}
-          >
-            {tCommit("commitButton", { count: entries.length })}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            disabled={!canCommit}
-            onClick={() => void run("commit", true)}
-          >
-            {tCommit("commitAndPushButton", { count: entries.length })}
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }

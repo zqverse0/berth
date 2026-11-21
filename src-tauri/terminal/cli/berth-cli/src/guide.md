@@ -8,6 +8,7 @@
 - 任务、群组、知识库全项目只有一份，都在主项目的 `.berth/`：worktree 里用 `berth project . task` / `berth project . group` 读写的也是这一份，效果一样。
   例外：worker 按自己 worktree 里那份 prd（开工时的合同）干活，改需求走 `change`。
 - 知识库全项目只有一份，在主项目：路径用 `berth project . knowledge root` 取，不要写 worktree 里的 `.berth/knowledge/`。任务、想法归档后进它的待入库清单，用户说要维护时才处理。维护方法：`berth guide knowledge`。
+- 想法也只在主项目：用 `berth tools call ideas ui/api.js --input '{"action":"list"}'` 取 `main` 和各条路径，不读写当前 checkout 的 `.berth/ideas/`。worktree 里没有 `.berth/ideas/`、`.berth/knowledge/` 是正常的（不检出）。
 
 ## 任务
 

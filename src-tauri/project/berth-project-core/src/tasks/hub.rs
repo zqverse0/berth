@@ -1,7 +1,8 @@
 //! 主项目判定：执行过 `berth init` 的那份 checkout（`.berth/local/hub.json`）。
 //!
-//! 不用 DB `parent_id`：GUI 把 `git worktree list` 第一项（git 主 worktree）当家族根，
-//! 而用户工作、跑 dev、存 `local/` 的 checkout 不一定是它（本仓库的根是 main 分支的旧目录）。
+//! hub 标记也是项目表主成员的来源（`folder_service::open_project`、迁移
+//! `m20261120_000001_project`）：GUI 与任务按同一份 checkout 认主项目，git 主 worktree
+//! 只在没有标记时兜底（用户工作、跑 dev、存 `local/` 的 checkout 不一定是它）。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -125,4 +126,86 @@ pub(crate) fn berth_dir(main: &Path) -> PathBuf {
 
 pub(crate) fn local_dir(main: &Path) -> PathBuf {
     main.join(".berth").join("local")
+}
+
+/// 只在主项目有一份的 `.berth/` 子目录：其他 checkout（worktree、git 主 worktree）不检出，
+/// 用户看侧栏、Agent 用 `berth` 命令，都落到主项目；`tasks/` 不在其中（worker 读开工时的 prd）。
+const MAIN_ONLY_DIRS: &[&str] = &["ideas", "knowledge"];
+
+/// [`exclude_main_only`] 的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MainOnlyCopy {
+    /// 无需处理：没有副本、本身是主项目、主项目未启用或不是 git checkout。
+    Skipped,
+    /// 本次用 sparse-checkout 去掉了副本。
+    Excluded,
+    /// 副本里有未提交改动或未跟踪文件（`git status --porcelain` 的行）：先收回主项目，不动它。
+    Dirty(Vec<String>),
+    /// 已在用 cone 模式的 sparse-checkout，或 git 执行失败。
+    Failed(String),
+}
+
+/// 让 `dir` 所在的非主项目 checkout 不再检出 [`MAIN_ONLY_DIRS`]。幂等；没有副本时只看两个目录在不在，不跑 git。
+/// 已有非 cone 的 sparse 规则时追加，不覆盖。
+pub fn exclude_main_only(dir: &Path) -> MainOnlyCopy {
+    let checkout = checkout_root(dir);
+    let present: Vec<String> = MAIN_ONLY_DIRS
+        .iter()
+        .map(|name| format!(".berth/{name}"))
+        .filter(|rel| checkout.join(rel).exists())
+        .collect();
+    if present.is_empty() || !checkout.join(".git").exists() {
+        return MainOnlyCopy::Skipped;
+    }
+    let Ok(main) = main_project(&checkout) else {
+        return MainOnlyCopy::Skipped;
+    };
+    if git::same_path(&main, &checkout) || !berth_dir(&main).is_dir() {
+        return MainOnlyCopy::Skipped;
+    }
+
+    let mut status = vec!["status", "--porcelain", "--untracked-files=all", "--"];
+    status.extend(present.iter().map(String::as_str));
+    match git::checked(&checkout, &status) {
+        Err(err) => return MainOnlyCopy::Failed(err.message),
+        Ok(out) if !out.is_empty() => {
+            return MainOnlyCopy::Dirty(out.lines().map(str::to_owned).collect())
+        }
+        Ok(_) => {}
+    }
+
+    let patterns: Vec<String> = MAIN_ONLY_DIRS
+        .iter()
+        .map(|name| format!("!/.berth/{name}/"))
+        .collect();
+    let is_true =
+        |key: &str| git::stdout(&checkout, &["config", "--bool", key]).is_some_and(|v| v == "true");
+    let result = if !is_true("core.sparseCheckout") {
+        // 规则写进本 checkout 的 config.worktree（git 会自动开 extensions.worktreeConfig），不影响其他 checkout。
+        let mut args = vec!["sparse-checkout", "set", "--no-cone", "/*"];
+        args.extend(patterns.iter().map(String::as_str));
+        git::checked(&checkout, &args)
+    } else if is_true("core.sparseCheckoutCone") {
+        return MainOnlyCopy::Failed(
+            "已在用 cone 模式的 sparse-checkout，不能单独排除 .berth 子目录".into(),
+        );
+    } else {
+        let current = git::stdout(&checkout, &["sparse-checkout", "list"]).unwrap_or_default();
+        let missing: Vec<&str> = patterns
+            .iter()
+            .map(String::as_str)
+            .filter(|pattern| !current.lines().any(|line| line.trim() == *pattern))
+            .collect();
+        if missing.is_empty() {
+            git::checked(&checkout, &["sparse-checkout", "reapply"])
+        } else {
+            let mut args = vec!["sparse-checkout", "add"];
+            args.extend(missing);
+            git::checked(&checkout, &args)
+        }
+    };
+    match result {
+        Ok(_) => MainOnlyCopy::Excluded,
+        Err(err) => MainOnlyCopy::Failed(err.message),
+    }
 }

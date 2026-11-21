@@ -7,7 +7,6 @@ import { StatusBarUsage } from "@/components/layout/status-bar/status-bar-usage"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import { StatusBarAlerts } from "@/components/layout/status-bar/status-bar-alerts"
 import { StatusBarContext } from "@/components/layout/status-bar/status-bar-context"
-import { StatusBarDevices } from "@/components/layout/status-bar/status-bar-devices"
 import { StatusBarProject } from "@/components/layout/status-bar/status-bar-project"
 import { StatusBarResources } from "@/components/layout/status-bar/status-bar-resources"
 import { cn } from "@/lib/utils"
@@ -46,7 +45,6 @@ export const StatusBar = memo(function StatusBar({
           style={{ width: "var(--status-left, auto)" }}
         >
           <StatusBarProject />
-          <StatusBarDevices />
         </div>
         <div
           data-status-segment="workspace"

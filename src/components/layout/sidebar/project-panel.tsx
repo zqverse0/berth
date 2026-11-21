@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
-import { Maximize2, Minimize2 } from "lucide-react"
+import { Maximize2, Minimize2, Search } from "lucide-react"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
@@ -12,14 +12,13 @@ import { FileTreeTab } from "@/components/layout/aux-panel/aux-panel-file-tree-t
 import { GitChangesTab } from "@/components/layout/aux-panel/aux-panel-git-changes-tab"
 import { GitLogTab } from "@/components/layout/aux-panel/aux-panel-git-log-tab"
 import { AuxPanelNoFolderEmpty } from "@/components/layout/aux-panel/aux-panel-no-folder-empty"
-import { BranchDropdown } from "@/components/layout/git/branch-dropdown"
 import { useProjectPanelStore, type ProjectPanelTab } from "./views"
 
 const HEADER_BUTTON =
   "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 
 /**
- * 侧栏下方的当前项目面板：标签 文件 / 变更 / 提交 / 分支，内容复用文件树与 Git 视图；
+ * 侧栏下方的当前项目面板：标签 文件 / 变更 / 提交，内容复用文件树与 Git 视图；
  * 标题与收起开关在状态栏项目段（`StatusBarProject`）。跟随当前项目（选项目、worktree 或会话都会切当前项目）；`visible` 为 false 时不挂内容（不留文件监视）。
  */
 export function ProjectPanel({
@@ -45,8 +44,10 @@ export function ProjectPanel({
   )
   const isRepo = head ? head.is_repo : branch !== null
 
-  // 命令面板 / 快捷键的文件搜索：带着搜索词进文件标签
+  // 搜索框平时收起，点顶栏搜索按钮或命令面板 / 快捷键文件搜索时展开（后者带着搜索词）
   const [query, setQuery] = useState("")
+  const [searchOpen, setSearchOpen] = useState(false)
+  const showSearch = searchOpen || query !== ""
   const fileSearchRequest = useAppUiStore((s) => s.projectFileSearchRequest)
   const fileSearchQuery = useAppUiStore((s) => s.projectFileSearchQuery)
   const consumeFileSearch = useAppUiStore((s) => s.consumeProjectFileSearch)
@@ -54,6 +55,7 @@ export function ProjectPanel({
     if (fileSearchRequest > 0 && fileSearchQuery != null) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery(fileSearchQuery)
+      setSearchOpen(true)
       consumeFileSearch()
     }
   }, [fileSearchRequest, fileSearchQuery, consumeFileSearch])
@@ -66,7 +68,6 @@ export function ProjectPanel({
           { id: "commits" as const, label: tTabs("commits") },
         ]
       : []),
-    { id: "branches", label: tTabs("branches") },
   ]
   // 非 repo 没有变更 / 提交（后端 git 命令必然失败）
   const current = tabs.some((item) => item.id === tab) ? tab : "files"
@@ -102,6 +103,27 @@ export function ProjectPanel({
         </div>
         <button
           type="button"
+          className={cn(
+            HEADER_BUTTON,
+            showSearch && current === "files" && "bg-accent text-foreground"
+          )}
+          aria-label={t("search")}
+          title={t("search")}
+          aria-pressed={showSearch && current === "files"}
+          onClick={() => {
+            if (showSearch && current === "files") {
+              setQuery("")
+              setSearchOpen(false)
+              return
+            }
+            setTab("files")
+            setSearchOpen(true)
+          }}
+        >
+          <Search className="size-3.5" />
+        </button>
+        <button
+          type="button"
           className={HEADER_BUTTON}
           aria-label={maximized ? t("restore") : t("maximize")}
           title={maximized ? t("restore") : t("maximize")}
@@ -123,20 +145,14 @@ export function ProjectPanel({
         ) : current === "files" ? (
           <FileTreeTab
             key={activeFolder.id}
+            hideSearch={!showSearch}
             searchQuery={query}
             onSearchQueryChange={setQuery}
           />
         ) : current === "changes" ? (
           <GitChangesTab />
-        ) : current === "commits" ? (
-          <GitLogTab />
         ) : (
-          // 分支（含非 repo 时的「初始化 Git 仓库」）
-          <BranchDropdown
-            folder={activeFolder}
-            isChatMode={isChatMode}
-            inline
-          />
+          <GitLogTab />
         )}
       </div>
     </section>

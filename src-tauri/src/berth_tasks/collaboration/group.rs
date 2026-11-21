@@ -107,27 +107,6 @@ pub fn list(root: &Path, params: &Value) -> Result<Value, String> {
     Ok(json!({ "groups": names, "worktrees": worktrees }))
 }
 
-/// 项目行未读数：项目群的未读条数，键是主目录路径（一个项目一个群，worktree 行不单独计）。
-/// 带 `seen: {group, seq}` 时先推进该群已读位置。
-///
-/// 侧栏对每个根项目每 5 秒调一次：未启用 Berth 的项目直接返回空。
-pub fn unread(root: &Path, params: &Value) -> Result<Value, String> {
-    let main = match tasks::resolve(root) {
-        Ok(scope) => scope.main,
-        Err(error) if error.code == "not_initialized" => return Ok(json!({ "worktrees": {} })),
-        Err(error) => return Err(error.message),
-    };
-    let seen = params.get("seen");
-    let seen_group = seen.and_then(|seen| text(seen, "group"));
-    let seen_seq = seen
-        .and_then(|seen| seen.get("seq"))
-        .and_then(Value::as_u64);
-    let name = group::MAIN_GROUP;
-    let seen = seen_seq.filter(|_| seen_group == Some(name));
-    let count = group::unread(&main, name, seen).map_err(|error| error.message)?;
-    Ok(json!({ "worktrees": { main.to_string_lossy(): count } }))
-}
-
 /// 把任务分配给群组（`group` 为 `main` 或已有群组）。
 pub fn assign(root: &Path, params: &Value) -> Result<Value, String> {
     tasks::assign(root, required(params, "task")?, required(params, "group")?)

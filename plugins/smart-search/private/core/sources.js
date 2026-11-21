@@ -19,18 +19,37 @@ const LEADING_POLICY = [
   /^(抱歉|对不起|很遗憾)[，,]?\s*我(无法|不能)/i,
 ]
 const POLICY_META = [
-  "policy", "policies", "guideline", "guidelines", "content policy",
-  "usage policy", "terms of service", "acceptable use",
-  "策略", "政策", "准则", "使用条款", "服务条款",
+  "policy",
+  "policies",
+  "guideline",
+  "guidelines",
+  "content policy",
+  "usage policy",
+  "terms of service",
+  "acceptable use",
+  "策略",
+  "政策",
+  "准则",
+  "使用条款",
+  "服务条款",
 ]
 const POLICY_CONTEXT = [
-  "prompt injection", "jailbreak", "system prompt", "hidden instruction",
-  "bypass", "override", "ignore previous",
-  "提示注入", "越狱", "系统提示", "隐藏指令",
+  "prompt injection",
+  "jailbreak",
+  "system prompt",
+  "hidden instruction",
+  "bypass",
+  "override",
+  "ignore previous",
+  "提示注入",
+  "越狱",
+  "系统提示",
+  "隐藏指令",
 ]
 
 const isHttp = (url) =>
-  typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))
+  typeof url === "string" &&
+  (url.startsWith("http://") || url.startsWith("https://"))
 
 /** Python `str.rstrip(chars)`。 */
 const rstripChars = (text, chars) => {
@@ -67,11 +86,16 @@ export function mergeSources(...lists) {
 }
 
 const looksLikePolicy = (text) => {
-  const normalized = text.replace(/[*_`#~[\](){}]/g, "").toLowerCase().trim()
+  const normalized = text
+    .replace(/[*_`#~[\](){}]/g, "")
+    .toLowerCase()
+    .trim()
   if (!normalized) return false
   if (LEADING_POLICY.some((pattern) => pattern.test(normalized))) return true
   const meta = POLICY_META.filter((word) => normalized.includes(word)).length
-  const context = POLICY_CONTEXT.filter((word) => normalized.includes(word)).length
+  const context = POLICY_CONTEXT.filter((word) =>
+    normalized.includes(word)
+  ).length
   return meta >= 2 || context >= 2 || (meta >= 1 && context >= 1)
 }
 
@@ -99,7 +123,12 @@ export function splitAnswerAndSources(text) {
   if (!raw) return ["", []]
   raw = sanitizeAnswer(raw) || raw
   const inline = inlineCitationSources(raw)
-  for (const split of [splitFunctionCall, splitHeading, splitDetails, splitTailLinks]) {
+  for (const split of [
+    splitFunctionCall,
+    splitHeading,
+    splitDetails,
+    splitTailLinks,
+  ]) {
     const result = split(raw)
     if (result) return [result[0], mergeSources(result[1], inline)]
   }
@@ -182,7 +211,15 @@ function splitTailLinks(text) {
   }
   if (links < 2) return null
   const sources = sourcesFromText(lines.slice(index + 1, end + 1).join("\n"))
-  return sources.length ? [lines.slice(0, index + 1).join("\n").trimEnd(), sources] : null
+  return sources.length
+    ? [
+        lines
+          .slice(0, index + 1)
+          .join("\n")
+          .trimEnd(),
+        sources,
+      ]
+    : null
 }
 
 /** `sources(...)` 的参数：JSON，或 Python 字面量（单引号、True / None、元组）。 */
@@ -214,7 +251,8 @@ function pythonLiteralToJson(text) {
     if (ch === "'" || ch === '"') {
       let value = ""
       for (index++; index < text.length && text[index] !== ch; index++) {
-        if (text[index] === "\\" && index + 1 < text.length) value += text[++index]
+        if (text[index] === "\\" && index + 1 < text.length)
+          value += text[++index]
         else value += text[index]
       }
       if (index >= text.length) throw new Error("unterminated string")
@@ -246,7 +284,8 @@ function normalizeSources(data) {
       if (isHttp(url) && !seen.has(url)) {
         seen.add(url)
         const source = { url }
-        if (typeof title === "string" && title.trim()) source.title = title.trim()
+        if (typeof title === "string" && title.trim())
+          source.title = title.trim()
         out.push(source)
       }
     } else if (item && typeof item === "object") {

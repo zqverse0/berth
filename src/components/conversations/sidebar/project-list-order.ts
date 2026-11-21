@@ -1,80 +1,54 @@
 import type { FolderDetail } from "@/lib/types"
+import { mainFolderId } from "@/lib/workspace/projects"
 
-export type ProjectOrderInput = Pick<
-  FolderDetail,
-  "id" | "parent_id" | "pinned_at" | "sort_order" | "name"
->
+export type ProjectOrderInput = Pick<FolderDetail, "id" | "name" | "project">
 
-/** 项目列表里的一行：`worktree` 决定图标与标签，`nested` 决定缩进与连接线。 */
-export interface ProjectRowSlot {
-  folderId: number
-  worktree: boolean
-  nested: boolean
+/** 侧栏一个项目：`mainId` 是项目身份（主成员），`memberIds` 主成员在前、其余按目录名。 */
+export interface ProjectSlot {
+  mainId: number
+  memberIds: number[]
 }
 
-function pinnedAtMs(value: string | null | undefined): number {
-  const timestamp = Date.parse(value ?? "")
+function pinnedAtMs(folder: ProjectOrderInput): number {
+  const timestamp = Date.parse(folder.project?.pinned_at ?? "")
   return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 /**
- * Pinned folders first (most-recently pinned first), then unpinned folders by
- * `sort_order`.
+ * 打开的目录按项目归拢：置顶的在前（最近置顶的在前），其余按项目排序，再按主成员 id。
+ * 只有项目能置顶；主成员不在列表里时项目照样列出（成员按目录名）。
  */
-export function compareFoldersByPinThenOrder(
-  left: Pick<FolderDetail, "id" | "pinned_at" | "sort_order">,
-  right: Pick<FolderDetail, "id" | "pinned_at" | "sort_order">
-): number {
-  const leftPinned = left.pinned_at != null && left.pinned_at !== ""
-  const rightPinned = right.pinned_at != null && right.pinned_at !== ""
-  if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
-  if (leftPinned && rightPinned) {
-    const pinnedDiff = pinnedAtMs(right.pinned_at) - pinnedAtMs(left.pinned_at)
-    if (pinnedDiff !== 0) return pinnedDiff
-    return right.id - left.id
-  }
-  if (left.sort_order !== right.sort_order) {
-    return left.sort_order - right.sort_order
-  }
-  return left.id - right.id
-}
-
-/**
- * 打开的项目按显示顺序展开成行：顶层按置顶/排序；root 已打开的 worktree 跟在
- * 其 root 之后（sort_order → name → id）；置顶的 worktree 提到顶层单独显示；
- * root 不在列表里的孤儿 worktree 作为普通顶层项目。
- */
-export function projectRowOrder(
+export function projectOrder(
   folders: readonly ProjectOrderInput[]
-): ProjectRowSlot[] {
-  const openIds = new Set(folders.map((f) => f.id))
-  const isWorktree = (f: ProjectOrderInput) =>
-    f.parent_id != null && openIds.has(f.parent_id)
-  const isPinned = (f: ProjectOrderInput) =>
-    f.pinned_at != null && f.pinned_at !== ""
-
-  const children = new Map<number, ProjectOrderInput[]>()
-  for (const f of folders) {
-    if (!isWorktree(f) || isPinned(f)) continue
-    const list = children.get(f.parent_id as number)
-    if (list) list.push(f)
-    else children.set(f.parent_id as number, [f])
+): ProjectSlot[] {
+  const byProject = new Map<number, ProjectOrderInput[]>()
+  for (const folder of folders) {
+    const main = mainFolderId(folder)
+    const members = byProject.get(main)
+    if (members) members.push(folder)
+    else byProject.set(main, [folder])
   }
-
-  const rows: ProjectRowSlot[] = []
-  const topLevel = folders
-    .filter((f) => !isWorktree(f) || isPinned(f))
-    .sort(compareFoldersByPinThenOrder)
-  for (const top of topLevel) {
-    rows.push({ folderId: top.id, worktree: isWorktree(top), nested: false })
-    const kids = (children.get(top.id) ?? []).sort((a, b) => {
-      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
-      const byName = a.name.localeCompare(b.name)
-      return byName !== 0 ? byName : a.id - b.id
-    })
-    for (const kid of kids) {
-      rows.push({ folderId: kid.id, worktree: true, nested: true })
-    }
-  }
-  return rows
+  const slots = [...byProject].map(([mainId, members]) => {
+    members.sort((a, b) =>
+      a.id === mainId
+        ? -1
+        : b.id === mainId
+          ? 1
+          : a.name.localeCompare(b.name) || a.id - b.id
+    )
+    return { mainId, members }
+  })
+  slots.sort((a, b) => {
+    const left = a.members[0]
+    const right = b.members[0]
+    const pinned = pinnedAtMs(right) - pinnedAtMs(left)
+    if (pinned !== 0) return pinned
+    const order =
+      (left.project?.sort_order ?? 0) - (right.project?.sort_order ?? 0)
+    return order !== 0 ? order : a.mainId - b.mainId
+  })
+  return slots.map(({ mainId, members }) => ({
+    mainId,
+    memberIds: members.map((member) => member.id),
+  }))
 }

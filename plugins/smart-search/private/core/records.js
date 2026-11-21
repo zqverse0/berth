@@ -59,7 +59,9 @@ const listDir = async (deps, dir) => {
 export async function write(deps, entry, retentionDays) {
   const now = deps.now()
   const date = new Date(now)
-  const random = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0")
+  const random = Math.floor(Math.random() * 0x10000)
+    .toString(16)
+    .padStart(4, "0")
   const name = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}-${slugOf(entry.query)}-${random}`
   const id = `${dayOf(now)}/${name}`
   const dir = `${root(deps)}/${id}`
@@ -71,10 +73,19 @@ export async function write(deps, entry, retentionDays) {
     by: entry.by ?? { id: "user" },
     at: date.toISOString(),
   }
-  await deps.fs.writeText(`${dir}/query.json`, JSON.stringify(query, null, 2) + "\n")
-  await deps.fs.writeText(`${dir}/result.json`, JSON.stringify(entry.result, null, 2) + "\n")
+  await deps.fs.writeText(
+    `${dir}/query.json`,
+    JSON.stringify(query, null, 2) + "\n"
+  )
+  await deps.fs.writeText(
+    `${dir}/result.json`,
+    JSON.stringify(entry.result, null, 2) + "\n"
+  )
   for (const [index, page] of (entry.pages ?? []).entries())
-    await deps.fs.writeText(`${dir}/pages/${index + 1}.md`, `<!-- ${page.url} -->\n${page.content}`)
+    await deps.fs.writeText(
+      `${dir}/pages/${index + 1}.md`,
+      `<!-- ${page.url} -->\n${page.content}`
+    )
   await prune(deps, retentionDays)
   return id
 }
@@ -88,16 +99,25 @@ export async function prune(deps, retentionDays) {
 }
 
 /** 记录 id 的合法形式（防止 `../` 跳出记录目录）。 */
-const validId = (id) => /^\d{4}-\d{2}-\d{2}\/[^/\\]+$/.test(String(id ?? "")) && !String(id).includes("..")
+const validId = (id) =>
+  /^\d{4}-\d{2}-\d{2}\/[^/\\]+$/.test(String(id ?? "")) &&
+  !String(id).includes("..")
 
 /** 最近的记录摘要，新的在前。`project` 给出时只看该项目；`days` 限定天数；`limit` 条数上限。 */
 export async function list(deps, { project, days, limit = 200 } = {}) {
   const since = days ? dayOf(deps.now() - days * DAY_MS) : ""
   const out = []
-  const daysDesc = (await listDir(deps, root(deps))).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && day >= since).reverse()
+  const daysDesc = (await listDir(deps, root(deps)))
+    .filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && day >= since)
+    .reverse()
   for (const day of daysDesc) {
-    for (const name of (await listDir(deps, `${root(deps)}/${day}`)).reverse()) {
-      const query = await readJson(deps, `${root(deps)}/${day}/${name}/query.json`)
+    for (const name of (
+      await listDir(deps, `${root(deps)}/${day}`)
+    ).reverse()) {
+      const query = await readJson(
+        deps,
+        `${root(deps)}/${day}/${name}/query.json`
+      )
       if (!query) continue
       if (project && query.project?.root !== project) continue
       out.push({ id: `${day}/${name}`, ...query })
@@ -116,7 +136,10 @@ export async function find(deps, text, project) {
     .filter((record) => record.kind === "search")
     .filter((record) => {
       const seen = normalize(record.query)
-      return seen && (seen === wanted || seen.includes(wanted) || wanted.includes(seen))
+      return (
+        seen &&
+        (seen === wanted || seen.includes(wanted) || wanted.includes(seen))
+      )
     })
     .map(({ id, query, mode, by, at }) => ({ id, query, mode, by, at }))
 }
@@ -126,22 +149,35 @@ export async function show(deps, id) {
   if (!validId(id)) throw new Error(`bad record id ${id}`)
   const dir = `${root(deps)}/${id}`
   const query = await readJson(deps, `${dir}/query.json`)
-  if (!query) throw Object.assign(new Error(`record ${id} not found`), { reason: "not-found" })
+  if (!query)
+    throw Object.assign(new Error(`record ${id} not found`), {
+      reason: "not-found",
+    })
   const pages = []
-  const names = (await listDir(deps, `${dir}/pages`)).sort((a, b) => parseInt(a) - parseInt(b))
+  const names = (await listDir(deps, `${dir}/pages`)).sort(
+    (a, b) => parseInt(a) - parseInt(b)
+  )
   for (const name of names) {
     const text = await deps.fs.readText(`${dir}/pages/${name}`)
     const [head, ...rest] = text.split("\n")
     const url = head.match(/^<!-- (.*) -->$/)?.[1] ?? ""
     pages.push({ url, content: url ? rest.join("\n") : text })
   }
-  return { id, ...query, result: await readJson(deps, `${dir}/result.json`), pages }
+  return {
+    id,
+    ...query,
+    result: await readJson(deps, `${dir}/result.json`),
+    pages,
+  }
 }
 
 /** 用新结果覆盖一条记录的 result.json（页面先出来源、再补 AI 回答）。返回 id。 */
 export async function update(deps, id, result) {
   if (!validId(id)) throw new Error(`bad record id ${id}`)
-  await deps.fs.writeText(`${root(deps)}/${id}/result.json`, JSON.stringify(result, null, 2) + "\n")
+  await deps.fs.writeText(
+    `${root(deps)}/${id}/result.json`,
+    JSON.stringify(result, null, 2) + "\n"
+  )
   return id
 }
 
@@ -150,7 +186,10 @@ export async function addPage(deps, id, page) {
   if (!validId(id)) throw new Error(`bad record id ${id}`)
   const dir = `${root(deps)}/${id}`
   const count = (await listDir(deps, `${dir}/pages`)).length
-  await deps.fs.writeText(`${dir}/pages/${count + 1}.md`, `<!-- ${page.url} -->\n${page.content}`)
+  await deps.fs.writeText(
+    `${dir}/pages/${count + 1}.md`,
+    `<!-- ${page.url} -->\n${page.content}`
+  )
   return count + 1
 }
 

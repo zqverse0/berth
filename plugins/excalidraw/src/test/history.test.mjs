@@ -35,7 +35,13 @@ test("request + apply keep the old version and the request text", async () => {
   })
   files.set("/tmp/new.excalidraw", scene("v2"))
   assert.equal(
-    await history(["apply", "figures/a.excalidraw", "/tmp/new.excalidraw", "改了", "文字"]),
+    await history([
+      "apply",
+      "figures/a.excalidraw",
+      "/tmp/new.excalidraw",
+      "改了",
+      "文字",
+    ]),
     0
   )
   assert.equal(files.get(drawing), scene("v2"))
@@ -49,8 +55,16 @@ test("request + apply keep the old version and the request text", async () => {
     ]
   )
   // 外部改写的内容已在记录里：不重复记
-  await history({ action: "snapshot", path: drawing, content: scene("v2"), by: "external" })
-  assert.equal((await history({ action: "list", path: drawing })).versions.length, 2)
+  await history({
+    action: "snapshot",
+    path: drawing,
+    content: scene("v2"),
+    by: "external",
+  })
+  assert.equal(
+    (await history({ action: "list", path: drawing })).versions.length,
+    2
+  )
 })
 
 test("restore returns the old content and records the step", async () => {
@@ -70,7 +84,8 @@ test("restore returns the old content and records the step", async () => {
     ]
   )
   assert.equal(
-    (await history({ action: "get", path: drawing, id: versions[1].id })).content,
+    (await history({ action: "get", path: drawing, id: versions[1].id }))
+      .content,
     scene("v2 手改")
   )
 })
@@ -87,9 +102,19 @@ test("apply rejects content that is not a scene and leaves the drawing alone", a
 test("keeps only the latest 100 versions", async () => {
   files.clear()
   for (let i = 0; i < 105; i++)
-    await history({ action: "snapshot", path: "/p/b.excalidraw", content: scene(`v${i}`) })
-  const { versions } = await history({ action: "list", path: "/p/b.excalidraw" })
+    await history({
+      action: "snapshot",
+      path: "/p/b.excalidraw",
+      content: scene(`v${i}`),
+    })
+  const { versions } = await history({
+    action: "list",
+    path: "/p/b.excalidraw",
+  })
   assert.equal(versions.length, 100)
   assert.equal(versions.at(-1).id, 6)
-  assert.equal([...files.keys()].filter((key) => key.endsWith("/1.excalidraw")).length, 0)
+  assert.equal(
+    [...files.keys()].filter((key) => key.endsWith("/1.excalidraw")).length,
+    0
+  )
 })

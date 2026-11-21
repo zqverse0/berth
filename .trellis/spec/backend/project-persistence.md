@@ -76,6 +76,8 @@ JSON 错误对象固定 `{"error":{"kind","message"}}`，`kind` 取 `InstanceSta
   CLI 读命令 = `ExistingOnly`（只读）。CLI 唯一的写路径是 GUI 未运行时的 `berth project add`
   （及 `berth group spawn` 登记新 worktree）：`resolve_from_env(CreateIfMissing)` + 与 GUI 共用的
   `folder_service::open_project`；GUI 在跑时仍走 GUI control（写库 + 刷新界面），不为写而拉起 GUI。
+  例外：`berth project <项目> member add|rm` 只改参考成员（本机路径引用，GUI 列成员时现读、不缓存），
+  总是直接写库。`member ls` 只读：用 `folder_service::read_members`，不登记任何成员。
 - **只读不改库**：`ExistingOnly` 不调用 `Migrator::up`，也不 `install` `seaql_migrations` 表；
   schema 落后本构建 → `UpgradeRequired`，提示先启动 GUI。连接从开始即使用 `mode=ro`，
   不执行持久化 PRAGMA（尤其 `journal_mode=WAL`），Ready 复用同一个只读连接；不得
@@ -113,13 +115,22 @@ JSON 错误对象固定 `{"error":{"kind","message"}}`，`kind` 取 `InstanceSta
   folder.id、cwd 或首项匹配补猜 owner，不为非 Project 分类签发冒称项目归属的操作条目，
   也不自动改名、终止或接管它们。项目 owner 与 SDK epoch/PaneId/generation 运行绑定是
   两件事；GUI 明确选中得到的兼容 ref 不构成项目 owner 证明。
-- **项目两态，worktree 跟随 git**：常规项目只有「已注册（`is_open = 1`）/ 墓碑
-  （`forget_folder`）」两态；迁移 `m20260930_000001_folder_retire_closed` 把旧版「关闭」
-  留下的 `is_open = 0` 行及 root 已不在的孤儿 worktree 转为墓碑（行保留作会话外键锚点）。
-  worktree 子 folder 只是 git 事实的元数据投影：`git worktree list`（跳过 `prunable`）
-  里没有的成员由对账移除；移除 root 连带移除整个家族；worktree 不提供「仅从列表移除」。
-  对账触发：项目视图可见时对全部 root 一次，以及活动项目 HEAD 轮询中
-  `GitHeadInfo.worktrees_fingerprint` 变化时。
+- **项目是容器，folder 是成员**（迁移 `m20261120_000001_project`）：`project` 表存名称、
+  主成员（`main_folder_id`，hub 标记的 checkout，没有就是 git 主 worktree）、置顶与排序；
+  代码成员是 `folder.project_id` 指向它的 folder 行（一个目录只属于一个项目），参考成员在
+  `project_reference`（项目、路径；同一路径可进多个项目）。folder 只剩「已注册 / 墓碑
+  （`forget_folder`，`project_id` 置空）」两态，`is_open`、`parent_id`、`alias`、`pinned_at`、
+  `sort_order`、`color` 已删；成员变动后 `prune_projects` 删掉没有成员的项目、主成员不在时改指
+  最早的成员。`FolderDetail` 的 `parent_id`、`alias`、`pinned_at`、`sort_order` 暂由项目投影
+  （前端改用项目层后删除）。**代码成员以手动为准**（2026-11-20）：只在添加项目（`open_project` 并入
+  同仓库各 checkout）、Berth 新建 worktree（`open_worktree_folder`、群组 / 任务的 `resolve_worktree_folder`、
+  GUI 列成员时 `discover_members` 登记群账本里的 worktree）、用户加入 / 改挂时登记；对账不再按
+  `git worktree list` 自动挂回。git 里有、没登记进任何项目的检出由 `untracked_checkouts` 给出
+  （`member ls` 的 `untracked`），只提示、由用户 `project.member.join` 加入。用户可改挂成员
+  （`project.member.move`，空项目随之删除）、设主成员（`project.member.main`）、移出成员
+  （`remove_folder_from_workspace`，不删目录）。失效只看目录在不在（成员可来自别的仓库）；临时同前
+  （自动化 `worktree_per_run` 的运行目录、任务都已结束的群）；移除主成员连带移除整个项目。现读触发：项目视图可见时对全部项目一次，以及活动
+  项目 HEAD 轮询中 `GitHeadInfo.worktrees_fingerprint`（只读文件的变化信号）变化时。
 - **GUI 的 pending restore 先于共享切口**：`commands::backup` 完成恢复后才调用
   `open_or_upgrade`；CLI 只报 `PendingRestore`，不代做恢复。
 - **依赖方向**：GUI / CLI → `berth-project-core`；该 crate 不依赖 Tauri、clap 或进程生命周期
@@ -166,8 +177,10 @@ JSON 错误对象固定 `{"error":{"kind","message"}}`，`kind` 取 `InstanceSta
   schema 的字节不变用例，避免先建 WAL 库掩盖改库；Ready 连接在可写文件上也必须
   拒绝 SQL 写入；只读文件可读；live WAL 已提交数据可见且读者不 checkpoint 主库/WAL。
   测试夹具的写动作走显式 owner 策略，不借用 `ExistingOnly`。
-- `tests/project_catalog.rs` — `scope=all` 含未打开的已注册项目且隐藏 chat folder；
-  `scope=open` 只返回打开项目且 `is_open=true`。
+- `tests/project_catalog.rs` — `scope=all` 含目录已不在的已注册项目且隐藏 chat folder；
+  `scope=open` 只返回目录仍在的项目且 `is_open=true`。
+- `tests/project_membership.rs` — 迁移前后夹具（家族、hub ≠ git 主 worktree、孤儿 worktree、
+  原远程挂载目录、墓碑与 chat）及新建 / 改挂 / 忘记成员后的项目收尾。
 - `tests/runtime_identity.rs` — `runtime_identity_` 过滤入口，夹具只能用临时目录与合成库：
   - 版本化 key 往返、118 字节安全字符、非规范/未知格式拒绝及唯一 owner/legacy 分类；
   - canonical 完整路径、不同文件名、目录/文件软链别名与 Unix 非 UTF-8 路径无损；
@@ -221,7 +234,7 @@ let entries = list_catalog(&conn, CatalogScope::All).await?;
 （必要时拉起 GUI），无显示时根本走不通。
 
 **Decision**：GUI 可达 → control RPC；不可达 → CLI 以 `CreateIfMissing` 直接写同一个库，实现与
-GUI「添加项目」同一个 `folder_service::open_project`（worktree 家族登记）。读命令仍只读，上一条决定不变；
+GUI「添加项目」同一个 `folder_service::open_project`（同仓库各 checkout 并成一个项目）。读命令仍只读，上一条决定不变；
 写路径不复用读命令。
 
 ### 归档后回归：不迁移不等于只读（2026-09-22）

@@ -39,8 +39,8 @@ function LayoutConsumer() {
 
 describe("workspace layout store", () => {
   beforeEach(() => {
-    window.localStorage.removeItem("berth:workspace-tab-placement:v1")
-    window.localStorage.removeItem("berth:workspace-tab-order:v1")
+    window.localStorage.removeItem("berth:workspace-tab-placement:v2")
+    window.localStorage.removeItem("berth:workspace-tab-order:v2")
     configureWorkspaceLayoutFileActivator(null)
     useWorkspaceLayoutStore.setState({
       ...createInitialWorkspaceLayoutState(),
@@ -69,11 +69,11 @@ describe("workspace layout store", () => {
     act(() => useWorkspaceLayoutStore.getState().moveWorkspaceTab(ref, "files"))
 
     const state = useWorkspaceLayoutStore.getState()
-    expect(state.placementByScope["folder:1"]?.["primary:term-home"]).toBe(
+    expect(state.placementByScope["project:1"]?.["primary:term-home"]).toBe(
       "files"
     )
     expect(
-      window.localStorage.getItem("berth:workspace-tab-placement:v1")
+      window.localStorage.getItem("berth:workspace-tab-placement:v2")
     ).toContain('"primary:term-home":"files"')
     expect(useTabStore.getState().rawTabs).toEqual([terminalTab])
     const projection = projectWorkspaceLayout(state, {

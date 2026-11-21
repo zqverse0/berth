@@ -149,6 +149,7 @@ export default {
 | `ctx.inputs` | 启动栏原始输入；`args()` 拿不到 `ctx`，要结合服务商等信息时在 `launch` 里读它 |
 | `ctx.expert` | 专家或 `null` |
 | `ctx.provider` | 服务商或 `null`（`null` = 用 Agent 自己的登录）。`models[0]` 是选中模型；`endpoint("chat")` 取地址和 Key |
+| `ctx.project` | 启动目录所在项目的成员或 `null`：`{ name, home, checkouts[], references[] }`，同 `berth project . member ls --json`。检出带 `path`、`branch`、`main`、`stale`、`temporary`、`agents`（在跑的 Agent）。交不交给 `--add-dir`、参考是否只读、有 Agent 在跑的检出给不给写，由插件决定；Berth 不做沙箱 |
 | `ctx.brief` | 追加进系统提示词的 Berth 说明，可能为空串 |
 | `ctx.unattended` | 定时任务无人值守启动 |
 | `ctx.paths` | `package`（只读）、`tmp`、`cwd`、`home` |

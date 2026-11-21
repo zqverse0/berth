@@ -281,8 +281,8 @@ async function inputArgs(
   return args
 }
 
-// ACP 模式（群组）：pi-acp 锁版本装在插件数据目录（install.sh），它起 pi 时不让加参数，经包装脚本带上。
-const PI_ACP = "pi-acp@0.0.34"
+// ACP 模式（群组）：pi-acp@0.0.34 打包成单文件随插件发（private/acp/），装插件即带上；
+// 它起 pi 时不让加参数，经包装脚本带上。
 // 群组里不接终端状态 hook（运行时直接收发），换成审批扩展：每个工具调用先经 session/request_permission。
 const ACP_EXTENSIONS = {
   drop: "berth-agent-status.ts",
@@ -507,11 +507,10 @@ export default {
   },
 
   async acp(ctx) {
-    const bin = `${berth.storage.dir}/acp/node_modules/.bin/pi-acp`
-    if (!(await fs.stat(bin)))
-      throw new Error(
-        `${PI_ACP} 未安装（${bin}），在 设置 → 工具 → Pi 重新安装`
-      )
+    // pi 本身是 Node 程序，有 pi 就有 node
+    const node = await process.which("node")
+    if (!node)
+      throw new Error("找不到 node：pi-acp 需要 Node.js，先装 Node 再试")
     const { args, env } = await assemble(ctx, true)
     const pi = (await process.which("pi")) ?? "pi"
     const wrap = `${ctx.paths.tmp}/pi-acp-wrap`
@@ -528,7 +527,7 @@ export default {
       { mode: 0o700 }
     )
     return {
-      argv: [bin],
+      argv: [node, `${ctx.paths.package}/private/acp/pi-acp.mjs`],
       env: { ...env, PI_ACP_PI_COMMAND: wrap },
       // pi-acp 0.0.34 收下 mcpServers 却不交给 pi（S0 实测）
       delegation: false,

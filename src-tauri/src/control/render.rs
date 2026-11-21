@@ -99,7 +99,7 @@ pub(crate) async fn editor_render(request: &RpcRequest, context: &ControlContext
     crate::event_bridge::emit_event(
         &deps.emitter,
         EDITOR_RENDER_EVENT,
-        &serde_json::json!({
+        serde_json::json!({
             "request_id": id,
             "plugin": params.plugin,
             "path": params.path,

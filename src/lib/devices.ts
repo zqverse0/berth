@@ -2,6 +2,7 @@
  * 设备：可通过 SSH 连接的其他机器（runtime bridge `device.*`，后端 `src-tauri/src/devices.rs`）。
  */
 import { useCallback, useEffect, useRef, useState } from "react"
+import { create } from "zustand"
 import { runtimeBridgeOperation } from "@/lib/runtime-bridge"
 import { subscribe } from "@/lib/platform"
 import type { FolderDetail } from "@/lib/types"
@@ -15,6 +16,8 @@ export interface Device {
   localDir: string
   /** 节点设备（对方装了 berth）：经节点连接操作对方；没装为 `null`（只能开 SSH 终端）。 */
   node?: DeviceNode | null
+  /** 挑到侧栏显示的对方项目（主成员在对方的路径）；没挑过的不进侧栏。 */
+  shown: string[]
 }
 
 /** 一条节点连接的状态（`berth_node::client::Status`）。 */
@@ -55,6 +58,45 @@ export interface DeviceCheck {
   node?: DeviceNode | null
 }
 
+/** 设备面板（`devices` 插件）要选中的设备；从设备分组头打开面板时写入。 */
+export const useDevicesPanelStore = create<{ selected: number | null }>()(
+  () => ({
+    selected: null,
+  })
+)
+
+/** 设备在线状态。 */
+export interface DeviceState {
+  state: "checking" | "online" | "offline"
+  /** 连不上时 ssh 的错误或 `device.*` 错误码 */
+  message: string | null
+  keyMissing: boolean
+}
+
+/**
+ * 设备列表与在线状态的唯一来源：`DevicesProvider`（`components/devices/devices.tsx`）探测后写入，
+ * 项目列表与插件接口层（`plugin-devices.ts`）读与订阅。
+ */
+export const useDeviceSnapshotStore = create<{
+  /** 本机（项目列表与设备面板把它当一台设备显示）；读到前为 null */
+  local: LocalDevice | null
+  devices: Device[]
+  statusOf: (device: Device) => DeviceState
+  recheck: (device: Device) => void
+  reload: () => void
+}>()(() => ({
+  local: null,
+  devices: [],
+  statusOf: () => ({ state: "checking", message: null, keyMissing: false }),
+  recheck: () => {},
+  reload: () => {},
+}))
+
+/** 设备增删、装上 Berth 等变化：重读设备列表。 */
+export function notifyDevicesChanged() {
+  useDeviceSnapshotStore.getState().reload()
+}
+
 async function call<T>(method: string, params?: Record<string, unknown>) {
   const response = await runtimeBridgeOperation<T>({ method, params })
   if (!response.ok) throw new Error(response.error.message)
@@ -62,12 +104,25 @@ async function call<T>(method: string, params?: Record<string, unknown>) {
 }
 
 export const listDevices = () => call<Device[]>("device.list")
+/** 本机的主机名与系统。 */
+export interface LocalDevice {
+  host: string
+  os: string
+  arch: string
+}
+export const localDevice = () => call<LocalDevice>("device.local")
 /** 测连接；带 `deviceId` 时顺带重新探测对方的 berth（`node` 非空即节点设备）。 */
 export const checkDevice = (target: string, deviceId?: number) =>
   call<DeviceCheck>("device.check", { target, deviceId })
 /** 先测连接，连得上才保存；失败抛出错误码或 ssh 错误。 */
 export const addDevice = (name: string, target: string) =>
   call<Device>("device.add", { name, target })
+/** 对方项目「显示在侧栏」开关；返回新的选择。 */
+export const showDeviceProject = (
+  deviceId: number,
+  path: string,
+  shown: boolean
+) => call<string[]>("device.show", { deviceId, path, shown })
 export const removeDevice = (id: number) => call<null>("device.remove", { id })
 /** `~/.ssh/config` 里尚未添加的 Host 别名。 */
 export const deviceCandidates = () => call<string[]>("device.candidates")
@@ -284,94 +339,4 @@ export function nodeOnline(
 /** 连接失败是否因为还没配免密登录（服务器要密码）。 */
 export function needsKeySetup(message: string | null | undefined): boolean {
   return /permission denied|publickey|password/i.test(message ?? "")
-}
-
-/** 设备检查清单的一项：SSH 连接 → 密钥 → berth 路径 → 版本 → 宿主运行。 */
-export type DeviceCheckItem = {
-  id: "ssh" | "key" | "berth" | "version" | "host"
-  state: "ok" | "fail" | "pending" | "skipped"
-  /** 说明文案的键（`DevicePage.checks.<键>`）及参数；没有时显示 `raw` */
-  reason?: {
-    key:
-      | "keyMissing"
-      | "berthMissing"
-      | "versionUnknown"
-      | "versionMismatch"
-      | "berthOutdated"
-      | "windowUnavailable"
-    values?: Record<string, string>
-  }
-  /** 原文：ssh 的错误、对方 berth 路径等 */
-  raw?: string | null
-}
-
-/**
- * 由一次检测（`device.check`）、对方概览与连线状态得出检查清单。前一项不通时后面的不检（`skipped`），
- * 还没有结果的为 `pending`。
- */
-export function deviceChecklist(input: {
-  check: DeviceCheck | null
-  /** 对方 berth 路径；没装为 null */
-  berth: string | null
-  overview: NodeOverview | null
-  localVersion: string | null
-  /** 到对方 GUI 的连线：连上为 open；没连上带原因（`device.*` 错误码或断线说明） */
-  line: { open: boolean; error: string | null } | null
-}): DeviceCheckItem[] {
-  const { check, berth, overview, localVersion, line } = input
-  if (!check)
-    return (["ssh", "key", "berth", "version", "host"] as const).map((id) => ({
-      id,
-      state: "pending",
-    }))
-  const keyIssue = !check.ok && needsKeySetup(check.message)
-  const reached = check.ok || keyIssue
-  const ssh: DeviceCheckItem = reached
-    ? { id: "ssh", state: "ok" }
-    : { id: "ssh", state: "fail", raw: check.message }
-  const key: DeviceCheckItem = !reached
-    ? { id: "key", state: "skipped" }
-    : keyIssue
-      ? {
-          id: "key",
-          state: "fail",
-          reason: { key: "keyMissing" },
-          raw: check.message,
-        }
-      : { id: "key", state: "ok" }
-  const berthItem: DeviceCheckItem = !check.ok
-    ? { id: "berth", state: "skipped" }
-    : berth
-      ? { id: "berth", state: "ok", raw: berth }
-      : { id: "berth", state: "fail", reason: { key: "berthMissing" } }
-  const hasBerth = berthItem.state === "ok"
-  const remote = overview?.version
-  const version: DeviceCheckItem = !hasBerth
-    ? { id: "version", state: "skipped" }
-    : !overview || !localVersion
-      ? { id: "version", state: "pending" }
-      : !remote
-        ? { id: "version", state: "fail", reason: { key: "versionUnknown" } }
-        : remote === localVersion
-          ? { id: "version", state: "ok", raw: remote }
-          : {
-              id: "version",
-              state: "fail",
-              reason: {
-                key: "versionMismatch",
-                values: { local: localVersion, remote },
-              },
-            }
-  const host: DeviceCheckItem = !hasBerth
-    ? { id: "host", state: "skipped" }
-    : line?.open
-      ? { id: "host", state: "ok" }
-      : overview && overview.window === undefined
-        ? { id: "host", state: "fail", reason: { key: "berthOutdated" } }
-        : overview && overview.window === null && !overview.hostable
-          ? { id: "host", state: "fail", reason: { key: "windowUnavailable" } }
-          : line?.error
-            ? { id: "host", state: "fail", raw: line.error }
-            : { id: "host", state: "pending" }
-  return [ssh, key, berthItem, version, host]
 }

@@ -31,9 +31,16 @@ export async function run(input) {
         await config.unset(d, input.key)
         return { ok: true, config: await config.view(d) }
       case "import":
-        return { ok: true, imported: await config.importLegacy(d), config: await config.view(d) }
+        return {
+          ok: true,
+          imported: await config.importLegacy(d),
+          config: await config.view(d),
+        }
       case "test":
-        return { ok: true, providers: await route.testConnections(d, await config.resolve(d)) }
+        return {
+          ok: true,
+          providers: await route.testConnections(d, await config.resolve(d)),
+        }
       default:
         throw new Error(`unknown action ${input.action}`)
     }
@@ -49,7 +56,8 @@ export default entry({
   cli: (argv) => {
     const { positional } = parseArgs(argv)
     const [action = "get", key, ...value] = positional
-    if (action === "set" && key && value.length) return run({ action, key, value: value.join(" ") })
+    if (action === "set" && key && value.length)
+      return run({ action, key, value: value.join(" ") })
     if (action === "unset" && key) return run({ action, key })
     if (["get", "import", "test"].includes(action)) return run({ action })
     throw new UsageError("用法不对")
