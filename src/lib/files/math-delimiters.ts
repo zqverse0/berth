@@ -7,7 +7,7 @@ export function normalizeMathDelimiters(text: string): string {
   const saved: string[] = []
   const placeholder = (m: string) => {
     saved.push(m)
-    return `\0CBLK${saved.length - 1}\0`
+    return `\u0000CBLK${saved.length - 1}\u0000`
   }
   const masked = text.replace(
     /`{3,}[\s\S]*?`{3,}|~{3,}[\s\S]*?~{3,}|`[^`\n]+`/g,

@@ -2,14 +2,20 @@ use std::collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 
 use super::model::*;
 use super::parser::{parse_markdown, split_frontmatter};
 
-pub(super) const VAULT_DIR: &str = ".berth/knowledge";
+/// 知识库目录，相对空间目录（[`store`]）。
+pub(super) const VAULT_DIR: &str = "knowledge";
+/// 知识库所在的空间目录：笔记路径都相对它。代码路径（过期判定的 git）仍相对 `project_root`。
+pub(super) fn store(project_root: &Path) -> io::Result<PathBuf> {
+    crate::tasks::berth_dir(project_root)
+        .map_err(|error| io::Error::new(io::ErrorKind::NotFound, error.message))
+}
 const MAX_DOCUMENT_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_DOCUMENTS: usize = 5_000;
 /// 根目录下没写 type 的笔记的类型。
@@ -45,7 +51,7 @@ pub fn snapshot(project_root: &Path) -> io::Result<KnowledgeSnapshot> {
     let inbox = super::inbox::list(project_root).unwrap_or_default();
     inbox.iter().for_each(|item| item.path.hash(&mut hasher));
     Ok(KnowledgeSnapshot {
-        root: project_root.display().to_string(),
+        root: store(project_root)?.display().to_string(),
         revision: format!("{}:{:016x}", vault.documents.len(), hasher.finish()),
         generated_at: Utc::now().to_rfc3339(),
         documents: vault.documents,
@@ -329,8 +335,9 @@ pub fn set_status(project_root: &Path, request: SetStatusRequest) -> io::Result<
     if !STATUSES.contains(&request.status.as_str()) {
         return Err(invalid("Unsupported note status"));
     }
-    let vault = project_root.join(VAULT_DIR).canonicalize()?;
-    let file = project_root.join(&request.path).canonicalize()?;
+    let base = store(project_root)?;
+    let vault = base.join(VAULT_DIR).canonicalize()?;
+    let file = base.join(&request.path).canonicalize()?;
     if !file.starts_with(&vault) || !is_markdown(&file) {
         return Err(invalid("Path is not a knowledge note"));
     }
@@ -368,7 +375,10 @@ fn scan(project_root: &Path) -> io::Result<Vault> {
         edges: Vec::new(),
         diagnostics: Vec::new(),
     };
-    let root = project_root.canonicalize()?;
+    // 空间目录还没建：空库。
+    let Ok(root) = store(project_root)?.canonicalize() else {
+        return Ok(vault);
+    };
     let Ok(vault_root) = root.join(VAULT_DIR).canonicalize() else {
         return Ok(vault);
     };
@@ -584,9 +594,9 @@ pub fn lint(project_root: &Path) -> io::Result<LintReport> {
             ));
         }
     }
-    // 空库（刚 `berth project init`）不算缺首页：首页随首批笔记一起写；只有插件存进来的来源也不算。
+    // 空库（新空间）不算缺首页：首页随首批笔记一起写；只有插件存进来的来源也不算。
     let own_notes = vault.documents.iter().any(|document| document.note_type != "来源");
-    if own_notes && !project_root.join(VAULT_DIR).join(HOME_NOTE).is_file() {
+    if own_notes && !store(project_root)?.join(VAULT_DIR).join(HOME_NOTE).is_file() {
         report.errors.push(format!("缺少 {HOME_NOTE}（面板首页）"));
     }
     for path in stale(project_root)?.paths {
@@ -636,7 +646,7 @@ pub fn add_source(
         .iter()
         .map(|document| document.title.to_lowercase())
         .collect();
-    let dir = project_root.join(VAULT_DIR).join(SOURCE_DIR);
+    let dir = store(project_root)?.join(VAULT_DIR).join(SOURCE_DIR);
     fs::create_dir_all(&dir)?;
     let base = file_stem(title);
     let stem = (1..)
@@ -685,42 +695,6 @@ fn file_stem(title: &str) -> String {
         .collect();
     let stem = stem.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_owned();
     if stem.is_empty() { "untitled".to_owned() } else { stem }
-}
-
-/// `checkout` 是主项目以外的 worktree 时，它从主项目 HEAD 分叉以来改过的 vault 文件
-/// （含未提交与未跟踪），路径相对 checkout 根。知识只写主项目，这些改动应改写过去。
-pub fn worktree_changes(checkout: &Path, main: &Path) -> Vec<String> {
-    let same = |a: &Path, b: &Path| a.canonicalize().ok() == b.canonicalize().ok();
-    if same(checkout, main) {
-        return Vec::new();
-    }
-    let Some(head) = git(main, &["rev-parse", "HEAD"]) else {
-        return Vec::new();
-    };
-    let Some(base) = git(checkout, &["merge-base", "HEAD", head.trim()]) else {
-        return Vec::new();
-    };
-    let quiet = ["-c", "core.quotePath=false"];
-    let changed = [
-        vec!["diff", "--name-only", base.trim(), "--", VAULT_DIR],
-        vec![
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-            "--",
-            VAULT_DIR,
-        ],
-    ]
-    .iter()
-    .filter_map(|args| git(checkout, &[&quiet[..], args].concat()))
-    .collect::<String>();
-    changed
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect()
 }
 
 /// 单篇笔记的格式问题：`(kind, message)`。规则即 `berth guide knowledge` 的约定。
@@ -886,15 +860,22 @@ pub(super) fn modified_secs(metadata: &fs::Metadata) -> u64 {
 mod tests {
     use super::*;
 
+    /// 登记成空间的临时项目。
+    fn project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        crate::space::testing::register(dir.path());
+        dir
+    }
+
     fn note(root: &Path, relative: &str, content: &str) {
-        let path = root.join(VAULT_DIR).join(relative);
+        let path = store(root).unwrap().join(VAULT_DIR).join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
     }
 
     #[test]
     fn the_inbox_is_not_notes() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(root.path(), "模块/A.md", "---\ntype: 模块\n---\n# A");
         super::super::inbox::add(root.path(), "任务", "t", "T", "已完成", "[[没有的笔记]]").unwrap();
         super::super::inbox::add(root.path(), "任务", "u", "U", "已完成", "").unwrap();
@@ -902,14 +883,14 @@ mod tests {
         let result = snapshot(root.path()).unwrap();
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.inbox.len(), 1, "只算未处理的");
-        assert_eq!(result.inbox_dir.as_deref(), Some(".berth/knowledge/待入库"));
+        assert_eq!(result.inbox_dir.as_deref(), Some("knowledge/待入库"));
         let report = lint(root.path()).unwrap();
         assert!(report.errors.iter().chain(&report.warnings).all(|line| !line.contains("待入库")), "{report:?}");
     }
 
     #[test]
     fn scans_only_vault_notes_and_resolves_links() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         fs::write(root.path().join("README.md"), "# outside").unwrap();
         note(root.path(), "README.md", "# 约定 [[A]]");
         note(
@@ -937,14 +918,14 @@ mod tests {
             .iter()
             .map(|e| (e.kind.as_str(), e.target.as_str(), e.unresolved))
             .collect::<Vec<_>>();
-        assert!(edges.contains(&("wikilink", "document:.berth/knowledge/决策/B.md", false)));
+        assert!(edges.contains(&("wikilink", "document:knowledge/决策/B.md", false)));
         assert!(edges.contains(&("wikilink", "unresolved:missing", true)));
-        assert!(edges.contains(&("supersedes", "document:.berth/knowledge/模块/A.md", false)));
+        assert!(edges.contains(&("supersedes", "document:knowledge/模块/A.md", false)));
     }
 
     #[test]
     fn covering_finds_notes_by_code_path_in_both_directions() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(
             root.path(),
             "经验/坑.md",
@@ -982,7 +963,7 @@ mod tests {
 
     #[test]
     fn root_notes_are_listed_as_unsorted_and_linted() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(root.path(), "README.md", "# 约定");
         note(root.path(), "z.md", "# z\n随手记");
         note(root.path(), "typed.md", "---\ntype: 概念\n---\n# typed");
@@ -1002,7 +983,7 @@ mod tests {
 
     #[test]
     fn search_matches_body_text() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(
             root.path(),
             "概念/termd.md",
@@ -1022,7 +1003,7 @@ mod tests {
 
     #[test]
     fn find_ranks_named_notes_first_and_filters_by_type() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(
             root.path(),
             "模块/终端.md",
@@ -1050,7 +1031,7 @@ mod tests {
 
     #[test]
     fn show_finds_by_alias_and_lists_links_by_title() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(
             root.path(),
             "概念/A.md",
@@ -1072,31 +1053,31 @@ mod tests {
 
     #[test]
     fn symlink_outside_vault_is_not_indexed() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
+        let root = project();
+        let outside = project();
         fs::write(outside.path().join("x.md"), "# X").unwrap();
-        fs::create_dir_all(root.path().join(VAULT_DIR)).unwrap();
+        fs::create_dir_all(store(root.path()).unwrap().join(VAULT_DIR)).unwrap();
         #[cfg(unix)]
-        std::os::unix::fs::symlink(outside.path(), root.path().join(VAULT_DIR).join("概念"))
+        std::os::unix::fs::symlink(outside.path(), store(root.path()).unwrap().join(VAULT_DIR).join("概念"))
             .unwrap();
         assert!(snapshot(root.path()).unwrap().documents.is_empty());
     }
 
     #[test]
     fn set_status_rewrites_only_status_line() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         let original =
             "---\ntype: 决策\nstatus: 草稿     # 注释\nunknown: [x, y]\n---\n\n# T\nstatus: body\n";
         note(root.path(), "决策/T.md", original);
         set_status(
             root.path(),
             SetStatusRequest {
-                path: ".berth/knowledge/决策/T.md".into(),
+                path: "knowledge/决策/T.md".into(),
                 status: "已确认".into(),
             },
         )
         .unwrap();
-        let updated = fs::read_to_string(root.path().join(VAULT_DIR).join("决策/T.md")).unwrap();
+        let updated = fs::read_to_string(store(root.path()).unwrap().join(VAULT_DIR).join("决策/T.md")).unwrap();
         assert_eq!(
             updated,
             original.replace("status: 草稿     # 注释", "status: 已确认")
@@ -1114,7 +1095,7 @@ mod tests {
 
     #[test]
     fn set_status_rejects_paths_outside_vault_and_bad_status() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(root.path(), "决策/T.md", "# T");
         fs::write(root.path().join("x.md"), "# X").unwrap();
         let request = |path: &str, status: &str| SetStatusRequest {
@@ -1124,15 +1105,15 @@ mod tests {
         assert!(set_status(root.path(), request("x.md", "已确认")).is_err());
         assert!(set_status(
             root.path(),
-            request(".berth/knowledge/../../x.md", "已确认")
+            request("knowledge/../../x.md", "已确认")
         )
         .is_err());
-        assert!(set_status(root.path(), request(".berth/knowledge/决策/T.md", "done")).is_err());
+        assert!(set_status(root.path(), request("knowledge/决策/T.md", "done")).is_err());
     }
 
     #[test]
     fn stale_flags_changed_code_and_unknown_sha() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         let run = |args: &[&str]| assert!(git(root.path(), args).is_some(), "git {args:?}");
         run(&["init", "-q"]);
         run(&["config", "user.email", "t@t"]);
@@ -1157,15 +1138,15 @@ mod tests {
         assert_eq!(
             result.paths,
             [
-                ".berth/knowledge/模块/changed.md",
-                ".berth/knowledge/模块/unknown.md"
+                "knowledge/模块/changed.md",
+                "knowledge/模块/unknown.md"
             ]
         );
     }
 
     #[test]
     fn lint_reports_format_links_orphans_and_missing_home() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         let fm = |kind: &str| format!("---\ntype: {kind}\nverified_at: abc\n---\n");
         note(
             root.path(),
@@ -1192,12 +1173,12 @@ mod tests {
         assert!(!has("缺少 frontmatter"), "{:?}", report.errors);
         assert_eq!(report.notes, 4);
 
-        let empty = tempfile::tempdir().unwrap();
+        let empty = project();
         assert!(lint(empty.path()).unwrap().errors.is_empty());
     }
     #[test]
     fn knowledge_add_source_writes_a_lint_clean_note_once() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         note(root.path(), "地图/首页.md", "---\ntype: 地图\nverified_at: 2026-11-11\n---\n# 首页\n[[概念]]");
         note(root.path(), "概念/概念.md", "---\ntype: 概念\nverified_at: 2026-11-11\n---\n# 概念\n[[首页]]");
         note(root.path(), "来源/A b.md", "---\ntype: 来源\nkind: repo\nurl: https://old.dev\n---\n# 旧");
@@ -1210,14 +1191,14 @@ mod tests {
             meta.as_object(),
         )
         .unwrap();
-        let path = ".berth/knowledge/来源/A b c.md";
+        let path = "knowledge/来源/A b c.md";
         assert_eq!(added, Ok(path.into()));
-        let text = fs::read_to_string(root.path().join(path)).unwrap();
+        let text = fs::read_to_string(store(root.path()).unwrap().join(path)).unwrap();
         assert!(text.contains("kind: other") && text.contains("digested: false"), "{text}");
         assert!(text.contains("via: smart-search") && text.contains("title: 'A/b: c?'"), "{text}");
         // 重名（忽略大小写）加序号；同 url（末尾 / 不计）不再写。
         let second = add_source(root.path(), "https://b.dev", "a B", "x", None).unwrap();
-        assert_eq!(second, Ok(".berth/knowledge/来源/a B 2.md".into()));
+        assert_eq!(second, Ok("knowledge/来源/a B 2.md".into()));
         assert_eq!(
             add_source(root.path(), "https://a.dev/x", "other", "x", None).unwrap(),
             Err(path.into())
@@ -1228,14 +1209,14 @@ mod tests {
         let report = lint(root.path()).unwrap();
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         // 只有来源的库不要求首页
-        let only = tempfile::tempdir().unwrap();
+        let only = project();
         add_source(only.path(), "https://c.dev", "C", "x", None).unwrap().unwrap();
         assert!(lint(only.path()).unwrap().errors.is_empty());
     }
 
     #[test]
     fn lint_checks_source_notes_by_url_and_kind() {
-        let root = tempfile::tempdir().unwrap();
+        let root = project();
         let source = |url: &str, kind: &str| {
             format!("---\ntype: 来源\nkind: {kind}\nurl: {url}\n---\n# S\n[[T]]")
         };
@@ -1259,8 +1240,8 @@ mod tests {
 
     #[test]
     fn source_pdfs_are_listed_linkable_and_not_linted() {
-        let root = tempfile::tempdir().unwrap();
-        let vault = root.path().join(VAULT_DIR);
+        let root = project();
+        let vault = store(root.path()).unwrap().join(VAULT_DIR);
         fs::create_dir_all(vault.join("来源")).unwrap();
         fs::create_dir_all(vault.join("概念")).unwrap();
         fs::write(vault.join("来源/Attention.PDF"), b"%PDF-1.7").unwrap();
@@ -1287,48 +1268,13 @@ mod tests {
             .edges
             .iter()
             .any(|e| e.target == pdf.id && !e.unresolved));
-        let unlinked = tempfile::tempdir().unwrap();
-        fs::create_dir_all(unlinked.path().join(VAULT_DIR).join("来源")).unwrap();
-        fs::write(unlinked.path().join(VAULT_DIR).join("来源/x.pdf"), b"").unwrap();
+        let unlinked = project();
+        fs::create_dir_all(store(unlinked.path()).unwrap().join(VAULT_DIR).join("来源")).unwrap();
+        fs::write(store(unlinked.path()).unwrap().join(VAULT_DIR).join("来源/x.pdf"), b"").unwrap();
         let report = lint(unlinked.path()).unwrap();
         assert!(
             report.errors.iter().all(|line| !line.contains("x.pdf")),
             "{report:?}"
         );
-    }
-
-    #[test]
-    fn worktree_changes_lists_vault_edits_since_the_fork() {
-        let tmp = tempfile::tempdir().unwrap();
-        let main = tmp.path().join("main");
-        let sh = |dir: &Path, args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-                .args(args)
-                .current_dir(dir)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "{args:?}");
-        };
-        fs::create_dir(&main).unwrap();
-        sh(&main, &["init", "-q", "-b", "dev"]);
-        note(&main, "概念/旧.md", "# 旧");
-        sh(&main, &["add", "-A"]);
-        sh(&main, &["commit", "-qm", "init"]);
-        let wt = tmp.path().join("wt");
-        sh(
-            &main,
-            &["worktree", "add", "-q", "-b", "w", wt.to_str().unwrap()],
-        );
-        assert!(worktree_changes(&wt, &main).is_empty());
-        note(&wt, "概念/新.md", "# 新");
-        note(&wt, "概念/旧.md", "# 改");
-        fs::write(wt.join("code.rs"), "").unwrap();
-        assert_eq!(
-            worktree_changes(&wt, &main),
-            [".berth/knowledge/概念/新.md", ".berth/knowledge/概念/旧.md"]
-        );
-        assert!(worktree_changes(&main, &main).is_empty());
     }
 }

@@ -8,6 +8,10 @@
 
 Berth 是一个本地桌面工作台：项目是容器，Agent 在项目目录里的原生 CLI/PTY 中工作。
 产品循环是读取本地会话、选择资产与启动参数、运行 CLI、把文件/Git/任务/知识产出收回项目。
+简称「读 / 配 / 跑 / 收」：读 = 按项目归位各 Agent 本地会话（`src-tauri/src/sessions/`），
+配 = 给项目挑 Agent / 服务商 / 启动资产（`~/.berth/tools/<id>/`），跑 = 在项目目录启动 Agent CLI
+（termd），收 = 产出落回知识库、任务、Git。新功能要落在其中一步；删掉后主线仍走得通的是「卫星」，
+必须挂在主线上。
 
 当前明确不是：生产 Web/server、ACP GUI 对话客户端、Chat Channels 客户端、Agent
 品牌配置中心、内置 Skills/MCP 管理矩阵或第二套终端生命周期。

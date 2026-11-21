@@ -1,5 +1,4 @@
-import { create } from "zustand"
-import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile"
+import { create, type StateCreator } from "zustand"
 import type { FixActionKind } from "@/lib/types"
 import type { PersistedPanelState } from "@/lib/workspace/panel-state-storage"
 
@@ -63,6 +62,15 @@ export interface AppUiStore {
   tasks: Task[]
   focusRequest: number
 
+  /** 手机布局（窗口窄于断点）；唯一写入方是 AppUiRuntime 的媒体查询订阅。 */
+  mobileLayout: boolean
+  /** 进入手机布局前桌面面板的开关，回到桌面时恢复。手机上侧栏、辅助面板都是盖住主区的抽屉。 */
+  desktopPanels: { sidebarOpen: boolean; auxPanelOpen: boolean }
+  setMobileLayout: (mobile: boolean) => void
+  /** 手机软键盘弹出；唯一写入方是 useVisualViewportInsets。 */
+  softKeyboardOpen: boolean
+  setSoftKeyboardOpen: (open: boolean) => void
+
   sidebarOpen: boolean
   sidebarRestored: boolean
   sidebarWidth: number
@@ -101,10 +109,7 @@ export interface AppUiStore {
 
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  hydrateSidebar: (
-    persisted: PersistedPanelState | null,
-    isMobile: boolean
-  ) => void
+  hydrateSidebar: (persisted: PersistedPanelState | null) => void
 
   toggleAuxPanel: () => void
   setAuxPanelOpen: (open: boolean) => void
@@ -114,10 +119,7 @@ export interface AppUiStore {
   revealMainArea: () => void
   setAuxPanelWidth: (width: number) => void
   setAuxPanelMinWidth: (minWidth: number) => void
-  hydrateAuxPanel: (
-    persisted: PersistedPanelState | null,
-    isMobile: boolean
-  ) => void
+  hydrateAuxPanel: (persisted: PersistedPanelState | null) => void
   revealInFileTree: (path: string) => void
   consumePendingRevealPath: () => void
   resetPendingReveal: () => void
@@ -134,6 +136,12 @@ const INITIAL_STATE = {
   alerts: [],
   tasks: [],
   focusRequest: 0,
+  mobileLayout: false,
+  softKeyboardOpen: false,
+  desktopPanels: {
+    sidebarOpen: APP_UI_DEFAULTS.sidebarOpen,
+    auxPanelOpen: APP_UI_DEFAULTS.auxPanelOpen,
+  },
   projectFileSearchQuery: null,
   projectFileSearchRequest: 0,
   projectHomeOver: null,
@@ -159,6 +167,8 @@ const INITIAL_STATE = {
   | "removeTask"
   | "clearCompletedTasks"
   | "requestSearchFocus"
+  | "setMobileLayout"
+  | "setSoftKeyboardOpen"
   | "toggleSidebar"
   | "setSidebarWidth"
   | "hydrateSidebar"
@@ -177,8 +187,49 @@ const INITIAL_STATE = {
   | "consumeProjectFileSearch"
 >
 
-export const useAppUiStore = create<AppUiStore>((set) => ({
+/** 手机上侧栏与辅助面板互斥：任何更新后两个都开着，只留后打开的那个。 */
+const mobileExclusivePanels =
+  (creator: StateCreator<AppUiStore>): StateCreator<AppUiStore> =>
+  (set, get, api) =>
+    creator(
+      ((partial: Parameters<typeof set>[0]) =>
+        set((state) => {
+          const next = {
+            ...state,
+            ...(typeof partial === "function" ? partial(state) : partial),
+          }
+          if (!next.mobileLayout || !next.sidebarOpen || !next.auxPanelOpen)
+            return next
+          return state.auxPanelOpen
+            ? { ...next, auxPanelOpen: false }
+            : { ...next, sidebarOpen: false }
+        })) as typeof set,
+      get,
+      api
+    )
+
+const appUiState: StateCreator<AppUiStore> = (set, get) => ({
   ...INITIAL_STATE,
+
+  setMobileLayout: (mobile) => {
+    const state = get()
+    if (state.mobileLayout === mobile) return
+    if (mobile)
+      set({
+        mobileLayout: true,
+        desktopPanels: {
+          sidebarOpen: state.sidebarOpen,
+          auxPanelOpen: state.auxPanelOpen,
+        },
+        sidebarOpen: false,
+        auxPanelOpen: false,
+      })
+    else set({ mobileLayout: false, ...state.desktopPanels })
+  },
+
+  setSoftKeyboardOpen: (open) => {
+    if (get().softKeyboardOpen !== open) set({ softKeyboardOpen: open })
+  },
 
   pushAlert: (level, message, detail, actions) => {
     const now = Date.now()
@@ -210,7 +261,9 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
     })),
   updateTask: (id, update) => {
     if (update.status === "completed" || update.status === "failed") {
-      set((state) => ({ tasks: state.tasks.filter((task) => task.id !== id) }))
+      set((state) => ({
+        tasks: state.tasks.filter((task) => task.id !== id),
+      }))
       return
     }
     set((state) => ({
@@ -243,15 +296,17 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
-  hydrateSidebar: (persisted, isMobile) =>
-    set({
-      sidebarOpen: isMobile
-        ? false
-        : (persisted?.isOpen ?? APP_UI_DEFAULTS.sidebarOpen),
-      sidebarWidth: clampSidebarWidth(
-        persisted?.width ?? APP_UI_DEFAULTS.sidebarWidth
-      ),
-      sidebarRestored: true,
+  hydrateSidebar: (persisted) =>
+    set((state) => {
+      const open = persisted?.isOpen ?? APP_UI_DEFAULTS.sidebarOpen
+      return {
+        sidebarOpen: !state.mobileLayout && open,
+        desktopPanels: { ...state.desktopPanels, sidebarOpen: open },
+        sidebarWidth: clampSidebarWidth(
+          persisted?.width ?? APP_UI_DEFAULTS.sidebarWidth
+        ),
+        sidebarRestored: true,
+      }
     }),
 
   toggleAuxPanel: () =>
@@ -264,7 +319,7 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
     }),
   showAuxView: (view) => set({ auxView: view, auxPanelOpen: true }),
   revealMainArea: () => {
-    if (!window.matchMedia?.(MOBILE_BREAKPOINT).matches) return
+    if (!get().mobileLayout) return
     set({ auxPanelOpen: false, sidebarOpen: false })
   },
   setAuxPanelWidth: (width) =>
@@ -276,17 +331,19 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
       auxPanelMinWidth: minWidth,
       auxPanelWidth: clampWidth(state.auxPanelWidth, minWidth),
     })),
-  hydrateAuxPanel: (persisted, isMobile) =>
-    set((state) => ({
-      auxPanelOpen: isMobile
-        ? false
-        : (persisted?.isOpen ?? APP_UI_DEFAULTS.auxPanelOpen),
-      auxPanelWidth: clampWidth(
-        persisted?.width ?? APP_UI_DEFAULTS.auxPanelWidth,
-        state.auxPanelMinWidth
-      ),
-      auxPanelRestored: true,
-    })),
+  hydrateAuxPanel: (persisted) =>
+    set((state) => {
+      const open = persisted?.isOpen ?? APP_UI_DEFAULTS.auxPanelOpen
+      return {
+        auxPanelOpen: !state.mobileLayout && open,
+        desktopPanels: { ...state.desktopPanels, auxPanelOpen: open },
+        auxPanelWidth: clampWidth(
+          persisted?.width ?? APP_UI_DEFAULTS.auxPanelWidth,
+          state.auxPanelMinWidth
+        ),
+        auxPanelRestored: true,
+      }
+    }),
   // The sidebar switches to the files view while a reveal is pending.
   revealInFileTree: (path) =>
     set({ pendingRevealPath: path, sidebarOpen: true }),
@@ -294,4 +351,8 @@ export const useAppUiStore = create<AppUiStore>((set) => ({
   resetPendingReveal: () => set({ pendingRevealPath: null }),
 
   resetAppUi: () => set({ ...INITIAL_STATE }),
-}))
+})
+
+export const useAppUiStore = create<AppUiStore>()(
+  mobileExclusivePanels(appUiState)
+)

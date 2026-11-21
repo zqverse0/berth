@@ -4,9 +4,9 @@ import { projectWorkspaceLayout } from "@/lib/workspace/workspace-layout-project
 import {
   configureWorkspaceLayoutFileActivator,
   createInitialWorkspaceLayoutState,
-  foldPlacementsForMobile,
   useWorkspaceLayoutStore,
 } from "@/stores/workspace-layout-store"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore, type TabItem } from "@/stores/tab-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
@@ -276,19 +276,49 @@ describe("workspace layout store", () => {
   })
 })
 
-it("mobile folds placements it cannot show back to the fixed layout", () => {
+it("mobile shows a fixed layout without forgetting the desktop placement", () => {
+  const readme = { id: "readme", kind: "file", folderId: 1 } as never
+  const notes = { id: "notes", kind: "file", folderId: 1 } as never
+  const desktop = {
+    "primary:term-home": "files",
+    "file:readme": "files",
+    "file:notes": "files-split",
+  } as const
   useWorkspaceLayoutStore.setState({
-    placementByScope: {
-      a: {
-        "primary:term": "files",
-        "primary:chat": "conversation",
-        "file:readme": "files-split",
-      },
-      b: { "file:x": "files-split" },
-    },
+    placementByScope: { "project:1": { ...desktop } },
   })
-  foldPlacementsForMobile()
+  const project = (mobile: boolean) =>
+    projectWorkspaceLayout(useWorkspaceLayoutStore.getState(), {
+      primaryTabs: [terminalTab],
+      rawPrimaryTabs: [terminalTab],
+      fileTabs: [readme, notes],
+      activeFolderId: 1,
+      allFolders: [],
+      mobile,
+    })
+  const ids = (mobile: boolean) =>
+    Object.fromEntries(
+      Object.entries(project(mobile).tabsByPane).map(([pane, tabs]) => [
+        pane,
+        tabs.map((tab) => tab.id),
+      ])
+    )
+
+  // 拖窄：右栏并回主区，终端回辅助面板。
+  act(() => useAppUiStore.getState().setMobileLayout(true))
+  expect(ids(true)).toEqual({
+    conversation: ["term-home"],
+    files: ["readme", "notes"],
+    "files-split": [],
+  })
+  // 拉宽：存下的桌面位置没动，分栏原样回来。
+  act(() => useAppUiStore.getState().setMobileLayout(false))
   expect(useWorkspaceLayoutStore.getState().placementByScope).toEqual({
-    a: { "primary:chat": "conversation" },
+    "project:1": desktop,
+  })
+  expect(ids(false)).toEqual({
+    conversation: [],
+    files: ["term-home", "readme"],
+    "files-split": ["notes"],
   })
 })

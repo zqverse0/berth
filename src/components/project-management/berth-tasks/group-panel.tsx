@@ -14,7 +14,6 @@ import {
 import { GroupChatStrip } from "@/components/project-management/group/group-chat-strip"
 import { GroupLiveStatus } from "@/components/project-management/group/group-live-status"
 import { GroupPermissions } from "@/components/project-management/group/group-permissions"
-import { EnableBerthNotice } from "@/components/project-management/enable-berth-notice"
 import { GroupTimeline } from "@/components/project-management/group/group-timeline"
 import { usePaneActions } from "@/components/project-management/group/pane-actions"
 import { useTaskGroup } from "@/components/project-management/group/use-task-group"
@@ -409,147 +408,133 @@ export function GroupPanel({ folderId }: { folderId: number }) {
       ) : null}
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
-          {group.uninitialized ? (
-            <div className="p-5">
-              <EnableBerthNotice
-                folderId={folderId}
-                onEnabled={group.refresh}
-              />
-            </div>
-          ) : (
-            <>
-              {group.error ? (
-                <p role="alert" className="px-5 py-2 text-destructive">
-                  {group.error}
-                </p>
-              ) : null}
-              {acpRow ? (
-                <div
-                  data-acp-actions={acpRow.member.name}
-                  className="flex shrink-0 items-center gap-1 border-b px-5 py-1 text-xs"
-                >
-                  {acpRow.member.handedTo != null ? (
-                    <>
-                      <span className="px-2 text-muted-foreground">
-                        {t("acp.inTerminal")}
-                      </span>
-                      {acpRow.pane ? (
-                        <button
-                          type="button"
-                          data-acp-action="jump"
-                          className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                          onClick={() => openMemberTerminal(acpRow)}
-                        >
-                          {t("acp.jump")}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        data-acp-action="return"
-                        title={t("acp.returnHint")}
-                        className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        onClick={() => void returnMember(acpRow)}
-                      >
-                        {t("acp.return")}
-                      </button>
-                    </>
-                  ) : (
+          {group.error ? (
+            <p role="alert" className="px-5 py-2 text-destructive">
+              {group.error}
+            </p>
+          ) : null}
+          {acpRow ? (
+            <div
+              data-acp-actions={acpRow.member.name}
+              className="flex shrink-0 items-center gap-1 border-b px-5 py-1 text-xs"
+            >
+              {acpRow.member.handedTo != null ? (
+                <>
+                  <span className="px-2 text-muted-foreground">
+                    {t("acp.inTerminal")}
+                  </span>
+                  {acpRow.pane ? (
                     <button
                       type="button"
-                      data-acp-action="handoff"
-                      title={t("acp.handoffHint")}
-                      disabled={
-                        acpRow.member.busy ||
-                        !acpRow.member.bodies.some((body) => body.sessionId)
-                      }
-                      className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                      onClick={() =>
-                        void handoffMember().catch((cause: unknown) =>
-                          toast.error(String(cause))
-                        )
-                      }
-                    >
-                      {t("acp.handoff")}
-                    </button>
-                  )}
-                  {acpRow.member.busy ? (
-                    <button
-                      type="button"
-                      data-acp-action="stop"
+                      data-acp-action="jump"
                       className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => void controlMember("stop")}
+                      onClick={() => openMemberTerminal(acpRow)}
                     >
-                      {t("acp.stop")}
+                      {t("acp.jump")}
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    data-acp-action="new"
-                    disabled={acpRow.member.handedTo != null}
-                    title={t("acp.newHint")}
-                    className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                    onClick={() => void controlMember("new")}
+                    data-acp-action="return"
+                    title={t("acp.returnHint")}
+                    className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => void returnMember(acpRow)}
                   >
-                    {t("acp.new")}
+                    {t("acp.return")}
                   </button>
-                  <button
-                    type="button"
-                    data-acp-action="leave"
-                    title={t("acp.leaveHint")}
-                    className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => void controlMember("leave")}
-                  >
-                    {t("acp.leave")}
-                  </button>
-                </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  data-acp-action="handoff"
+                  title={t("acp.handoffHint")}
+                  disabled={
+                    acpRow.member.busy ||
+                    !acpRow.member.bodies.some((body) => body.sessionId)
+                  }
+                  className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  onClick={() =>
+                    void handoffMember().catch((cause: unknown) =>
+                      toast.error(String(cause))
+                    )
+                  }
+                >
+                  {t("acp.handoff")}
+                </button>
+              )}
+              {acpRow.member.busy ? (
+                <button
+                  type="button"
+                  data-acp-action="stop"
+                  className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => void controlMember("stop")}
+                >
+                  {t("acp.stop")}
+                </button>
               ) : null}
-              <>
-                <GroupTimeline
-                  events={timelineEvents}
-                  allEvents={group.events}
-                  scopeKey={focus ? `member:${focus}` : "all"}
-                  context={context}
-                  onContext={openTimelineContext}
-                  onReply={posting ? undefined : replyTo}
-                  delivery={group.delivery}
-                  agentOf={agentOf}
-                  labelOf={labelOf}
-                  onOpenCommit={openCommit}
-                  onOpenTerminal={openTerminal}
-                  forwardTo={forwardTo}
-                  onForward={posting ? undefined : forward}
-                  empty={group.name ? t("noEvents") : t("noGroup")}
-                  liveSessionOf={liveSessionOf}
-                  liveLogOf={liveLogOf}
-                  processOf={processOf}
-                  onOpenFile={openFile}
-                />
-                <GroupLiveStatus
-                  rows={rows}
-                  onOpenTerminal={openMemberTerminal}
-                />
-                {name ? (
-                  <GroupPermissions
-                    folderId={folderId}
-                    group={name}
-                    events={group.events}
-                    members={group.members}
-                    onAnswered={group.refresh}
-                  />
-                ) : null}
-              </>
-              {group.name ? (
-                <GroupComposer
-                  rows={rows}
-                  reply={reply}
-                  onReplyChange={setReply}
-                  targets={targets}
-                  onSend={send}
-                  folderId={folderId}
-                />
-              ) : null}
-            </>
-          )}
+              <button
+                type="button"
+                data-acp-action="new"
+                disabled={acpRow.member.handedTo != null}
+                title={t("acp.newHint")}
+                className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                onClick={() => void controlMember("new")}
+              >
+                {t("acp.new")}
+              </button>
+              <button
+                type="button"
+                data-acp-action="leave"
+                title={t("acp.leaveHint")}
+                className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => void controlMember("leave")}
+              >
+                {t("acp.leave")}
+              </button>
+            </div>
+          ) : null}
+          <>
+            <GroupTimeline
+              events={timelineEvents}
+              allEvents={group.events}
+              scopeKey={focus ? `member:${focus}` : "all"}
+              context={context}
+              onContext={openTimelineContext}
+              onReply={posting ? undefined : replyTo}
+              delivery={group.delivery}
+              agentOf={agentOf}
+              labelOf={labelOf}
+              onOpenCommit={openCommit}
+              onOpenTerminal={openTerminal}
+              forwardTo={forwardTo}
+              onForward={posting ? undefined : forward}
+              empty={group.name ? t("noEvents") : t("noGroup")}
+              liveSessionOf={liveSessionOf}
+              liveLogOf={liveLogOf}
+              processOf={processOf}
+              onOpenFile={openFile}
+            />
+            <GroupLiveStatus rows={rows} onOpenTerminal={openMemberTerminal} />
+            {name ? (
+              <GroupPermissions
+                folderId={folderId}
+                group={name}
+                events={group.events}
+                members={group.members}
+                onAnswered={group.refresh}
+              />
+            ) : null}
+          </>
+          {group.name ? (
+            <GroupComposer
+              rows={rows}
+              reply={reply}
+              onReplyChange={setReply}
+              targets={targets}
+              onSend={send}
+              folderId={folderId}
+            />
+          ) : null}
         </main>
       </div>
     </div>

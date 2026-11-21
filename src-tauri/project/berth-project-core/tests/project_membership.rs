@@ -181,15 +181,13 @@ async fn opening_a_repo_registers_its_checkouts_as_one_project() {
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
-    let hub = dir.path().join("repo-dev");
+    let dev = dir.path().join("repo-dev");
     git(
         &repo,
-        &["worktree", "add", "-q", "-b", "dev", hub.to_str().unwrap()],
+        &["worktree", "add", "-q", "-b", "dev", dev.to_str().unwrap()],
     );
-    std::fs::create_dir_all(hub.join(".berth/local")).unwrap();
-    std::fs::write(hub.join(".berth/local/hub.json"), "{}").unwrap();
 
-    let main = folder_service::open_project(&conn, repo.to_str().unwrap())
+    let main = folder_service::open_project(&conn, dev.to_str().unwrap())
         .await
         .unwrap();
     let project_id = main.project_id.unwrap();
@@ -197,11 +195,11 @@ async fn opening_a_repo_registers_its_checkouts_as_one_project() {
         .await
         .unwrap();
     assert_eq!(members.len(), 2);
-    let hub_path = std::fs::canonicalize(&hub).unwrap();
+    let repo_path = std::fs::canonicalize(&repo).unwrap();
     assert_eq!(
         Path::new(&members[0].path),
-        hub_path,
-        "hub is listed first as main"
+        repo_path,
+        "git main worktree is listed first as main"
     );
     assert_eq!(main.project.as_ref().unwrap().main_folder_id, members[0].id);
 

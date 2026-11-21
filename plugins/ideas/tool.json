@@ -14,7 +14,7 @@
       "name": "Ideas",
       "roles": [],
       "tags": ["ideas", "knowledge"],
-      "description": "Jot down ideas and problems in the project, one Markdown file each under .berth/ideas/, then discuss them with an agent until they land as a note, a task or a commit, or are dropped."
+      "description": "Jot down ideas and problems in the project, one Markdown file each in the space's ideas/ folder, then discuss them with an agent until they land as a note, a task or a commit, or are dropped."
     },
     "editor": [
       {

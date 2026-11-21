@@ -28,8 +28,8 @@ const healthy: VaultHealth = {
 describe("VaultTree", () => {
   it("follows the home map with every group collapsed", () => {
     const home = note(HOME_NOTE_PATH, "地图")
-    const moduleNote = note(".berth/knowledge/模块/终端运行时.md", "模块")
-    const concept = note(".berth/knowledge/概念/termd.md", "概念")
+    const moduleNote = note("knowledge/模块/终端运行时.md", "模块")
+    const concept = note("knowledge/概念/termd.md", "概念")
     const onOpen = vi.fn()
     render(
       <VaultTree
@@ -59,9 +59,9 @@ describe("VaultTree", () => {
 
   it("lists sources (notes and PDFs) in their own group, not under others", () => {
     const home = note(HOME_NOTE_PATH, "地图")
-    const paper = note(".berth/knowledge/来源/Attention.pdf", "来源")
-    const article = note(".berth/knowledge/来源/某文章.md", "来源")
-    const concept = note(".berth/knowledge/概念/termd.md", "概念")
+    const paper = note("knowledge/来源/Attention.pdf", "来源")
+    const article = note("knowledge/来源/某文章.md", "来源")
+    const concept = note("knowledge/概念/termd.md", "概念")
     const onOpen = vi.fn()
     render(
       <VaultTree
@@ -84,7 +84,7 @@ describe("VaultTree", () => {
   })
 
   it("falls back to type groups and opens notes mentioning the code file", () => {
-    const concept = note(".berth/knowledge/概念/termd.md", "概念")
+    const concept = note("knowledge/概念/termd.md", "概念")
     render(
       <VaultTree
         documents={[concept]}

@@ -1,67 +1,66 @@
-# Berth Agent 指令（根）
+# Berth
 
-只放任何目录都适用的规则。细则在子目录 `AGENTS.md`，进入该目录工作时再读。
+## 验证
 
-## 主线：项目 × Agent
-
-项目是容器，Agent 在项目里干活。新工作先对准下面哪一步，对不上的不做：
-
-- **读**：按项目归位各 Agent 本地会话 → `src-tauri/src/sessions/`
-- **配**：给项目挑 Agent / 服务商 / 启动资产 → `~/.berth/tools/<id>/`
-- **跑**：在项目目录启动 Agent CLI → `src-tauri/terminal/`（termd）；群成员的 ACP 进程只归群组运行时
-  （`berth group watch`），手开终端只归 termd
-- **收**：产出落回项目 → 知识库、任务、Git
-
-落点：有 UI 且服务主线 → 进代码库；无 UI 只供 agent 调用 → 做 MCP，不进代码库；
-都不是 → 不做。删掉后主线仍走得通的是卫星，必须挂在主线上。
-
-最小需求先行：先写一句话结果，只做走完这句话的最小切口；不做「以防万一」的
-抽象、字段、命令、页面；能扩展现有入口就不开新入口。
-
-取舍顺序：使用流畅 > 逻辑顺畅 > 资源占用低 > 体积小
-（细则 `.trellis/spec/guides/performance-and-footprint.md`）。
+- 用户常驻 `pnpm tauri dev --features debug-bridge`，改动自动重编；不另起、不杀。
+- Rust 编译结果：`berth terminal capture -t <dev 终端> --lines 60`。不对 `berth-gui` / workspace 跑 cargo。
+- 可以跑：单文件 `pnpm vitest run <file>`、`pnpm exec eslint <file>`、`cargo test -p <小 crate>`、pytest。一次一个。
+- 运行时：`tauri-browser errors` / `console` → `snapshot` → `run-js` → `invoke`。不截图，纯视觉问题除外。
+- worktree 里只跑 pytest、`git diff --check`、`scripts/dev-trial cargo check|test -p <crate>`；运行时验证用 `scripts/dev-trial` 合进 dev 测。
+- 细则：`docs/verification.md`。
 
 ## 红线
 
-0. **Agent 启动失败不改 Berth**：先查 `~/.berth/tools/<id>/launch.js`、
-   `launchbar.json`、`experts/`。
-1. **验证不 OOM**：用户常驻 `pnpm tauri dev`，改动自动重编——Rust 编译结果读 dev 终端
-   （`berth terminal capture -t <终端>`），不对 `berth-gui` / workspace 跑 cargo；单独只跑小 crate
-   测试、pytest、单文件 vitest / eslint，一次一个。细则 `docs/verification.md`。
-   **worktree 里不装依赖、不编译 GUI**：只允许 pytest、`git diff --check`，以及小 crate 检查
-   `scripts/dev-trial cargo check|test -p <crate>`（全局串行 + 独立 target，不碰 dev 的产物）；运行时验证一律用
-   `scripts/dev-trial` 试合并进 dev，在 dev 实例里测，失败回退。
-2. **不按 Agent id / 品牌名在 Rust 或 React 里分支**，扩展契约字段。
-3. **删除模块必须登记 `docs/REMOVED.md`**。该文件只在删除 / 恢复模块时打开，
-   不要搜索或通读它。
-4. **密钥不得硬编码**。
-5. **路径必须可完成**：用户能点到的操作必须走得完，不留空操作和死入口。
-6. **一件事只有一个主人**：新增依赖或自写某项能力前，先查现有依赖、平台、后端是否已覆盖；
-   已覆盖就用它，只补它做不到的空缺，并薄薄挂在接缝上，不另起一套。
+- Agent 启动失败不改 Berth，查 `~/.berth/tools/<id>/launch.js`、`launchbar.json`、`experts/`。
+- 不按 Agent id / 品牌名在 Rust 或 React 里分支；扩展契约字段。会话来源用插件 `sessions.json` 声明。
+- 删除模块登记 `docs/REMOVED.md`；平时不读它。
+- 密钥不硬编码，敏感信息经 `src-tauri/src/platform/keyring_store.rs`。
+- 用户能点到的操作必须走得完，不留死入口。
+- 新增依赖或能力前先查现有依赖 / 平台 / 后端是否已覆盖。
+- 同一份数据只有一个权威来源；缓存写明从哪派生、谁让它失效。长得像的代码不强行合并。
+- 只做用户要的；能扩展现有入口就不开新入口。无 UI 的能力做成 MCP。
 
-## 目录索引
+## 前端 `src/`
 
-| 改动位置 | 先读 |
-|---|---|
-| `src/` 前端 | `src/AGENTS.md` |
-| `src-tauri/` Rust 宿主 | `src-tauri/AGENTS.md` |
-| `src-tauri/terminal/` | `src-tauri/terminal/AGENTS.md` |
-| `src-tauri/tool/`、tool.json 契约 | `src-tauri/tool/AGENTS.md` |
-| 实体 / 迁移 | `src-tauri/project/berth-project-core/AGENTS.md` |
-| 项目内 `.berth/`（内容、写入方、`local/` 不进 git） | `.berth/tasks/10-04-berth-project-dir/prd.md` §4 |
-| Git 同步、发布到公开仓库、归档、README 截图 | `docs/releasing/workflow.md` |
-| 全局模块图与数据流（需要时才读） | `docs/architecture.md` |
+- 静态导出：禁止动态路由 `[param]`，用查询参数。
+- 用户可见文本双语：`src/i18n/messages/en.json` + `zh-CN.json`。
+- 调后端走 `src/lib/transport/`，不直接 `fetch` / `invoke`。
+- 模板字符串里 NUL 写 `\u0000`，不写 `\0` / `\x00`（SWC 会压成非法 `\00`，0.38.7 卡启动页）。
+- 侧栏视图选项只放顶栏：`SidebarHeaderTabs` / `SidebarHeaderActions` / `SidebarHeaderButton`。
+- 列表用文件列表行，不用卡片；样式用主题 token。
+- 新增设置页先考虑并入现有页；要加就同时改 `catalog.ts`、`settings-tab.ts`、`SETTINGS_PAGE_LOADERS`、双语 i18n。
+- 新增命令：`commands.ts` 登记、`command-controller.tsx` 实现、补 `WorkspaceCommands.<id>` 双语。
+- 启动 Agent / 新建终端都经 `openLaunchShelf`，不另做入口。
 
-## 通用
+## Rust `src-tauri/`
 
-- 代码注释用简体中文；格式交给 Prettier / ESLint / rustfmt。
-- 开发目录是 `~/Project/berth-dev`（dev 分支）：在这里做想法、需求设计和任务；`~/Project/berth` 是 main，
-  只用于合并和发布，不在那里改代码。worktree 是一个方向或子工作区，不是一任务一个，
-  任务用 `berth task assign --group` 分进去实现和测试。
-- 用户没要求就不新建 worktree：已有对应方向就在那里做；没有就直接在 `berth-dev` 改，单测加 dev 实例验证后提交；
-  要开新方向先问用户。
-- 知识库 `.berth/knowledge/` 主要给用户看：只有用户指定时才读写（维护方法 `berth guide knowledge`）。
-- 不主动往 `.berth/knowledge/` 写笔记。要记待讨论的问题就写成想法
-  `.berth/ideas/<YYYY-MM-DD-HHMMSS>.idea.md`（frontmatter `type: 想法`、`status: 待讨论`，末尾留
-  `## 讨论`、`## 结论`）：正文首行是短标题，再按「现状/证据、方向/候选、待定」分节。
+- `tauri.conf.json` 保留 `dangerousDisableAssetCspModification: ["style-src", "script-src"]`；改 CSP 用正式构建验证。
+- GUI 不启动 `berth` 子进程复用逻辑，不做 GUI → CLI → GUI 回环；CLI 要桌面能力用 `berth-control-proto`。
+- 路径只从 `src-tauri/src/platform/paths.rs` 取。dev 数据在 `~/.berth-dev`，不拷进 `~/.berth`。
+- 优先扩展已有 command；不新增 `tmp_*`、`*_v2`、`*_for_<task>`、一次性或无调用方的 command。
+- 已执行的迁移不改，新增迁移 `m{YYYYMMDD}_{NNN}_{description}.rs`。
 
+## 终端 `src-tauri/terminal/`
+
+- PTY 和终端生命周期只归 termd；GUI / CLI 经 `berth-term-sdk` 调用。群成员 ACP 进程只归 `berth group watch`。
+- 删协议命令：变体原位改 `Reserved<N>`，不删行、不复用编号（bincode 按位置编号）。
+- 线上协议字段名、持久化键名不改。
+
+## 插件 `src-tauri/tool/`
+
+- 新能力优先 skill / MCP，其次现有接入点的 JSON + 脚本，最后才改 Rust/React。
+- 新增启动栏静态控件只改 `launchbar.json` + `launch.js`。
+- 解析不丢未识别字段；保存不用 DTO 重写整份文件。
+- parser 里不放软链接、进程启动、网络请求。
+- `launch.js` 只写会话临时目录，不写 Agent 全局配置。
+- 枚举 / 启动插件走 `list_tool_asset_ids()` 与 `plugins::ensure_enabled`，不自己扫 `tools/`。
+
+## 工作方式
+
+- 注释用简体中文。
+- 在 `~/Project/berth-dev`（dev 分支）改；`~/Project/berth`（main）只合并发布。
+- 不擅自新建 worktree；没有对应方向就直接在 berth-dev 改。
+- 知识库 `.berth/knowledge/` 只在用户指定时读写，不主动写笔记。
+- 待讨论的问题写成 `.berth/ideas/<YYYY-MM-DD-HHMMSS>.idea.md`：frontmatter `type: 想法`、`status: 待讨论`；
+  首行短标题，分节「现状/证据、方向/候选、待定」，末尾留 `## 讨论`、`## 结论`。
+- 发布流程：`docs/releasing/workflow.md`。

@@ -4,14 +4,15 @@ import {
   type KnowledgeSnapshot,
 } from "@/knowledge/model/types"
 
-export const VAULT_PREFIX = ".berth/knowledge/"
+/** 知识库目录，相对空间目录（快照的 `root`）。 */
+export const VAULT_PREFIX = "knowledge/"
 /** 断链的占位 href；预览里渲染为不可点击的虚线文字。 */
 
 function trimSlash(path: string) {
   return path.replace(/\\/g, "/").replace(/\/+$/, "")
 }
 
-/** 绝对路径 → 项目相对路径；不在项目内返回 null。 */
+/** 绝对路径 → 相对 `folderPath` 的路径；不在其内返回 null。 */
 export function projectRelativePath(absolutePath: string, folderPath: string) {
   const root = `${trimSlash(folderPath)}/`
   const path = absolutePath.replace(/\\/g, "/")

@@ -191,7 +191,7 @@ pnpm tauri dev          # 开发模式
 pnpm release:deb        # Linux：打 .deb 包
 ```
 
-架构说明见 [`docs/architecture.md`](docs/architecture.md)。仓库里的 `AGENTS.md` / `CLAUDE.md` 是写给编码 Agent 的开发规则，人类贡献者也建议读一遍。
+架构说明见 [`docs/architecture.md`](docs/architecture.md)。仓库根目录的 `AGENTS.md` 是写给编码 Agent 的开发规则，人类贡献者也建议读一遍。
 
 ## 致谢与许可
 

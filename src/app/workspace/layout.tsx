@@ -18,7 +18,7 @@ import { AppWorkspaceProvider } from "@/contexts/app-workspace-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { AppUiRuntime } from "@/components/runtime/app-ui-runtime"
 import { useAppUiStore } from "@/stores/app-ui-store"
-import { foldPlacementsForMobile } from "@/stores/workspace-layout-store"
+import { cn } from "@/lib/utils"
 import { TabProvider } from "@/contexts/tab-context"
 import { PointerProvider } from "@/pointer"
 import { DevicesProvider } from "@/components/devices/devices"
@@ -362,6 +362,16 @@ function MobileWorkspaceContent() {
   )
 }
 
+// 手机抽屉停在底部状态栏（h-8）之上；键盘弹起时 --vv-gap 是键盘高度。
+// 高度用 --spacing 算（h-8 = 8 × --spacing），紧凑密度下不是 2rem，写死会漏出底下的阅读区。
+// 抽屉基础样式用 data-[side=…]:inset-y-0，须用同样的变体才盖得过。
+const ABOVE_STATUS_BAR =
+  "bottom-[calc(var(--vv-gap,0px)+env(safe-area-inset-bottom)+var(--spacing)*8)]"
+const LEFT_ABOVE_STATUS_BAR =
+  "data-[side=left]:bottom-[calc(var(--vv-gap,0px)+env(safe-area-inset-bottom)+var(--spacing)*8)]"
+const RIGHT_ABOVE_STATUS_BAR =
+  "data-[side=right]:bottom-[calc(var(--vv-gap,0px)+env(safe-area-inset-bottom)+var(--spacing)*8)]"
+
 function MobileFolderWorkspaceShell() {
   useSettingsViewSync()
   const sidebarOpen = useAppUiStore((state) => state.sidebarOpen)
@@ -370,19 +380,7 @@ function MobileFolderWorkspaceShell() {
   const auxOpen = useAppUiStore((state) => state.auxPanelOpen)
   const auxRestored = useAppUiStore((state) => state.auxPanelRestored)
   const toggleAux = useAppUiStore((state) => state.toggleAuxPanel)
-  useEffect(foldPlacementsForMobile, [])
-  // 手机上侧栏与辅助面板互斥：后打开的关掉另一个。否则从侧栏打开 Agent 时侧栏还压在面板底下，
-  // 面板从标题栏下沿画起，顶上露出侧栏头和它的黑色遮罩。
-  useEffect(
-    () =>
-      useAppUiStore.subscribe((state, prev) => {
-        if (state.auxPanelOpen && !prev.auxPanelOpen && state.sidebarOpen)
-          useAppUiStore.setState({ sidebarOpen: false })
-        else if (state.sidebarOpen && !prev.sidebarOpen && state.auxPanelOpen)
-          useAppUiStore.setState({ auxPanelOpen: false })
-      }),
-    []
-  )
+  const keyboardOpen = useAppUiStore((state) => state.softKeyboardOpen)
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -390,7 +388,20 @@ function MobileFolderWorkspaceShell() {
         <SheetContent
           side="left"
           showCloseButton={false}
-          className="w-[85%] max-w-[360px] p-0"
+          className={cn(
+            "w-[85%] max-w-[360px] p-0 data-[side=left]:h-auto",
+            LEFT_ABOVE_STATUS_BAR
+          )}
+          overlayClassName={ABOVE_STATUS_BAR}
+          // 状态栏露在抽屉下面且可点（项目段兼作侧栏下方面板的开关），点它不收起侧栏。
+          onInteractOutside={(event) => {
+            if (
+              (event.target as Element | null)?.closest(
+                '[data-slot="status-bar"]'
+              )
+            )
+              event.preventDefault()
+          }}
         >
           <SheetTitle className="sr-only">Sidebar</SheetTitle>
           <Sidebar />
@@ -412,7 +423,12 @@ function MobileFolderWorkspaceShell() {
           side="right"
           showCloseButton={false}
           onInteractOutside={(event) => event.preventDefault()}
-          className="p-0 pb-[env(safe-area-inset-bottom)] data-[side=right]:top-[calc(var(--vv-top,0px)+env(safe-area-inset-top)+2.5rem)] data-[side=right]:h-auto data-[side=right]:bottom-[var(--vv-gap,0px)] data-[side=right]:w-full data-[side=right]:sm:max-w-none"
+          className={cn(
+            "p-0 data-[side=right]:top-[calc(var(--vv-top,0px)+env(safe-area-inset-top)+var(--spacing)*10)] data-[side=right]:h-auto data-[side=right]:w-full data-[side=right]:sm:max-w-none",
+            keyboardOpen
+              ? "pb-[env(safe-area-inset-bottom)] data-[side=right]:bottom-[var(--vv-gap,0px)]"
+              : RIGHT_ABOVE_STATUS_BAR
+          )}
         >
           <SheetTitle className="sr-only">Panel</SheetTitle>
           <AuxPanel />
@@ -744,7 +760,8 @@ function FolderLayoutShell() {
               into the ActivityBar and the fixed RightEdgeChrome overlay. */}
           <FolderTitleBar />
           <MobileFolderWorkspaceShell />
-          <StatusBar />
+          {/* 模态侧栏打开时 body 不接指针，状态栏单独放开。 */}
+          <StatusBar className="pointer-events-auto" />
         </>
       ) : (
         <PerfProfiler id="shell">

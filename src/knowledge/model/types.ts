@@ -12,7 +12,7 @@ export interface KnowledgeHeading {
 
 export interface KnowledgeDocument {
   id: string
-  /** 项目相对路径，如 `.berth/knowledge/模块/终端运行时.md` */
+  /** 相对空间目录的路径，如 `knowledge/模块/终端运行时.md` */
   path: string
   /** 文件名即标题 */
   title: string

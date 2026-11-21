@@ -8,11 +8,9 @@ import {
   SidebarHeaderButton,
 } from "@/components/layout/sidebar/sidebar-header"
 import type { AgentType } from "@/lib/types"
-import { getBerthStatus } from "@/lib/agent/berth-project"
 import { listBerthTasks, type BerthTaskList } from "@/lib/agent/berth-tasks"
 import type { RuntimeBridgeError } from "@/lib/runtime-bridge"
 import { cn } from "@/lib/utils"
-import { EnableBerthNotice } from "../enable-berth-notice"
 import { BerthTasksPanel } from "./berth-tasks-panel"
 
 interface BerthTasksConsoleProps {
@@ -29,7 +27,6 @@ type LoadState =
   | { status: "idle" | "loading" }
   | {
       status: "ready"
-      enabled: boolean
       tasks: BerthTaskList
     }
   | { status: "error"; error: RuntimeBridgeError }
@@ -45,19 +42,6 @@ export function BerthTasksConsole({
   const load = useCallback(
     async (showLoading = true) => {
       if (showLoading) setState({ status: "loading" })
-      const status = await getBerthStatus(folderId)
-      if (!status.ok) {
-        setState({ status: "error", error: status.error })
-        return
-      }
-      if (!status.result.enabled) {
-        setState({
-          status: "ready",
-          enabled: false,
-          tasks: { tasks: [], diagnostics: [], truncated: false },
-        })
-        return
-      }
       const tasks = await listBerthTasks(folderId)
       if (!tasks.ok) {
         setState({ status: "error", error: tasks.error })
@@ -65,7 +49,6 @@ export function BerthTasksConsole({
       }
       setState({
         status: "ready",
-        enabled: true,
         tasks: tasks.result,
       })
     },
@@ -126,19 +109,11 @@ export function BerthTasksConsole({
 
         {state.status === "ready" ? (
           <div className="flex min-h-0 flex-col gap-4">
-            {/* 未启用时群组和任务都读不到，只给启用入口，不让面板报「未启用」错误。 */}
-            {state.enabled ? (
-              <BerthTasksPanel
-                folderId={folderId}
-                data={state.tasks}
-                active={surfaceActive}
-              />
-            ) : (
-              <EnableBerthNotice
-                folderId={folderId}
-                onEnabled={() => void load()}
-              />
-            )}
+            <BerthTasksPanel
+              folderId={folderId}
+              data={state.tasks}
+              active={surfaceActive}
+            />
           </div>
         ) : null}
       </div>

@@ -4,7 +4,7 @@ import {
   type FolderPathEntry,
 } from "@/lib/workspace/tab-scope"
 import {
-  foldEmptySplit,
+  displayPlacement,
   hasCrossPanePlacement,
   paneForTab,
   partitionTabsByPane,
@@ -56,6 +56,8 @@ export interface WorkspaceLayoutProjectionInput {
   fileTabs: readonly FileWorkspaceTab[]
   activeFolderId: number | null
   allFolders: readonly FolderPathEntry[]
+  /** 手机布局：右栏并回主区、终端回辅助面板（只影响显示）。 */
+  mobile?: boolean
 }
 
 const WORKSPACE_PANES: readonly WorkspacePane[] = [
@@ -156,9 +158,10 @@ export function projectWorkspaceLayout(
     visiblePrimaryTabs,
     visibleFileTabs
   )
-  const placement = foldEmptySplit(
+  const placement = displayPlacement(
     state.placementByScope[scope] ?? {},
-    openRefs
+    openRefs,
+    input.mobile ?? false
   )
   const crossPanePlacement = hasCrossPanePlacement(
     placement,

@@ -30,7 +30,8 @@ const openCommitDiff = vi.fn()
 const openSession = vi.fn()
 
 const folders = [
-  { id: 7, path: "/repo" },
+  // 想法在空间目录（`project.dir`），不在仓库里。
+  { id: 7, path: "/repo", project: { main_folder_id: 7, dir: "/spaces/1" } },
   { id: 8, path: "/repo-demo" },
 ]
 
@@ -164,7 +165,6 @@ function view(extra: Record<string, unknown> = {}) {
       currentStep: null,
       commits: [{ hash: "abc1234", subject: "feat: x", step: "S1" }],
       unlinkedCommits: 0,
-      history: [],
       ...extra,
     },
   }
@@ -393,7 +393,7 @@ describe("TaskDetail", () => {
     fireEvent.click(screen.getByText("From idea 2026-10-17-101500"))
     await waitFor(() =>
       expect(openFilePreview).toHaveBeenCalledWith(
-        "/repo/.berth/ideas/归档/2026-10-17-101500.idea.md"
+        "/spaces/1/ideas/归档/2026-10-17-101500.idea.md"
       )
     )
     expect(readTaskGroup).not.toHaveBeenCalled()

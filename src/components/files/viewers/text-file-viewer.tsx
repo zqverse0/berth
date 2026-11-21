@@ -21,6 +21,7 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { useOptionalPointer } from "@/pointer"
 import { findOwningFolder, splitAbsPath } from "@/lib/files/file-open-target"
+import { spaceDirFolders } from "@/lib/workspace/projects"
 import type { TextFileWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useZoomLevel, useEditorFont } from "@/hooks/use-appearance"
@@ -115,7 +116,8 @@ export function TextFileViewer({
   const path = tab.path
   const io = useMemo(() => splitAbsPath(path), [path])
   const owningFolder = useMemo(
-    () => findOwningFolder(path, allFolders),
+    () =>
+      findOwningFolder(path, [...allFolders, ...spaceDirFolders(allFolders)]),
     [path, allFolders]
   )
   // HTML/markdown 子资源解析根：文件在已登记文件夹内时用文件夹根，保证 ../ 与

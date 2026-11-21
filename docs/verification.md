@@ -158,35 +158,30 @@ agent 可以在用户启动 dev 实例后**远程检查运行时状态**——�
 pnpm tauri dev --features debug-bridge
 ```
 
-**agent 常用命令**（在另一个终端执行）：
+**agent 常用命令**（在另一个终端执行，按顺序用；不要截图）：
 
 ```bash
 # 检查连接
 tauri-browser connect
 
-# 截图（验证 UI 布局）
+# 1. 先看报错：JS 控制台输出 / 错误、Rust 侧日志
+tauri-browser errors
+tauri-browser console
+tauri-browser logs
+
+# 2. 查 DOM 无障碍树（验证组件渲染、文案、元素是否存在）
+tauri-browser snapshot
+
+# 3. 在 webview 执行 JS（读状态、模拟点击）
+tauri-browser run-js "document.title"
+
+# 4. 调用 Tauri command（列出全部：tauri-browser commands）
+tauri-browser invoke <command_name> '{"arg": "value"}'
+
+# 最后才截图：只用于纯视觉问题（间距、颜色、对齐），上面几步能确认的不截图
 # ⚠ Linux 上不可用：插件 0.5.1 只实现了 macOS，会报 "not yet implemented on this platform"。
 #   Linux 改用系统截图后 Read 图片：flameshot full -p /tmp/shot.png
 tauri-browser screenshot
-
-# 查 DOM 无障碍树（验证组件渲染）
-tauri-browser snapshot
-
-# 在 webview 执行 JS
-tauri-browser run-js "document.title"
-
-# 调用 Tauri command
-tauri-browser invoke <command_name> '{"arg": "value"}'
-
-# 列出所有已注册 commands
-tauri-browser commands
-
-# 查看 Rust 侧日志
-tauri-browser logs
-
-# 查看 JS 控制台输出 / 错误
-tauri-browser console
-tauri-browser errors
 
 # 列出打开的窗口
 tauri-browser windows
@@ -197,53 +192,19 @@ tauri-browser windows
 **注意**：`debug-bridge` feature 仅在 dev 构建生效，release 不会携带。
 用户未加 `--features debug-bridge` 启动时，`tauri-browser` 无法连接。
 
-## 指令文件与主线的核对测试
+## 指令文件核对
 
-根 `AGENTS.md` 每次会话注入，子目录 `AGENTS.md`（同目录 `CLAUDE.md` 为软链接）在进入该目录时加载；
-主线图、路由表里的每个名词必须与代码互相对得上。文档漂移（写了不存在的东西、漏了正在做的事）会直接误导 agent，
-以下三个测试在**修改主线 / 路由 / 红线后**执行，也可定期抽查：
-
-### 1. 任务归位测试
-
-拿 active tasks 对照主线循环（`读 / 配 / 跑 / 收`），每条任务必须能说出归属步骤。
-说不出归属的只有两种处理：主线图缺词（补图）或该任务不在计划内（立淘汰计划）。
-二者都不选则说明任务与主线之一有错。
-
-### 2. 名词 grep 测试
-
-主线图、落点表、契约图里的每个技术名词，验证 agent 拿着它能 grep 到代码实体：
+全仓库只有根目录一份 `AGENTS.md`，每次会话注入。里面写了不存在的路径或符号会直接误导 agent，
+改完 `AGENTS.md` 或删改模块后跑一遍：
 
 ```bash
-# 主线循环逐段验证
-rg -c normalized_project_path \
-  src-tauri/project/berth-project-core/src/entities/project_agent_session_index.rs   # 读
-ls ~/.berth/tools/*/tool.json 2>/dev/null                     # 配（用户目录，允许为空）
-ls -d src-tauri/terminal/sdk/berth-term-sdk                   # 跑
-ls -d src/knowledge src-tauri/src/knowledge                   # 收
-
-# workbench 事实表与侧栏视图
-rg -n 'WORKBENCH_(PAGES|PANELS)' src/lib/workbench/catalog.ts
-rg -n 'SidebarView' src/components/layout/sidebar/views.ts
-
-# 契约与依赖方向
-rg -n 'expertRuntime|expert_(bind|preview|assets|packages)' src-tauri/src src
-ls -d src-tauri/tool/berth-tool-core src-tauri/control/berth-control-proto
+# 反引号里的仓库路径都应存在，有输出就是坏路径：改指向或删句子
+grep -oE '`(src|src-tauri|docs|scripts|\.trellis|\.berth)/[^`*<{ ]+`' AGENTS.md | tr -d '`' | sort -u |
+  while read p; do [ -e "$p" ] || echo "缺失: $p"; done
 ```
 
-grep 不到实体的名词就是坏词：要么改词（指向存在的模块），要么补实现，
-要么删句子。历史名词（已删除的模块）不得出现在主线、落点表、契约图中，
-只允许红线区一行事实禁令（如「ACP 已删除，禁止重建」）。
-
-### 3. 行为测试
-
-开新会话，各丢一个任务给 agent：
-
-- **主线内**任务（如「调研 X CLI 工具并接入 tools 目录」或「让项目页签多一个视图」）
-  ——agent 应直接按契约原则执行，不质疑主线归属
-- **主线外**任务（如「给会话列表加入场动画」）——agent 应引用主线闸门
-  提示「对不上读 / 配 / 跑 / 收循环，默认不做」或要求澄清
-
-两个都对，主线记录有效；第一个错 = 图缺词，第二个错 = 闸门句被淹没。
+文中点名的符号（如 `openLaunchShelf`、`ensure_enabled`）用 `rg -q <符号> src src-tauri` 抽查。
+只描述现状、没有「不要做什么」的句子，删掉。
 
 ## 运行时性能埋点
 

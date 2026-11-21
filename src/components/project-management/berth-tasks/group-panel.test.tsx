@@ -41,12 +41,6 @@ vi.mock("@/lib/agent/berth-group", async (importOriginal) => ({
   ensureGroupWatch: (...args: unknown[]) => ensureGroupWatch(...args),
   finishTask: (...args: unknown[]) => finishTask(...args),
 }))
-const enableBerth = vi.fn()
-const getBerthStatus = vi.fn()
-vi.mock("@/lib/agent/berth-project", () => ({
-  enableBerth: (...args: unknown[]) => enableBerth(...args),
-  getBerthStatus: (...args: unknown[]) => getBerthStatus(...args),
-}))
 vi.mock("@/lib/api", () => ({
   terminateTerminalSession: (...args: unknown[]) =>
     terminateTerminalSession(...args),
@@ -158,7 +152,6 @@ function view(extra: Record<string, unknown> = {}) {
       currentStep: null,
       commits: [{ hash: "abc1234", subject: "feat: x", step: "S1" }],
       unlinkedCommits: 0,
-      history: [],
       ...extra,
     },
   }
@@ -535,21 +528,5 @@ describe("GroupPanel", () => {
     expect(useGroupWorkspaceStore.getState().focusedMember).toBe("claude-1")
     await openChat("all")
     expect(useGroupWorkspaceStore.getState().focusedMember).toBeNull()
-  })
-  it("offers the enable button instead of an error when Berth is not initialized", async () => {
-    readTaskGroup.mockResolvedValue({
-      ok: false,
-      error: { message: "本项目未启用 Berth" },
-    })
-    getBerthStatus.mockResolvedValue({ ok: true, result: { enabled: false } })
-    enableBerth.mockResolvedValue({ ok: true, result: {} })
-    renderDetail()
-    const button = await screen.findByRole("button", { name: "Enable Berth" })
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-    readTaskGroup.mockResolvedValue(group())
-    fireEvent.click(button)
-    await waitFor(() => expect(enableBerth).toHaveBeenCalledWith(7))
-    await openChat("all")
-    expect(await screen.findByText("please do S1")).toBeVisible()
   })
 })

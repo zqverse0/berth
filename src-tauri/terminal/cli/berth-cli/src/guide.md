@@ -2,20 +2,21 @@
 
 命令清单只在上面一处；这里是用它们时要守的规则。
 
-## 项目与 `.berth/`
+## 空间
 
-- 未启用时任务、群组命令报 `not_initialized`。
-- 任务、群组、知识库全项目只有一份，都在主项目的 `.berth/`：worktree 里用 `berth project . task` / `berth project . group` 读写的也是这一份，效果一样。
-  例外：worker 按自己 worktree 里那份 prd（开工时的合同）干活，改需求走 `change`。
-- 知识库全项目只有一份，在主项目：路径用 `berth project . knowledge root` 取，不要写 worktree 里的 `.berth/knowledge/`。任务、想法归档后进它的待入库清单，用户说要维护时才处理。维护方法：`berth guide knowledge`。
-- 想法也只在主项目：用 `berth tools call ideas ui/api.js --input '{"action":"list"}'` 取 `main` 和各条路径，不读写当前 checkout 的 `.berth/ideas/`。worktree 里没有 `.berth/ideas/`、`.berth/knowledge/` 是正常的（不检出）。
+- 空间是 Berth 里的容器，包含若干项目（主项目、worktree、参考目录）。任务、群组、想法、知识库属于空间，存在空间目录（Berth 数据目录下），不在代码仓库里，也不进 git。
+- 不属于任何空间的目录，任务、群组命令报 `not_initialized`：请用户在 Berth 里把项目加进空间。
+- 空间里任何一个项目目录下用 `berth project . task` / `berth project . group` 读写的都是同一份；改需求走 `change`。
+- 知识库路径用 `berth project . knowledge root` 取。任务、想法归档后进它的待入库清单，用户说要维护时才处理。维护方法：`berth guide knowledge`。
+- 想法用 `berth tools call ideas ui/api.js --input '{"action":"list"}'` 取各条路径。
+- 代码仓库里的 `.berth/` 是旧版留下的，不再读写。
 
 ## 任务
 
 - 默认在当前目录直接做：不自己建任务、不开 worktree，用户要求时才建。要分到某个 worktree 实现时，任务建在主目录，用 `assign --group <worktree 目录名>` 分过去（一个 worktree 可以放多个任务）。
 - 一次提交能做完的事直接做；要多次提交或分阶段的才建任务。
 - 规划 → 执行：任务处于规划中时写方案，用户确认后开工。
-- 任务是一个文件 `.berth/tasks/<MM-DD-slug>.md`（`create` 生成骨架）。步骤在 frontmatter 的 `steps`，每步四个字段，照这个格式写（值里有 `: ` 就加引号）：
+- 任务是空间目录里的一个文件 `tasks/<MM-DD-slug>.md`（`create` 生成骨架并给出路径）。步骤在 frontmatter 的 `steps`，每步四个字段，照这个格式写（值里有 `: ` 就加引号）：
 
   ```yaml
   steps:

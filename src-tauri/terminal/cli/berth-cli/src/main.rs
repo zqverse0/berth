@@ -13,7 +13,6 @@ mod attach_client;
 mod gui_client;
 mod gui_launch;
 mod guide;
-mod init;
 mod knowledge;
 mod member;
 #[cfg(unix)]
@@ -120,7 +119,7 @@ enum Command {
         command: GuiCommand,
     },
 
-    /// 项目：列出、添加、启用 Berth，读取 GUI 当前文件；berth project <项目> knowledge|task|group|session …
+    /// 项目：列出、添加，读取 GUI 当前文件；berth project <项目> knowledge|task|group|session …
     /// 操作单个项目（项目用 ID、名称、路径，`.` 是当前目录所在项目）。
     #[command(display_order = 1)]
     Project {
@@ -215,15 +214,7 @@ enum Command {
     #[command(display_order = 11)]
     Doctor,
 
-    /// 同 `berth project init`（旧入口）。
-    #[command(hide = true)]
-    Init {
-        path: Option<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// 群组：成员、收发消息、派发 worker（与 GUI 群组视图一致）。需先启用 Berth。
+    /// 群组：成员、收发消息、派发 worker（与 GUI 群组视图一致）。
     /// 写作 `berth project <项目> group`。
     #[command(name = "group", disable_help_flag = true, hide = true)]
     Group {
@@ -269,14 +260,14 @@ enum Command {
         command: KnowledgeCommand,
     },
 
-    /// 任务：建任务写 prd、分配到群、开工、完成（与 GUI 任务页一致）。需先启用 Berth。写作 `berth project <项目> task`。
+    /// 任务：建任务写 prd、分配到群、开工、完成（与 GUI 任务页一致）。写作 `berth project <项目> task`。
     #[command(hide = true)]
     Task(task::TaskArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum KnowledgeCommand {
-    /// 打印知识库的绝对路径（主项目的 `.berth/knowledge`）；写知识一律写到这里。
+    /// 打印知识库的绝对路径（空间目录的 `knowledge/`）；写知识一律写到这里。
     Root,
     /// 检索笔记：标题、别名、标签、正文全文，空格分词全部命中。每条只给标题、类型、摘要和命中片段（文本输出 ≤ 2 KB）。
     Search {
@@ -321,7 +312,7 @@ enum KnowledgeCommand {
     },
     /// 会话摘要：本项目（含 worktree）在游标之后的 Agent 会话，只含用户与助手文本。需要 Berth GUI 在运行。
     Digest {
-        /// RFC 3339 游标；默认取 `.berth/knowledge/.curation.json` 的 `since`，都没有时读全部历史。
+        /// RFC 3339 游标；默认取空间目录 `knowledge/.curation.json` 的 `since`，都没有时读全部历史。
         #[arg(long)]
         since: Option<String>,
         /// 输出一个机器可读的 JSON 对象。
@@ -428,15 +419,6 @@ enum ProjectCommand {
         /// 目录的绝对路径。
         path: PathBuf,
 
-        /// 输出一个机器可读的 JSON 对象。
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// 启用 Berth（GUI「启用 Berth」）：在项目里创建 `.berth/` 骨架。幂等，不覆盖已有文件。
-    Init {
-        /// 项目目录，默认当前目录。
-        path: Option<PathBuf>,
         /// 输出一个机器可读的 JSON 对象。
         #[arg(long)]
         json: bool,
@@ -807,6 +789,10 @@ fn split_project_scope(mut args: Vec<OsString>) -> (Option<String>, Vec<OsString
 }
 
 fn main() -> ExitCode {
+    // 任务、群组、知识库按空间存放；拿不到库（没装 GUI 的机器）时沿用仓库里的 `.berth/`。
+    if let Ok(instance) = project::resolve_instance(false) {
+        berth_project_core::space::configure(&instance);
+    }
     let (project, args) = split_project_scope(std::env::args_os().collect());
     if let Some(project) = project {
         let entered = project::project_dir(&project).and_then(|dir| {
@@ -1090,12 +1076,6 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Task(args) => {
             std::process::exit(task::run(args));
         }
-        Command::Init { path, json }
-        | Command::Project {
-            command: ProjectCommand::Init { path, json },
-        } => {
-            return init::run(path.clone(), *json).map_err(CliError::from_runtime);
-        }
         Command::Knowledge {
             command: KnowledgeCommand::Root,
         } => {
@@ -1177,7 +1157,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 .unwrap_or_default();
             let expert = expert_brief().unwrap_or_default();
             let text = include_str!("brief.md")
-                .replace("{berth}", &format!("{}{task}{expert}", init::brief_line()));
+                .replace("{berth}", &format!("{}{task}{expert}", guide::space_brief_line()));
             print!("{}", guide::with_supplement("brief", &tools::brief(&text)));
             if !brief {
                 print!("\n{}", guide::with_supplement("guide", include_str!("guide.md")));
@@ -1332,7 +1312,6 @@ async fn run_control(command: Command, socket: PathBuf) -> Result<(), CliError> 
         | Command::UninstallShim
         | Command::Doctor
         | Command::Guide { .. }
-        | Command::Init { .. }
         | Command::Knowledge { .. } => {
             unreachable!("shim commands are handled before connecting to the daemon")
         }
@@ -1687,7 +1666,6 @@ mod tests {
             ("plugins.md", include_str!("plugins.md")),
             ("main.rs", include_str!("main.rs")),
             ("task.rs", include_str!("task.rs")),
-            ("init.rs", include_str!("init.rs")),
             ("group/mod.rs", include_str!("group/mod.rs")),
             ("berth-group/watch.rs", include_str!("../../../../project/berth-group/src/watch.rs")),
             ("tools/describe.rs", include_str!("tools/describe.rs")),

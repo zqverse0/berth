@@ -1,211 +1,85 @@
-//! 主项目判定：执行过 `berth init` 的那份 checkout（`.berth/local/hub.json`）。
-//!
-//! hub 标记也是项目表主成员的来源（`folder_service::open_project`、迁移
-//! `m20261120_000001_project`）：GUI 与任务按同一份 checkout 认主项目，git 主 worktree
-//! 只在没有标记时兜底（用户工作、跑 dev、存 `local/` 的 checkout 不一定是它）。
+//! 空间范围：任务、群组、知识库的数据在哪、主项目是谁——一律以库为准（[`crate::space`]）。
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
+
+use crate::space::Space;
 
 use super::git;
 use super::{TaskError, TaskResult};
 
-/// 相对 checkout 根的主项目标记，由 `berth init` 写入。
-pub const HUB_MARKER: &str = ".berth/local/hub.json";
-
-/// `dir` 所在 checkout 的根：先找含 `.berth/` 的祖先（到 git 根为止，与 `berth init` 一致，
-/// 项目可以是仓库的子目录），再退回 git 顶层目录，最后是 `dir`。
-pub(crate) fn checkout_root(dir: &Path) -> PathBuf {
-    if let Some(root) = crate::berth_dir::project_root(dir) {
-        return root.to_path_buf();
-    }
-    git::stdout(dir, &["rev-parse", "--show-toplevel"])
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| dir.to_path_buf())
-}
-
-/// 已启用 Berth 的项目范围：任务、群组、知识库都从这里取路径。
+/// 空间范围：任务、群组、知识库都从这里取路径。
 #[derive(Debug, Clone)]
 pub struct Scope {
-    /// `dir` 所在 checkout（含 `.berth/` 的那一层；任务内容在这里读写）。
+    /// `dir` 所在 checkout。
     pub checkout: PathBuf,
-    /// 主项目（群、实时状态、知识库在这里）。
+    /// 空间的主项目（git 对账的基准）；数据目录用 [`berth_dir`] 从它取。
     pub main: PathBuf,
 }
 
-/// 项目范围的唯一入口：`dir` 往上（到 git 根为止）没有 `.berth/` 即未启用，不跑 git。
-/// 与 [`crate::berth_dir::enabled_at`] 同一判定；会话这类不要求启用的读取用 [`main_project`]。
+/// `dir` 所属的空间。没登记进库的 worktree（如 Agent 用 `git worktree add` 建的）跟同仓库已登记的 checkout 走。
+fn space_of(dir: &Path) -> TaskResult<Space> {
+    if !crate::space::configured() {
+        return Err(TaskError::new(
+            "not_initialized",
+            "空间不可用：Berth 数据库还没升级到空间，请先打开一次新版 Berth",
+        ));
+    }
+    crate::space::of(dir)
+        .or_else(|| {
+            git::worktrees(dir)
+                .iter()
+                .find_map(|worktree| crate::space::of(&worktree.path))
+        })
+        .ok_or_else(|| {
+            TaskError::new(
+                "not_initialized",
+                format!(
+                    "{} 不属于任何空间：请先在 Berth 里把这个项目加进空间（或 `berth project add`）",
+                    dir.display()
+                ),
+            )
+        })
+}
+
+/// 空间范围的唯一入口；解析时补齐空间目录骨架。
 pub fn resolve(dir: &Path) -> TaskResult<Scope> {
-    let checkout = crate::berth_dir::project_root(dir)
-        .ok_or_else(|| not_initialized(dir))?
-        .to_path_buf();
-    let main = main_project(&checkout)?;
-    if !berth_dir(&main).is_dir() {
-        return Err(not_initialized(&main));
-    }
-    Ok(Scope { checkout, main })
+    let space = space_of(dir)?;
+    crate::berth_dir::ensure_space(&space.dir)?;
+    let main = space.main.canonicalize().unwrap_or_else(|_| space.main.clone());
+    let checkout = match git::stdout(dir, &["rev-parse", "--show-toplevel"]).filter(|s| !s.is_empty()) {
+        // 主项目是仓库的子目录：checkout 就是主项目本身。
+        Some(top) if main.starts_with(&top) => space.main.clone(),
+        Some(top) => PathBuf::from(top),
+        None => space.main.clone(),
+    };
+    Ok(Scope {
+        checkout,
+        main: space.main,
+    })
 }
 
-pub(crate) fn not_initialized(dir: &Path) -> TaskError {
-    TaskError::new(
-        "not_initialized",
-        format!(
-            "本项目未启用 Berth（{} 往上没有 .berth/）：请在 Berth 中启用，或执行 `berth project init`",
-            dir.display()
-        ),
-    )
-}
-
-/// 同一仓库里带主项目标记的 checkout（不要求启用；会话归属用）。没有标记（标记出现前启用的旧项目）时取 git 主 worktree，
-/// 它也启用了 Berth 才算；否则是 `dir` 所在 checkout 自己（单 checkout）。
+/// `dir` 所属空间的主项目（不补骨架；会话归属这类只读用）。
 pub fn main_project(dir: &Path) -> TaskResult<PathBuf> {
-    let checkout = checkout_root(dir);
-    let worktrees = worktree_paths(&checkout);
-    let marked: Vec<&PathBuf> = worktrees
-        .iter()
-        .filter(|path| path.join(HUB_MARKER).is_file())
-        .collect();
-    match marked.as_slice() {
-        // `git worktree list` 第一项是主 worktree。
-        [] => Ok(worktrees
-            .first()
-            .filter(|main| main.join(".berth").is_dir())
-            .cloned()
-            .unwrap_or(checkout)),
-        [hub] => Ok((*hub).clone()),
-        many => Err(TaskError::new(
-            "ambiguous",
-            format!(
-                "多个 checkout 都标记为主项目：{}；只保留一个的 {HUB_MARKER}",
-                many.iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join("、")
-            ),
-        )),
-    }
+    space_of(dir).map(|space| space.main)
 }
 
-/// 同一仓库的各 checkout 路径（`git worktree list` 顺序，第一项是主 worktree）。每次要跑两次 git，
-/// 而 GUI 每几秒为侧栏每个项目判定一次主项目：按 checkout 缓存一小段时间。只缓存 git 这一半，
-/// 标记文件与 `.berth/` 由调用方每次现查，启用 / `berth init` 立即生效；
-/// 新增的 worktree 是新 checkout，不受缓存影响。
-fn worktree_paths(checkout: &Path) -> Vec<PathBuf> {
-    const TTL: Duration = Duration::from_secs(30);
-    type Cache = HashMap<PathBuf, (Instant, Vec<PathBuf>)>;
-    static CACHE: LazyLock<Mutex<Cache>> =
-        LazyLock::new(Default::default);
-    let lock = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, paths)) = lock().get(checkout).filter(|(at, _)| at.elapsed() < TTL) {
-        return paths.clone();
-    }
-    // 跑 git 时不持锁：各项目的判定并行。
-    let paths: Vec<PathBuf> = git::worktrees(checkout)
-        .into_iter()
-        .map(|worktree| worktree.path)
-        .collect();
-    lock().insert(checkout.to_path_buf(), (Instant::now(), paths.clone()));
-    paths
+/// 数据目录：`dir` 所属空间的空间目录。
+pub fn berth_dir(dir: &Path) -> TaskResult<PathBuf> {
+    space_of(dir).map(|space| space.dir)
 }
 
-/// 同仓库里**另一份** checkout 已是主项目时返回它（`berth init` 据此拒绝在 worktree 里再建一个）。
-pub(crate) fn hub_elsewhere(root: &Path) -> Option<PathBuf> {
-    git::worktrees(root)
-        .into_iter()
-        .map(|worktree| worktree.path)
-        .find(|path| path.join(HUB_MARKER).is_file() && !git::same_path(path, root))
-}
-
-/// `<主项目>/.berth`
-pub(crate) fn berth_dir(main: &Path) -> PathBuf {
-    main.join(".berth")
+/// [`berth_dir`] 的内部版：`main` 来自 [`resolve`] / [`main_project`]，已在空间里；写入前由
+/// [`require`] 把关。空间恰在这期间被删时落到临时目录，不写回代码仓库。
+pub(crate) fn data_dir(main: &Path) -> PathBuf {
+    // ponytail: 竞态兜底用临时目录；要报错得把各路径函数都改成 Result。
+    berth_dir(main).unwrap_or_else(|_| std::env::temp_dir().join("berth-unassigned"))
 }
 
 pub(crate) fn local_dir(main: &Path) -> PathBuf {
-    main.join(".berth").join("local")
+    data_dir(main).join("local")
 }
 
-/// 只在主项目有一份的 `.berth/` 子目录：其他 checkout（worktree、git 主 worktree）不检出，
-/// 用户看侧栏、Agent 用 `berth` 命令，都落到主项目；`tasks/` 不在其中（worker 读开工时的 prd）。
-const MAIN_ONLY_DIRS: &[&str] = &["ideas", "knowledge"];
-
-/// [`exclude_main_only`] 的结果。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MainOnlyCopy {
-    /// 无需处理：没有副本、本身是主项目、主项目未启用或不是 git checkout。
-    Skipped,
-    /// 本次用 sparse-checkout 去掉了副本。
-    Excluded,
-    /// 副本里有未提交改动或未跟踪文件（`git status --porcelain` 的行）：先收回主项目，不动它。
-    Dirty(Vec<String>),
-    /// 已在用 cone 模式的 sparse-checkout，或 git 执行失败。
-    Failed(String),
-}
-
-/// 让 `dir` 所在的非主项目 checkout 不再检出 [`MAIN_ONLY_DIRS`]。幂等；没有副本时只看两个目录在不在，不跑 git。
-/// 已有非 cone 的 sparse 规则时追加，不覆盖。
-pub fn exclude_main_only(dir: &Path) -> MainOnlyCopy {
-    let checkout = checkout_root(dir);
-    let present: Vec<String> = MAIN_ONLY_DIRS
-        .iter()
-        .map(|name| format!(".berth/{name}"))
-        .filter(|rel| checkout.join(rel).exists())
-        .collect();
-    if present.is_empty() || !checkout.join(".git").exists() {
-        return MainOnlyCopy::Skipped;
-    }
-    let Ok(main) = main_project(&checkout) else {
-        return MainOnlyCopy::Skipped;
-    };
-    if git::same_path(&main, &checkout) || !berth_dir(&main).is_dir() {
-        return MainOnlyCopy::Skipped;
-    }
-
-    let mut status = vec!["status", "--porcelain", "--untracked-files=all", "--"];
-    status.extend(present.iter().map(String::as_str));
-    match git::checked(&checkout, &status) {
-        Err(err) => return MainOnlyCopy::Failed(err.message),
-        Ok(out) if !out.is_empty() => {
-            return MainOnlyCopy::Dirty(out.lines().map(str::to_owned).collect())
-        }
-        Ok(_) => {}
-    }
-
-    let patterns: Vec<String> = MAIN_ONLY_DIRS
-        .iter()
-        .map(|name| format!("!/.berth/{name}/"))
-        .collect();
-    let is_true =
-        |key: &str| git::stdout(&checkout, &["config", "--bool", key]).is_some_and(|v| v == "true");
-    let result = if !is_true("core.sparseCheckout") {
-        // 规则写进本 checkout 的 config.worktree（git 会自动开 extensions.worktreeConfig），不影响其他 checkout。
-        let mut args = vec!["sparse-checkout", "set", "--no-cone", "/*"];
-        args.extend(patterns.iter().map(String::as_str));
-        git::checked(&checkout, &args)
-    } else if is_true("core.sparseCheckoutCone") {
-        return MainOnlyCopy::Failed(
-            "已在用 cone 模式的 sparse-checkout，不能单独排除 .berth 子目录".into(),
-        );
-    } else {
-        let current = git::stdout(&checkout, &["sparse-checkout", "list"]).unwrap_or_default();
-        let missing: Vec<&str> = patterns
-            .iter()
-            .map(String::as_str)
-            .filter(|pattern| !current.lines().any(|line| line.trim() == *pattern))
-            .collect();
-        if missing.is_empty() {
-            git::checked(&checkout, &["sparse-checkout", "reapply"])
-        } else {
-            let mut args = vec!["sparse-checkout", "add"];
-            args.extend(missing);
-            git::checked(&checkout, &args)
-        }
-    };
-    match result {
-        Ok(_) => MainOnlyCopy::Excluded,
-        Err(err) => MainOnlyCopy::Failed(err.message),
-    }
+/// 写账本 / 实时状态前的检查：`main` 必须属于某个空间。
+pub(crate) fn require(main: &Path) -> TaskResult<()> {
+    space_of(main).map(drop)
 }

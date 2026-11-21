@@ -18,4 +18,5 @@ sha2 = "0.10"
 
 [dev-dependencies]
 agent-client-protocol = { version = "5.3", features = ["process", "stdio"] }
+berth-project-core = { path = "../berth-project-core", features = ["testing"] }
 tempfile = "3"

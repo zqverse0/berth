@@ -1,4 +1,4 @@
-//! 单文件任务 `.berth/tasks/<MM-DD-slug>.md`：frontmatter（title / status / idea / steps）+ 固定骨架正文。
+//! 单文件任务 `<空间目录>/tasks/<MM-DD-slug>.md`：frontmatter（title / status / idea / steps）+ 固定骨架正文。
 //! 归档时关联到的会话在 frontmatter 的 `sessions`（快照不进 git，见 `session_snapshot`）。
 //! 步骤在 frontmatter 的 `steps`（id / do / change / verify / commit），正文只放目标、背景、不做、试用建议、记录。
 //! 「试用建议」写给用户试用时看，可留空，不是阶段；旧任务的「验收」仍能读。

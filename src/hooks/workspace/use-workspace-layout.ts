@@ -2,6 +2,7 @@
 
 import { useRef, useSyncExternalStore } from "react"
 import { shallow } from "zustand/shallow"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
@@ -23,6 +24,7 @@ export function readWorkspaceLayoutProjection(): WorkspaceLayoutProjection {
   const { tabs, rawTabs } = useTabStore.getState()
   const { fileTabs } = useWorkspaceFileStore.getState()
   const { activeFolderId, allFolders } = useAppWorkspaceStore.getState()
+  const { mobileLayout } = useAppUiStore.getState()
   const inputs = [
     layoutState,
     tabs,
@@ -30,6 +32,7 @@ export function readWorkspaceLayoutProjection(): WorkspaceLayoutProjection {
     fileTabs,
     activeFolderId,
     allFolders,
+    mobileLayout,
   ]
   if (!cached || inputs.some((input, i) => input !== cached!.inputs[i])) {
     cached = {
@@ -40,6 +43,7 @@ export function readWorkspaceLayoutProjection(): WorkspaceLayoutProjection {
         fileTabs,
         activeFolderId,
         allFolders,
+        mobile: mobileLayout,
       }),
     }
   }
@@ -52,6 +56,7 @@ function subscribe(onChange: () => void): () => void {
     useTabStore.subscribe(onChange),
     useWorkspaceFileStore.subscribe(onChange),
     useAppWorkspaceStore.subscribe(onChange),
+    useAppUiStore.subscribe(onChange),
   ]
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }

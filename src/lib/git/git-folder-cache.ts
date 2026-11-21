@@ -39,7 +39,7 @@ export function invalidateGitFolderCache(path?: string): void {
     logCache.clear()
     return
   }
-  const prefix = `${path}\0`
+  const prefix = `${path}\u0000`
   deleteKeysWithPrefix(statusCache, prefix)
   deleteKeysWithPrefix(logCache, prefix)
 }
@@ -49,7 +49,7 @@ export function loadCachedGitStatus(
   showAllUntracked?: boolean,
   options?: { force?: boolean }
 ): Promise<GitStatusEntry[]> {
-  const key = `${path}\0${showAllUntracked ? "1" : "0"}`
+  const key = `${path}\u0000${showAllUntracked ? "1" : "0"}`
   return getOrLoad(
     statusCache,
     key,
@@ -71,7 +71,7 @@ export function loadCachedGitLog(
   } = {},
   options?: { force?: boolean }
 ): Promise<GitLogResult> {
-  const key = `${path}\0${JSON.stringify([
+  const key = `${path}\u0000${JSON.stringify([
     args.limit ?? null,
     args.branch ?? null,
     args.remote ?? null,

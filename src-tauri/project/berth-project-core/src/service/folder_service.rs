@@ -54,6 +54,7 @@ fn to_detail(m: folder::Model, projects: &HashMap<i32, project::Model>) -> Folde
                 main_folder_id: p.main_folder_id,
                 pinned_at: p.pinned_at,
                 sort_order: p.sort_order,
+                dir: crate::space::dir_of(p.id).map(|dir| dir.to_string_lossy().into_owned()),
             }),
         name: m.name,
         path: m.path,
@@ -443,8 +444,7 @@ async fn open_detail(
 /// 添加（打开）项目：GUI「添加项目」与无 GUI 时的 `berth project add` 共用。
 ///
 /// 已登记的目录、普通目录（含非 git）只做普通打开。首次添加 git 仓库时，`git worktree list`
-/// 的各 checkout 并成一个项目：主成员是带 hub 标记（`berth init`）的 checkout，没有就是 git 主 worktree；
-/// 同仓库已有 checkout 属于某个项目时并进那个项目。
+/// 的各 checkout 并成一个空间，主成员是 git 主 worktree；同仓库已有 checkout 属于某个空间时并进那个空间。
 pub async fn open_project(conn: &DatabaseConnection, path: &str) -> Result<FolderDetail, DbError> {
     let canonical = canonical_or_raw(path);
     let all = list_all_folder_details(conn).await?;
@@ -473,20 +473,17 @@ pub async fn open_project(conn: &DatabaseConnection, path: &str) -> Result<Folde
             .into_iter()
             .map(|(path, _)| canonical_or_raw(&path))
             .collect();
-    let Some(main) = worktrees
-        .iter()
-        .find(|dir| dir.join(crate::tasks::HUB_MARKER).is_file())
-        .or(worktrees.first())
-    else {
+    // `git worktree list` 第一项是 git 主 worktree。
+    let Some(main) = worktrees.first() else {
         return open_detail(conn, &canonical, None).await;
     };
 
+    // 并进已有空间时不改它的主项目（用户可能另设过）；新空间的主项目就是 git 主 worktree。
     let existing = worktrees.iter().find_map(|dir| registered_project(dir));
     let main_detail = open_detail(conn, main, existing).await?;
     let project_id = main_detail
         .project_id
         .ok_or_else(|| DbError::NotFound("Project not found after add".into()))?;
-    set_project_main(conn, project_id, main_detail.id).await?;
     let mut selected = (*main == canonical).then_some(main_detail);
     for worktree in worktrees.iter().filter(|dir| *dir != main) {
         let detail = open_detail(conn, worktree, Some(project_id)).await?;

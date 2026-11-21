@@ -17,7 +17,6 @@
 
 import { useCallback, useMemo, type ReactNode } from "react"
 import { useFormatter, useNow, useTranslations } from "next-intl"
-import { toast } from "sonner"
 import {
   MAIN_GROUP,
   taskRunState,
@@ -36,7 +35,6 @@ import {
   useKnowledgePathRefresh,
 } from "@/knowledge/hooks/use-knowledge-path-refresh"
 import { useKnowledgeSnapshot } from "@/knowledge/hooks/use-knowledge-snapshot"
-import { enableBerth } from "@/lib/agent/berth-project"
 import { type BerthTaskView } from "@/lib/agent/berth-tasks"
 import {
   paneFolderId,
@@ -266,8 +264,7 @@ function ProjectHomeBody({
   const { data, reload } = useHomeData(folder.id, familyPaths)
   const { git } = useWorkspaceStateStore(folder.path)
 
-  const enabled = data?.enabled ?? false
-  const { snapshot, refresh } = useKnowledgeSnapshot(folder.id, enabled)
+  const { snapshot, refresh } = useKnowledgeSnapshot(folder.id, true)
 
   // 星图是活的：知识库一有变化就重读（监听不递归，按目录登记）
   const watchDirs = useMemo(() => knowledgeWatchDirs(snapshot), [snapshot])
@@ -277,7 +274,7 @@ function ProjectHomeBody({
   }, [refresh, reload])
   useKnowledgePathRefresh({
     dirs: watchDirs,
-    active: enabled,
+    active: true,
     onRefresh: refreshAll,
   })
 
@@ -343,12 +340,6 @@ function ProjectHomeBody({
   const running = states.filter((state) => state === "running").length
   const open = states.filter((state) => state !== "completed").length
 
-  const enable = () =>
-    void enableBerth(folder.id).then(
-      (response) =>
-        response.ok ? refreshAll() : toast.error(response.error.message),
-      (cause) => toast.error(String(cause))
-    )
   const documents = snapshot?.documents ?? []
   const head = gitHeads.get(folder.id)
 
@@ -375,7 +366,7 @@ function ProjectHomeBody({
                 label: t.rich("pulse.working", { count: working, b }),
                 target: "home-harbor",
               },
-              enabled && {
+              {
                 key: "tasks",
                 label: t.rich("pulse.tasks", {
                   count: running,
@@ -431,12 +422,6 @@ function ProjectHomeBody({
           <Harbor berths={berths} onOpen={openBerth} />
         </Section>
 
-        {!enabled && (
-          <div className="mt-7">
-            <EnableHint onEnable={enable} />
-          </div>
-        )}
-
         <div className="mt-7 grid gap-7 @3xl:grid-cols-2">
           <Section
             title={t("commits.title")}
@@ -461,7 +446,7 @@ function ProjectHomeBody({
           </Section>
         </div>
 
-        {enabled && snapshot && (
+        {snapshot && (
           <Section
             className="mt-7"
             title={t("knowledge.title")}
@@ -481,22 +466,6 @@ function ProjectHomeBody({
           </Section>
         )}
       </div>
-    </div>
-  )
-}
-
-function EnableHint({ onEnable }: { onEnable: () => void }) {
-  const t = useTranslations("ProjectHome")
-  return (
-    <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
-      {t("disabled.hint")}
-      <button
-        type="button"
-        onClick={onEnable}
-        className="rounded bg-primary px-2.5 py-1 text-primary-foreground hover:bg-primary/90"
-      >
-        {t("disabled.enable")}
-      </button>
     </div>
   )
 }

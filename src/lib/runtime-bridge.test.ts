@@ -6,7 +6,6 @@ vi.mock("@/lib/transport", () => ({
   getTransport: () => ({ call }),
 }))
 
-import { getBerthStatus } from "@/lib/agent/berth-project"
 import { listBerthTasks } from "@/lib/agent/berth-tasks"
 import { runtimeBridgeOperation } from "./runtime-bridge"
 
@@ -23,13 +22,13 @@ describe("runtime bridge", () => {
     })
 
     await expect(
-      runtimeBridgeOperation({ method: "berth.status", folderId: 77 })
+      runtimeBridgeOperation({ method: "task.list", folderId: 77 })
     ).resolves.toEqual({
       ok: false,
       error: {
         kind: "database_error",
         message: "migration error: Folder 77 not found",
-        method: "berth.status",
+        method: "task.list",
       },
     })
   })
@@ -54,21 +53,12 @@ describe("runtime bridge", () => {
     })
   })
 
-  it("routes Berth status and task list through folderId", async () => {
+  it("routes task list through folderId", async () => {
     call.mockResolvedValue({ ok: true, result: {}, meta: {} })
 
-    await getBerthStatus(42)
     await listBerthTasks(42)
 
-    expect(call).toHaveBeenNthCalledWith(1, "runtime_bridge_operation", {
-      args: {
-        method: "berth.status",
-        params: {},
-        folderId: 42,
-        timeoutMs: null,
-      },
-    })
-    expect(call).toHaveBeenNthCalledWith(2, "runtime_bridge_operation", {
+    expect(call).toHaveBeenCalledWith("runtime_bridge_operation", {
       args: {
         method: "task.list",
         params: {},

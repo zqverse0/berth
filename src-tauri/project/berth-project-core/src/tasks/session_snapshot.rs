@@ -1,6 +1,6 @@
 //! 任务归档时关联它的会话：有 `berth task create|promote|start|step|finish <任务>` 命令或提交尾注
 //! `Task: <任务> S<n>` 的才算，只提到任务名的不算。各 Agent 的差异都在 `sessions.json` 里，这里不分 Agent。
-//! 会话可能被 Agent 清理，对话文本另存快照 `.berth/local/task-sessions/<任务>/`（不进 git）。
+//! 会话可能被 Agent 清理，对话文本另存快照 `<空间目录>/local/task-sessions/<任务>/`。
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -145,6 +145,34 @@ export function foldEmptySplit(
 }
 
 /**
+ * 手机布局固定：终端在辅助面板、其余在主区、没有右栏。只在读取时映射，不改存下的
+ * 桌面位置——窗口拖窄再拉宽，分栏还在。`primary:` 记成 `files` 的只能是终端
+ * （对话 tab 默认就在 `files`），去掉位置即回默认的辅助面板。
+ */
+export function mobilePlacement(
+  placement: Readonly<WorkspaceTabPlacement>
+): WorkspaceTabPlacement {
+  const next: WorkspaceTabPlacement = {}
+  for (const [key, pane] of Object.entries(placement)) {
+    if (pane === "files-split") next[key] = "files"
+    else if (!(key.startsWith("primary:") && pane === "files")) next[key] = pane
+  }
+  return next
+}
+
+/** 实际显示用的位置：手机映射 + 空左栏时并回右栏。 */
+export function displayPlacement(
+  placement: Readonly<WorkspaceTabPlacement>,
+  openTabs: readonly WorkspaceTabRef[],
+  mobile: boolean
+): Readonly<WorkspaceTabPlacement> {
+  return foldEmptySplit(
+    mobile ? mobilePlacement(placement) : placement,
+    openTabs
+  )
+}
+
+/**
  * Partition already scope-filtered tabs into their display panes. The input
  * order is retained independently for primary and file tabs.
  */

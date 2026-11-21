@@ -128,7 +128,7 @@ export function PluginPreview({
   useEffect(() => {
     translateRef.current = t
   }, [t])
-  const cacheKey = `${rootPath ?? ""}\0${relPath ?? ""}`
+  const cacheKey = `${rootPath ?? ""}\u0000${relPath ?? ""}`
   const [port, setPort] = useState<number | null>(null)
   // Agent 的标注（watch/1 mark-update）：随 watch 推送更新，经 postMessage 交给预览帧绘制。
   const [marks, setMarks] = useState<PreviewMark[]>([])

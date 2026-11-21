@@ -434,7 +434,7 @@ describe("SidebarProjectList — project explorer mode", () => {
     act(() => {
       fireEvent.click(moreBtn as HTMLElement)
     })
-    expect(document.body.textContent).toContain("Pin project")
+    expect(document.body.textContent).toContain("Pin space")
     expect(document.body.textContent).not.toContain("View project files")
     expect(screen.queryByRole("menuitem", { name: "Terminal" })).toBeNull()
   })
@@ -454,7 +454,7 @@ describe("SidebarProjectList — project explorer mode", () => {
     fireEvent.click(
       document.querySelector('[aria-label="More options"]') as HTMLElement
     )
-    fireEvent.click(screen.getByText("Pin project"))
+    fireEvent.click(screen.getByText("Pin space"))
 
     await waitFor(() => {
       expect(folderApi.updateFolderAlias).toHaveBeenCalledWith(
@@ -526,7 +526,7 @@ describe("SidebarProjectList — project explorer mode", () => {
       </NextIntlClientProvider>
     )
 
-    expect(screen.getByText("No projects open")).toBeTruthy()
+    expect(screen.getByText("No spaces open")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Open Folder" })).toBeTruthy()
   })
 
@@ -792,7 +792,7 @@ describe("SidebarProjectList — sessions", () => {
     fireEvent.click(screen.getByText("repo-agent"))
     expect(bridge.calls).toEqual([])
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Add to project" }))
+      fireEvent.click(screen.getByRole("button", { name: "Add to space" }))
     })
     expect(bridge.calls).toEqual([
       {
@@ -823,13 +823,13 @@ describe("SidebarProjectList — sessions", () => {
       return items
     }
     const worktree = menuOf(2)
-    expect(worktree).toContain("Make main member")
-    expect(worktree).toContain("Move to project")
-    expect(worktree).toContain("Remove from project…")
+    expect(worktree).toContain("Make main project")
+    expect(worktree).toContain("Move to space")
+    expect(worktree).toContain("Remove from space…")
     const main = menuOf(1)
-    expect(main).toContain("Move to project")
-    expect(main).not.toContain("Make main member")
-    expect(main).not.toContain("Remove from project…")
+    expect(main).toContain("Move to space")
+    expect(main).not.toContain("Make main project")
+    expect(main).not.toContain("Remove from space…")
   })
 
   it("lists the project's references and browses one in the file panel", async () => {

@@ -15,6 +15,8 @@ import type {
 } from "@/lib/workspace/workspace-tab-placement"
 import { SETTINGS_GLOBAL_TAB_ID } from "@/lib/workspace/settings-tab"
 import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
+import { useAppUiStore } from "@/stores/app-ui-store"
+import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 import { useTabStore, type TabItem } from "@/stores/tab-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { WorkspaceCurrentSelection } from "./workspace-current-selection"
@@ -189,6 +191,8 @@ beforeEach(() => {
   mocks.setCurrentDocumentContext.mockImplementation(async () => {})
   mocks.setCurrentWorkspaceTerminal.mockReset()
   mocks.setCurrentWorkspaceTerminal.mockImplementation(async () => {})
+  useAppUiStore.setState({ auxPanelOpen: true, auxView: "terminals" })
+  useGroupWorkspaceStore.setState({ emptyMember: null })
   useTabStore.setState({ tabs: [], rawTabs: [] })
   selectFile(null)
   useWorkspaceFileStore.setState({ previewFileTabIds: new Set() })
@@ -591,7 +595,10 @@ it("移动端只在实际挂载文件宿主的分支提交", async () => {
     kind: "",
     clear: true,
   })
-  act(() => selectLayout({ ...layout, activePane: "files" }, file.id))
+  act(() => {
+    useAppUiStore.setState({ auxPanelOpen: false })
+    selectLayout({ ...layout, activePane: "files" }, file.id)
+  })
   view.rerender(<WorkspaceCurrentSelection />)
   await flush()
   expect(mocks.setCurrentDocumentContext).toHaveBeenLastCalledWith(
@@ -625,6 +632,45 @@ it("仅同步当前明确选中的终端，不根据文件或 pane 候选猜终�
   view.rerender(<WorkspaceCurrentSelection />)
   await flush()
   expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(null)
+})
+
+it("辅助面板收起或切到群组时，被盖住的终端不算当前", async () => {
+  selectTerminal("covered-terminal")
+  render(<WorkspaceCurrentSelection />)
+  await flush()
+  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(
+    "covered-terminal"
+  )
+  act(() => useAppUiStore.setState({ auxView: "group" }))
+  await flush()
+  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(null)
+  act(() => useAppUiStore.setState({ auxView: "terminals" }))
+  await flush()
+  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(
+    "covered-terminal"
+  )
+  act(() => useAppUiStore.setState({ auxPanelOpen: false }))
+  await flush()
+  expect(mocks.setCurrentWorkspaceTerminal).toHaveBeenLastCalledWith(null)
+})
+
+it("移动端辅助面板盖住主区时，主区文件不算当前", async () => {
+  const file = textTab("under-sheet", "source")
+  mocks.isMobile = true
+  useAppUiStore.setState({ auxPanelOpen: false })
+  selectFile(file)
+  render(<WorkspaceCurrentSelection />)
+  await flush()
+  expect(mocks.setCurrentDocumentContext).toHaveBeenLastCalledWith(
+    expect.objectContaining({ path: file.path })
+  )
+  act(() => useAppUiStore.setState({ auxPanelOpen: true }))
+  await flush()
+  expect(mocks.setCurrentDocumentContext).toHaveBeenLastCalledWith({
+    scope: "workspace",
+    kind: "",
+    clear: true,
+  })
 })
 
 it("切选与隐藏立即清空，旧防抖不得反写；OS 失焦不清空", async () => {

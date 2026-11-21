@@ -1,11 +1,11 @@
 {
   "name": "berth",
   "private": true,
-  "version": "0.38.7",
+  "version": "0.38.8",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "node scripts/sync-pdfjs-assets.mjs && next build",
+    "build": "node scripts/sync-pdfjs-assets.mjs && next build && node scripts/check-out-js.mjs",
     "build:plugins": "node scripts/build-plugins.mjs",
     "lint": "eslint",
     "lint:fast": "oxlint",

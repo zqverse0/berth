@@ -12,8 +12,6 @@ import {
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { readFileForEdit } from "@/lib/api"
-import { getBerthStatus } from "@/lib/agent/berth-project"
-import { EnableBerthNotice } from "@/components/project-management/enable-berth-notice"
 import {
   getStaleKnowledgePaths,
   searchKnowledge,
@@ -76,36 +74,20 @@ export function KnowledgeSidebar({
     const tab = state.fileTabs.find((item) => item.id === state.activeFileTabId)
     return tab?.kind === "file" ? (tab.path ?? null) : null
   })
+  // vault 在空间目录：同一空间的各项目读写、监听同一份。
+  const vaultRoot = snapshot?.root ?? null
+  // 代码文件相对项目（找覆盖它的笔记）；笔记相对空间目录（在目录树里高亮）。
   const activeRelPath = activeFilePath
     ? projectRelativePath(activeFilePath, folderPath)
     : null
-
-  // vault 在主项目：worktree 项目也读写、监听主项目那一份。
-  const vaultRoot = snapshot?.root ?? null
+  const activeNotePath =
+    activeFilePath && vaultRoot
+      ? projectRelativePath(activeFilePath, vaultRoot)
+      : null
   const refreshAll = useCallback(() => refresh().then(() => {}), [refresh])
 
   const revision = snapshot?.revision
-  // `.berth/` 只由「启用 Berth」/ `berth project init` 创建：未启用时不让新建笔记隐式建目录。
-  const [enabled, setEnabled] = useState<boolean | null>(null)
-  useEffect(() => {
-    if (!active) return
-    let cancelled = false
-    getBerthStatus(folderId)
-      .then((response) => {
-        if (!cancelled) setEnabled(!response.ok || response.result.enabled)
-      })
-      .catch(() => {
-        if (!cancelled) setEnabled(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [active, folderId, revision])
-
-  const watchDirs = useMemo(
-    () => (enabled === true ? knowledgeWatchDirs(snapshot) : []),
-    [enabled, snapshot]
-  )
+  const watchDirs = useMemo(() => knowledgeWatchDirs(snapshot), [snapshot])
   useKnowledgePathRefresh({ dirs: watchDirs, active, onRefresh: refreshAll })
 
   // 过期判断要跑 git：只在面板可见且 vault 变化时计算一次。
@@ -148,10 +130,10 @@ export function KnowledgeSidebar({
 
   const mentions = useMemo(
     () =>
-      snapshot && activeRelPath && !isVaultNotePath(activeRelPath)
+      snapshot && activeRelPath && !isVaultNotePath(activeNotePath)
         ? codeMentions(snapshot.documents, activeRelPath)
         : [],
-    [activeRelPath, snapshot]
+    [activeNotePath, activeRelPath, snapshot]
   )
 
   const openPath = useCallback(
@@ -239,23 +221,13 @@ export function KnowledgeSidebar({
             {actionError ?? error}
           </p>
         ) : null}
-        {enabled !== false && snapshot && !search?.results ? (
+        {snapshot && !search?.results ? (
           <InboxList
             items={snapshot.inbox}
             onOpen={(item) => openPath(inVault(item.path))}
           />
         ) : null}
-        {enabled === false ? (
-          <div className="p-2">
-            <EnableBerthNotice
-              folderId={folderId}
-              onEnabled={() => {
-                setEnabled(true)
-                void refreshAll()
-              }}
-            />
-          </div>
-        ) : !snapshot || !health ? null : search?.results ? (
+        {!snapshot || !health ? null : search?.results ? (
           <NoteRows
             documents={search.results}
             empty={t("noResults")}
@@ -276,7 +248,7 @@ export function KnowledgeSidebar({
             homeContent={homeContent}
             health={health}
             mentions={mentions}
-            activePath={selectedDocument?.path ?? activeRelPath}
+            activePath={selectedDocument?.path ?? activeNotePath}
             onOpen={selectDocument}
           />
         )}

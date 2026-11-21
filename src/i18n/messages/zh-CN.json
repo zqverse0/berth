@@ -943,7 +943,7 @@
         },
         "remote": {
           "windowUnavailable": "对方 Berth 没在运行，打开后自动连上",
-          "berthOutdated": "这台设备上的 Berth 版本过旧，升级后才能使用它的项目",
+          "berthOutdated": "这台设备上的 Berth 版本过旧，升级后才能使用它的空间",
           "reconnecting": "连接中断，正在重连",
           "transfers": "传到这台设备",
           "transferCancel": "取消",
@@ -955,7 +955,7 @@
         },
         "openPage": "设备面板"
       },
-      "title": "项目",
+      "title": "空间",
       "git": "Git",
       "locateActiveConversation": "定位当前会话",
       "newConversation": "新建会话",
@@ -980,18 +980,18 @@
         "removeFolderFailed": "移除文件夹失败：{message}",
         "worktreeDeleteFailed": "删除工作树失败：{message}",
         "reorderFoldersFailed": "重新排序文件夹失败：{message}",
-        "renameProjectFailed": "重命名项目失败：{message}",
-        "pinFolderFailed": "置顶项目失败：{message}"
+        "renameProjectFailed": "重命名空间失败：{message}",
+        "pinFolderFailed": "置顶空间失败：{message}"
       },
       "statsLabel": "{folders} 个文件夹 · {convos} 个会话",
       "reorderHandle": "拖拽排序",
       "openFolder": "打开文件夹",
       "searchPlaceholder": "搜索会话...",
-      "showAllProjects": "显示全部项目",
-      "expandFolder": "展开项目",
-      "collapseFolder": "折叠项目",
-      "expandAllGroups": "展开所有项目",
-      "collapseAllGroups": "折叠所有项目",
+      "showAllProjects": "显示全部空间",
+      "expandFolder": "展开空间",
+      "collapseFolder": "折叠空间",
+      "expandAllGroups": "展开所有空间",
+      "collapseAllGroups": "折叠所有空间",
       "views": "侧栏视图",
       "showWorktrees": "显示工作树文件夹",
       "moreOptions": "更多选项",
@@ -1003,19 +1003,19 @@
       "emptyFolderHint": "暂无会话",
       "noMatchingConversations": "未找到匹配的会话",
       "noUnfinishedConversations": "暂无正在执行的会话。",
-      "removeFolderConfirmTitle": "从工作区移除该文件夹？",
-      "removeFolderConfirmDescription": "从 Berth 忘记项目 \"{name}\"？其工作区标签和终端将关闭，磁盘目录与文件保持不变。",
+      "removeFolderConfirmTitle": "从 Berth 移除该空间？",
+      "removeFolderConfirmDescription": "从 Berth 忘记空间「{name}」？其中项目的标签和终端将关闭，磁盘目录与文件保持不变。",
       "deleteWorktreeConfirmTitle": "删除该工作树？",
       "folderHeaderMenu": {
         "renameProject": "重命名…",
         "renameWorktreeHint": "目录和当前分支会一起改成这个名字；这个 worktree 里有终端在运行时需要先关掉。",
         "renameWorktreeTitle": "重命名 worktree",
         "renameWorktree": "重命名目录与分支…",
-        "renameProjectTitle": "重命名项目",
-        "renameProjectPlaceholder": "项目名",
+        "renameProjectTitle": "重命名空间",
+        "renameProjectPlaceholder": "空间名",
         "setAliasSave": "保存",
         "setAliasCancel": "取消",
-        "pinProject": "置顶项目",
+        "pinProject": "置顶空间",
         "unpinProject": "取消置顶",
         "deleteWorktree": "删除工作树",
         "removeFromWorkspace": "从工作区移除"
@@ -1028,10 +1028,10 @@
       "newChatAction": "新建聊天",
       "loadingSubsessions": "正在加载子会话…",
       "projectFiles": "项目文件",
-      "backToProjects": "返回项目列表",
-      "noProjects": "暂无打开的项目",
-      "searchProjectsPlaceholder": "搜索项目和会话...",
-      "noProjectsFound": "没有匹配的项目或会话。",
+      "backToProjects": "返回空间列表",
+      "noProjects": "暂无打开的空间",
+      "searchProjectsPlaceholder": "搜索空间和会话...",
+      "noProjectsFound": "没有匹配的空间或会话。",
       "clearSearch": "清除搜索",
       "addProject": "添加项目"
     },
@@ -1405,7 +1405,7 @@
     },
     "auxPanel": {
       "tabs": {
-        "projects": "项目",
+        "projects": "空间",
         "files": "文件",
         "sessions": "会话",
         "agents": "智能体",
@@ -1550,7 +1550,7 @@
       "statusRestarted": "服务器已重启 — 会话结束",
       "historyTruncated": "更早的输出已截断",
       "folderDetachTitle": "关联终端",
-      "folderTerminateDescription": "{count, plural, other {# 个终端与此项目关联，移除项目时将一并终止。}}",
+      "folderTerminateDescription": "{count, plural, other {# 个终端与此空间关联，移除空间时将一并终止。}}",
       "folderDetachKeep": "保留并脱离终端",
       "detachedFromFolder": "已脱离 {label}"
     },
@@ -2312,7 +2312,7 @@
       "diffDescriptionCommit": "提交 {commit}",
       "diffTitleConflictFile": "冲突 · {name}",
       "diffDescriptionConflict": "{path} · 磁盘与未保存内容",
-      "openedInOtherProject": "已在项目「{project}」中打开 {file}",
+      "openedInOtherProject": "已在空间「{project}」中打开 {file}",
       "switchToProject": "切换"
     },
     "chat": {
@@ -3596,11 +3596,11 @@
       "title": "知识库还没有笔记",
       "hint": "笔记由 Agent 读代码来写和维护（会先给你看提纲）。",
       "askAgent": "交给 Agent",
-      "agentRequest": "运行 `berth guide knowledge`，按「更新知识库」给这个项目写第一批笔记：先把提纲给我确认再写。"
+      "agentRequest": "运行 `berth guide knowledge`，按「更新知识库」给这个空间写第一批笔记：先把提纲给我确认再写。"
     },
     "agent": {
       "sent": "已发给 {agent}",
-      "launchFirst": "本项目没有在运行的 Agent：先启动一个，再点一次"
+      "launchFirst": "本空间没有在运行的 Agent：先启动一个，再点一次"
     },
     "outline": {
       "others": "其他笔记",
@@ -3640,7 +3640,7 @@
     }
   },
   "ProjectHome": {
-    "home": "项目首页",
+    "home": "空间首页",
     "pulse": {
       "attention": "<b>{count}</b> 个等你处理",
       "working": "<b>{count}</b> 个 Agent 干活中",
@@ -3692,22 +3692,18 @@
     },
     "tokens": {
       "title": "Token 用量",
-      "summary": "本项目会话 · 近 14 天",
+      "summary": "本空间会话 · 近 14 天",
       "tokens": "Token",
       "requests": "请求",
       "cacheHit": "缓存命中",
       "output": "输出",
-      "empty": "近 14 天本项目没有会话用量",
+      "empty": "近 14 天本空间没有会话用量",
       "aria": "近 {days} 天各 Agent 每日 token 用量"
     },
     "knowledge": {
       "title": "知识库",
       "summary": "{notes} 篇笔记",
       "empty": "知识库还没有笔记。在记忆面板里让 Agent 写第一批笔记。"
-    },
-    "disabled": {
-      "hint": "启用 Berth 后，这里显示任务与知识库。",
-      "enable": "启用 Berth"
     }
   },
   "LaunchManifest": {
@@ -3753,18 +3749,16 @@
       "noMemberSession": "{member} 暂无运行终端或已关联的 Agent 会话。"
     },
     "title": "Berth 任务",
-    "subtitle": "查看当前项目由 Agent 管理的任务",
+    "subtitle": "查看当前空间由 Agent 管理的任务",
     "embeddedSubtitle": "由 Agent 管理项目工作流，此处仅查看进度",
     "loading": "正在加载任务…",
     "refresh": "刷新",
     "duration": "耗时",
     "errorTitle": "任务不可用",
     "agentBootstrapHint": "此页面只展示状态；任务由 Agent 通过 berth project . task 维护。",
-    "initialize": "启用 Berth",
-    "initializing": "正在启用…",
     "initializeAgent": "初始化 Agent 文件",
     "developerNamePrompt": "开发者名称",
-    "devTasks": "项目任务",
+    "devTasks": "空间任务",
     "automations": {
       "new": "定时执行",
       "edit": "编辑定时",
@@ -3807,7 +3801,7 @@
       "hint": "到点在任务所在目录无人值守地启动 Agent 执行这个任务，结果记在下方；任务归档后不再触发。"
     },
     "overview": {
-      "title": "项目任务存储",
+      "title": "空间任务存储",
       "mode": "模式",
       "developer": "开发者",
       "storage": "存储位置",
@@ -3880,7 +3874,7 @@
         "base": "基于",
         "currentBranch": "当前分支",
         "action": "开工",
-        "hint": "开工会新建分支和 worktree，注册为子项目并建好任务群；重新开工默认接着用原分支。",
+        "hint": "开工会新建分支和 worktree，加入当前空间并建好任务群；重新开工默认接着用原分支。",
         "done": "已开工：分支 {branch}"
       },
       "finish": {
@@ -4080,8 +4074,8 @@
   },
   "WorkspaceCommands": {
     "switch_project": {
-      "title": "切换项目",
-      "description": "不离开文件树即可选择全部项目"
+      "title": "切换空间",
+      "description": "不离开文件树即可选择全部空间"
     },
     "open_project": {
       "title": "打开或克隆项目",
@@ -4137,7 +4131,7 @@
     },
     "open_berth_tasks": {
       "title": "打开 Berth 任务",
-      "description": "打开项目任务"
+      "description": "打开空间任务"
     },
     "open_git": {
       "title": "打开 Git",
@@ -4165,15 +4159,15 @@
     },
     "open_group": {
       "title": "打开群组",
-      "description": "显示项目群聊"
+      "description": "显示空间群聊"
     },
     "open_memory": {
       "title": "打开记忆",
-      "description": "显示项目知识库"
+      "description": "显示空间知识库"
     },
     "switch_session": {
       "title": "切换会话",
-      "description": "最近用过的在前，输入标题、项目、Agent 或工作区搜索"
+      "description": "最近用过的在前，输入标题、空间、Agent 或工作区搜索"
     },
     "next_attention": {
       "title": "跳到需关注",
@@ -4185,7 +4179,7 @@
     "placeholder": "按键直接执行，输入 ? 开始搜索…",
     "empty": "没有匹配的命令",
     "groups": {
-      "project": "项目",
+      "project": "空间",
       "creation": "新建",
       "views": "视图",
       "workspace": "工作区",
@@ -4288,23 +4282,23 @@
     "nextAttention": "跳到下一个需关注的会话",
     "noAttention": "没有需关注的会话",
     "switcherTitle": "切换会话",
-    "switcherPlaceholder": "搜索标题、项目或 Agent",
+    "switcherPlaceholder": "搜索标题、空间或 Agent",
     "switcherEmpty": "没有匹配的会话",
-    "restoreList": "回到项目列表"
+    "restoreList": "回到空间列表"
   },
   "ProjectMembers": {
-    "setMain": "设为主成员",
-    "moveTo": "移到项目",
-    "detach": "移出项目…",
-    "detachTitle": "把「{name}」移出项目？",
-    "detachDescription": "只把这个成员移出项目：它的终端和标签会关闭，磁盘目录与 git worktree 都保留。之后它会出现在「未加入的 worktree」里，可以再加入。",
-    "detached": "已把 {name} 移出项目",
-    "memberOpFailed": "修改成员失败：{message}",
-    "join": "加入项目",
-    "joinFailed": "加入项目失败：{message}",
+    "setMain": "设为主项目",
+    "moveTo": "移到空间",
+    "detach": "移出空间…",
+    "detachTitle": "把「{name}」移出空间？",
+    "detachDescription": "只把这个项目移出空间：它的终端和标签会关闭，磁盘目录与 git worktree 都保留。之后它会出现在「未加入的 worktree」里，可以再加入。",
+    "detached": "已把 {name} 移出空间",
+    "memberOpFailed": "调整空间里的项目失败：{message}",
+    "join": "加入空间",
+    "joinFailed": "加入空间失败：{message}",
     "showUntracked": "＋ {count} 个未加入的 worktree",
     "hideUntracked": "− 收起未加入的 worktree",
-    "untrackedHint": "git 里有、还没加入任何项目的 worktree；点「+」加入本项目",
+    "untrackedHint": "git 里有、还没加入任何空间的 worktree；点「+」加入本空间",
     "terminalHere": "在这个目录开终端",
     "viewChanges": "看改动",
     "prune": "清理",
@@ -4315,7 +4309,7 @@
     "references": "参考",
     "referenceHint": "参考目录（不做任务、群组、git 监视）",
     "addReference": "添加参考目录…",
-    "removeReference": "移出项目（不动磁盘）",
+    "removeReference": "移出空间（不动磁盘）",
     "addReferenceFailed": "加入参考目录失败：{message}",
     "removeReferenceFailed": "移出参考目录失败：{message}",
     "browsingReference": "参考目录",

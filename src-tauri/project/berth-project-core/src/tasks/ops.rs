@@ -1,4 +1,4 @@
-//! `berth task` 子命令。内容（单文件任务 `<名>.md`，或旧的 prd.md + task.json）读写主项目；实时状态读写主项目的 `local/tasks.json`。
+//! `berth task` 子命令。内容（单文件任务 `<名>.md`，或旧的 prd.md + task.json）与实时状态 `local/tasks.json` 都在空间目录。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use super::file::{self, FileStep};
 use super::group;
 use super::fsutil::{self, MAX_JSON_BYTES};
 use super::git;
-use super::hub::{self, berth_dir, Scope};
+use super::hub::{self, data_dir, Scope};
 use super::session_snapshot;
 use super::state::{self, Live};
 use super::view::{self, TaskView};
@@ -23,15 +23,15 @@ const RUNNING_WARN: usize = 3;
 const STALE_PLANNING: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
 struct Ctx {
-    /// 发起命令的 checkout（内容在这里读写）。
+    /// 发起命令的 checkout（git 操作在这里）。
     checkout: PathBuf,
-    /// 主项目（实时状态、群在这里）。
+    /// 空间的主项目（任务、实时状态、群都从它取空间目录）。
     main: PathBuf,
 }
 
 fn context(workspace: &Path) -> TaskResult<Ctx> {
     let Scope { checkout, main } = hub::resolve(workspace)?;
-    let base = berth_dir(&checkout);
+    let base = data_dir(&main);
     if fs::symlink_metadata(&base).is_ok_and(|meta| meta.file_type().is_symlink()) {
         return Err(TaskError::new(
             "unsafe_path",
@@ -45,8 +45,8 @@ fn context(workspace: &Path) -> TaskResult<Ctx> {
     Ok(Ctx { checkout, main })
 }
 
-fn tasks_root(checkout: &Path) -> PathBuf {
-    berth_dir(checkout).join("tasks")
+fn tasks_root(main: &Path) -> PathBuf {
+    data_dir(main).join("tasks")
 }
 
 fn sorted_dirs(root: &Path) -> Vec<PathBuf> {
@@ -81,8 +81,8 @@ fn sorted_tasks(root: &Path) -> Vec<PathBuf> {
 }
 
 /// （任务路径，是否归档），新的在前。
-fn task_dirs(checkout: &Path, include_archived: bool) -> Vec<(PathBuf, bool)> {
-    let root = tasks_root(checkout);
+fn task_dirs(main: &Path, include_archived: bool) -> Vec<(PathBuf, bool)> {
+    let root = tasks_root(main);
     let mut out: Vec<(PathBuf, bool)> = sorted_tasks(&root)
         .into_iter()
         .filter(|path| path.file_name().is_some_and(|name| name != "archive"))
@@ -104,19 +104,19 @@ fn dir_name(path: &Path) -> String {
 }
 
 /// 目录名精确匹配，或唯一的 `*-<reference>` 后缀匹配（slug）。
-fn find_task(checkout: &Path, reference: &str) -> TaskResult<(PathBuf, bool)> {
+fn find_task(main: &Path, reference: &str) -> TaskResult<(PathBuf, bool)> {
     let reference = fsutil::safe_component(reference, "task reference", TASK_REF_MAX)?;
     let reference = reference.trim_end_matches(".md");
-    let exact = tasks_root(checkout).join(reference);
+    let exact = tasks_root(main).join(reference);
     if exact.is_dir() {
         return Ok((exact, false));
     }
-    let single = tasks_root(checkout).join(format!("{reference}.md"));
+    let single = tasks_root(main).join(format!("{reference}.md"));
     if file::is_file_task(&single) {
         return Ok((single, false));
     }
     let suffix = format!("-{reference}");
-    let matches: Vec<(PathBuf, bool)> = task_dirs(checkout, true)
+    let matches: Vec<(PathBuf, bool)> = task_dirs(main, true)
         .into_iter()
         .filter(|(path, _)| {
             let name = dir_name(path);
@@ -170,7 +170,7 @@ fn live_with(record: &Value, entry: Option<&Live>) -> Live {
     live
 }
 
-/// 定时运行结果的根目录 `.berth/runs/<任务名>/`（进 git）。不放进任务目录：单文件任务没有目录，
+/// 定时运行结果的根目录 `<空间目录>/runs/<任务名>/`。不放进任务目录：单文件任务没有目录，
 /// `tasks/` 下的目录又都会被当成任务；按任务名存，归档时不用搬。
 pub const RUNS_DIR: &str = "runs";
 /// 结果文件首行带它：Agent 没自己交结果，由续跑兜底用最后一段回答写成，需要人处理。
@@ -198,17 +198,17 @@ pub fn parse_task_run(value: &str) -> Option<(&str, &str)> {
         .filter(|(task, stamp)| !task.is_empty() && !stamp.is_empty())
 }
 
-/// 一次定时运行的结果文件 `.berth/runs/<任务名>/<stamp>.md`（任务含已归档的）。
+/// 一次定时运行的结果文件 `<空间目录>/runs/<任务名>/<stamp>.md`（任务含已归档的）。
 pub fn run_result_path(main: &Path, reference: &str, stamp: &str) -> TaskResult<PathBuf> {
     let stamp = fsutil::safe_component(stamp, "run stamp", 64)?;
     let (directory, _) = find_task(main, reference)?;
-    Ok(berth_dir(main)
+    Ok(data_dir(main)
         .join(RUNS_DIR)
         .join(dir_name(&directory))
         .join(format!("{stamp}.md")))
 }
 
-/// 写一次定时运行的结果（`berth task result`）；写在主项目的任务目录。
+/// 写一次定时运行的结果（`berth task result`）；写在空间目录。
 pub fn write_run_result(
     workspace: &Path,
     reference: &str,
@@ -225,28 +225,10 @@ pub fn write_run_result(
     Ok(json!({"path": path.to_string_lossy()}))
 }
 
-/// 找任务：主项目的任务为权威记录；仅主项目尚无此任务时读当前 checkout。
-/// 不给 reference 时按当前分支在实时状态里找绑定的任务。
+/// 找任务；不给 reference 时按当前分支在实时状态里找绑定的任务。
 fn resolve(ctx: &Ctx, reference: Option<&str>) -> TaskResult<(PathBuf, bool)> {
-    let bases: Vec<&Path> = if git::same_path(&ctx.checkout, &ctx.main) {
-        vec![&ctx.checkout]
-    } else {
-        vec![&ctx.main, &ctx.checkout]
-    };
     match reference {
-        Some(reference) => {
-            for base in &bases {
-                match find_task(base, reference) {
-                    Ok(found) => return Ok(found),
-                    Err(error) if error.code == "not_found" => continue,
-                    Err(error) => return Err(error),
-                }
-            }
-            Err(TaskError::new(
-                "not_found",
-                format!("Task not found: {reference}"),
-            ))
-        }
+        Some(reference) => find_task(&ctx.main, reference),
         None => {
             let branch = git::current_branch(&ctx.checkout);
             let live = state::load(&ctx.main)?;
@@ -262,15 +244,7 @@ fn resolve(ctx: &Ctx, reference: Option<&str>) -> TaskResult<(PathBuf, bool)> {
                     "No task is bound to the current branch; pass a task reference",
                 ));
             };
-            for base in &bases {
-                if let Ok(found) = find_task(base, &name) {
-                    return Ok(found);
-                }
-            }
-            Err(TaskError::new(
-                "not_found",
-                format!("Task not found: {name}"),
-            ))
+            find_task(&ctx.main, &name)
         }
     }
 }
@@ -313,7 +287,7 @@ fn untouched_for(directory: &Path) -> std::time::Duration {
 
 // ---------------------------------------------------------------- 只读
 
-/// 任务摘要列表；读不了的任务进 `diagnostics`。与 [`views`] 同一退回规则（`.berth/tasks` 没有任务时读旧 `.trellis`）。
+/// 任务摘要列表；读不了的任务进 `diagnostics`。与 [`views`] 同一退回规则（空间里没有任务时读旧 `.trellis`）。
 pub fn list(workspace: &Path, include_archived: bool, limit: usize) -> TaskResult<Value> {
     let ctx = context(workspace)?;
     let (dirs, legacy) = match legacy_task_dirs(&ctx) {
@@ -380,7 +354,7 @@ pub fn list(workspace: &Path, include_archived: bool, limit: usize) -> TaskResul
     Ok(json!({"tasks": tasks, "diagnostics": diagnostics, "truncated": truncated}))
 }
 
-/// `.berth/tasks` 里没有目录式任务、但当前 checkout 有旧 `.trellis/tasks` 时，返回旧的活跃任务目录。
+/// 空间里没有任务、但当前 checkout 有旧 `.trellis/tasks` 时，返回旧的活跃任务目录。
 fn legacy_task_dirs(ctx: &Ctx) -> Option<Vec<(PathBuf, bool)>> {
     let has_tasks = task_dirs(&ctx.main, true)
         .iter()
@@ -398,7 +372,7 @@ fn legacy_task_dirs(ctx: &Ctx) -> Option<Vec<(PathBuf, bool)>> {
     )
 }
 
-/// 全部活跃任务的派生视图（GUI 任务页）。`.berth/tasks` 没有目录式任务时退回旧的 `.trellis`，
+/// 全部活跃任务的派生视图（GUI 任务页）。空间里没有任务时退回旧的 `.trellis`，
 /// 那时状态取各自 task.json（旧格式本来就把状态写在里面）。
 pub fn views(workspace: &Path) -> TaskResult<Vec<TaskView>> {
     let ctx = context(workspace)?;

@@ -11,7 +11,7 @@ import { paneFolderId } from "@/lib/terminal/agent-panes"
 import { refreshTerminalInventory } from "@/lib/terminal/terminal-inventory-query"
 import { useTabActions } from "@/contexts/tab-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { mainFolderId } from "@/lib/workspace/projects"
+import { mainFolderId, projectName } from "@/lib/workspace/projects"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,7 +117,10 @@ export function useRemoveProject() {
       const folder = useAppWorkspaceStore
         .getState()
         .allFolders.find((item) => item.id === folderId)
-      const folderName = folder?.name ?? String(folderId)
+      // 移除的是整个空间，显示空间名；其余操作针对单个项目，显示目录名。
+      const folderName =
+        (folder && (mode === "remove" ? projectName(folder) : folder.name)) ??
+        String(folderId)
       void (async () => {
         const terminals = await refreshTerminalInventory().catch(() => [])
         const terminalCount = terminals.filter(

@@ -46,6 +46,7 @@ mod m20261027_000002_device;
 mod m20261027_000003_device_project;
 mod m20261101_000001_drop_device_project;
 mod m20261120_000001_project;
+mod m20261120_000002_space_dirs;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -98,6 +99,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261027_000003_device_project::Migration),
             Box::new(m20261101_000001_drop_device_project::Migration),
             Box::new(m20261120_000001_project::Migration),
+            Box::new(m20261120_000002_space_dirs::Migration),
         ]
     }
 }

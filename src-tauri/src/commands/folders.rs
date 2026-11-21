@@ -128,39 +128,6 @@ pub async fn list_project_members_core(
     let members = folder_service::discover_members(&db.conn, project_id)
         .await
         .map_err(AppCommandError::from)?;
-    let checkouts: Vec<String> = members
-        .iter()
-        .filter(|member| !member.stale)
-        .map(|member| member.folder.path.clone())
-        .collect();
-    let excluded = tokio::task::spawn_blocking(move || {
-        checkouts
-            .into_iter()
-            .map(|path| {
-                let result =
-                    berth_project_core::tasks::exclude_main_only(std::path::Path::new(&path));
-                (path, result)
-            })
-            .collect::<Vec<_>>()
-    })
-    .await
-    .unwrap_or_default();
-    for (path, result) in excluded {
-        use berth_project_core::tasks::MainOnlyCopy;
-        match result {
-            MainOnlyCopy::Skipped => {}
-            MainOnlyCopy::Excluded => {
-                tracing::info!("{path}: 已去掉 .berth/ideas、.berth/knowledge 副本（只在主项目）")
-            }
-            MainOnlyCopy::Dirty(lines) => tracing::warn!(
-                "{path}: .berth 副本有未收回主项目的改动，暂不去掉：{}",
-                lines.join("；")
-            ),
-            MainOnlyCopy::Failed(message) => {
-                tracing::warn!("{path}: 去掉 .berth 副本失败：{message}")
-            }
-        }
-    }
     Ok(members)
 }
 

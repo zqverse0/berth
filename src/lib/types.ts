@@ -314,6 +314,8 @@ export interface ProjectSummary {
   main_folder_id: number
   pinned_at: string | null
   sort_order: number
+  /** 空间目录：任务、群组、想法、知识库存在这里（不在代码仓库）。 */
+  dir?: string | null
 }
 
 /** 项目的代码成员：`list_project_members` 现读 git 得到。 */

@@ -85,6 +85,8 @@ pub(crate) async fn create_backup_core(
     let tokens_json = inputs.data_dir.join("tokens.json");
     let provider_credentials = inputs.data_dir.join("credentials/providers.json");
     let prefs_json = crate::platform::paths::berth_home_dir().join("preferences.json");
+    // 空间目录：任务、群组、想法、知识库（`berth_project_core::space`）。
+    let spaces_root = inputs.data_dir.join(berth_project_core::space::SPACES_DIR);
     let include_external = options.include_external_transcripts;
 
     let zip_tmp_c = zip_tmp.clone();
@@ -115,6 +117,7 @@ pub(crate) async fn create_backup_core(
                 &cancel_c,
                 &mut prog,
             )?;
+            builder.add_dir("spaces", &spaces_root, &|_| false, &cancel_c, &mut prog)?;
             if tokens_json.is_file() {
                 builder.add_file("tokens.json", &tokens_json, &cancel_c, &mut prog)?;
             }

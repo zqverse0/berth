@@ -12,7 +12,7 @@ pub struct KnowledgeHeading {
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeDocument {
     pub id: String,
-    /// 项目相对路径，如 `.berth/knowledge/模块/终端运行时.md`。
+    /// 相对空间目录的路径，如 `knowledge/模块/终端运行时.md`。
     pub path: String,
     /// 文件名即标题。
     pub title: String,

@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore, type TabItem } from "@/stores/tab-store"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
@@ -11,6 +12,7 @@ import {
 } from "@/lib/workspace/tab-scope"
 import {
   defaultPane,
+  displayPlacement,
   foldEmptySplit,
   paneForTab,
   removeClosedPlacements,
@@ -155,14 +157,15 @@ function currentRefs(
   )
 }
 
-/** The scope's placement as rendered: an orphaned split folds into `files`. */
+/** The scope's placement as rendered (mobile mapping, orphaned split folded). */
 function scopePlacement(
   state: WorkspaceLayoutState,
   folderId: number | null = currentFolderId()
 ): Readonly<WorkspaceTabPlacement> {
-  return foldEmptySplit(
+  return displayPlacement(
     state.placementByScope[state.placementScope(folderId)] ?? EMPTY_PLACEMENT,
-    currentRefs(state, folderId)
+    currentRefs(state, folderId),
+    useAppUiStore.getState().mobileLayout
   )
 }
 
@@ -197,6 +200,7 @@ function currentProjection(state: WorkspaceLayoutState) {
     fileTabs: useWorkspaceFileStore.getState().fileTabs,
     activeFolderId: currentFolderId(),
     allFolders: currentFolders(),
+    mobile: useAppUiStore.getState().mobileLayout,
   })
 }
 
@@ -551,32 +555,6 @@ export function persistSplitFold(): void {
   )
   if (Object.entries(folded).every(([key, pane]) => raw[key] === pane)) return
   const placementByScope = { ...state.placementByScope, [scope]: folded }
-  useWorkspaceLayoutStore.setState({ placementByScope })
-  persistPlacement(placementByScope)
-}
-
-/**
- * 手机布局固定：终端在辅助面板、其余在主区、没有右栏，两组也不同时可见，拖不回去。
- * 清掉手机上显示不了的位置：右栏的一律回主区，被挪到主区的终端回辅助面板
- * （`primary:` 存成 `files` 的只能是终端：对话 tab 默认就在 `files`，不会记这个位置）。
- */
-export function foldPlacementsForMobile(): void {
-  const state = useWorkspaceLayoutStore.getState()
-  let changed = false
-  const placementByScope: WorkspaceTabPlacementByScope = {}
-  for (const [scope, placement] of Object.entries(state.placementByScope)) {
-    const kept = Object.fromEntries(
-      Object.entries(placement).filter(
-        ([key, pane]) =>
-          pane !== "files-split" &&
-          !(key.startsWith("primary:") && pane === "files")
-      )
-    )
-    if (Object.keys(kept).length !== Object.keys(placement).length)
-      changed = true
-    if (Object.keys(kept).length > 0) placementByScope[scope] = kept
-  }
-  if (!changed) return
   useWorkspaceLayoutStore.setState({ placementByScope })
   persistPlacement(placementByScope)
 }

@@ -75,6 +75,15 @@ fn topics() -> Vec<(String, &'static str)> {
         .collect()
 }
 
+/// `berth guide --brief` 的 `{berth}` 行：按当前目录是否属于空间提示 Agent 怎么读写数据。
+pub(crate) fn space_brief_line() -> &'static str {
+    if std::env::current_dir().is_ok_and(|cwd| berth_project_core::tasks::main_project(&cwd).is_ok()) {
+        "- 本项目属于一个空间：任务、群组、知识库在空间目录，只用 `berth project . task` / `group` / `knowledge` 读写；代码仓库里旧的 `.berth/` 不再使用\n"
+    } else {
+        "- 本项目不属于任何空间：需要任务或知识库时请用户在 Berth 里把它加进空间，不要自己创建\n"
+    }
+}
+
 /// 主题列表，附在 `berth guide` 末尾。
 pub(crate) fn topic_index() -> String {
     let mut text = format!(
@@ -241,7 +250,7 @@ mod tests {
         std::fs::write(guides.join("brief.md"), "").unwrap();
 
         let knowledge = topic("knowledge").unwrap();
-        assert!(knowledge.starts_with("# 项目知识库"));
+        assert!(knowledge.starts_with("# 空间知识库"));
         assert!(knowledge.trim_end().ends_with("讨论想法时先给三个方案"));
         assert!(topic("review").unwrap().contains("knowledge nope"));
         assert!(topic("missing").is_err());

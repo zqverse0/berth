@@ -5,7 +5,7 @@ import type { KnowledgeSnapshot } from "@/knowledge/model/types"
 
 /**
  * 要监听的目录（绝对路径）。监听不存在的目录会启动失败，所以 vault 里还没有笔记时
- * 视作 vault 不存在，改看 `.berth/`（已启用必有）：vault 一建出来就触发刷新。
+ * 视作 vault 不存在，改看空间目录（必有）：vault 一建出来就触发刷新。
  * ponytail: vault 已存在但完全为空时，其下新建的类型目录看不到；遇到再让后端报告 vault 是否存在。
  */
 export function knowledgeWatchDirs(

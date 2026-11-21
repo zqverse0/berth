@@ -12,8 +12,8 @@ use berth_project_core::{knowledge, tasks};
 
 use crate::{gui_client, CliError};
 
-/// 整理会话的游标文件（相对项目根）；Agent 全部写完后才推进。
-const CURSOR_FILE: &str = ".berth/knowledge/.curation.json";
+/// 整理会话的游标文件（相对空间目录）；Agent 全部写完后才推进。
+const CURSOR_FILE: &str = "knowledge/.curation.json";
 
 fn current_dir() -> Result<PathBuf, String> {
     std::env::current_dir().map_err(|error| error.to_string())
@@ -31,7 +31,10 @@ fn vault_project(cwd: &Path) -> Result<PathBuf, String> {
 
 /// `berth knowledge root`
 pub(crate) fn root() -> Result<PathBuf, String> {
-    Ok(vault_project(&current_dir()?)?.join(".berth/knowledge"))
+    let main = vault_project(&current_dir()?)?;
+    Ok(tasks::berth_dir(&main)
+        .map_err(|error| error.message)?
+        .join("knowledge"))
 }
 
 /// 当前目录所在项目的主项目（`inbox` 子命令用）。
@@ -219,20 +222,8 @@ pub(crate) fn show(name: &str, links: bool, json: bool) -> Result<(), String> {
 /// `berth knowledge lint`：返回退出码，有 ERROR 为 1。
 pub(crate) fn lint(json: bool) -> Result<i32, String> {
     let cwd = current_dir()?;
-    let tasks::Scope {
-        checkout,
-        main: root,
-    } = scope(&cwd)?;
-    let mut report = knowledge::lint(&root).map_err(|error| error.to_string())?;
-    report.warnings.extend(
-        knowledge::worktree_changes(&checkout, &root)
-            .into_iter()
-            .map(|path| {
-                format!(
-                    "{path}: worktree 分支改了知识库，改写到 `berth project . knowledge root` 并在本分支撤销"
-                )
-            }),
-    );
+    let root = vault_project(&cwd)?;
+    let report = knowledge::lint(&root).map_err(|error| error.to_string())?;
     if json {
         println!(
             "{}",
@@ -256,7 +247,7 @@ pub(crate) fn lint(json: bool) -> Result<i32, String> {
     Ok(i32::from(!report.errors.is_empty()))
 }
 
-/// `berth knowledge digest`：游标之后的会话摘要，默认游标取 `.berth/knowledge/.curation.json` 的 `since`。
+/// `berth knowledge digest`：游标之后的会话摘要，默认游标取空间目录 `knowledge/.curation.json` 的 `since`。
 pub(crate) fn digest(
     gui: Option<&OsString>,
     since: Option<String>,
@@ -265,7 +256,8 @@ pub(crate) fn digest(
     let cwd = current_dir().map_err(CliError::from_runtime)?;
     let root = vault_project(&cwd).map_err(CliError::from_runtime)?;
     let since = since.or_else(|| {
-        let text = std::fs::read_to_string(root.join(CURSOR_FILE)).ok()?;
+        let dir = tasks::berth_dir(&root).ok()?;
+        let text = std::fs::read_to_string(dir.join(CURSOR_FILE)).ok()?;
         let value: serde_json::Value = serde_json::from_str(&text).ok()?;
         value.get("since")?.as_str().map(str::to_owned)
     });

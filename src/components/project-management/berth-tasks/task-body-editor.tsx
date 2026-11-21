@@ -17,6 +17,7 @@ import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runt
 import { useEditorFont, useZoomLevel } from "@/hooks/use-appearance"
 import { saveTask } from "@/lib/agent/berth-tasks"
 import { findOwningFolder, splitAbsPath } from "@/lib/files/file-open-target"
+import { spaceDirFolders } from "@/lib/workspace/projects"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 // 与文件编辑器同一 CodeMirror，打开任务页才加载。
@@ -49,7 +50,8 @@ export function TaskBodyEditor({
   const { openFilePreview } = useWorkspaceRuntimeActions()
   const allFolders = useAppWorkspaceStore((state) => state.allFolders)
   const owningFolder = useMemo(
-    () => findOwningFolder(path, allFolders),
+    () =>
+      findOwningFolder(path, [...allFolders, ...spaceDirFolders(allFolders)]),
     [path, allFolders]
   )
   const docDir = useMemo(() => splitAbsPath(path)?.rootPath ?? null, [path])

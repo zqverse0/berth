@@ -4,20 +4,20 @@ import type { KnowledgeSnapshot } from "@/knowledge/model/types"
 
 const snapshot = (paths: string[]) =>
   ({
-    root: "/repo/",
+    root: "/spaces/1/",
     documents: paths.map((path) => ({ path })),
   }) as unknown as KnowledgeSnapshot
 
 describe("knowledgeWatchDirs", () => {
-  it("watches .berth while the vault has nothing (it may not exist yet)", () => {
-    expect(knowledgeWatchDirs(snapshot([]))).toEqual(["/repo/.berth"])
+  it("watches the space directory while the vault has nothing (it may not exist yet)", () => {
+    expect(knowledgeWatchDirs(snapshot([]))).toEqual(["/spaces/1"])
   })
 
   it("watches the vault and each note directory once notes exist", () => {
     expect(
       knowledgeWatchDirs(
-        snapshot([".berth/knowledge/概念/a.md", ".berth/knowledge/概念/b.md"])
+        snapshot(["knowledge/概念/a.md", "knowledge/概念/b.md"])
       )
-    ).toEqual(["/repo/.berth/knowledge", "/repo/.berth/knowledge/概念"])
+    ).toEqual(["/spaces/1/knowledge", "/spaces/1/knowledge/概念"])
   })
 })

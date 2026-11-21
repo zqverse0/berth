@@ -51,13 +51,13 @@ pub(crate) struct Preset {
     model_id: Option<String>,
 }
 
-fn presets_path(main: &Path) -> PathBuf {
-    main.join(".berth/presets.json")
+fn presets_path(main: &Path) -> TaskResult<PathBuf> {
+    Ok(berth_project_core::tasks::berth_dir(main)?.join("presets.json"))
 }
 
-/// 项目级启动预设：只存 agent / 启动输入 / 服务商 id 与模型 id，凭据由 CLI 按 id 从 keyring 取。缺文件即无预设。
+/// 空间级启动预设：只存 agent / 启动输入 / 服务商 id 与模型 id，凭据由 CLI 按 id 从 keyring 取。缺文件即无预设。
 fn load_presets(main: &Path) -> TaskResult<BTreeMap<String, Preset>> {
-    let path = presets_path(main);
+    let path = presets_path(main)?;
     let raw: Value = match std::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| {
             TaskError::new("invalid_preset", format!("{}: {error}", path.display()))
@@ -232,33 +232,6 @@ pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
             ));
         }
     }
-    if let Some(task) = &task {
-        // 分支从提交分出去：prd 没提交，worktree 里就没有合同。
-        let prd = main.join(".berth/tasks").join(task).join("prd.md");
-        let tracked = std::process::Command::new("git")
-            .arg("-C")
-            .arg(main)
-            .args(["status", "--porcelain", "--"])
-            .arg(&prd)
-            .output()
-            .is_ok_and(|out| out.status.success() && out.stdout.is_empty());
-        let known = std::process::Command::new("git")
-            .arg("-C")
-            .arg(main)
-            .args(["ls-files", "--error-unmatch", "--"])
-            .arg(&prd)
-            .output()
-            .is_ok_and(|out| out.status.success());
-        if !prd.is_file() || !tracked || !known {
-            return Err(TaskError::new(
-                "prd_not_committed",
-                format!(
-                    "Commit {} before spawning: the worktree branches from a commit",
-                    prd.display()
-                ),
-            ));
-        }
-    }
 
     // worker 始终启动在目标项目群对应的目录，任务只提供需求上下文。
     let branch = Some(env.branch);
@@ -267,7 +240,7 @@ pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
     let lead = Some(request.lead.trim()).filter(|lead| !lead.is_empty()).unwrap_or("lead").to_owned();
     let mut brief = text.clone();
     if let Some(task) = &task {
-        let prd = cwd.join(".berth/tasks").join(task).join("prd.md");
+        let prd = berth_project_core::tasks::berth_dir(&cwd)?.join("tasks").join(task).join("prd.md");
         let change = format!(
             "{} group --workspace {} change {name} --as <你的名字> --to {lead} --text '<原因 + 新要求>'",
             ctx.cli.display(),

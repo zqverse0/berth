@@ -6,7 +6,6 @@
 //! - `device.*` — 可 SSH 连接的其他设备（`src/devices.rs`）
 //! - `expert.*` — 设置 →「专家」：`catalog` / `save` / `create` / `delete` / `asset`（`berth_tool_core::experts`）；`options`（id 与名字）
 //! - `system.*` — 本机与 Berth 自身的资源占用（`src/system_resources.rs`）
-//! - `berth.init` / `berth.status` — enable Berth in a project / whether it is enabled
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -186,8 +185,7 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
             });
         }
 
-        const EMBEDDED_METHODS: &[&str] = &["berth.init", "berth.status"];
-        if EMBEDDED_METHODS.contains(&method.as_str()) || method.starts_with("knowledge.") {
+        if method.starts_with("knowledge.") {
             let folder_id = args
                 .folder_id
                 .ok_or_else(|| AppCommandError::invalid_input("folderId is required"))?;
@@ -198,16 +196,7 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
             let method_for_worker = method.clone();
             let started = Instant::now();
             let outcome = tokio::task::spawn_blocking(move || {
-                if method_for_worker.starts_with("knowledge.") {
-                    crate::knowledge::dispatch(&project_root, &method_for_worker, params)
-                } else if method_for_worker == "berth.init" {
-                    let root = project_root.join(".berth");
-                    berth_project_core::berth_dir::init(&project_root)
-                        .map(|created| json!({ "root": root, "created": created }))
-                        .map_err(crate::berth_tasks::BerthTaskError::io)
-                } else {
-                    Ok(json!({ "enabled": berth_project_core::berth_dir::enabled_at(&project_root) }))
-                }
+                crate::knowledge::dispatch(&project_root, &method_for_worker, params)
             })
             .await
             .map_err(|e| {

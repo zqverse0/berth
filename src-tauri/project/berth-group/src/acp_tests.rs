@@ -30,7 +30,8 @@ impl Fixture {
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("proj");
         std::fs::create_dir(&main).unwrap();
-        berth_project_core::berth_dir::init(&main).unwrap();
+        let data = berth_project_core::space::testing::register(&main);
+        berth_project_core::berth_dir::ensure_space(&data).unwrap();
         group::prepare(&main).unwrap();
         group::create(&main, group::MAIN_GROUP).unwrap();
         let state = tmp.path().join("agent");

@@ -15,8 +15,8 @@ import type { KnowledgeDocument, KnowledgeSnapshot } from "../model/types"
 
 function doc(title: string, extra: Partial<KnowledgeDocument> = {}) {
   return {
-    id: `document:.berth/knowledge/模块/${title}.md`,
-    path: `.berth/knowledge/模块/${title}.md`,
+    id: `document:knowledge/模块/${title}.md`,
+    path: `knowledge/模块/${title}.md`,
     title,
     excerpt: "",
     noteType: "模块",
@@ -73,14 +73,11 @@ const snapshot: KnowledgeSnapshot = {
 
 describe("vault paths", () => {
   it("recognises vault notes only inside type folders", () => {
-    const rel = projectRelativePath(
-      "/repo/.berth/knowledge/模块/A.md",
-      "/repo/"
-    )
-    expect(rel).toBe(".berth/knowledge/模块/A.md")
+    const rel = projectRelativePath("/repo/knowledge/模块/A.md", "/repo/")
+    expect(rel).toBe("knowledge/模块/A.md")
     expect(isVaultNotePath(rel)).toBe(true)
-    expect(isVaultNotePath(".berth/knowledge/README.md")).toBe(false)
-    expect(isVaultNotePath(".berth/knowledge/z.md")).toBe(true)
+    expect(isVaultNotePath("knowledge/README.md")).toBe(false)
+    expect(isVaultNotePath("knowledge/z.md")).toBe(true)
     expect(isVaultNotePath("docs/a.md")).toBe(false)
     expect(projectRelativePath("/other/a.md", "/repo")).toBeNull()
   })
@@ -131,7 +128,7 @@ describe("vault relations", () => {
     // 来源 PDF 是原文件：不算未读，也不算孤立
     const pdf = doc("论文", {
       noteType: "来源",
-      path: ".berth/knowledge/来源/论文.pdf",
+      path: "knowledge/来源/论文.pdf",
     })
     const sources = vaultHealth(
       { ...snapshot, documents: [read, unread, pdf], edges: [] },

@@ -11,7 +11,6 @@ import {
   type GroupMember,
   type GroupRead,
 } from "@/lib/agent/berth-group"
-import { getBerthStatus } from "@/lib/agent/berth-project"
 import { onAgentChanged } from "@/lib/terminal/agent-panes"
 
 const POLL_MS = 2_000
@@ -27,8 +26,6 @@ export interface TaskGroupState {
   members: GroupMember[]
   delivery: Record<string, DeliveryState>
   error: string | null
-  /** 项目还没启用 Berth（`.berth/`）：视图给启用入口，不当错误显示。 */
-  uninitialized: boolean
   loaded: boolean
   /** 立即再读一次（发送、开工之后）。 */
   refresh: () => void
@@ -43,7 +40,6 @@ const EMPTY: GroupData = {
   members: [],
   delivery: {},
   error: null,
-  uninitialized: false,
   loaded: false,
 }
 
@@ -105,13 +101,9 @@ async function readOnce(feed: GroupFeed) {
     })
   )
   if (!response.ok) {
-    // 错误只带文案不带 code：读失败时再问一次是否启用，未启用交给启用入口。
-    const status = await getBerthStatus(feed.folderId).catch(() => null)
-    const uninitialized = status?.ok === true && !status.result.enabled
     update(feed, {
       loaded: true,
-      uninitialized,
-      error: uninitialized ? null : response.error.message,
+      error: response.error.message,
     })
     return
   }
@@ -122,7 +114,6 @@ async function readOnce(feed: GroupFeed) {
   const patch: Partial<GroupData> = {}
   if (!feed.data.loaded) patch.loaded = true
   if (feed.data.error !== null) patch.error = null
-  if (feed.data.uninitialized) patch.uninitialized = false
   // 群组页是项目主页、常开；轮询多数时候什么都没变，内容相同就不更新，
   // 否则每 2 秒都会把整条时间线重画一遍。
   const members = result.builtin

@@ -15,7 +15,7 @@ const KEY_PREFIX = "berth:pdf-position:"
 // 不带 sourceRevision：文件更新后仍回到原位置（页码由调用方按新页数夹紧）。
 // ponytail: 每个读过的 PDF 留一条 localStorage，不做淘汰；条目上千再加 LRU。
 function positionKey(file: WorkspaceFileRef): string {
-  return `${KEY_PREFIX}${file.rootPath}\0${file.path}`
+  return `${KEY_PREFIX}${file.rootPath}\u0000${file.path}`
 }
 
 export function loadPdfReadingPosition(

@@ -42,7 +42,7 @@ pub struct SessionLinks {
     since_ms: Option<u64>,
 }
 
-/// 读主项目的群账本。没有账本（未启用 Berth）时只有 `main` 群。
+/// 读主项目的群账本。没有账本时只有 `main` 群。
 pub fn session_links(main: &Path) -> TaskResult<SessionLinks> {
     let mut links = SessionLinks::default();
     let meta = if group::dir(main).join("groups.json").is_file() {
@@ -184,7 +184,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let main = temp.path().join("proj");
         let tree = temp.path().join("proj-feat");
+        fs::create_dir_all(&main).unwrap();
         fs::create_dir_all(&tree).unwrap();
+        crate::space::testing::register(&main);
         let dir = group::dir(&main);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -199,7 +201,6 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        fs::create_dir_all(&main).unwrap();
         // 在群成员 pi-1 绑定 s-live；已离群的 codex-1 汇报过 s-old；删掉的群留下 s-gone、s-task。
         write_lines(
             &dir.join("checkout-1.jsonl"),
@@ -246,6 +247,7 @@ mod tests {
     #[test]
     fn project_without_ledger_has_only_the_main_group() {
         let temp = tempfile::tempdir().unwrap();
+        crate::space::testing::register(temp.path());
         let links = session_links(temp.path()).unwrap();
         assert_eq!(
             links.group_of(&temp.path().canonicalize().unwrap()),

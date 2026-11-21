@@ -1,11 +1,11 @@
-# 项目知识库（`.berth/knowledge/`）
+# 空间知识库
 
 用户和 Agent 共用的项目教材：只写**代码里读不出来的**——为什么这样设计、核心概念、做过的决策、踩过的坑。
 结构（有哪些文件、谁调用谁）现查代码，不抄进笔记。
 
-- 全项目（含 worktree）只有一份，在主项目：路径用 `berth project . knowledge root` 取（下文 `<vault>`），不写当前 checkout 里的副本。
+- 一个空间只有一份，在空间目录：路径用 `berth project . knowledge root` 取（下文 `<vault>`），不写代码仓库里旧的 `.berth/knowledge/`。
 - 笔记由 Agent 写和维护，用户读、提意见。
-- 没有 `.berth/` 时请用户在 Berth 里启用，不要自己建。只在用户要求时写；写完不提交，由用户在主项目提交 `.berth/knowledge`。
+- 当前目录不属于任何空间时请用户在 Berth 里把项目加进空间，不要自己建。只在用户要求时写；知识库不进 git，写完不用提交。
 
 ## 格式
 

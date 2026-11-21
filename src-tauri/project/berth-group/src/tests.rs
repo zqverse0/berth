@@ -28,10 +28,11 @@ fn sh(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// 主项目 `<tmp>/proj`（dev 分支、已 init、含已提交的任务 `10-01-demo`）。
+/// 主项目 `<tmp>/proj`（dev 分支、已登记空间、含任务 `10-01-demo`）。
 struct Project {
     _tmp: tempfile::TempDir,
     main: PathBuf,
+    data: PathBuf,
 }
 
 impl Project {
@@ -40,14 +41,16 @@ impl Project {
         let main = tmp.path().join("proj");
         fs::create_dir(&main).unwrap();
         sh(&main, &["git", "init", "-q", "-b", "dev"]);
-        berth_project_core::berth_dir::init(&main).unwrap();
-        let task = main.join(".berth/tasks/10-01-demo");
+        let data = berth_project_core::space::testing::register(&main);
+        berth_project_core::berth_dir::ensure_space(&data).unwrap();
+        let task = data.join("tasks/10-01-demo");
         fs::create_dir_all(&task).unwrap();
         fs::write(task.join("task.json"), r#"{"id":"demo","title":"Demo"}"#).unwrap();
         fs::write(task.join("prd.md"), "# Demo\n\n## 步骤\n\n- [ ] S1 做\n").unwrap();
+        fs::write(main.join("README.md"), "# Demo\n").unwrap();
         sh(&main, &["git", "add", "-A"]);
         sh(&main, &["git", "commit", "-qm", "init"]);
-        Self { _tmp: tmp, main }
+        Self { _tmp: tmp, main, data }
     }
 
     fn ctx(&self) -> Ctx {
@@ -146,7 +149,7 @@ fn a_worktree_registered_under_several_keys_records_each_commit_once() {
     let project = Project::new();
     let worktree = project.start();
     // 旧版并发登记留下的重复键：同一目录再挂两个群键。
-    let meta_path = project.main.join(".berth/local/groups/groups.json");
+    let meta_path = project.data.join("local/groups/groups.json");
     let mut meta: Value = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
     let entry = meta["groups"][project.checkout().as_str()].clone();
     meta["groups"]["checkout-dup-a"] = entry.clone();
@@ -322,8 +325,6 @@ fn spawn_validation_failures_write_nothing() {
     no_expert.expert = None;
     no_expert.task = None;
     assert_eq!(spawn::spawn(&ctx, no_expert).unwrap_err().code, "invalid_input");
-    fs::write(project.main.join(".berth/tasks/10-01-demo/prd.md"), "改了没提交").unwrap();
-    assert_eq!(spawn::spawn(&ctx, request("w")).unwrap_err().code, "prd_not_committed");
     untouched(&project);
 }
 
@@ -341,7 +342,7 @@ fn spawn_refuses_a_second_group_for_the_same_task() {
 #[test]
 fn presets_validate_and_summarise_without_values() {
     let project = Project::new();
-    let path = project.main.join(".berth/presets.json");
+    let path = project.data.join("presets.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(
         &path,

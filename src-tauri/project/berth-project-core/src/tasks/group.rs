@@ -1,4 +1,4 @@
-//! 群组账本：`<主项目>/.berth/local/groups/groups.json` 元数据 + `<群>.jsonl` 事件流，
+//! 群组账本：`<空间目录>/local/groups/groups.json` 元数据 + `<群>.jsonl` 事件流，
 //! 同一把 `.lock`。`berth group`、开工、GUI 群时间线共用；只追加，不改写已有事件。
 //!
 //! 成员不另存名单：由 `joined` / `left` 事件派生（[`members`]），每人以最近一条为准；
@@ -197,16 +197,9 @@ fn events_path(main: &Path, name: &str) -> PathBuf {
     dir(main).join(format!("{name}.jsonl"))
 }
 
-/// 账本读写前的检查：`.berth/` 只由 `berth init` 创建；`local/` 的忽略文件补齐（运行态绝不能被提交）。
+/// 账本读写前的检查：`main` 属于某个空间。
 pub fn prepare(main: &Path) -> TaskResult<()> {
-    if !main.join(".berth").is_dir() {
-        return Err(super::hub::not_initialized(main));
-    }
-    let ignore = local_dir(main).join(".gitignore");
-    if !ignore.exists() {
-        fsutil::atomic_write(&ignore, b"*\n")?;
-    }
-    Ok(())
+    super::hub::require(main)
 }
 
 pub fn validate_name(name: &str) -> TaskResult<String> {
@@ -327,14 +320,14 @@ pub fn set_env(main: &Path, name: &str, env: Option<&GroupEnv>) -> TaskResult<()
 
 /// worktree 目录（与分支）改名后同步群环境与任务实时状态。群按目录路径认，不同步就会被对账成新群、
 /// 旧群丢环境；目录已搬走，所以按记录的路径字符串找群（不经 `envs`，它会滤掉不存在的目录）。
-/// `branch` 为 `(旧名, 新名)`。项目未启用 Berth 时无事可做。
+/// `branch` 为 `(旧名, 新名)`。不属于任何空间时无事可做。
 pub fn move_checkout(
     main: &Path,
     from: &Path,
     to: &Path,
     branch: Option<(&str, &str)>,
 ) -> TaskResult<()> {
-    if !main.join(".berth").is_dir() {
+    if super::hub::require(main).is_err() {
         return Ok(());
     }
     let meta = meta(main)?;

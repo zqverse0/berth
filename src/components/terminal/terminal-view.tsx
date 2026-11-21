@@ -58,6 +58,7 @@ import {
   type TerminalOutputSink,
   useTerminalRuntimeStore,
 } from "@/stores/terminal-runtime-store"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { useTabStore } from "@/stores/tab-store"
 import {
   bindTerminalPointer,
@@ -321,6 +322,7 @@ export function TerminalView({
   const attachErrorMessage = attachSession?.errorMessage ?? null
   const lastResyncReason = attachSession?.lastResyncReason ?? null
   const isMobile = useIsMobile()
+  const softKeyboardOpen = useAppUiStore((state) => state.softKeyboardOpen)
   const isMobileRef = useRef(isMobile)
   isMobileRef.current = isMobile
   // 手机额外键行的 Ctrl：按下后软键盘打的下一个字母按 Ctrl 组合键发送。
@@ -1261,7 +1263,8 @@ export function TerminalView({
   }, [terminalLigatures])
 
   const loadingLabel = "Attaching terminal..."
-  const showMobileKeys = isActive && isMobile && !loading
+  // 额外键行补的是软键盘缺的键：键盘收起时不占终端的行。
+  const showMobileKeys = isActive && isMobile && !loading && softKeyboardOpen
 
   const statusBanner =
     isActive && !loading

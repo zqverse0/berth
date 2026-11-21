@@ -1,5 +1,5 @@
-//! 项目任务：`.berth/tasks/<名>.md`（单文件，见 `file`；旧任务是 `<目录>/prd.md + task.json`，进 git）与本机实时状态
-//! `<主项目>/.berth/local/tasks.json`（绑定的分支 / worktree、完成状态，不进 git）。
+//! 空间任务：`<空间目录>/tasks/<名>.md`（单文件，见 `file`；旧任务是 `<目录>/prd.md + task.json`）与本机实时状态
+//! `<空间目录>/local/tasks.json`（绑定的分支 / worktree、完成状态）。
 //!
 //! CLI `berth task` 与 GUI 任务视图共用这里；状态只由命令写，步骤进度来自勾选项与带尾注的提交。
 //! 契约见 `.berth/tasks/10-04-task-group/prd.md`。
@@ -20,9 +20,7 @@ mod tests;
 
 use std::fmt;
 
-pub(crate) use hub::checkout_root;
-pub(crate) use hub::hub_elsewhere;
-pub use hub::{exclude_main_only, main_project, resolve, MainOnlyCopy, Scope, HUB_MARKER};
+pub use hub::{berth_dir, main_project, resolve, Scope};
 pub use ops::{
     parse_task_run, run_result_path, run_stamp, run_stamp_now, write_run_result, INCOMPLETE_MARK,
     RUNS_DIR, TASK_RUN_ENV,

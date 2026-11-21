@@ -59,6 +59,9 @@ pub async fn init_database(
         )));
     };
 
+    // 任务、群组、知识库按空间存放：本进程从这个实例查空间成员。
+    berth_project_core::space::configure(&instance);
+
     berth_project_core::service::app_metadata_service::update_app_version(&conn, app_version)
         .await?;
 

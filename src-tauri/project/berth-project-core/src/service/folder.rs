@@ -54,6 +54,8 @@ pub struct ProjectSummary {
     pub main_folder_id: i32,
     pub pinned_at: Option<DateTime<Utc>>,
     pub sort_order: i32,
+    /// 空间目录（任务、群组、想法、知识库；见 [`crate::space`]）。从 id 派生，不存库；进程未配置空间时为空。
+    pub dir: Option<String>,
 }
 
 /// 项目的代码成员（[`crate::service::folder_service::read_members`]；分支现读 git）。

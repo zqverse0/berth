@@ -27,6 +27,7 @@ import { changeTaskState } from "@/lib/agent/berth-tasks"
 import { assignTask, listGroups } from "@/lib/agent/berth-group"
 import { readFileForEdit } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { stepProgress, TASK_STATE_COLOR } from "./task-state"
 import { useTaskView, useTaskViewStore } from "./task-view-store"
 
@@ -46,6 +47,10 @@ export function TaskToolbar({
   const tRoot = useTranslations("BerthTasks")
   const workspace = useWorkspaceRuntimeActions()
   const { view } = useTaskView(folderId, task)
+  const spaceDir = useAppWorkspaceStore(
+    (state) =>
+      state.allFolders.find((folder) => folder.id === folderId)?.project?.dir
+  )
   const load = useTaskViewStore((state) => state.load)
   const [busy, setBusy] = useState(false)
   /** 项目全部群组（内部键 → worktree 目录），分配任务用。 */
@@ -101,14 +106,15 @@ export function TaskToolbar({
   const transition = (operation: "begin" | "complete" | "reopen" | "cancel") =>
     run(() => changeTaskState(folderId, task, operation))
 
-  /** 来源想法（「想法」插件的 `.berth/ideas/`）：可能已进归档，哪个读得到开哪个。 */
+  /** 来源想法（「想法」插件，空间目录的 `ideas/`）：可能已进归档，哪个读得到开哪个。 */
   const openIdea = async (id: string) => {
-    const root = view.prd.split("/.berth/")[0]
+    if (!spaceDir) return void toast.error(t("ideaMissing", { id }))
+    const root = spaceDir
     for (const path of [
-      `.berth/ideas/${id}.idea.md`,
-      `.berth/ideas/归档/${id}.idea.md`,
-      `.berth/ideas/${id}.md`,
-      `.berth/ideas/归档/${id}.md`,
+      `ideas/${id}.idea.md`,
+      `ideas/归档/${id}.idea.md`,
+      `ideas/${id}.md`,
+      `ideas/归档/${id}.md`,
     ]) {
       const found = await readFileForEdit(root, path).then(
         () => true,

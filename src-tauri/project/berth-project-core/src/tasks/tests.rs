@@ -28,10 +28,12 @@ fn sh(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// 主项目：`<tmp>/proj`，分支 dev，已 `berth init`（带主项目标记），含任务 `10-01-demo`。
+/// 主项目：`<tmp>/proj`，分支 dev，登记为一个空间，空间里有任务 `10-01-demo`。
 struct Repo {
     _tmp: tempfile::TempDir,
     main: PathBuf,
+    /// 空间目录。
+    data: PathBuf,
 }
 
 impl Repo {
@@ -40,14 +42,15 @@ impl Repo {
         let main = tmp.path().join("proj");
         fs::create_dir(&main).unwrap();
         sh(&main, &["git", "init", "-q", "-b", "dev"]);
-        crate::berth_dir::init(&main).unwrap();
-        let task = main.join(".berth/tasks/10-01-demo");
+        fs::write(main.join("README.md"), "proj").unwrap();
+        sh(&main, &["git", "add", "-A"]);
+        sh(&main, &["git", "commit", "-qm", "init"]);
+        let data = crate::space::testing::register(&main);
+        let task = data.join("tasks/10-01-demo");
         fs::create_dir_all(&task).unwrap();
         fs::write(task.join("task.json"), r#"{"title":"Demo"}"#).unwrap();
         fs::write(task.join("prd.md"), PRD).unwrap();
-        sh(&main, &["git", "add", "-A"]);
-        sh(&main, &["git", "commit", "-qm", "init"]);
-        Self { _tmp: tmp, main }
+        Self { _tmp: tmp, main, data }
     }
 
     fn worktree(&self, branch: &str) -> PathBuf {
@@ -103,7 +106,7 @@ impl Repo {
     }
 
     fn groups(&self) -> Value {
-        let path = self.main.join(".berth/local/groups/groups.json");
+        let path = self.data.join("local/groups/groups.json");
         fs::read_to_string(path)
             .map(|text| serde_json::from_str(&text).unwrap())
             .unwrap_or(Value::Null)
@@ -111,7 +114,7 @@ impl Repo {
 }
 
 #[test]
-fn uninitialized_project_is_refused_without_creating_anything() {
+fn a_directory_outside_every_space_is_refused_without_creating_anything() {
     let tmp = tempfile::tempdir().unwrap();
     sh(tmp.path(), &["git", "init", "-q"]);
     let error = views(tmp.path()).unwrap_err();
@@ -122,7 +125,7 @@ fn uninitialized_project_is_refused_without_creating_anything() {
 #[test]
 fn list_reports_unreadable_tasks_and_falls_back_to_legacy_trellis() {
     let repo = Repo::new();
-    let broken = repo.main.join(".berth/tasks/10-02-broken");
+    let broken = repo.data.join("tasks/10-02-broken");
     fs::create_dir_all(&broken).unwrap();
     fs::write(broken.join("task.json"), "{").unwrap();
     let listed = list(&repo.main, true, 50).unwrap();
@@ -130,8 +133,8 @@ fn list_reports_unreadable_tasks_and_falls_back_to_legacy_trellis() {
     assert_eq!(listed["diagnostics"][0]["entry"], "10-02-broken");
 
     // `.berth/tasks` 没有任务时，列表与视图一样读旧 `.trellis/tasks`（状态取 task.json）。
-    fs::remove_dir_all(repo.main.join(".berth/tasks")).unwrap();
-    fs::create_dir(repo.main.join(".berth/tasks")).unwrap();
+    fs::remove_dir_all(repo.data.join("tasks")).unwrap();
+    fs::create_dir(repo.data.join("tasks")).unwrap();
     let old = repo.main.join(".trellis/tasks/09-01-old");
     fs::create_dir_all(&old).unwrap();
     fs::write(
@@ -157,7 +160,7 @@ fn checklist_progress_does_not_start_a_task() {
     assert_eq!(view.current_step.as_deref(), Some("S1"));
 
     fs::write(
-        repo.main.join(".berth/tasks/10-01-demo/prd.md"),
+        repo.data.join("tasks/10-01-demo/prd.md"),
         PRD.replace("[x]", "[ ]"),
     )
     .unwrap();
@@ -191,7 +194,7 @@ fn trailer_commits_mark_steps_and_survive_the_merge() {
 #[test]
 fn a_branch_binds_to_one_task_only() {
     let repo = Repo::new();
-    let other = repo.main.join(".berth/tasks/10-02-other");
+    let other = repo.data.join("tasks/10-02-other");
     fs::create_dir_all(&other).unwrap();
     fs::write(other.join("task.json"), r#"{"id":"other","title":"Other"}"#).unwrap();
     bind(&repo.main, Some("demo"), "feat", None, None).unwrap();
@@ -211,73 +214,28 @@ fn worktree_completion_archives_in_main_without_changing_worktree() {
     );
     done(&wt, None).unwrap();
     assert_eq!(show(&repo.main, Some("demo")).unwrap().state, "completed");
-    // 实时状态只在主项目的 local/（被忽略），worktree 不生成自己的 local/。
-    assert!(!wt.join(".berth/local").exists());
+    // 任务与实时状态都在空间目录，两个 checkout 都不留改动。
+    assert!(!wt.join(".berth").exists());
     assert!(show(&repo.main, Some("demo")).unwrap().archived);
-    assert!(repo.status(&repo.main).contains(".berth/tasks/archive/"));
+    assert!(repo.data.join("tasks/archive").is_dir());
+    assert_eq!(repo.status(&repo.main), "");
     assert_eq!(repo.status(&wt), "");
 }
 
 #[test]
-fn main_project_is_the_init_marked_checkout_not_the_git_main_worktree() {
-    let tmp = tempfile::tempdir().unwrap();
-    let first = tmp.path().join("first");
-    fs::create_dir(&first).unwrap();
-    sh(&first, &["git", "init", "-q", "-b", "main"]);
-    fs::write(first.join("x"), "x").unwrap();
-    sh(&first, &["git", "add", "-A"]);
-    sh(&first, &["git", "commit", "-qm", "x"]);
-    let hub = tmp.path().join("hub");
-    sh(
-        &first,
-        &[
-            "git",
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "dev",
-            hub.to_str().unwrap(),
-        ],
-    );
-    let wt = tmp.path().join("wt");
-    sh(
-        &first,
-        &[
-            "git",
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "feat",
-            wt.to_str().unwrap(),
-        ],
-    );
-
-    // 没有标记：各自是自己的主项目。
-    assert!(git::same_path(&main_project(&wt).unwrap(), &wt));
-    // 标记出现前启用的旧项目：git 主 worktree 有 `.berth/` 就是主项目。
-    fs::create_dir(first.join(".berth")).unwrap();
-    assert!(git::same_path(&main_project(&wt).unwrap(), &first));
-    assert!(git::same_path(&main_project(&hub).unwrap(), &first));
-    crate::berth_dir::init(&hub).unwrap();
-    assert!(git::same_path(&main_project(&wt).unwrap(), &hub));
-    assert!(git::same_path(&main_project(&first).unwrap(), &hub));
-    // 主项目已在别处时，worktree 里 init 被拒绝。
-    let error = crate::berth_dir::init(&wt).unwrap_err();
-    assert!(error.to_string().contains("hub"), "{error}");
-    assert!(!wt.join(HUB_MARKER).exists());
-
-    fs::create_dir_all(wt.join(".berth/local")).unwrap();
-    fs::write(wt.join(HUB_MARKER), "{}").unwrap();
-    assert_eq!(main_project(&wt).unwrap_err().code, "ambiguous");
+fn an_unregistered_worktree_belongs_to_the_space_of_its_repo() {
+    let repo = Repo::new();
+    // 命令行 `git worktree add` 建的 worktree 没登记进库，跟同仓库的主项目走。
+    let wt = repo.worktree("feat");
+    assert!(git::same_path(&main_project(&wt).unwrap(), &repo.main));
+    assert_eq!(berth_dir(&wt).unwrap(), repo.data);
 }
 
 #[test]
 fn migrate_imports_legacy_state_once_without_touching_task_json() {
     let repo = Repo::new();
     let legacy = r#"{"id":"demo","title":"Demo","status":"in_progress","branch":"old","base_branch":"dev","worktree_path":null}"#;
-    let record = repo.main.join(".berth/tasks/10-01-demo/task.json");
+    let record = repo.data.join("tasks/10-01-demo/task.json");
     fs::write(&record, legacy).unwrap();
     assert_eq!(
         show(&repo.main, Some("demo")).unwrap().branch,
@@ -315,7 +273,7 @@ fn create_writes_a_single_task_file_and_done_then_archive() {
     .unwrap();
     let name = created["taskDirName"].as_str().unwrap().to_owned();
     assert!(name.ends_with("-fresh"));
-    let path = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    let path = repo.data.join("tasks").join(format!("{name}.md"));
     assert_eq!(created["prd"].as_str().unwrap(), path.to_str().unwrap());
     let text = fs::read_to_string(&path).unwrap();
     for heading in ["## 目标", "## 不做", "## 试用建议", "## 记录"] {
@@ -372,7 +330,7 @@ fn single_file_task_steps_are_ticked_from_trailer_commits() {
     let repo = Repo::new();
     new_task(&repo, "flow");
     let name = show(&repo.main, Some("flow")).unwrap().task_dir_name;
-    let path = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    let path = repo.data.join("tasks").join(format!("{name}.md"));
 
     // 占位步骤没填完不能开工。
     let error = begin(&repo.main, "flow").unwrap_err();
@@ -487,7 +445,7 @@ fn partly_merged_stepless_legacy_and_unticked_tasks_stay_open() {
     save(&repo.main, "stepless", Some(Vec::new()), None).unwrap();
     // 旧任务（Repo::new 的 demo）即使验收和步骤都勾了也不动。
     fs::write(
-        repo.main.join(".berth/tasks/10-01-demo/prd.md"),
+        repo.data.join("tasks/10-01-demo/prd.md"),
         PRD.replace("[ ]", "[x]"),
     )
     .unwrap();
@@ -560,7 +518,7 @@ fn list_marks_planning_tasks_untouched_for_30_days() {
     let running = planned_task(&repo, "busy");
     let age = |slug: &str| {
         let name = show(&repo.main, Some(slug)).unwrap().task_dir_name;
-        let path = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+        let path = repo.data.join("tasks").join(format!("{name}.md"));
         fs::File::options()
             .write(true)
             .open(path)
@@ -593,7 +551,7 @@ fn archiving_survives_a_failed_session_scan_and_notes_it_in_the_task() {
     let repo = Repo::new();
     let name = planned_task(&repo, "scan");
     // 快照目录被一个文件占住：扫描写不了。
-    fs::write(repo.main.join(".berth/local/task-sessions"), "").unwrap();
+    fs::write(repo.data.join("local/task-sessions"), "").unwrap();
     let archived = archive(&repo.main, "scan", Some("")).unwrap();
     assert!(archived["sessionScanError"].is_string(), "{archived}");
     let path = PathBuf::from(archived["path"].as_str().unwrap());
@@ -643,7 +601,7 @@ fn only_task_commands_and_commit_trailers_link_a_session() {
     assert!(found.iter().all(|session| session.agent == "claude" && session.title.starts_with("会话 ")));
 
     // 任务视图列出会话和快照路径。
-    let task_file = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    let task_file = repo.data.join("tasks").join(format!("{name}.md"));
     file::add_sessions(&task_file, found).unwrap();
     let view = show(&repo.main, Some("linked")).unwrap();
     assert_eq!(view.sessions.len(), 3);
@@ -657,7 +615,7 @@ fn only_task_commands_and_commit_trailers_link_a_session() {
     assert!(snapshot.contains("## #1 用户\n会话 by-command"), "{snapshot}");
     assert!(snapshot.contains("→ Bash berth project"), "{snapshot}");
     // 快照在 local/，不进 git。
-    assert!(session_snapshot::snapshot_path(&repo.main, &name, "claude", "x").starts_with(repo.main.join(".berth/local")));
+    assert!(session_snapshot::snapshot_path(&repo.main, &name, "claude", "x").starts_with(repo.data.join("local")));
 }
 
 #[test]
@@ -665,7 +623,7 @@ fn archiving_fills_the_knowledge_inbox_and_reopening_clears_it() {
     use crate::knowledge::inbox;
     let repo = Repo::new();
     let name = planned_task(&repo, "boxed");
-    let task_file = repo.main.join(".berth/tasks").join(format!("{name}.md"));
+    let task_file = repo.data.join("tasks").join(format!("{name}.md"));
     file::append_note(&task_file, "S1 换了文件").unwrap();
     assert!(fs::read_to_string(&task_file).unwrap().contains("## 记录\n\n- S1 换了文件"));
     repo.commit(&repo.main, "a.txt", &format!("feat: a\n\nTask: {name} S1"));
@@ -678,7 +636,7 @@ fn archiving_fills_the_knowledge_inbox_and_reopening_clears_it() {
     assert_eq!((items[0].kind.as_str(), items[0].result.as_str()), ("任务", "已完成"));
     assert_eq!(items[0].source, name);
     assert_eq!(last["settled"]["inbox"], 1, "归档结果带当前总数");
-    let text = fs::read_to_string(repo.main.join(&items[0].path)).unwrap();
+    let text = fs::read_to_string(repo.data.join(&items[0].path)).unwrap();
     assert!(text.contains("## 提交\n\n- S1 ") && text.contains("写 a"), "{text}");
     assert!(text.contains("## 偏离记录\n\n- S1 换了文件"), "{text}");
     assert!(text.contains("tasks/archive/"), "{text}");
@@ -693,21 +651,13 @@ fn archiving_fills_the_knowledge_inbox_and_reopening_clears_it() {
     assert_eq!(items.len(), 2);
     let abandoned = items.iter().find(|item| item.source == name).unwrap();
     assert_eq!(abandoned.result, "已放弃");
-    assert!(fs::read_to_string(repo.main.join(&abandoned.path)).unwrap().contains("放弃原因：不做了"));
+    assert!(fs::read_to_string(repo.data.join(&abandoned.path)).unwrap().contains("放弃原因：不做了"));
 
     // 处理后不计数；再重开也不动已处理的记录。
     let processed = inbox::done(&repo.main, &name, "不入库").unwrap();
     assert_eq!(inbox::list(&repo.main).unwrap().len(), 1);
     reopen(&repo.main, "boxed").unwrap();
-    assert!(repo.main.join(processed).is_file());
-}
-
-#[test]
-fn history_lists_commits_that_touched_the_task_directory() {
-    let repo = Repo::new();
-    let view = show(&repo.main, Some("demo")).unwrap();
-    assert_eq!(view.history.len(), 1);
-    assert_eq!(view.history[0].subject, "init");
+    assert!(repo.data.join(processed).is_file());
 }
 
 #[test]
@@ -1298,8 +1248,8 @@ fn complete_archives_in_one_step_and_reopen_returns_to_running() {
     assert_eq!(view.state, "completed");
     assert_eq!(view.cancel_reason, None);
     assert!(!repo
-        .main
-        .join(".berth/tasks")
+        .data
+        .join("tasks")
         .join(format!("{}.md", view.task_dir_name))
         .exists());
     // 已归档的不能再完成
@@ -1314,8 +1264,8 @@ fn complete_archives_in_one_step_and_reopen_returns_to_running() {
     assert!(!view.archived);
     assert_eq!(view.state, "running");
     assert!(repo
-        .main
-        .join(".berth/tasks")
+        .data
+        .join("tasks")
         .join(format!("{}.md", view.task_dir_name))
         .is_file());
     // 没归档的不能重开
@@ -1432,8 +1382,8 @@ fn worktree_task_creation_uses_its_group_and_main_content_root() {
     )
     .unwrap();
     let name = created["taskDirName"].as_str().unwrap();
-    assert!(repo.main.join(".berth/tasks").join(format!("{name}.md")).is_file());
-    assert!(!path.join(".berth/tasks").join(format!("{name}.md")).exists());
+    assert!(repo.data.join("tasks").join(format!("{name}.md")).is_file());
+    assert!(!path.join(".berth").exists());
     assert_eq!(
         group::group_of_task(&repo.main, name)
             .unwrap()
@@ -1533,21 +1483,19 @@ fn resolve_gives_one_scope_for_every_directory_shape() {
         same(&scope.checkout, &repo.main);
         same(&scope.main, &repo.main);
     }
-    // worktree：内容在自己的 checkout，主项目是带标记的那份。
+    // worktree：checkout 是它自己，主项目是空间的主项目。
     let wt = repo.worktree("feat");
     let scope = resolve(&wt).unwrap();
     same(&scope.checkout, &wt);
     same(&scope.main, &repo.main);
 
-    // 仓库子目录里的项目；仓库根本身未启用。
+    // 仓库子目录里的项目；仓库根本身不在空间里。
     let tmp = tempfile::tempdir().unwrap();
     sh(tmp.path(), &["git", "init", "-q", "-b", "dev"]);
     assert_eq!(resolve(tmp.path()).unwrap_err().code, "not_initialized");
     let project = tmp.path().join("sub");
     fs::create_dir(&project).unwrap();
-    assert!(!crate::berth_dir::enabled_at(&project));
-    crate::berth_dir::init(&project).unwrap();
-    assert!(crate::berth_dir::enabled_at(&project));
+    crate::space::testing::register(&project);
     let scope = resolve(&project).unwrap();
     same(&scope.checkout, &project);
     same(&scope.main, &project);
@@ -1558,7 +1506,7 @@ fn resolve_gives_one_scope_for_every_directory_shape() {
     // 非 git 目录。
     let plain = tempfile::tempdir().unwrap();
     assert_eq!(resolve(plain.path()).unwrap_err().code, "not_initialized");
-    crate::berth_dir::init(plain.path()).unwrap();
+    crate::space::testing::register(plain.path());
     same(&resolve(plain.path()).unwrap().main, plain.path());
 }
 
@@ -1566,7 +1514,7 @@ fn resolve_gives_one_scope_for_every_directory_shape() {
 fn legacy_channel_layout_moves_to_groups_and_retires_unused_ledgers() {
     let repo = Repo::new();
     let main = &repo.main;
-    let local = main.join(".berth/local");
+    let local = repo.data.join("local");
     let old = local.join("channel");
     fs::create_dir_all(&old).unwrap();
     let gone = repo._tmp.path().join("gone-worktree");
@@ -1642,7 +1590,7 @@ fn legacy_channel_layout_moves_to_groups_and_retires_unused_ledgers() {
 fn a_new_project_writes_no_migration_backup() {
     let repo = Repo::new();
     group::checkout_groups(&repo.main).unwrap();
-    assert!(!repo.main.join(".berth/local/runtime/before-project-groups.json").exists());
+    assert!(!repo.data.join("local/runtime/before-project-groups.json").exists());
     assert_eq!(
         repo.groups()["groups"].as_object().unwrap().keys().collect::<Vec<_>>(),
         ["main"]
@@ -1653,7 +1601,7 @@ fn a_new_project_writes_no_migration_backup() {
 fn run_results_live_under_berth_runs_by_task_name_and_survive_archive() {
     let repo = Repo::new();
     let written = write_run_result(&repo.main, "demo", "2026-10-21-0800", "  论文 A\n").unwrap();
-    let path = repo.main.join(".berth/runs/10-01-demo/2026-10-21-0800.md");
+    let path = repo.data.join("runs/10-01-demo/2026-10-21-0800.md");
     assert_eq!(written["path"].as_str().unwrap(), path.to_str().unwrap());
     assert_eq!(fs::read_to_string(&path).unwrap(), "论文 A\n");
     assert!(write_run_result(&repo.main, "demo", "../x", "a").is_err(), "stamp 不能越界");
@@ -1748,116 +1696,6 @@ fn cached_git_queries_follow_commits_and_worktrees() {
     assert_eq!(ahead(&repo.main), "1");
     sh(&tree, &["git", "switch", "-q", "-c", "other"]);
     assert_eq!(git::current_branch(&tree).as_deref(), Some("other"));
-}
-
-/// 主项目提交一条想法与一篇笔记，再建 worktree `wt-<branch>`。
-fn repo_with_main_only(branch: &str) -> (Repo, PathBuf) {
-    let repo = Repo::new();
-    fs::create_dir_all(repo.main.join(".berth/ideas")).unwrap();
-    fs::write(repo.main.join(".berth/ideas/a.idea.md"), "a").unwrap();
-    fs::write(repo.main.join(".berth/knowledge/k.md"), "k").unwrap();
-    sh(&repo.main, &["git", "add", "-A"]);
-    sh(&repo.main, &["git", "commit", "-qm", "ideas"]);
-    let wt = repo.worktree(branch);
-    (repo, wt)
-}
-
-fn has_main_only(dir: &Path) -> [bool; 2] {
-    [".berth/ideas", ".berth/knowledge"].map(|rel| dir.join(rel).exists())
-}
-
-#[test]
-fn a_worktree_drops_ideas_and_knowledge_but_keeps_tasks() {
-    let (repo, wt) = repo_with_main_only("feat");
-    assert_eq!(has_main_only(&wt), [true, true]);
-
-    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Excluded);
-    assert_eq!(has_main_only(&wt), [false, false]);
-    assert!(wt.join(".berth/tasks/10-01-demo/prd.md").is_file());
-    assert_eq!(sh(&wt, &["git", "status", "--porcelain"]), "");
-    // 幂等；主项目自己不动。
-    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Skipped);
-    assert_eq!(exclude_main_only(&repo.main), MainOnlyCopy::Skipped);
-    assert_eq!(has_main_only(&repo.main), [true, true]);
-
-    // worktree 的提交合并回主项目，两个目录照旧。
-    fs::write(wt.join("code.rs"), "x").unwrap();
-    sh(&wt, &["git", "add", "-A"]);
-    sh(&wt, &["git", "commit", "-qm", "code"]);
-    sh(&repo.main, &["git", "merge", "-q", "feat"]);
-    assert_eq!(has_main_only(&repo.main), [true, true]);
-    assert!(repo.main.join(".berth/ideas/a.idea.md").is_file());
-}
-
-#[test]
-fn the_git_main_worktree_is_excluded_when_the_hub_is_elsewhere() {
-    let tmp = tempfile::tempdir().unwrap();
-    let first = tmp.path().join("first");
-    fs::create_dir_all(first.join(".berth/ideas")).unwrap();
-    fs::create_dir_all(first.join(".berth/knowledge")).unwrap();
-    fs::create_dir_all(first.join(".berth/tasks")).unwrap();
-    fs::write(first.join(".berth/ideas/a.idea.md"), "a").unwrap();
-    fs::write(first.join(".berth/knowledge/k.md"), "k").unwrap();
-    fs::write(first.join(".berth/tasks/t.md"), "t").unwrap();
-    sh(&first, &["git", "init", "-q", "-b", "main"]);
-    sh(&first, &["git", "add", "-A"]);
-    sh(&first, &["git", "commit", "-qm", "x"]);
-    let hub = tmp.path().join("hub");
-    let hub_arg = hub.to_str().unwrap();
-    sh(
-        &first,
-        &["git", "worktree", "add", "-q", "-b", "dev", hub_arg],
-    );
-    fs::create_dir_all(hub.join(".berth/local")).unwrap();
-    fs::write(hub.join(HUB_MARKER), "{}").unwrap();
-
-    assert_eq!(exclude_main_only(&first), MainOnlyCopy::Excluded);
-    assert_eq!(has_main_only(&first), [false, false]);
-    assert!(first.join(".berth/tasks/t.md").is_file());
-    assert_eq!(has_main_only(&hub), [true, true]);
-}
-
-#[test]
-fn an_unsaved_copy_is_left_alone() {
-    let (_repo, wt) = repo_with_main_only("dirty");
-    fs::write(wt.join(".berth/ideas/a.idea.md"), "changed").unwrap();
-    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Dirty(lines) if lines.len() == 1));
-    assert_eq!(has_main_only(&wt), [true, true]);
-
-    sh(&wt, &["git", "checkout", "--", ".berth/ideas"]);
-    fs::write(wt.join(".berth/knowledge/new.md"), "n").unwrap();
-    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Dirty(_)));
-    assert!(wt.join(".berth/knowledge/new.md").is_file());
-}
-
-#[test]
-fn existing_sparse_rules_are_kept() {
-    let (_repo, wt) = repo_with_main_only("sparse");
-    sh(
-        &wt,
-        &[
-            "git",
-            "sparse-checkout",
-            "set",
-            "--no-cone",
-            "/*",
-            "!/docs/",
-        ],
-    );
-    assert_eq!(exclude_main_only(&wt), MainOnlyCopy::Excluded);
-    let rules = sh(&wt, &["git", "sparse-checkout", "list"]);
-    for rule in ["/*", "!/docs/", "!/.berth/ideas/", "!/.berth/knowledge/"] {
-        assert!(rules.lines().any(|line| line == rule), "{rules}");
-    }
-    assert_eq!(has_main_only(&wt), [false, false]);
-}
-
-#[test]
-fn cone_mode_sparse_is_reported_not_overwritten() {
-    let (_repo, wt) = repo_with_main_only("cone");
-    sh(&wt, &["git", "sparse-checkout", "set", "--cone", ".berth"]);
-    assert!(matches!(exclude_main_only(&wt), MainOnlyCopy::Failed(_)));
-    assert_eq!(has_main_only(&wt), [true, true]);
 }
 
 #[test]

@@ -48,13 +48,6 @@ pub struct Acceptance {
     pub items: Vec<ChecklistItem>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct HistoryEntry {
-    pub hash: String,
-    pub date: String,
-    pub subject: String,
-}
-
 /// 归档时关联到的会话；`snapshot` 是快照的绝对路径，原会话被清理后打开它。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TaskSession {
@@ -98,8 +91,6 @@ pub struct TaskView {
     pub commits: Vec<Commit>,
     pub unlinked_commits: usize,
     pub diffstat: String,
-    /// 动过任务目录的最近提交：没绑分支的任务也能看到做过什么。
-    pub history: Vec<HistoryEntry>,
     pub sessions: Vec<TaskSession>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
@@ -313,33 +304,6 @@ pub(crate) fn build(
             .map(|out| out.lines().filter(|line| !line.trim().is_empty()).count())
             .unwrap_or(0);
     }
-    let history = git::stdout_cached(
-        root,
-        &[
-            "log",
-            "-n",
-            "15",
-            "--format=%h%x1f%cs%x1f%s",
-            "--",
-            &directory.to_string_lossy(),
-        ],
-    )
-    .map(|out| {
-        out.lines()
-            .filter_map(|line| {
-                let parts: Vec<&str> = line.split('\x1f').collect();
-                match parts.as_slice() {
-                    [hash, date, subject] => Some(HistoryEntry {
-                        hash: (*hash).to_owned(),
-                        date: (*date).to_owned(),
-                        subject: (*subject).to_owned(),
-                    }),
-                    _ => None,
-                }
-            })
-            .collect()
-    })
-    .unwrap_or_default();
 
     let merged_hashes: Vec<&str> = merged.iter().map(|commit| commit.hash.as_str()).collect();
     for step in &mut steps {
@@ -422,7 +386,6 @@ pub(crate) fn build(
         commits: ahead,
         unlinked_commits,
         diffstat,
-        history,
         sessions,
         run,
     })

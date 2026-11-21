@@ -42,9 +42,10 @@ describe("app UI store", () => {
 
   it("hydrates persisted panels with clamping and mobile defaults", () => {
     const state = useAppUiStore.getState()
-    state.hydrateSidebar({ isOpen: false, width: 10 }, false)
+    state.hydrateSidebar({ isOpen: false, width: 10 })
     state.setAuxPanelMinWidth(260)
-    state.hydrateAuxPanel({ isOpen: true, width: 9999 }, true)
+    state.setMobileLayout(true)
+    state.hydrateAuxPanel({ isOpen: true, width: 9999 })
 
     const hydrated = useAppUiStore.getState()
     expect(hydrated.sidebarOpen).toBe(false)
@@ -54,6 +55,31 @@ describe("app UI store", () => {
     expect(hydrated.auxPanelWidth).toBe(APP_UI_DEFAULTS.auxPanelMaxWidth)
     expect(hydrated.auxPanelMinWidth).toBe(260)
     expect(hydrated.auxPanelRestored).toBe(true)
+    // 手机上收起的只是抽屉，桌面的开关记着。
+    expect(hydrated.desktopPanels.auxPanelOpen).toBe(true)
+  })
+
+  it("narrowing to mobile closes both panels and widening restores them", () => {
+    const state = useAppUiStore.getState()
+    state.hydrateSidebar({ isOpen: true, width: 240 })
+    state.hydrateAuxPanel({ isOpen: true, width: 480 })
+
+    state.setMobileLayout(true)
+    let ui = useAppUiStore.getState()
+    expect([ui.sidebarOpen, ui.auxPanelOpen]).toEqual([false, false])
+
+    // 手机上后打开的留下，不管从哪个入口打开。
+    ui.toggleSidebar()
+    useAppUiStore.getState().showAuxView("terminals")
+    ui = useAppUiStore.getState()
+    expect([ui.sidebarOpen, ui.auxPanelOpen]).toEqual([false, true])
+    ui.revealInFileTree("/a")
+    ui = useAppUiStore.getState()
+    expect([ui.sidebarOpen, ui.auxPanelOpen]).toEqual([true, false])
+
+    ui.setMobileLayout(false)
+    ui = useAppUiStore.getState()
+    expect([ui.sidebarOpen, ui.auxPanelOpen]).toEqual([true, true])
   })
 
   it("resets pending reveals and all UI state explicitly", () => {

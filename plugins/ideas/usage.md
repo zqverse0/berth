@@ -1,8 +1,8 @@
-# 想法（`.berth/ideas/`）
+# 想法（空间目录的 `ideas/`）
 
-用户随手记的想法 / 问题（侧栏「想法」），全项目只有主项目的 `.berth/ideas/` 一份。worktree 等其他 checkout
-里没有这个目录（不检出），有也是旧副本：不读不写当前目录的 `.berth/ideas/`，路径一律从下面的 `list` 取。一条一个文件 `<创建时间>.idea.md`，id 就是文件名（不含 `.idea.md`）；
-关闭的在 `.berth/ideas/归档/`。
+用户随手记的想法 / 问题（侧栏「想法」），一个空间只有一份，在空间目录的 `ideas/`（Berth 数据目录下，不在代码仓库）。
+代码仓库里旧的 `.berth/ideas/` 不再读写，路径一律从下面的 `list` 取。一条一个文件 `<创建时间>.idea.md`，id 就是文件名（不含 `.idea.md`）；
+关闭的在 `ideas/归档/`。
 
 ```markdown
 ---
@@ -23,7 +23,7 @@ tags: [性能]          # 可选
 → 任务 10-17-cache
 ```
 
-- 列出想法：`berth tools call ideas ui/api.js --input '{"action":"list"}'`，返回 `main`（主项目目录）和每条的
+- 列出想法：`berth tools call ideas ui/api.js --input '{"action":"list"}'`，返回 `main`（空间目录）和每条的
   `id`、`path`（相对 `main`）、`status`；读写用 `<main>/<path>` 的绝对路径。
 - 原话不动；讨论与结论只追加到对应小节末尾，每条一行。
 - 关闭和重开只走下面的 `setStatus` 命令；`待讨论` / `讨论中` 之间可以直接改 `status`。
@@ -43,5 +43,5 @@ tags: [性能]          # 可选
    - 放下：写 `放下：<理由>`，状态改 `已放下`。
    写好结论后用这条命令改状态，不要手动改 `status` 或 `mv`，否则进不了知识库的待入库清单：
    `berth tools call ideas ui/api.js --input '{"action":"setStatus","id":"<id>","status":"已落地"}'`。
-   它把文件移进 `.berth/ideas/归档/`（侧栏默认不再显示）并生成待入库；结论写了 `→ 任务` 的随任务归档时一起处理，不单独生成。
+   它把文件移进 `ideas/归档/`（侧栏默认不再显示）并生成待入库；结论写了 `→ 任务` 的随任务归档时一起处理，不单独生成。
    重开也用它（`status` 给 `讨论中`），会移回来并移除待入库。结果里有 `inboxError` 就告诉用户。笔记里不要链接想法。

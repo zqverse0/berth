@@ -77,7 +77,6 @@ export interface BerthTaskView {
   commits: { hash: string; subject: string; step: string | null }[]
   unlinkedCommits: number
   diffstat: string
-  history: { hash: string; date: string; subject: string }[]
   /** 归档时关联到的会话；`snapshot` 是快照绝对路径。 */
   sessions?: {
     agent: string

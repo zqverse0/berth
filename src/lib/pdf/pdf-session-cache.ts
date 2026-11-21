@@ -32,7 +32,7 @@ export function pdfSessionKey(
   file: WorkspaceFileRef,
   sourceRevision: number
 ): string {
-  return `${file.rootPath}\0${file.path}\0${sourceRevision}`
+  return `${file.rootPath}\u0000${file.path}\u0000${sourceRevision}`
 }
 
 function clearIdleTimer(entry: PdfSessionEntry): void {

@@ -17,6 +17,8 @@ dirs = "6"
 pulldown-cmark = "0.13"
 serde_yaml = "0.9"
 walkdir = "2"
+# 空间成员的同步只读查询（`space`，路径解析在同步代码里）；与 berth-tool-core 同版本，不新增编译单元。
+rusqlite = "0.32"
 # SQLite 栈与 GUI 同一实现（不引入第二套驱动）。feature 裁剪只为 CLI sidecar 体积：
 # 关掉 sea-orm 默认的 bigdecimal/time/uuid/rust_decimal 与 rustls（SQLite 不需要 TLS），
 # 保留 macros（DeriveEntityModel）与 with-chrono（DateTimeUtc 列）。
@@ -37,6 +39,10 @@ thiserror = "2"
 # 迁移/连接失败时的诊断；与 GUI 侧同一后端，不做第二套日志栈。
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
+
+[features]
+# `space::testing`：别的 crate 的测试登记临时空间。
+testing = []
 
 [dev-dependencies]
 temp-env = "0.3"

@@ -15,7 +15,9 @@ import {
 } from "@/lib/workspace/workspace-pane-model"
 import { useSettingsWorkspace } from "@/contexts/settings-workspace-context"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useConversationPaneShown } from "@/hooks/workspace/use-conversation-pane-shown"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { useTabStore } from "@/stores/tab-store"
 import { usePluginViewsStore } from "@/lib/plugins/plugin-views"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
@@ -28,6 +30,8 @@ let terminalQueue: Promise<unknown> = Promise.resolve()
 export function WorkspaceCurrentSelection() {
   const projection = useWorkspaceLayoutProjection()
   const isMobile = useIsMobile()
+  const conversationShown = useConversationPaneShown()
+  const auxPanelOpen = useAppUiStore((state) => state.auxPanelOpen)
   const { isOpen: settingsOpen } = useSettingsWorkspace()
   const primaryTabs = useTabStore((state) => state.tabs)
   const activeFileTabId = useWorkspaceFileStore(
@@ -58,11 +62,12 @@ export function WorkspaceCurrentSelection() {
     }
   }, [])
 
+  // 终端组看得见看辅助面板；主区在对话模式下不挂文件宿主，手机上还会被辅助面板整个盖住。
   const visiblePanes = visible
     ? WORKSPACE_PANES.filter((pane) =>
-        projection.mode === "conversation"
-          ? pane === "conversation"
-          : !isMobile || pane === projection.activePane
+        pane === "conversation"
+          ? conversationShown
+          : projection.mode === "fusion" && !(isMobile && auxPanelOpen)
       )
     : []
   const selected = projection.activeWorkspaceTab
@@ -84,7 +89,7 @@ export function WorkspaceCurrentSelection() {
   const fileTab = !visible
     ? null
     : isMobile
-      ? projection.mode === "fusion" && projection.activePane === "files"
+      ? visiblePanes.includes("files") && projection.activePane === "files"
         ? (projection.fileTabsByPane.files.find(
             (tab) => tab.id === activeFileTabId
           ) ??
@@ -95,6 +100,7 @@ export function WorkspaceCurrentSelection() {
         : null
       : (WORKSPACE_PANES.flatMap((filePane) => {
           const ref = projection.activeTabByPane[filePane]
+          if (!visiblePanes.includes(filePane)) return []
           if (ref?.kind !== "file" || ref.id !== activeFileTabId) return []
           if (filePane === "files" && isSettingsActive) return []
           return projection.fileTabsByPane[filePane].filter(

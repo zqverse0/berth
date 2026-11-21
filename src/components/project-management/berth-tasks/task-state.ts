@@ -46,7 +46,7 @@ export function samePath(a: string, b: string): boolean {
   return trimSlash(a) === trimSlash(b)
 }
 
-/** 单文件任务（`.berth/tasks/<name>.md`）可在任务页编辑；旧任务的 prd.md 只读。 */
+/** 单文件任务（空间目录 `tasks/<name>.md`）可在任务页编辑；旧任务的 prd.md 只读。 */
 export function isFileTask(view: Pick<BerthTaskView, "prd">): boolean {
   return /\.md$/.test(view.prd) && !/[\\/]prd\.md$/.test(view.prd)
 }

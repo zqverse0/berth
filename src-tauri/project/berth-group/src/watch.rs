@@ -190,7 +190,7 @@ pub(crate) fn run(ctx: &Ctx) {
     let mut last_busy = Instant::now();
     let wake = Wake::bind(ctx);
     let mut acp = crate::acp::Acp::new(crate::acp::cli_launcher());
-    while ctx.main.join(".berth").is_dir() {
+    while berth_project_core::tasks::berth_dir(&ctx.main).is_ok_and(|dir| dir.is_dir()) {
         // ACP 成员一轮进行中不换进程，免得打断它。
         if built.is_some() && exe.and_then(modified) != built && !acp.busy() {
             drop(acp);

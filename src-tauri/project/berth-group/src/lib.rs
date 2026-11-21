@@ -1,6 +1,6 @@
-//! 项目群组：消息收发、ACP 成员、派发 worker（`berth group` 与 GUI 群组视图共用）。
+//! 空间群组：消息收发、ACP 成员、派发 worker（`berth group` 与 GUI 群组视图共用）。
 //!
-//! 账本在 `berth_project_core::tasks::group`（主项目 `.berth/local/groups/`）。一个项目一个群（`main`）：
+//! 账本在 `berth_project_core::tasks::group`（`<空间目录>/local/groups/`）。一个空间一个群（`main`）：
 //! 主目录和各 worktree 的成员、消息都在这个群里，worktree 只是成员的工作目录。
 //! 群成员是 ACP 成员：由每个主项目一个的后台进程 `berth group watch`（[`watch`]、[`acp`]）起适配器收发；
 //! 终端里的 Agent 不进群，`berth group hook` 只把它的状态写回终端（[`hook`]）。
@@ -28,7 +28,7 @@ pub use watch::brief_lines;
 
 /// 一次调用的上下文。
 pub struct Ctx {
-    /// 主项目（`berth project init` 标记的 checkout）：群与运行态都在这里。
+    /// 空间的主项目：群与运行态按它解析到空间目录。
     pub main: PathBuf,
     /// termd 端点：后台进程按它定实例（锁、叫醒 socket），拉起时也传给它。
     pub socket: Option<PathBuf>,
@@ -126,7 +126,7 @@ pub(crate) fn in_project(main: &Path, path: &Path) -> bool {
     path.is_some() && project_dirs(main).iter().any(|dir| dir.canonicalize().ok() == path)
 }
 
-/// 项目启动预设（`.berth/presets.json`）摘要，配合 `spawn --preset`。
+/// 空间启动预设（`<空间目录>/presets.json`）摘要，配合 `spawn --preset`。
 pub fn presets(ctx: &Ctx) -> TaskResult<Value> {
     spawn::list_presets(&ctx.main)
 }
@@ -346,7 +346,7 @@ pub fn spec(
         &name,
         json!({"kind": "spec", "author": author, "rev": rev, "task": task, "note": note}),
     )?;
-    let prd = ctx.main.join(".berth/tasks").join(&task).join("prd.md");
+    let prd = berth_project_core::tasks::berth_dir(&ctx.main)?.join("tasks").join(&task).join("prd.md");
     // 通知所有在岗成员按新契约继续（与 post --to 同一送达）。
     let mut notified = Vec::new();
     for member in group::members(&events) {

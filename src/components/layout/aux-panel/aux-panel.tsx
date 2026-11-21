@@ -12,6 +12,7 @@ import {
 import { Users } from "lucide-react"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useConversationPaneShown } from "@/hooks/workspace/use-conversation-pane-shown"
 import { usePlatform } from "@/hooks/use-platform"
 import { useZoomLevel } from "@/hooks/use-appearance"
 import { hasNativeWindowChrome, rightChromeReserve } from "@/lib/window-chrome"
@@ -62,6 +63,7 @@ export const AuxPanel = memo(function AuxPanel({
       showView("terminals")
   }, [folderId, terminalTab, view, showView])
   const showTerminals = useCallback(() => showView("terminals"), [showView])
+  const terminalsShown = useConversationPaneShown()
   const isMobile = useIsMobile()
   const { isWindows, isLinux } = usePlatform()
   const { zoomLevel } = useZoomLevel()
@@ -157,10 +159,7 @@ export const AuxPanel = memo(function AuxPanel({
         )}
       >
         <div className={cn("h-full", emptyMember && "hidden")}>
-          <WorkspacePaneContent
-            pane="conversation"
-            hidden={!isOpen || view !== "terminals" || !!emptyMember}
-          />
+          <WorkspacePaneContent pane="conversation" hidden={!terminalsShown} />
         </div>
         {emptyMember ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">

@@ -27,7 +27,6 @@ import { GroupMembers, GroupSection } from "../group/group-members"
 import { ActiveDelegations } from "../group/active-delegations"
 import { usePaneActions } from "../group/pane-actions"
 import { useAgentProfiles } from "@/hooks/use-agent-profiles"
-import { EnableBerthNotice } from "../enable-berth-notice"
 import { MemberSessions } from "../group/member-sessions"
 
 function Members({ folderId, live }: { folderId: number; live: boolean }) {
@@ -76,12 +75,6 @@ function Members({ folderId, live }: { folderId: number; live: boolean }) {
       ?.split(/[\\/]/)
       .filter(Boolean)
       .pop() ?? ""
-  if (group.uninitialized)
-    return (
-      <div className="px-2 py-1">
-        <EnableBerthNotice folderId={folderId} onEnabled={group.refresh} />
-      </div>
-    )
   if (group.error)
     return (
       <p role="alert" className="px-2 py-1 text-xs text-destructive">

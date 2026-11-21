@@ -1,13 +1,13 @@
 // @ts-check
 /// <reference path="../../berth-plugin.d.ts" />
-// 页面经 scripts.run("ui/api.js", { action, … }) 调用的后端：读写 `<主项目>/.berth/ideas/`。
+// 页面经 scripts.run("ui/api.js", { action, … }) 调用的后端：读写空间目录的 `ideas/`（字段名 `main` 沿用，指空间目录）。
 // 一条想法一个文件 `<创建时间>.idea.md`（后缀让包里的编辑页接管），固定三块：用户原话 / `## 讨论` / `## 结论`；
-// 已落地 / 已放下的移进 `归档/`。worktree 里也读写主项目那一份。
+// 已落地 / 已放下的移进 `归档/`。空间里各项目（含 worktree）读写同一份。
 // 想法的关闭、重开只走 setStatus：关闭时进知识库的待入库清单，重开时移除。
 
-const DIR = ".berth/ideas"
+const DIR = "ideas"
 /** 旧版内置「想法」的位置，第一次打开时整体搬过来。 */
-const LEGACY_DIR = ".berth/knowledge/想法"
+const LEGACY_DIR = "knowledge/想法"
 const ARCHIVE = "归档"
 const STATUSES = ["待讨论", "讨论中", "已落地", "已放下"]
 const CLOSED = ["已落地", "已放下"]
@@ -32,7 +32,7 @@ export default async function (input) {
   }
 }
 
-/** 主项目（`berth init` 过的 checkout）：worktree 项目也落到它。 */
+/** 空间目录：`<空间目录>/knowledge` 的上一级。 */
 async function mainProject() {
   const project = await berth.env.project()
   if (!project) throw new Error("没有打开项目")
@@ -41,14 +41,14 @@ async function mainProject() {
     ["project", project.root, "knowledge", "root"],
     { timeoutMs: 15000 }
   )
-  if (code !== 0) throw new Error(stderr.trim() || "找不到项目的 .berth 目录")
-  return stdout.trim().replace(/[\\/]\.berth[\\/]knowledge$/, "")
+  if (code !== 0) throw new Error(stderr.trim() || "找不到项目所属的空间")
+  return stdout.trim().replace(/[\\/]knowledge$/, "")
 }
 
 /** @param {string} [known] 页面已知的主项目：轮询时不用每次起 `berth` 进程 */
 async function list(known) {
   const main = known || (await mainProject())
-  const enabled = (await berth.fs.stat(`${main}/.berth`))?.kind === "dir"
+  const enabled = (await berth.fs.stat(main))?.kind === "dir"
   if (enabled && !known) await migrate(main)
   const ideas = []
   for (const dir of [DIR, `${DIR}/${ARCHIVE}`]) {
@@ -86,7 +86,7 @@ async function migrate(main) {
 /** 建一条空想法并返回绝对路径：tab 栏「+」（tool.json `new`）与侧栏共用，正文在工作区写。 */
 async function create() {
   const main = await mainProject()
-  if ((await berth.fs.stat(`${main}/.berth`))?.kind !== "dir") {
+  if ((await berth.fs.stat(main))?.kind !== "dir") {
     throw new Error("项目还没启用 Berth")
   }
   await migrate(main)

@@ -964,7 +964,7 @@
         },
         "remote": {
           "windowUnavailable": "Berth isn't running on this device; it connects once Berth is open",
-          "berthOutdated": "Berth on this device is too old; update it to use its projects here",
+          "berthOutdated": "Berth on this device is too old; update it to use its spaces here",
           "reconnecting": "Connection lost, reconnecting",
           "transfers": "Transfers to this device",
           "transferCancel": "Cancel",
@@ -976,7 +976,7 @@
         },
         "openPage": "Devices panel"
       },
-      "title": "Projects",
+      "title": "Spaces",
       "git": "Git",
       "locateActiveConversation": "Locate Active Conversation",
       "newConversation": "New Conversation",
@@ -1001,18 +1001,18 @@
         "removeFolderFailed": "Failed to remove folder: {message}",
         "worktreeDeleteFailed": "Failed to delete worktree: {message}",
         "reorderFoldersFailed": "Failed to reorder folders: {message}",
-        "renameProjectFailed": "Failed to rename project: {message}",
-        "pinFolderFailed": "Failed to pin project: {message}"
+        "renameProjectFailed": "Failed to rename space: {message}",
+        "pinFolderFailed": "Failed to pin space: {message}"
       },
       "statsLabel": "{folders} folders · {convos} conversations",
       "reorderHandle": "Drag to reorder",
       "openFolder": "Open Folder",
       "searchPlaceholder": "Search conversations...",
-      "showAllProjects": "Show all projects",
-      "expandFolder": "Expand project",
-      "collapseFolder": "Collapse project",
-      "expandAllGroups": "Expand all projects",
-      "collapseAllGroups": "Collapse all projects",
+      "showAllProjects": "Show all spaces",
+      "expandFolder": "Expand space",
+      "collapseFolder": "Collapse space",
+      "expandAllGroups": "Expand all spaces",
+      "collapseAllGroups": "Collapse all spaces",
       "views": "Sidebar views",
       "showWorktrees": "Show worktree folders",
       "moreOptions": "More options",
@@ -1024,20 +1024,20 @@
       "emptyFolderHint": "No conversations",
       "noMatchingConversations": "No matching conversations",
       "noUnfinishedConversations": "No active sessions.",
-      "removeFolderConfirmTitle": "Remove folder from workspace?",
-      "removeFolderConfirmDescription": "Forget project \"{name}\" in Berth? Its workspace tabs and terminals will close; the disk folder and files will remain unchanged.",
+      "removeFolderConfirmTitle": "Remove this space from Berth?",
+      "removeFolderConfirmDescription": "Forget space \"{name}\" in Berth? Tabs and terminals of its projects will close; folders and files on disk stay unchanged.",
       "deleteWorktreeConfirmTitle": "Delete this worktree?",
       "folderHeaderMenu": {
         "renameProject": "Rename…",
         "renameWorktreeHint": "The directory and its current branch both get this name; close any terminals running in the worktree first.",
         "renameWorktreeTitle": "Rename worktree",
         "renameWorktree": "Rename directory and branch…",
-        "renameProjectTitle": "Rename project",
-        "renameProjectPlaceholder": "Project name",
+        "renameProjectTitle": "Rename space",
+        "renameProjectPlaceholder": "Space name",
         "setAliasSave": "Save",
         "setAliasCancel": "Cancel",
-        "pinProject": "Pin project",
-        "unpinProject": "Unpin project",
+        "pinProject": "Pin space",
+        "unpinProject": "Unpin space",
         "deleteWorktree": "Delete worktree",
         "removeFromWorkspace": "Remove from workspace"
       },
@@ -1049,10 +1049,10 @@
       "newChatAction": "New chat",
       "loadingSubsessions": "Loading sub-conversations…",
       "projectFiles": "Project files",
-      "backToProjects": "Back to projects",
-      "noProjects": "No projects open",
-      "searchProjectsPlaceholder": "Search projects and sessions...",
-      "noProjectsFound": "No matching projects or sessions.",
+      "backToProjects": "Back to spaces",
+      "noProjects": "No spaces open",
+      "searchProjectsPlaceholder": "Search spaces and sessions...",
+      "noProjectsFound": "No matching spaces or sessions.",
       "clearSearch": "Clear search",
       "addProject": "Add project"
     },
@@ -1426,7 +1426,7 @@
     },
     "auxPanel": {
       "tabs": {
-        "projects": "Projects",
+        "projects": "Spaces",
         "files": "Files",
         "sessions": "Sessions",
         "agents": "Agents",
@@ -1571,7 +1571,7 @@
       "statusRestarted": "Server restarted — session ended",
       "historyTruncated": "Earlier output was truncated",
       "folderDetachTitle": "Associated terminals",
-      "folderTerminateDescription": "{count, plural, one {# terminal is linked to this project and will be terminated when it is removed.} other {# terminals are linked to this project and will be terminated when it is removed.}}",
+      "folderTerminateDescription": "{count, plural, one {# terminal is linked to this space and will be terminated when it is removed.} other {# terminals are linked to this space and will be terminated when it is removed.}}",
       "folderDetachKeep": "Keep terminals detached",
       "detachedFromFolder": "Detached from {label}"
     },
@@ -2333,7 +2333,7 @@
       "diffDescriptionCommit": "commit {commit}",
       "diffTitleConflictFile": "Conflict · {name}",
       "diffDescriptionConflict": "{path} · disk vs unsaved",
-      "openedInOtherProject": "Opened {file} in project {project}",
+      "openedInOtherProject": "Opened {file} in space {project}",
       "switchToProject": "Switch"
     },
     "chat": {
@@ -3617,11 +3617,11 @@
       "title": "No notes in the knowledge base yet",
       "hint": "Notes are written and maintained by an Agent from the code (it shows you an outline first).",
       "askAgent": "Ask an Agent",
-      "agentRequest": "Run `berth guide knowledge` and follow 「更新知识库」 to write the first notes for this project: show me the outline before writing."
+      "agentRequest": "Run `berth guide knowledge` and follow 「更新知识库」 to write the first notes for this space: show me the outline before writing."
     },
     "agent": {
       "sent": "Sent to {agent}",
-      "launchFirst": "No Agent is running in this project: start one, then click again"
+      "launchFirst": "No Agent is running in this space: start one, then click again"
     },
     "outline": {
       "others": "Other notes",
@@ -3661,7 +3661,7 @@
     }
   },
   "ProjectHome": {
-    "home": "Project home",
+    "home": "Space home",
     "pulse": {
       "attention": "<b>{count}</b> waiting for you",
       "working": "<b>{count}</b> {count, plural, one {agent} other {agents}} working",
@@ -3713,22 +3713,18 @@
     },
     "tokens": {
       "title": "Token usage",
-      "summary": "this project's sessions · last 14 days",
+      "summary": "this space's sessions · last 14 days",
       "tokens": "Tokens",
       "requests": "Requests",
       "cacheHit": "Cache hit",
       "output": "Output",
-      "empty": "No session usage in this project in the last 14 days",
+      "empty": "No session usage in this space in the last 14 days",
       "aria": "Daily token usage per agent over the last {days} days"
     },
     "knowledge": {
       "title": "Knowledge",
       "summary": "{notes} notes",
       "empty": "No notes yet. Ask an agent to write the first notes from the Memory panel."
-    },
-    "disabled": {
-      "hint": "Enable Berth to see tasks and knowledge here.",
-      "enable": "Enable Berth"
     }
   },
   "LaunchManifest": {
@@ -3774,18 +3770,16 @@
       "noMemberSession": "No running terminal or linked Agent session is available for {member}."
     },
     "title": "Berth Tasks",
-    "subtitle": "View Agent-managed tasks for this project",
+    "subtitle": "View Agent-managed tasks for this space",
     "embeddedSubtitle": "Agent-managed project workflow — view progress here",
     "loading": "Loading tasks…",
     "refresh": "Refresh",
     "duration": "Latency",
     "errorTitle": "Tasks unavailable",
     "agentBootstrapHint": "This page only shows status; Agents maintain tasks with berth project . task.",
-    "initialize": "Enable Berth",
-    "initializing": "Enabling…",
     "initializeAgent": "Initialize Agent files",
     "developerNamePrompt": "Developer name",
-    "devTasks": "Project tasks",
+    "devTasks": "Space tasks",
     "automations": {
       "new": "Run on a schedule",
       "edit": "Edit schedule",
@@ -3828,7 +3822,7 @@
       "hint": "At the scheduled time an unattended agent works on this task in its directory; results are listed below. Archiving the task stops the schedule."
     },
     "overview": {
-      "title": "Project task storage",
+      "title": "Space task storage",
       "mode": "Mode",
       "developer": "Developer",
       "storage": "Storage",
@@ -3901,7 +3895,7 @@
         "base": "from",
         "currentBranch": "current branch",
         "action": "Start",
-        "hint": "Starting creates the branch and worktree, registers it as a sub-project and opens the task group; restarting reuses the previous branch by default.",
+        "hint": "Starting creates the branch and worktree, adds it to this space and opens the task group; restarting reuses the previous branch by default.",
         "done": "Started on branch {branch}"
       },
       "finish": {
@@ -4101,8 +4095,8 @@
   },
   "WorkspaceCommands": {
     "switch_project": {
-      "title": "Switch project",
-      "description": "Choose from every project without leaving the file tree"
+      "title": "Switch space",
+      "description": "Choose from every space without leaving the file tree"
     },
     "open_project": {
       "title": "Open or clone project",
@@ -4158,7 +4152,7 @@
     },
     "open_berth_tasks": {
       "title": "Open Berth Tasks",
-      "description": "Open project tasks"
+      "description": "Open space tasks"
     },
     "open_git": {
       "title": "Open Git",
@@ -4186,15 +4180,15 @@
     },
     "open_group": {
       "title": "Open group",
-      "description": "Show the project group chat"
+      "description": "Show the space group chat"
     },
     "open_memory": {
       "title": "Open memory",
-      "description": "Show the project knowledge base"
+      "description": "Show the space knowledge base"
     },
     "switch_session": {
       "title": "Switch session",
-      "description": "Recent first; search by title, project, agent or workspace"
+      "description": "Recent first; search by title, space, agent or workspace"
     },
     "next_attention": {
       "title": "Jump to what needs you",
@@ -4206,7 +4200,7 @@
     "placeholder": "Press a key to run, type ? to search…",
     "empty": "No matching commands",
     "groups": {
-      "project": "Project",
+      "project": "Space",
       "creation": "Create",
       "views": "Views",
       "workspace": "Workspace",
@@ -4288,23 +4282,23 @@
     "nextAttention": "Jump to the next session that needs you",
     "noAttention": "No sessions need you right now",
     "switcherTitle": "Switch session",
-    "switcherPlaceholder": "Search title, project or Agent",
+    "switcherPlaceholder": "Search title, space or Agent",
     "switcherEmpty": "No matching sessions",
-    "restoreList": "Back to the project list"
+    "restoreList": "Back to the space list"
   },
   "ProjectMembers": {
-    "setMain": "Make main member",
-    "moveTo": "Move to project",
-    "detach": "Remove from project…",
-    "detachTitle": "Remove \"{name}\" from the project?",
-    "detachDescription": "Only this member leaves the project: its terminals and tabs close; the folder and git worktree stay on disk. It then shows up under untracked worktrees and can be added back.",
-    "detached": "Removed {name} from the project",
-    "memberOpFailed": "Couldn't change the member: {message}",
-    "join": "Add to project",
-    "joinFailed": "Couldn't add to the project: {message}",
+    "setMain": "Make main project",
+    "moveTo": "Move to space",
+    "detach": "Remove from space…",
+    "detachTitle": "Remove \"{name}\" from the space?",
+    "detachDescription": "Only this project leaves the space: its terminals and tabs close; the folder and git worktree stay on disk. It then shows up under untracked worktrees and can be added back.",
+    "detached": "Removed {name} from the space",
+    "memberOpFailed": "Couldn't update the space: {message}",
+    "join": "Add to space",
+    "joinFailed": "Couldn't add to the space: {message}",
     "showUntracked": "+ {count} untracked worktree(s)",
     "hideUntracked": "− Hide untracked worktrees",
-    "untrackedHint": "Worktrees git knows about that aren't in any project; click + to add one here",
+    "untrackedHint": "Worktrees git knows about that aren't in any space; click + to add one here",
     "terminalHere": "Open a terminal here",
     "viewChanges": "View changes",
     "prune": "Clean up",
@@ -4315,7 +4309,7 @@
     "references": "References",
     "referenceHint": "Reference directory (no tasks, groups, or git watching)",
     "addReference": "Add reference folder…",
-    "removeReference": "Remove from project (files stay on disk)",
+    "removeReference": "Remove from space (files stay on disk)",
     "addReferenceFailed": "Couldn't add the reference directory: {message}",
     "removeReferenceFailed": "Couldn't remove the reference directory: {message}",
     "browsingReference": "Reference",

@@ -1,6 +1,6 @@
-//! 本机实时状态 `<主项目>/.berth/local/tasks.json`：任务 ↔ 分支 / worktree 绑定与完成状态。
+//! 本机实时状态 `<空间目录>/local/tasks.json`：任务 ↔ 分支 / worktree 绑定与完成状态。
 //!
-//! 只存在主项目一份，所有 worktree 读写它；不进 git，新 clone 时为空（不从 task.json 推断，
+//! 每个空间一份，空间里所有 checkout 读写它；不进 git（不从 task.json 推断，
 //! 旧数据经 `berth task migrate` 显式导入）。写入方只有 `berth task`。
 
 use std::collections::BTreeMap;
@@ -81,19 +81,13 @@ pub(crate) fn load(main: &Path) -> TaskResult<State> {
     }
 }
 
-/// 加锁读改写；`local/` 只在主项目里，由 `berth init` 创建，这里不隐式创建 `.berth/`。
+/// 加锁读改写；`main` 须属于某个空间。
 pub(crate) fn update<T>(
     main: &Path,
     change: impl FnOnce(&mut State) -> TaskResult<T>,
 ) -> TaskResult<T> {
-    if !main.join(".berth").is_dir() {
-        return Err(super::hub::not_initialized(main));
-    }
+    super::hub::require(main)?;
     let local = local_dir(main);
-    if !local.join(".gitignore").exists() {
-        // 旧项目可能还没有 `local/`：先放好忽略文件，实时状态绝不能被提交。
-        fsutil::atomic_write(&local.join(".gitignore"), b"*\n")?;
-    }
     let _guard = fsutil::lock(&local.join("tasks.json.lock"))?;
     let mut state = load(main)?;
     let result = change(&mut state)?;

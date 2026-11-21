@@ -75,7 +75,6 @@ function view(
     commits: [],
     unlinkedCommits: 0,
     diffstat: "",
-    history: [],
   }
 }
 

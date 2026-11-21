@@ -30,12 +30,6 @@ vi.mock("@/knowledge/api/knowledge-client", () => ({
 vi.mock("@/lib/api", () => ({
   readFileForEdit: async () => ({ content: "" }),
 }))
-vi.mock("@/lib/agent/berth-project", () => ({
-  getBerthStatus: async () => ({ ok: true, result: { enabled: true } }),
-}))
-vi.mock("@/components/project-management/enable-berth-notice", () => ({
-  EnableBerthNotice: () => null,
-}))
 vi.mock("@/components/layout/sidebar/sidebar-header", () => ({
   SidebarHeaderActions: () => null,
   SidebarHeaderButton: () => null,
@@ -45,7 +39,7 @@ vi.mock("@/knowledge/components/note-detail", () => ({
 }))
 vi.mock("@/knowledge/components/note-tree", () => ({ NoteRows: () => null }))
 vi.mock("@/knowledge/components/vault-browse", () => ({
-  HOME_NOTE_PATH: ".berth/knowledge/地图/首页.md",
+  HOME_NOTE_PATH: "knowledge/地图/首页.md",
   VaultEmpty: () => <p>empty vault</p>,
   VaultTree: () => <p>vault tree</p>,
 }))
@@ -92,7 +86,7 @@ describe("KnowledgeSidebar inbox", () => {
       ...base,
       inbox: [
         {
-          path: ".berth/knowledge/待入库/11-07-a.md",
+          path: "knowledge/待入库/11-07-a.md",
           kind: "任务",
           source: "11-07-a",
           title: "做完的任务",
@@ -100,7 +94,7 @@ describe("KnowledgeSidebar inbox", () => {
           archivedAt: "2026-11-07",
         },
         {
-          path: ".berth/knowledge/待入库/2026-11-07-1.md",
+          path: "knowledge/待入库/2026-11-07-1.md",
           kind: "想法",
           source: "2026-11-07-1",
           title: "放下的想法",
@@ -116,7 +110,7 @@ describe("KnowledgeSidebar inbox", () => {
     expect(screen.getByText("Dropped")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: /做完的任务/ }))
     expect(openFilePreview).toHaveBeenCalledWith(
-      "/main/.berth/knowledge/待入库/11-07-a.md",
+      "/main/knowledge/待入库/11-07-a.md",
       { folderId: 7 }
     )
   })

@@ -15,7 +15,7 @@ import {
 } from "@/knowledge/lib/vault"
 import type { KnowledgeDocument } from "@/knowledge/model/types"
 
-export const HOME_NOTE_PATH = ".berth/knowledge/地图/首页.md"
+export const HOME_NOTE_PATH = "knowledge/地图/首页.md"
 /** `来源/` 目录下资料的类型。 */
 const SOURCE_TYPE = "来源"
 

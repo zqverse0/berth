@@ -1,4 +1,4 @@
-//! 待入库清单 `.berth/knowledge/待入库/`：任务、想法归档时各生成一个文件，等用户说要维护时再逐条处理。
+//! 待入库清单 `knowledge/待入库/`（空间目录下）：任务、想法归档时各生成一个文件，等用户说要维护时再逐条处理。
 //! 处理后移到 `待入库/已处理/` 并写明结果；计数只算未处理的。这个目录不算笔记（见 `service::is_note`）。
 
 use std::fs;
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::parser::split_frontmatter;
-use super::service::VAULT_DIR;
+use super::service::{store, VAULT_DIR};
 use crate::tasks::fsutil;
 
 pub const DIR: &str = "待入库";
@@ -39,18 +39,20 @@ fn checked_source(source: &str) -> io::Result<String> {
     fsutil::safe_component(source, "inbox source", SOURCE_MAX).map_err(|error| invalid(error.message))
 }
 
-fn inbox_dir(main: &Path) -> PathBuf {
-    main.join(VAULT_DIR).join(DIR)
+fn inbox_dir(main: &Path) -> io::Result<PathBuf> {
+    Ok(store(main)?.join(VAULT_DIR).join(DIR))
 }
 
 /// 待入库目录（项目相对），已存在时才有。
 pub(super) fn existing_dir(main: &Path) -> Option<String> {
-    let dir = inbox_dir(main);
+    let dir = inbox_dir(main).ok()?;
     dir.is_dir().then(|| relative(main, &dir))
 }
 
+/// 相对空间目录的路径（与笔记路径一致）。
 fn relative(main: &Path, path: &Path) -> String {
-    path.strip_prefix(main).unwrap_or(path).to_string_lossy().replace('\\', "/")
+    let base = store(main).unwrap_or_default();
+    path.strip_prefix(base).unwrap_or(path).to_string_lossy().replace('\\', "/")
 }
 
 fn write(path: &Path, text: &str) -> io::Result<()> {
@@ -79,7 +81,7 @@ fn parse(main: &Path, path: &Path) -> Option<InboxItem> {
 
 /// 未处理的待入库，新归档的在前；没有目录时为空，读不了的文件跳过。
 pub fn list(main: &Path) -> io::Result<Vec<InboxItem>> {
-    let entries = match fs::read_dir(inbox_dir(main)) {
+    let entries = match fs::read_dir(inbox_dir(main)?) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
@@ -116,14 +118,14 @@ pub fn add(
     map.insert("title".into(), title.into());
     map.insert("result".into(), result.into());
     map.insert("archived_at".into(), chrono::Local::now().format("%Y-%m-%d").to_string().into());
-    let path = inbox_dir(main).join(format!("{source}.md"));
+    let path = inbox_dir(main)?.join(format!("{source}.md"));
     write(&path, &compose(&map, body)?)?;
     parse(main, &path).ok_or_else(|| io::Error::other("Inbox file is unreadable"))
 }
 
 /// 移除一条未处理的待入库（重开时）；已处理的记录不动。返回是否有这一条。
 pub fn remove(main: &Path, source: &str) -> io::Result<bool> {
-    let path = inbox_dir(main).join(format!("{}.md", checked_source(source)?));
+    let path = inbox_dir(main)?.join(format!("{}.md", checked_source(source)?));
     match fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -138,7 +140,7 @@ pub fn done(main: &Path, source: &str, outcome: &str) -> io::Result<String> {
     if outcome.is_empty() {
         return Err(invalid("Outcome is required".to_owned()));
     }
-    let from = inbox_dir(main).join(format!("{source}.md"));
+    let from = inbox_dir(main)?.join(format!("{source}.md"));
     let text = fs::read_to_string(&from).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound => invalid(format!("No inbox item: {source}")),
         _ => error,
@@ -147,7 +149,7 @@ pub fn done(main: &Path, source: &str, outcome: &str) -> io::Result<String> {
     let mut map: serde_yaml::Mapping =
         serde_yaml::from_str(frontmatter.unwrap_or_default()).map_err(io::Error::other)?;
     map.insert("processed_at".into(), chrono::Local::now().format("%Y-%m-%d").to_string().into());
-    let dir = inbox_dir(main).join(DONE_DIR);
+    let dir = inbox_dir(main)?.join(DONE_DIR);
     let mut to = dir.join(format!("{source}.md"));
     let mut index = 2;
     while to.exists() {
@@ -163,26 +165,33 @@ pub fn done(main: &Path, source: &str, outcome: &str) -> io::Result<String> {
 mod tests {
     use super::*;
 
+    /// 登记成空间的临时项目。
+    fn project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        crate::space::testing::register(dir.path());
+        dir
+    }
+
     #[test]
     fn items_count_until_processed_and_removal_spares_processed_records() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = project();
         let main = tmp.path();
         assert!(list(main).unwrap().is_empty());
         let item = add(main, "想法", "2026-11-07-101500", "标题: 带冒号", "已放下", "正文").unwrap();
-        assert_eq!(item.path, ".berth/knowledge/待入库/2026-11-07-101500.md");
+        assert_eq!(item.path, "knowledge/待入库/2026-11-07-101500.md");
         assert_eq!(item.title, "标题: 带冒号");
         add(main, "任务", "11-07-demo", "T", "已完成", "").unwrap();
         assert_eq!(list(main).unwrap().len(), 2);
 
         let processed = done(main, "11-07-demo", "写入 [[决策A]]").unwrap();
-        assert_eq!(processed, ".berth/knowledge/待入库/已处理/11-07-demo.md");
-        let text = fs::read_to_string(main.join(&processed)).unwrap();
+        assert_eq!(processed, "knowledge/待入库/已处理/11-07-demo.md");
+        let text = fs::read_to_string(store(main).unwrap().join(&processed)).unwrap();
         assert!(text.contains("processed_at:") && text.ends_with("## 处理结果\n\n写入 [[决策A]]\n"), "{text}");
         assert_eq!(list(main).unwrap().len(), 1, "已处理的不计数");
 
         // 重开只移除未处理的。再归档、再处理时不覆盖旧记录。
         assert!(!remove(main, "11-07-demo").unwrap());
-        assert!(main.join(&processed).is_file());
+        assert!(store(main).unwrap().join(&processed).is_file());
         add(main, "任务", "11-07-demo", "T", "已完成", "").unwrap();
         assert!(remove(main, "11-07-demo").unwrap());
         add(main, "任务", "11-07-demo", "T", "已完成", "").unwrap();
@@ -191,7 +200,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_values_and_unsafe_sources() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = project();
         assert!(add(tmp.path(), "别的", "a", "t", "已完成", "").is_err());
         assert!(add(tmp.path(), "任务", "a", "t", "完成", "").is_err());
         assert!(add(tmp.path(), "任务", "../x", "t", "已完成", "").is_err());

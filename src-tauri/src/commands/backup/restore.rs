@@ -290,6 +290,16 @@ pub(crate) fn apply_pending_restore_with_paths(
         swap_in(&staged_uploads, uploads_root, &backup_dir.join("uploads"))?;
     }
 
+    // 空间目录只在备份带了时替换：旧备份没有它，不能把现有的私有数据清掉。
+    let staged_spaces = staging.join(berth_project_core::space::SPACES_DIR);
+    if staged_spaces.is_dir() {
+        swap_in(
+            &staged_spaces,
+            &data_dir.join(berth_project_core::space::SPACES_DIR),
+            &backup_dir.join(berth_project_core::space::SPACES_DIR),
+        )?;
+    }
+
     let staged_tokens = staging.join("tokens.json");
     if staged_tokens.is_file() {
         swap_in(

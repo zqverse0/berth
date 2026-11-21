@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
 import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
+import { useAppUiStore } from "@/stores/app-ui-store"
 import { ActivityBar } from "@/components/layout/sidebar/activity-bar"
 import { StatusBar } from "@/components/layout/status-bar/status-bar"
 
@@ -33,7 +34,8 @@ vi.mock("@/hooks/workspace/use-open-folder-picker", () => ({
   }),
 }))
 
-vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }))
+const mobile = vi.hoisted(() => ({ value: false }))
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobile.value }))
 
 vi.mock("@/hooks/use-agent-profiles", () => ({
   useAgentProfilesStore: (
@@ -83,7 +85,35 @@ function renderStatusBar() {
 describe("StatusBar integration with LaunchShelf", () => {
   beforeEach(() => {
     localStorage.clear()
+    mobile.value = false
+    useAppUiStore.getState().resetAppUi()
     useStatusBarLaunchStore.setState({ activeLaunchAgentId: null })
+  })
+
+  it("on mobile shows only the segments of the visible surface", async () => {
+    mobile.value = true
+    useAppUiStore.setState({
+      sidebarRestored: true,
+      auxPanelRestored: true,
+      sidebarOpen: false,
+      auxPanelOpen: false,
+    })
+    const { container } = renderStatusBar()
+    await screen.findByText("45%")
+    const shown = () =>
+      [...container.querySelectorAll<HTMLElement>("[data-status-segment]")]
+        .filter((segment) => !segment.classList.contains("hidden"))
+        .map((segment) => segment.dataset.statusSegment)
+
+    expect(shown()).toEqual(["workspace"])
+    act(() => useAppUiStore.setState({ sidebarOpen: true }))
+    expect(shown()).toEqual(["alerts", "project"])
+    act(() =>
+      useAppUiStore.setState({ sidebarOpen: false, auxPanelOpen: true })
+    )
+    // 用量段只是藏起来，仍挂载着（启动栏靠它同步用量）。
+    expect(shown()).toEqual(["agents"])
+    expect(screen.getByText("45%")).toBeDefined()
   })
 
   it("shows usage in the status bar and no agent launchers in the chrome", async () => {

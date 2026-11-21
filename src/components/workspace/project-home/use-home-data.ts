@@ -4,7 +4,6 @@ import { mainFolderId } from "@/lib/workspace/projects"
 import type { FolderDetail } from "@/lib/types"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { listGroups } from "@/lib/agent/berth-group"
-import { getBerthStatus } from "@/lib/agent/berth-project"
 import {
   listBerthTasks,
   listBerthTaskViews,
@@ -18,7 +17,6 @@ export interface WorktreeGit {
 }
 
 interface HomeData {
-  enabled: boolean
   tasks: BerthTaskSummary[]
   /** 派生视图：状态从 git / prd 推出（与任务侧栏同一口径），读不到时按 task.json 近似。 */
   views: Map<string, BerthTaskView>
@@ -41,11 +39,11 @@ const EMPTY_BERTH = {
   tasks: [],
   views: new Map(),
   group: null,
-} satisfies Omit<HomeData, "enabled" | "git">
+} satisfies Omit<HomeData, "git">
 
 /**
- * 首页数据：启用状态、任务，各 worktree 的 git 概况；单项失败只让那一块空着。
- * `worktreePaths` 是本项目 worktree 家族（含主目录）的路径。
+ * 首页数据：任务与各 worktree 的 git 概况；单项失败只让那一块空着。
+ * `worktreePaths` 是本空间项目成员（含主目录）的路径。
  *
  * 请求同时发出、按到达分三步写入：git 概况先到页面就出来，任务随后，
  * 任务视图（后端要跑一串 git，大项目近一秒）最后补上；重读时沿用上一轮的值，不闪空。
@@ -57,24 +55,15 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
   useEffect(() => {
     let disposed = false
     const paths = pathsKey.split("\n").filter(Boolean)
-    // 没启用的项目这几个请求会报错，结果直接丢掉
     const rest = Promise.allSettled([
       listBerthTasks(folderId),
       listGroups(folderId),
     ])
     const views = Promise.allSettled([listBerthTaskViews(folderId)])
     void (async () => {
-      const [status, ...git] = await Promise.allSettled([
-        getBerthStatus(folderId),
-        ...paths.map(worktreeGit),
-      ])
+      const git = await Promise.allSettled(paths.map(worktreeGit))
       if (disposed) return
-      const enabled =
-        status.status === "fulfilled" &&
-        status.value.ok &&
-        status.value.result.enabled
       const base = {
-        enabled,
         git: new Map(
           paths.map((path, index) => {
             const result = git[index]
@@ -88,10 +77,9 @@ export function useHomeData(folderId: number, worktreePaths: string[]) {
         ),
       }
       setData((prev) => ({
-        ...(enabled ? (prev ?? EMPTY_BERTH) : EMPTY_BERTH),
+        ...(prev ?? EMPTY_BERTH),
         ...base,
       }))
-      if (!enabled) return
 
       const [tasks, groups] = await rest
       if (disposed) return
