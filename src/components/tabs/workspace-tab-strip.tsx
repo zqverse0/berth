@@ -86,8 +86,8 @@ export const WorkspaceTabStrip = memo(function WorkspaceTabStrip({
     activeWorkspaceTab,
     paneActiveTabRef,
     dragging,
-    dragOverThisPane,
-    paneDragInsertIndex,
+    dragOverPane,
+    dragInsertIndex,
     canSplitFilesPane,
   } = useWorkspaceLayoutProjection(
     ({
@@ -104,8 +104,8 @@ export const WorkspaceTabStrip = memo(function WorkspaceTabStrip({
       activeWorkspaceTab,
       paneActiveTabRef: activeTabByPane[pane],
       dragging,
-      dragOverThisPane: dragOverPane === pane,
-      paneDragInsertIndex: dragOverPane === pane ? dragInsertIndex : null,
+      dragOverPane: dragOverPane === pane ? pane : null,
+      dragInsertIndex: dragOverPane === pane ? dragInsertIndex : null,
       canSplitFilesPane: pane === "files" && orderedTabsByPane.files.length > 1,
     })
   )
@@ -186,7 +186,7 @@ export const WorkspaceTabStrip = memo(function WorkspaceTabStrip({
         : entries,
     [draggingKey, entries]
   )
-  const gapIndex = draggingKey && dragOverThisPane ? paneDragInsertIndex : null
+  const gapIndex = draggingKey && dragOverPane === pane ? dragInsertIndex : null
   const activeIndex = displayedEntries.findIndex(
     (entry) =>
       paneActiveTab != null &&

@@ -19,6 +19,7 @@ import { createAndOpenPrimaryTerminalDetailed } from "@/lib/terminal/create-and-
 import { handleTerminalExit } from "@/lib/terminal/terminal-exit-cleanup"
 import { removeTerminalRecordIdempotent } from "@/lib/terminal/terminal-record-cleanup"
 import { SessionTabView } from "@/sessions/components/session-tab-view"
+import { workspaceTabRefEqual } from "@/lib/workspace/workspace-pane-model"
 import type {
   WorkspacePane,
   WorkspaceTabRef,
@@ -41,8 +42,8 @@ export const ConversationDetailPanel = memo(function ConversationDetailPanel({
   const allTabs = useTabStore((s) => s.tabs)
   const activeTabId = useTabStore((s) => s.activeTabId)
   const activeFolderId = useAppWorkspaceStore((s) => s.activeFolderId)
-  // 只订阅与 primary tab 相关的原始值切片，避免切文件 / 拖文件带动所有终端宿主重渲染。
-  const { activePrimaryId, panePrimaryIdsKey, visiblePrimaryIdsKey } =
+  // 只订阅与 primary tab 相关的切片，避免切文件 / 拖文件带动所有终端宿主重渲染。
+  const { activeWorkspaceTab, panePrimaryIdsKey, visiblePrimaryIdsKey } =
     useWorkspaceLayoutProjection(
       ({ activeWorkspaceTab, activeTabByPane, tabsByPane }) => {
         const visiblePrimaryIds: string[] = []
@@ -56,10 +57,8 @@ export const ConversationDetailPanel = memo(function ConversationDetailPanel({
               .join("\n")
           : ""
         return {
-          activePrimaryId:
-            activeWorkspaceTab?.kind === "primary"
-              ? activeWorkspaceTab.id
-              : null,
+          activeWorkspaceTab:
+            activeWorkspaceTab?.kind === "primary" ? activeWorkspaceTab : null,
           panePrimaryIdsKey: panePrimaryIds,
           visiblePrimaryIdsKey: visiblePrimaryIds.join("\n"),
         }
@@ -133,7 +132,7 @@ export const ConversationDetailPanel = memo(function ConversationDetailPanel({
     }
     const pane = hostPane ?? readWorkspaceLayoutProjection().paneForTab(tabRef)
     const paneVisible = inScope && paneVisibleTabIds.has(tab.id)
-    const active = inScope && activePrimaryId === tab.id
+    const active = inScope && workspaceTabRefEqual(activeWorkspaceTab, tabRef)
     const folderPath =
       tab.folderId != null
         ? allFolders.find((f) => f.id === tab.folderId)?.path
