@@ -1,31 +1,17 @@
 "use client"
 
-import { lazy, Suspense, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
-import { Users } from "lucide-react"
-import {
-  SidebarHeaderActions,
-  SidebarHeaderTabs,
-} from "@/components/layout/sidebar/sidebar-header"
-import { AgentLaunchShelfContent } from "@/components/layout/sidebar/agent-launch"
-import type { AgentLaunchChoice } from "@/components/launchbar/use-launchbar"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
+import { useStatusBarLaunchStore } from "@/stores/agent-launch-store"
 import {
   controlAcpMember,
-  joinAcpMember,
   memberAgent,
   memberLabel,
-  setGroupLead,
-  stopBerth,
 } from "@/lib/agent/berth-group"
 import { toast } from "@/lib/notify"
-import { cn } from "@/lib/utils"
-import {
-  mainFolderId,
-  memberLabel as projectMemberLabel,
-} from "@/lib/workspace/projects"
 import { showProjectHome } from "@/lib/workspace/project-home"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
@@ -38,27 +24,43 @@ import {
   type MemberRow,
 } from "../group/group-model"
 import { GroupMembers, GroupSection } from "../group/group-members"
-import { GroupAddMember } from "../group/group-add-member"
-import { ActiveDelegations } from "../group/active-delegations"
+import {
+  ExpertNewButton,
+  openExpertEditor,
+  useExpertConfigList,
+} from "../group/group-experts"
+import {
+  GroupList,
+  useChatGroupList,
+  useChatGroups,
+} from "../group/group-switcher"
+import { useExperts } from "../group/expert-editor"
 import { usePaneActions } from "../group/pane-actions"
-import { MemberSessions } from "../group/member-sessions"
 import { handoffAcpMember } from "../group/acp-handoff"
 import { MemberRoutineDialog } from "../group/member-routine"
 
-type Filter = "all" | "attention" | "working"
-type Page = Filter | "sessions"
+/** 还没进这个群的专家：一行空闲、没有终端的成员行（给它发消息时后端按它的配置入群）。 */
+const idleRow = (id: string, name: string): MemberRow => ({
+  member: {
+    name: id,
+    bodies: [],
+    joined_seq: 0,
+    joined_at: null,
+    leftAt: null,
+    expertName: name,
+  },
+  pane: null,
+  status: "idle",
+  unread: false,
+  lastActivity: null,
+})
 
-const trimSlash = (path: string) => path.replace(/[\\/]+$/, "")
-
-function Members({
-  folderId,
-  live,
-  filter,
-}: {
-  folderId: number
-  live: boolean
-  filter: Filter
-}) {
+/**
+ * 「专家」分组：本空间的全部专家（不分进没进群），每行是它用的 Agent · 模型（没配显示「未选 Agent」），在做事 / 等你时显示状态；
+ * 点名字 = 首页与它私聊（私聊顶栏里选 Agent / 模型、看会话），行菜单在终端里聊、编辑专家、停止、新会话等。
+ * 不是专家的成员（spawn 的 worker、旧成员）排在后面。
+ */
+function Experts({ folderId, live }: { folderId: number; live: boolean }) {
   const t = useTranslations("BerthTasks.group.members")
   const tGroup = useTranslations("BerthTasks.group")
   const [query, setQuery] = useState("")
@@ -74,7 +76,10 @@ function Members({
   const folders = useAppWorkspaceStore((state) => state.allFolders)
   const actions = usePaneActions()
   const { agents } = useAgentProfiles()
-  const rows = useMemo(
+  const { catalog } = useExperts()
+  const configs = useExpertConfigList(folderId)
+  const groups = useChatGroupList(folderId)
+  const memberList = useMemo(
     () => memberRows(group.members, group.events, panes, seen),
     [group.members, group.events, panes, seen]
   )
@@ -82,9 +87,28 @@ function Members({
     () => delegationProgress(group.events, group.delivery),
     [group.events, group.delivery]
   )
+  const root = folders.find((folder) => folder.id === folderId)
+  const current = groups.find((item) => item.name === group.name)
+  // 群目录（群列表里取；还没读到时用主项目）。
+  const groupCwd = current?.cwd ?? root?.path
+  const experts = catalog?.experts ?? []
+  const isExpert = (name: string) => experts.some((entry) => entry.id === name)
+  const present = new Set(memberList.map((row) => row.member.name))
+  const rows = [
+    ...experts.map(
+      (entry) =>
+        memberList.find((row) => row.member.name === entry.id) ??
+        idleRow(entry.id, entry.expert.name || entry.id)
+    ),
+    ...memberList.filter((row) => !isExpert(row.member.name)),
+  ]
   const labelOf = (name: string) =>
-    memberLabel(group.members.find((m) => m.name === name) ?? { name })
-  // 点成员 / 「全部」：首页切到与它单聊 / 群聊。
+    memberLabel(
+      rows.find((row) => row.member.name === name)?.member ?? { name }
+    )
+  const agentName = (id: string) =>
+    agents.find((agent) => agent.id === id)?.name ?? id
+  // 点专家 / 群聊行：首页切到与它单聊 / 群聊。
   const select = (name: string | null) => {
     if (!group.name) return
     const store = useGroupWorkspaceStore.getState()
@@ -99,25 +123,6 @@ function Members({
     store.preview(actions.jump(row.pane, folderId))
   }
 
-  // 「＋」入群：声明了 `agent.acp` 的插件以 ACP 成员入群，先在启动栏选专家 / 服务商 / 模型；
-  // 名字取插件 id（重名加序号），加完切到和它单聊。失败抛出，启动栏提示。
-  const addable = useMemo(() => agents.filter((agent) => agent.acp), [agents])
-  const root = folders.find((folder) => folder.id === folderId)
-  const addMember = async (agent: string, choice: AgentLaunchChoice) => {
-    if (!group.name) return
-    const taken = new Set(group.members.map((m) => m.name))
-    let as = agent
-    for (let n = 2; taken.has(as); n += 1) as = `${agent}-${n}`
-    const response = await joinAcpMember(folderId, group.name, agent, as, {
-      inputs: choice.agentLaunchInputs,
-      provider: choice.providerId,
-      model: choice.modelId,
-    })
-    if (!response.ok) throw new Error(response.error.message)
-    group.refresh()
-    select(as)
-  }
-
   const run = async (
     work: () => Promise<
       { ok: true } | { ok: false; error: { message: string } }
@@ -129,6 +134,7 @@ function Members({
     }))
     if (!response.ok) toast.error(response.error.message)
     group.refresh()
+    void useChatGroups.getState().reload(folderId)
   }
   const control = (row: MemberRow, action: "stop" | "new" | "leave") =>
     group.name &&
@@ -148,28 +154,39 @@ function Members({
     else if (failure) toast.error(failure.message)
   }
   const menu = (row: MemberRow) => {
+    const name = row.member.name
     const handed = row.member.handedTo != null
-    const isLead = group.lead === row.member.name
+    const member = present.has(name)
+    const agent = memberAgent(row.member) ?? configs[name]?.agent ?? null
     return (
       <>
         <DropdownMenuItem
-          data-member-action="lead"
+          data-member-action="private"
+          disabled={!agent}
+          title={tGroup("acp.privateHint")}
           onSelect={() =>
-            group.name &&
-            void run(() =>
-              setGroupLead(
-                folderId,
-                group.name!,
-                isLead ? null : row.member.name
-              )
-            )
+            // 私聊 = 带这个专家的普通终端（在群目录），不进群记录。
+            useStatusBarLaunchStore.getState().openLaunchShelf(agent, {
+              expert: isExpert(name) ? name : null,
+              folderId,
+              workingDirectory: groupCwd,
+            })
           }
         >
-          {isLead ? t("unsetLead") : t("setLead")}
+          {tGroup("acp.private")}
         </DropdownMenuItem>
+        {isExpert(name) ? (
+          <DropdownMenuItem
+            data-member-action="edit"
+            onSelect={() => openExpertEditor(name)}
+          >
+            {t("editExpert")}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           data-member-action="routine"
-          onSelect={() => setRoutineFor(row.member.name)}
+          disabled={!member}
+          onSelect={() => setRoutineFor(name)}
         >
           {tGroup("routine.menu")}
         </DropdownMenuItem>
@@ -180,7 +197,7 @@ function Members({
           {tGroup("acp.stop")}
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={handed}
+          disabled={!member || handed}
           title={tGroup("acp.newHint")}
           onSelect={() => void control(row, "new")}
         >
@@ -199,6 +216,7 @@ function Members({
         </DropdownMenuItem>
         <DropdownMenuItem
           data-member-action="leave"
+          disabled={!member}
           className="text-destructive"
           title={tGroup("acp.leaveHint")}
           onSelect={() => void control(row, "leave")}
@@ -207,6 +225,15 @@ function Members({
         </DropdownMenuItem>
       </>
     )
+  }
+  // 名字下面一行：专家是它配的 Agent · 模型；不是专家的成员是它在用的 Agent。
+  const subtitle = (row: MemberRow) => {
+    const name = row.member.name
+    if (!isExpert(name)) return agentName(memberAgent(row.member) ?? "")
+    const config = configs[name]
+    return config
+      ? [agentName(config.agent), config.model].filter(Boolean).join(" · ")
+      : t("noAgent")
   }
 
   if (group.error)
@@ -224,151 +251,46 @@ function Members({
     active.find((event) => event.to === name) ??
     null
   const queuedOf = (seq: number) => progressOf(seq)?.state === "queued"
-  const agentName = (id: string) =>
-    agents.find((agent) => agent.id === id)?.name ?? id
   const interrupt = (row: MemberRow) => {
-    if (row.member.builtin) void stopBerth(folderId)
-    else if (row.pane) void actions.interrupt(row.pane)
+    if (row.pane) void actions.interrupt(row.pane)
     else if (group.name)
       void controlAcpMember(folderId, group.name, row.member.name, "stop")
   }
-  // 按工作目录分组：主项目在前，其余按目录名；内置 Berth 没有目录，归主项目。
-  const family = folders.filter(
-    (folder) => folder.kind !== "chat" && mainFolderId(folder) === folderId
-  )
-  const dirOf = (row: MemberRow) => {
-    const cwd = row.member.bodies[row.member.bodies.length - 1]?.cwd
-    const folder = cwd
-      ? family.find((f) => trimSlash(f.path) === trimSlash(cwd))
-      : root
-    return folder
-      ? {
-          key: String(folder.id),
-          label: projectMemberLabel(folder),
-          main: folder.id === folderId,
-        }
-      : {
-          key: cwd!,
-          label: cwd!.split(/[\\/]/).filter(Boolean).pop() ?? cwd!,
-          main: false,
-        }
-  }
-  const shown = rows
-    .filter((row) => filter === "all" || row.status === filter)
-    .filter(({ member }) =>
-      `${memberLabel(member)} ${member.name} ${agentName(memberAgent(member) ?? "")}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    )
-  const sections = new Map<
-    string,
-    { label: string; main: boolean; rows: MemberRow[] }
-  >()
-  for (const row of shown) {
-    const dir = dirOf(row)
-    const section = sections.get(dir.key) ?? {
-      label: dir.label,
-      main: dir.main,
-      rows: [],
-    }
-    section.rows.push(row)
-    sections.set(dir.key, section)
-  }
-  const ordered = [...sections.entries()].sort(
-    ([, a], [, b]) =>
-      Number(b.main) - Number(a.main) || a.label.localeCompare(b.label)
+  const shown = rows.filter((row) =>
+    `${memberLabel(row.member)} ${row.member.name} ${subtitle(row)}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
   )
   return (
-    <section data-member-group={group.name} className="space-y-3 px-2 py-1">
-      {root && group.name ? (
-        <SidebarHeaderActions>
-          <GroupAddMember
-            addable={addable}
-            addForm={(agent, close) => (
-              <AgentLaunchShelfContent
-                agentId={agent}
-                workingDirectory={root.path}
-                folderId={folderId}
-                onClose={close}
-                launch={(choice) => addMember(agent, choice)}
-                launchLabel={tGroup("add.join")}
-              />
-            )}
+    <>
+      <GroupSection title={t("sectionExperts")} action={<ExpertNewButton />}>
+        {rows.length > 3 || query ? (
+          <Input
+            aria-label={tGroup("focus.search")}
+            placeholder={tGroup("focus.search")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-7 text-xs"
           />
-        </SidebarHeaderActions>
-      ) : null}
-      <button
-        type="button"
-        data-member-all
-        disabled={!group.name}
-        aria-pressed={selected == null}
-        onClick={() => select(null)}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/40",
-          selected == null && "bg-primary/10"
-        )}
-      >
-        <span className="flex size-7 items-center justify-center rounded-full bg-muted">
-          <Users aria-hidden className="size-3.5" />
-        </span>
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {tGroup("chat.all")}
-        </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {group.lead
-            ? t("leadIs", { name: labelOf(group.lead) })
-            : t("noLead")}
-        </span>
-      </button>
-      {rows.length > 3 || query ? (
-        <Input
-          aria-label={tGroup("focus.search")}
-          placeholder={tGroup("focus.search")}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="h-7 text-xs"
-        />
-      ) : null}
-      {ordered.map(([key, section]) => (
-        <GroupSection
-          key={key}
-          title={section.label}
-          count={section.rows.length}
-        >
-          <GroupMembers
-            rows={section.rows}
-            selected={selected}
-            currentOf={currentOf}
-            queuedOf={queuedOf}
-            lead={group.lead}
-            menu={(row) => (row.member.builtin ? null : menu(row))}
-            onSelect={(row) => select(row.member.name)}
-            agentName={agentName}
-            onJump={open}
-            onInterrupt={interrupt}
-            sessions={(row) => (
-              <MemberSessions
-                row={row}
-                folderId={folderId}
-                events={group.events}
-              />
-            )}
-          />
-        </GroupSection>
-      ))}
-      {ordered.length === 0 && group.loaded ? (
-        <p className="px-2 text-xs text-muted-foreground">
-          {query || filter !== "all"
-            ? tGroup("focus.noMatch")
-            : t("emptyStarted")}
-        </p>
-      ) : null}
-      <GroupSection title={t("sectionDelegations")} count={active.length}>
-        <ActiveDelegations
-          events={active}
-          progressOf={progressOf}
-          labelOf={labelOf}
-          onSelect={(event) => select(event.to ?? null)}
+        ) : null}
+        <GroupMembers
+          rows={shown}
+          selected={selected}
+          currentOf={currentOf}
+          queuedOf={queuedOf}
+          menu={menu}
+          subtitle={subtitle}
+          onSelect={(row) => select(row.member.name)}
+          agentName={agentName}
+          onJump={open}
+          onInterrupt={interrupt}
+          empty={
+            catalog ? (
+              <p className="px-2 text-xs text-muted-foreground">
+                {query ? tGroup("focus.noMatch") : t("emptyExperts")}
+              </p>
+            ) : null
+          }
         />
       </GroupSection>
       {routineFor ? (
@@ -379,62 +301,26 @@ function Members({
           onClose={() => setRoutineFor(null)}
         />
       ) : null}
-    </section>
+    </>
   )
 }
 
-const LazySessionsView = lazy(() =>
-  import("@/sessions/project/project-sessions-view").then((m) => ({
-    default: m.ProjectSessionsView,
-  }))
-)
-
 /**
- * 侧栏群组视图：顶栏筛选「全部 / 等你 / 干活中」与「会话」页、「＋」入群。成员按工作目录（主项目 / 各 worktree）分组，
- * 点成员 = 首页切到与它单聊，「全部」= 群聊；行菜单设负责人、停止、新会话、在终端打开、移出；底部是派发中的委托。
- * 直接读空间的群，不依赖首页的选中状态。
+ * 侧栏群组视图：一列里上面是「群」（建群、切群、群设置），下面是「专家」（全部专家，点专家 = 与它私聊）。
+ * 会话列表在「会话分析」插件里。
  */
 export function GroupMembersPanel({
   folderId,
   active = true,
 }: {
   folderId: number
-  /** 侧栏打开且停在群组视图：会话页据此才去读。 */
+  /** 侧栏打开且停在群组视图：专家页据此才轮询群状态。 */
   active?: boolean
 }) {
-  const t = useTranslations("BerthTasks.group.members")
-  const [page, setPage] = useState<Page>("all")
   return (
-    <>
-      <SidebarHeaderTabs<Page>
-        tabs={[
-          { id: "all", label: t("filterAll") },
-          { id: "attention", label: t("filterAttention") },
-          { id: "working", label: t("filterWorking") },
-          { id: "sessions", label: t("pageSessions") },
-        ]}
-        value={page}
-        onChange={setPage}
-      />
-      {page !== "sessions" ? (
-        <div className="h-full min-h-0 overflow-auto py-1">
-          <Members
-            key={folderId}
-            folderId={folderId}
-            live={active}
-            filter={page}
-          />
-        </div>
-      ) : (
-        <Suspense fallback={null}>
-          <LazySessionsView
-            key={folderId}
-            folderId={folderId}
-            active={active}
-            onShowMember={() => setPage("all")}
-          />
-        </Suspense>
-      )}
-    </>
+    <div className="h-full min-h-0 space-y-3 overflow-auto px-2 py-2">
+      <GroupList key={`groups-${folderId}`} folderId={folderId} />
+      <Experts key={folderId} folderId={folderId} live={active} />
+    </div>
   )
 }

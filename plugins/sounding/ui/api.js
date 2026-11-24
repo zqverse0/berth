@@ -1,6 +1,7 @@
 // @ts-check
 /// <reference path="../../berth-plugin.d.ts" />
 // 页面经 scripts.run("ui/api.js", { action, … }) 调用的后端：问题配置、会话列表、跑 sounding、存结果。
+// 会话列表来自 `berth project <根> session ls --json`（与 Berth 同一份：各群目录的会话、来源、在跑）。
 // 问题与结果存在插件数据目录（$BERTH_HOME/state/sounding/），跟着 Berth 安装走，不进项目、不进 git。
 // 分析由 sounding 完成：整体问题用 inspect_scout 的扫描器（对话模型），逐条判断用 Jev。
 // 两种模型都经 `berth provider run` 的本地凭据代理（需要时嵌套两层），密钥不出 Berth。
@@ -13,7 +14,7 @@ const DEFAULT_MODEL = "deepseek-flash"
 export default async function (input) {
   switch (input?.action) {
     case "state":
-      return await state()
+      return await state(Number(input.limit) || 50)
     case "saveConfig":
       await berth.storage.set(CONFIG, input.config)
       return { ok: true }
@@ -24,7 +25,8 @@ export default async function (input) {
   }
 }
 
-async function state() {
+/** @param {number} limit 会话最多取几条（页面「更多」每次加 50） */
+async function state(limit) {
   const project = await berth.env.project()
   const providers = await chatProviders()
   const config = (await berth.storage.get(CONFIG)) ?? defaultConfig(providers)
@@ -34,7 +36,7 @@ async function state() {
     providers: providers.chat,
     jevProviders: providers.jev,
     config,
-    sessions: project ? await sessions(project.root) : [],
+    sessions: project ? await sessions(project.root, limit) : [],
     results: project
       ? ((await berth.storage.get(resultsKey(project.id))) ?? {})
       : {},
@@ -72,8 +74,11 @@ function defaultConfig(providers) {
   }
 }
 
-/** @param {string} root */
-async function sessions(root) {
+/**
+ * @param {string} root
+ * @param {number} limit
+ */
+async function sessions(root, limit) {
   const listed = await json("berth", [
     "project",
     root,
@@ -81,7 +86,7 @@ async function sessions(root) {
     "ls",
     "--json",
     "--limit",
-    "50",
+    String(limit),
   ])
   return listed.sessions.map((/** @type {any} */ s) => ({
     id: s.session_id,
@@ -89,6 +94,9 @@ async function sessions(root) {
     title: s.title,
     updatedAt: s.updated_at,
     live: s.live,
+    cwd: s.cwd,
+    group: s.group_name,
+    origin: s.origin,
   }))
 }
 

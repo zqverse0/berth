@@ -3,7 +3,8 @@ import { NextIntlClientProvider } from "next-intl"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import en from "@/i18n/messages/en.json"
 import { type GroupEvent } from "@/lib/agent/berth-group"
-import { GroupTimeline } from "./group-timeline"
+import { useExpertCatalog } from "./expert-editor"
+import { GroupTimeline, MemberAvatar } from "./group-timeline"
 
 vi.mock("@/components/ai-elements/message", () => ({
   MessageResponse: ({ children }: { children: string }) => (
@@ -342,5 +343,50 @@ describe("GroupTimeline Berth process", () => {
     expect(document.querySelector("[data-process-log]")).toHaveTextContent(
       "→ bash berth tools list"
     )
+  })
+})
+
+describe("MemberAvatar", () => {
+  it("draws the expert's avatar instead of the Agent icon, ignoring unknown values", () => {
+    const entry = (id: string, avatar: unknown) => ({
+      id,
+      expert: {
+        name: "Dev",
+        prompt: "",
+        skills: [],
+        mcp: [],
+        plugins: [],
+        avatar,
+      },
+      promptText: null,
+      modified: null,
+      error: null,
+      issues: [],
+    })
+    useExpertCatalog.setState({
+      catalog: {
+        home: "/h",
+        experts: [
+          entry("dev", { shape: "drop", color: "chart-5" }),
+          entry("odd", { shape: "drop", color: "violet" }),
+        ],
+        skills: [],
+        mcp: [],
+        plugins: [],
+        invalid: { skills: [], mcp: [], plugins: [] },
+      },
+    })
+    const view = render(
+      <>
+        <MemberAvatar agent="claude" name="dev" />
+        <MemberAvatar agent="claude" name="odd" />
+      </>
+    )
+    const avatar = view.container.querySelector('[data-expert-avatar="dev"]')
+    expect(avatar?.querySelector("svg")).toHaveClass("fill-chart-5")
+    expect(avatar).toHaveTextContent("D")
+    expect(
+      view.container.querySelector('[data-expert-avatar="odd"]')
+    ).toBeNull()
   })
 })

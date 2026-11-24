@@ -259,6 +259,8 @@ fn ensure_windows_undecorated<R: tauri::Runtime>(_window: &tauri::WebviewWindow<
 /// Apply platform-specific post-creation setup.
 pub(crate) fn post_window_setup<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     ensure_windows_undecorated(window);
+    #[cfg(all(target_os = "linux", feature = "tauri-runtime"))]
+    crate::cef_focus::apply_wm_class(window);
 }
 
 /// Store the current zoom level and persist it to DB so the next launch

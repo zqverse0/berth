@@ -117,8 +117,11 @@ pub fn assign(root: &Path, params: &Value) -> Result<Value, String> {
 pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
     let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
     let main = tasks::resolve(root).map_err(|error| error.message)?.main;
-    // 一个项目一个群：主目录和各 worktree 打开的都是项目群；旧 tab 的群名不能把它切到别的群。
-    let name = group::MAIN_GROUP.to_owned();
+    // 读 `name` 这个聊天群（缺省 `main`）；不是聊天群的名字（旧 tab 记的 checkout 键等）回到 `main`。
+    let name = text(params, "name")
+        .filter(|name| group::is_chat_group(&main, name).unwrap_or(false))
+        .unwrap_or(group::MAIN_GROUP)
+        .to_owned();
     // 群组页常开、每 2 秒读一次：成员与送达状态由缓存的事件派生，只增量补读新事件。
     let events = group::events_shared(&main, &name).map_err(|error| error.message)?;
     // 成员名是专家 id：附上专家的显示名（`experts/<id>.json` 的 `name`）。
@@ -140,14 +143,21 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
             let mut row = serde_json::to_value(&member).unwrap_or_default();
             row["leftAt"] = json!(left_at);
             row["expertName"] = json!(experts.get(&member.name));
-            // 在群时附上：正在回答的过程（与内置 Berth 的 `busy` / `log` 同形）、交接状态、绑定的会话。
+            // 在群时附上：正在回答的过程（`busy` / `log`）、交接状态、绑定的会话。
             if left_at.is_none() {
-                let log = berth_group::acp::live(&main, &member.name);
+                let log = berth_group::acp::live(&main, &name, &member.name);
                 row["busy"] = json!(log.is_some());
                 row["log"] = log.unwrap_or(Value::Null);
                 // 会话交给了终端：那个终端的 id（交接了还没开好终端时为 ""）。
                 row["handedTo"] = json!(berth_group::acp::handed(&events, &member.name)
                     .map(|event| event["terminal"].as_str().unwrap_or_default()));
+                // 成员菜单换过 Agent（`acp_settings`）：显示现在用的。
+                if let (Some(joined), Some(last)) = (
+                    berth_group::acp::joined(&events, &name, &member),
+                    member.bodies.len().checked_sub(1),
+                ) {
+                    row["bodies"][last]["agent"] = json!(joined.agent);
+                }
                 for (index, body) in member.bodies.iter().enumerate() {
                     row["bodies"][index]["sessionId"] = json!(group::bound_session_in(
                         &main,
@@ -160,12 +170,11 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
             row
         })
         .collect();
-    let mut delivery: serde_json::Map<String, Value> =
+    let delivery: serde_json::Map<String, Value> =
         group::delivery_states(&main, &name, &events)
             .into_iter()
             .map(|(seq, state)| (seq.to_string(), json!(state)))
             .collect();
-    super::berth_member::mark_delivered(&main, &events, &mut delivery);
     // 时间线分页：`before` 往上翻更早的，`limit` 每页条数。
     let before = params.get("before").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
@@ -173,19 +182,7 @@ pub fn read(root: &Path, params: &Value) -> Result<Value, String> {
         group::read(&main, &name, after, before, limit, None).map_err(|error| error.message)?;
     read["name"] = json!(name);
     read["members"] = json!(members);
-    read["lead"] = json!(
-        group::settings(&main, &name)
-            .map_err(|error| error.message)?
-            .lead
-    );
     read["delivery"] = Value::Object(delivery);
-    // 内置成员 Berth：没有终端，前端固定显示；`busy` 为它正在回答（或有消息排队），
-    // `log` 为正在回答的提问与执行过程。
-    read["builtin"] = json!({
-        "name": berth_group::builtin::BERTH,
-        "busy": super::berth_member::busy(&main),
-        "log": super::berth_member::live_log(&main),
-    });
     read["env"] = group::env(&main, &name)
         .map_err(|error| error.message)?
         .map(|env| json!({"branch": env.branch, "baseBranch": env.base_branch, "worktree": env.worktree}))

@@ -93,7 +93,6 @@
     "panels": {
       "modelProviders": "Model Providers",
       "tools": "Tools",
-      "experts": "Experts",
       "appearance": "Appearance",
       "advanced": "Advanced",
       "general": "General"
@@ -1223,37 +1222,6 @@
       "providerModelDefault": "Default",
       "expertLaunchBlockedTitle": "Expert launch blocked"
     },
-    "sessionDetails": {
-      "menuLabel": "Session Details",
-      "noActiveSession": "No active session",
-      "title": "Session Details",
-      "subtitle": "Session metadata and token usage",
-      "fieldTitle": "Title",
-      "untitled": "Untitled conversation",
-      "sessionId": "Session ID",
-      "externalId": "Extension ID",
-      "agent": "Agent",
-      "model": "Model",
-      "gitBranch": "Git Branch",
-      "parentId": "Parent Session",
-      "tokensHeading": "Token Usage",
-      "totalTokens": "Total",
-      "inputTokens": "Input",
-      "outputTokens": "Output",
-      "cacheWrite": "Cache Write",
-      "cacheRead": "Cache Read",
-      "contextWindow": "Context Window",
-      "duration": "Duration",
-      "loadingStats": "Loading token usage…",
-      "loadFailed": "Failed to load token usage",
-      "noStats": "No usage recorded",
-      "timestampsHeading": "Timestamps",
-      "createdAt": "Created",
-      "updatedAt": "Updated",
-      "none": "—",
-      "copyField": "Copy {field}",
-      "copiedField": "Copied {field}"
-    },
     "sessionViewer": {
       "contentTitle": "Session content",
       "contextTitle": "Startup context",
@@ -1262,9 +1230,6 @@
       "startupTokens": "first request {tokens} tokens",
       "startupUnlisted": "Not in the session file (tool definitions, first prompt…)",
       "approxTokens": "≈{tokens}",
-      "toolResultTokens": "results ≈{tokens} tokens",
-      "outlineTitle": "Prompt outline",
-      "preamble": "Preamble",
       "detail": {
         "prompts": "Prompts",
         "answers": "Answers",
@@ -1280,18 +1245,12 @@
       "processTools": "{count, plural, one {# tool call} other {# tool calls}}",
       "processErrors": "{count, plural, one {# error} other {# errors}}",
       "processSteps": "{count, plural, one {# step} other {# steps}}",
-      "summaryExchanges": "{count, plural, one {# prompt} other {# prompts}}",
-      "summaryPeakContext": "Peak context {tokens}",
       "contextTokens": "Context {tokens}",
-      "skillsLabel": "Skills",
-      "toolsLabel": "Tools",
       "processSkills": "skills: {names}",
       "detailLabel": "Detail level",
       "filterSkill": "Skill: {name}",
       "filterTool": "Tool: {name}",
       "clearFilter": "Clear filter {name}",
-      "openInReader": "Open in reader",
-      "noTerminalSession": "No session record for this terminal's agent in this project yet.",
       "partCut": "{count, plural, one {# more character not shown} other {# more characters not shown}}",
       "partShowAll": "Show all",
       "partLoading": "Loading…",
@@ -2900,18 +2859,6 @@
       "cloneFailed": "Failed to clone repository"
     },
     "sessionsView": {
-      "back": "Back to sessions",
-      "live": "Running",
-      "refresh": "Refresh",
-      "search": "Search title or session id",
-      "agent": "Agent",
-      "anyAgent": "All agents",
-      "origin": "Origin",
-      "anyOrigin": "All origins",
-      "group": "Group",
-      "anyGroup": "All groups",
-      "memberInGroup": "Show in group",
-      "current": "Current session",
       "origins": {
         "berth": "Berth",
         "external": "External",
@@ -3236,10 +3183,8 @@
   },
   "ExpertsSettings": {
     "title": "Experts",
-    "description": "Assemble experts: prompt, skills, MCP servers and agent plugin packs.",
-    "refresh": "Refresh",
     "loading": "Loading experts…",
-    "empty": "No experts yet. Enter an id above to create one.",
+    "empty": "No experts yet. Create one with \"+\" above.",
     "select": "Select an expert on the left to edit it.",
     "create": "New",
     "newIdPlaceholder": "new expert id",
@@ -3248,6 +3193,8 @@
     "revert": "Discard changes",
     "delete": "Delete",
     "name": "Name",
+    "avatar": "Avatar",
+    "avatarClear": "No avatar (show the Agent icon)",
     "prompt": "Prompt",
     "invalid": "Expert file could not be parsed: {error}",
     "skillCount": "{count, plural, one {# skill} other {# skills}}",
@@ -3553,7 +3500,6 @@
     "tabDevelop": "Develop",
     "capabilitiesTitle": "Provides in Berth",
     "goModelProviders": "Model providers",
-    "goExperts": "Experts",
     "defaultsNote": "Values preselected each time you open the launch bar. They are the same values the launch bar remembers, so a change in either place shows up in both.",
     "agentGuideAgent": "This guide is given to the agent when it starts.",
     "openPackageDir": "Open folder",
@@ -3875,6 +3821,7 @@
       "collapse": "Collapse",
       "newMessages": "New messages",
       "noEvents": "No messages yet. Members report here automatically after each round.",
+      "noDmEvents": "No messages with {name} yet. A private chat is kept on its own, out of every group.",
       "setGroupMain": "Make main task",
       "pageNoTasks": "No active tasks in this group.",
       "groupSelect": "Group",
@@ -3937,25 +3884,14 @@
       },
       "members": {
         "title": "Members ({count})",
-        "emptyPlanning": "After starting, Agents launched in the worktree join automatically.",
-        "emptyStarted": "No members yet. Click + in the header to add an agent.",
         "jump": "Jump to its terminal",
         "mention": "@ mention",
         "interrupt": "Interrupt",
-        "pageSessions": "Sessions",
         "sessions": {
-          "toggle": "Sessions",
+          "toggle": "Agent and sessions",
           "loading": "Loading",
-          "current": "Current",
           "live": "Running",
           "own": "Its own"
-        },
-        "recordView": {
-          "loading": "Loading",
-          "empty": "No conversation with Berth yet.",
-          "incomplete": "This turn was stopped or failed; only the question and this answer were kept.",
-          "noOutput": "(no output yet)",
-          "usage": "{calls} calls · input {input} · output {output} · cached {cached} · context {context}"
         },
         "needsYou": "Needs you",
         "leftCount": "Left ({count})",
@@ -3967,18 +3903,14 @@
         "rename": "Rename",
         "renameHint": "Enter to save, Esc to cancel; leave empty to restore the original name. No spaces or @",
         "showMessages": "Show only its messages",
-        "sectionDelegations": "In progress",
-        "noDelegations": "No delegation in progress",
-        "filterAll": "All",
-        "filterAttention": "Waiting",
-        "filterWorking": "Working",
-        "setLead": "Set as lead",
-        "unsetLead": "Remove as lead",
-        "lead": "Lead",
-        "leadIs": "Lead: {name}",
-        "noLead": "No lead",
         "queued": "Queued",
-        "menu": "More actions"
+        "menu": "More actions",
+        "unbound": "No expert",
+        "newExpert": "New expert",
+        "noAgent": "No agent chosen",
+        "editExpert": "Edit expert",
+        "emptyExperts": "No experts yet. Click \"+\" in the header to create one.",
+        "sectionExperts": "Experts"
       },
       "sessions": {
         "title": "Sessions",
@@ -4035,18 +3967,17 @@
         "keysHint": "Enter to send · Shift+Enter newline",
         "attach": "Insert file paths",
         "attachTitle": "Choose files to reference",
-        "berthProvider": "Provider",
-        "berthModel": "Model",
-        "berthNoProvider": "Add a model provider with an API key in Settings → Model providers so Berth can answer",
-        "berthPlaceholder": "Message Berth (type / for commands)",
-        "berthStop": "Stop Berth",
-        "commandsLabel": "Commands",
-        "commands": {
-          "new": "Start a new session (earlier turns are left out)"
+        "placeholderGroup": "Type @ to pick who answers; without an @ the message is only recorded",
+        "mention": {
+          "aria": "Mention a member",
+          "everyone": "{count, plural, one {# member in this group} other {# members in this group}}",
+          "agent": "Agent",
+          "group": "Group chat",
+          "noAgent": "No Agent chosen",
+          "outside": "Not in group"
         },
-        "noLead": "No lead set: messages without a recipient are only recorded in the group and nobody answers. Set a lead from a member's menu in the sidebar.",
-        "placeholderLead": "Message the group; lead {name} answers",
-        "placeholderGroup": "Message the group (no lead set)"
+        "mentionAmbiguous": "Several members are named {names}: pick the one you mean from the @ list.",
+        "noAgent": "{names} has no Agent yet: click it in the sidebar to open the private chat and choose one under \"Agent and sessions\" at the top."
       },
       "fromTerminal": "From terminal #{number}; click to open",
       "terminalClosed": "That terminal is closed",
@@ -4064,9 +3995,7 @@
       "copy": "Copy full text",
       "copied": "Copied",
       "more": "More",
-      "chat": {
-        "all": "All"
-      },
+      "chat": {},
       "pending": {
         "queued": "Queued",
         "working": "Thinking",
@@ -4081,11 +4010,6 @@
         "added": "Added",
         "modified": "Modified",
         "deleted": "Deleted"
-      },
-      "add": {
-        "title": "Add member (ACP)",
-        "empty": "No agent can join: the plugin must declare agent.acp in tool.json",
-        "join": "Join group"
       },
       "permission": {
         "title": "Wants to run a tool",
@@ -4105,7 +4029,9 @@
         "inTerminal": "Session is open in a terminal; group messages are delivered after it returns",
         "jump": "Show terminal",
         "return": "Return to group",
-        "returnHint": "Close that terminal and bring the session back to the group (including what was said there)"
+        "returnHint": "Close that terminal and bring the session back to the group (including what was said there)",
+        "private": "Chat in a terminal",
+        "privateHint": "Open a terminal with this expert in the group's directory; it stays out of the group."
       },
       "older": "Load earlier messages",
       "routine": {
@@ -4117,6 +4043,28 @@
         "failures": "{count} failures in a row",
         "retry": "retry",
         "timeout": "No answer in time"
+      },
+      "groups": {
+        "create": "New group",
+        "settings": "Group settings",
+        "settingsOf": "{name} settings",
+        "name": "Group key",
+        "namePlaceholder": "e.g. design (letters, digits, - or _; can't be changed later)",
+        "title": "Display name",
+        "cwd": "Directory (members' agents run here)",
+        "cwdHint": "After changing the directory, each member starts a new session there on its next message.",
+        "everyoneHint": "Write @everyone in a message to send it to every member.",
+        "delete": "Delete group",
+        "deleteConfirm": "Delete group \"{name}\"? Its chat history is removed and its members stop.",
+        "save": "Save",
+        "memberCount": "{count, plural, =0 {no members} one {# member} other {# members}}",
+        "memberSeparator": ", ",
+        "section": "Groups"
+      },
+      "memberSettings": {
+        "agent": "Agent",
+        "newSession": "Switching the agent starts a new session; the group's messages stay.",
+        "apply": "Apply"
       }
     }
   },

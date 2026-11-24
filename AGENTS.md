@@ -60,7 +60,5 @@
 - 注释用简体中文。
 - 在 `~/Project/berth-dev`（dev 分支）改；`~/Project/berth`（main）只合并发布。
 - 不擅自新建 worktree；没有对应方向就直接在 berth-dev 改。
-- 知识库 `.berth/knowledge/` 只在用户指定时读写，不主动写笔记。
-- 待讨论的问题写成 `.berth/ideas/<YYYY-MM-DD-HHMMSS>.idea.md`：frontmatter `type: 想法`、`status: 待讨论`；
-  首行短标题，分节「现状/证据、方向/候选、待定」，末尾留 `## 讨论`、`## 结论`。
+- 知识库只在用户指定时读写，不主动写笔记。
 - 发布流程：`docs/releasing/workflow.md`。

@@ -176,7 +176,19 @@ GUI 不自动为全部 action 生成工具面板。Terminal action 的持续输�
 ## 群组 ACP 模式
 
 群成员由群组运行时（`berth group watch`）以 [ACP](https://agentclientprotocol.com) 客户端身份起 Agent 的适配器进程。
-Agent 不支持 ACP 就不进群；终端里的 Agent 不进群（`berth group spawn` 也以 ACP 成员入群，目录是所选 worktree）。Berth 不声明 `fs` / `terminal` 客户端能力，Agent 用自己的工具读写文件、跑命令。
+Agent 不支持 ACP 就不进群；终端里的 Agent 不进群（`berth group spawn` 也以 ACP 成员入群，进目录是该 worktree 的群，没有就按目录名新建）。Berth 不声明 `fs` / `terminal` 客户端能力，Agent 用自己的工具读写文件、跑命令。
+
+**群与目录**：一个空间多个群（`main` 为默认，`berth group ls|create|rename|delete|settings`，侧栏群组视图「群」页新建、切换、设置）。
+每个群有 `cwd`（主项目或 worktree，缺省主项目），存在 `groups.json` 的群条目里，只经 `group.rs` 的 settings 读写。
+成员名 = 专家 id，同群不重复；会话 = 专家 × 群，适配器在群 `cwd` 运行。
+专家在本空间用哪个 Agent / 服务商 / 模型存在 `groups/experts.json`（所有群共用，`group.experts` 读、`group.expert.set` 存）；
+给还不在群里的专家发消息时按它入群，没配置就报错。改了群 `cwd`，该群成员下一条消息在新目录开新会话，旧会话保留。
+按 worktree 自动登记的 `checkout-<uuid>` 条目不是群；旧写法（worktree 名）指向 `cwd` 是它的群。
+**私聊**：和专家私聊是单独的账本 `dm-<专家>`（`group.dm` 没有就建，群条目记 `dm`），收发、入群、切换 Agent 与群相同；
+不在 GUI 群列表里（`group.list` 带 `dm`，前端过滤），不算任何目录的群，消息不进任何群。会话 = 专家 × 私聊，与它在群里的会话分开。
+
+**收件人**：用户指定了成员（单聊、回复某成员）就发给它；正文里有 `@everyone` 发给所有在群成员；否则只记进群。GUI 输入框照 OpenMausBot 的 @：打 `@` 从在群成员、还没进群的专家与 `@everyone` 里选，正文 @ 了成员就只发给被 @ 的（由输入框换算成收件人，后端不解析正文的 @名字）；显示名重名又没从列表选的拒发；@ 了还没进群的专家照发（后端按配置让它入群），它没选 Agent 的拒发。
+不从正文解析 `@成员`。
 
 **插件入口**：`tool.json` 声明 `contributes.agent.acp: true`（群页据此列出能进群的 Agent），`launch.js` 导出钩子 `acp(ctx)`，`ctx` 与 `launch` 同一份（没有 `hookCommand`、启动栏 `args`），返回：
 
@@ -187,6 +199,7 @@ Agent 不支持 ACP 就不进群；终端里的 Agent 不进群（`berth group s
 | `sessionMeta` | 每次 `session/new` / `load` / `resume` 原样放进 `_meta`；缺省不带 |
 | `delegation` | 能否接收委托（运行时经 `mcpServers` 挂 Berth 的 stdio MCP）。**缺省 false**：stdio MCP 是 ACP 必备能力，initialize 里没有开关，适配器收下却不转交时无从得知 |
 | `approvesAllTools` | 每个工具调用都先经 `session/request_permission`；缺省 false，群页在该成员处写明「工具调用不经审批」 |
+| `modelOption` | `ctx.provider` + 选中模型在会话 model 配置项（`configOptions` 里 category 为 `model`）中的值；缺省不给 |
 
 版本门槛、适配器缺失由插件在 `acp()` 里自查并抛错，运行时把错误原文显示为「该 Agent 不可用」。
 `ctx.paths.tmp` 活到该 ACP 进程组退出，由运行时删除。
@@ -198,6 +211,12 @@ Agent 不支持 ACP 就不进群；终端里的 Agent 不进群（`berth group s
 交接时运行时停掉该成员的进程，群消息留着；群页用入群时的启动栏值加上会话 id 开终端（填进启动栏 `optionsFrom: "projectSessions"` 那一项），
 所以插件要满足：ACP 的 `sessionId` 就是 Agent 自己的会话 id，终端启动时用这一项能打开它（pi：`--session <id>`）。
 终端关掉后交回，下一条群消息起新进程 `session/load` 同一会话，含终端里聊的。没有会话项的 Agent 不能交接。
+
+**群内切换**（专家页展开选 Agent / 模型，`group.expert.set` 对专家所在的每个群记一条）：账本记一条 `acp_settings`（Agent、启动栏值、服务商、模型；专家不变），
+下一条消息投递前运行时与进程启动时的设置比对：只换了服务商 / 模型 → 重跑 `acp(ctx)` 取新的 `modelOption`，运行中的会话
+model 配置项列着它就 `session/set_config_option`（同一进程、同一会话）；否则停掉进程，按新设置起进程并 `session/load` 同一会话。
+换 Agent 或启动栏值同样重启；换 Agent 时旧会话在改设置时清掉，开新会话。切换失败照旧用原模型回答，群里记 `model_switch_failed`。
+ACP 的 `providers/set` 还在 unstable 特性里，暂不使用。
 
 **进程**：每个成员会话、每个工单会话各一个适配器进程，独立进程组；回收 / 重启杀整个组，确认退出后才起新的。
 群成员的 ACP 进程只归群组运行时，手开终端只归 termd。

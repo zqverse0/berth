@@ -27,7 +27,7 @@ const ORDER: Record<MemberStatus, number> = {
   idle: 2,
 }
 
-/** 在群的成员（内置 Berth 与 ACP 成员）；移出的不再列出，要用再「+」加回来，它的消息照旧留在时间线上。 */
+/** 在群的 ACP 成员；移出的不再列出，要用再「+」加回来，它的消息照旧留在时间线上。 */
 export function memberRows(
   members: readonly GroupMember[],
   events: readonly GroupEvent[],

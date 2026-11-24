@@ -15,9 +15,8 @@ vi.mock("@/lib/api", () => ({
   listProjectSessionOverview,
   resolveProjectAgentSession,
 }))
-const openBerthSessionTab = vi.hoisted(() => vi.fn())
 vi.mock("@/hooks/workspace/use-workspace-runtime", () => ({
-  useWorkspaceRuntimeActions: () => ({ openBerthSessionTab }),
+  useWorkspaceRuntimeActions: () => ({}),
 }))
 const openSession = vi.hoisted(() => vi.fn())
 vi.mock("@/sessions/project/open-project-session", () => ({
@@ -46,25 +45,6 @@ function show(target: MemberRow) {
 }
 
 describe("MemberSessions", () => {
-  it("lists Berth's sessions with the current one marked and opens one as a tab", async () => {
-    runtimeBridgeOperation.mockResolvedValue({
-      ok: true,
-      result: [
-        { name: "20261030-090000", title: "what changed?", updatedAt: 2000 },
-        { name: "20261029-100000", title: null, updatedAt: 1000 },
-      ],
-    })
-    show(row({ name: "berth", builtin: true }))
-    const current = await screen.findByText("what changed?")
-    expect(current.parentElement).toHaveTextContent("Current")
-    fireEvent.click(current)
-    expect(openBerthSessionTab).toHaveBeenCalledWith({
-      folderId: 7,
-      session: "20261030-090000",
-      title: "Berth · what changed?",
-    })
-  })
-
   it("lists the sessions of the member's Agent and marks the one it runs", async () => {
     const item = (patch: object) => ({
       cwd: "/repo",

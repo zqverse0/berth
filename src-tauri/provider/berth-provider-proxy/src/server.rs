@@ -190,10 +190,19 @@ fn berth_token_in(text: &str) -> Option<&str> {
 const TOKEN_PREFIX: &str = "berth-tk-";
 
 /// 上游地址 = 根地址 + 剩余路径 + 查询（值恰为令牌的参数换成真 key，参数名与其余参数原样；
-/// 档案没有 Key 时去掉该参数）。
+/// 档案没有 Key 时去掉该参数）。根地址已以版本段结尾（`…/v1`）而剩余路径又以同一段开头时只留一段：
+/// 插件拿到的代理地址不带版本，按 OpenAI 惯例补 `/v1`，看不到上游自己带没带。
 // ponytail: 真 key 不做百分号编码；各家 key 均为 URL 安全字符，遇到例外再编码。
 fn upstream_url(base: &str, rest: &str, query: Option<&str>, credential: Credential<'_>) -> String {
-    let mut url = format!("{}{rest}", base.trim_end_matches('/'));
+    let base = base.trim_end_matches('/');
+    let version = base.rsplit('/').next().filter(|tail| {
+        tail.len() >= 2 && tail.starts_with('v') && tail[1..].starts_with(|c: char| c.is_ascii_digit())
+    });
+    let rest = match version.and_then(|version| rest.strip_prefix('/')?.strip_prefix(version)) {
+        Some(tail) if tail.is_empty() || tail.starts_with('/') => tail,
+        _ => rest,
+    };
+    let mut url = format!("{base}{rest}");
     if let Some(query) = query {
         let query: Vec<String> = query
             .split('&')
@@ -339,5 +348,18 @@ mod tests {
             ),
             "https://api.deepseek.com/chat/completions"
         );
+    }
+
+    #[test]
+    fn versioned_base_does_not_double_the_version() {
+        let credential = Credential { token: "tk", key: "real" };
+        let url = |base, rest| upstream_url(base, rest, None, credential);
+        assert_eq!(url("https://h/v1", "/v1/chat/completions"), "https://h/v1/chat/completions");
+        assert_eq!(url("https://h/v1/", "/v1"), "https://h/v1");
+        assert_eq!(url("https://h/v1", "/chat/completions"), "https://h/v1/chat/completions");
+        // 不同版本、只是前缀相同的段都原样拼。
+        assert_eq!(url("https://h/v1", "/v1beta/models"), "https://h/v1/v1beta/models");
+        assert_eq!(url("https://h/v1beta", "/v1/models"), "https://h/v1beta/v1/models");
+        assert_eq!(url("https://h/api", "/v1/models"), "https://h/api/v1/models");
     }
 }

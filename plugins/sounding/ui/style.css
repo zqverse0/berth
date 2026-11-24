@@ -125,3 +125,15 @@ ul.findings {
   padding-left: 8px;
   border-left: 2px solid var(--berth-primary);
 }
+.filters {
+  flex-wrap: wrap;
+  margin: 4px 0 6px;
+}
+.filters select {
+  flex: 1;
+  min-width: 6em;
+}
+button.more {
+  width: 100%;
+  margin-top: 6px;
+}

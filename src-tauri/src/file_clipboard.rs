@@ -52,47 +52,78 @@ fn gnome_copied_uris(data: &[u8]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(target_os = "linux")]
-const GNOME_COPIED: &str = "x-special/gnome-copied-files";
+/// `text/uri-list`：每行一个 URI，CRLF 分隔，`#` 开头是注释。
+#[cfg(any(target_os = "linux", test))]
+fn uri_list(data: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(data)
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
 
 #[cfg(target_os = "linux")]
-fn system_clipboard() -> gtk::Clipboard {
-    gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD)
+const GNOME_COPIED: &str = "x-special/gnome-copied-files";
+#[cfg(target_os = "linux")]
+const URI_LIST: &str = "text/uri-list";
+
+#[cfg(target_os = "linux")]
+fn system_clipboard() -> Result<gtk4::gdk::Clipboard, String> {
+    use gtk4::gdk::prelude::DisplayExt;
+    gtk4::gdk::Display::default()
+        .map(|display| display.clipboard())
+        .ok_or_else(|| "no display".to_owned())
+}
+
+/// 在 GLib 主循环上读剪贴板（GDK4 的异步读取要靠主循环推进）。
+#[cfg(target_os = "linux")]
+async fn read_uris() -> Result<Vec<String>, String> {
+    use gtk4::gio::prelude::InputStreamExt;
+    use gtk4::glib::Priority;
+
+    let clipboard = system_clipboard()?;
+    // 两种格式都没有时报错，按空剪贴板处理。
+    let Ok((stream, mime)) = clipboard.read_future(&[GNOME_COPIED, URI_LIST], Priority::DEFAULT).await
+    else {
+        return Ok(Vec::new());
+    };
+    let mut data = Vec::new();
+    loop {
+        let chunk = stream
+            .read_bytes_future(64 * 1024, Priority::DEFAULT)
+            .await
+            .map_err(|error| error.to_string())?;
+        if chunk.is_empty() {
+            break;
+        }
+        data.extend_from_slice(&chunk);
+    }
+    Ok(if mime == GNOME_COPIED {
+        gnome_copied_uris(&data)
+    } else {
+        uri_list(&data)
+    })
 }
 
 #[cfg(target_os = "linux")]
 async fn read<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Vec<PathBuf>, String> {
+    use tauri::Manager as _;
+
     let (done, result) = tokio::sync::oneshot::channel();
-    let to_paths = |uris: Vec<String>| -> Vec<PathBuf> {
-        uris.iter()
-            .filter_map(|uri| gtk::glib::filename_from_uri(uri).ok())
-            .map(|(path, _)| path)
-            .collect()
-    };
     window
         .run_on_main_thread(move || {
-            system_clipboard().request_contents(
-                &gtk::gdk::Atom::intern(GNOME_COPIED),
-                move |clipboard, data| {
-                    // 没有这种格式时长度为负。
-                    let uris = if data.length() > 0 {
-                        gnome_copied_uris(&data.data())
-                    } else {
-                        Vec::new()
-                    };
-                    if !uris.is_empty() {
-                        let _ = done.send(to_paths(uris));
-                        return;
-                    }
-                    clipboard.request_uris(move |_, uris| {
-                        let uris = uris.iter().map(|uri| uri.to_string()).collect();
-                        let _ = done.send(to_paths(uris));
-                    });
-                },
-            );
+            gtk4::glib::MainContext::default().spawn_local(async move {
+                let _ = done.send(read_uris().await);
+            });
         })
         .map_err(|error| error.to_string())?;
-    result.await.map_err(|error| error.to_string())
+    let uris = result.await.map_err(|error| error.to_string())??;
+    Ok(uris
+        .iter()
+        .filter_map(|uri| gtk4::glib::filename_from_uri(uri).ok())
+        .map(|(path, _)| path)
+        .collect())
 }
 
 #[cfg(target_os = "linux")]
@@ -100,35 +131,33 @@ async fn write<R: tauri::Runtime>(
     window: &tauri::Window<R>,
     paths: Vec<PathBuf>,
 ) -> Result<(), String> {
+    use gtk4::gdk::ContentProvider;
+    use gtk4::glib::Bytes;
+    use tauri::Manager as _;
+
     let uris = paths
         .iter()
-        .map(|path| gtk::glib::filename_to_uri(path, None).map(|uri| uri.to_string()))
+        .map(|path| gtk4::glib::filename_to_uri(path, None).map(|uri| uri.to_string()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     let (done, result) = tokio::sync::oneshot::channel();
     window
         .run_on_main_thread(move || {
             let copied = format!("copy\n{}", uris.join("\n"));
-            let targets = [
-                gtk::TargetEntry::new(GNOME_COPIED, gtk::TargetFlags::empty(), 0),
-                gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), 1),
-            ];
-            let owned = system_clipboard().set_with_data(&targets, move |_, data, info| {
-                if info == 0 {
-                    data.set(&data.target(), 8, copied.as_bytes());
-                } else {
-                    let refs: Vec<&str> = uris.iter().map(String::as_str).collect();
-                    data.set_uris(&refs);
-                }
+            let list: String = uris.iter().map(|uri| format!("{uri}\r\n")).collect();
+            let provider = ContentProvider::new_union(&[
+                ContentProvider::for_bytes(GNOME_COPIED, &Bytes::from_owned(copied.into_bytes())),
+                ContentProvider::for_bytes(URI_LIST, &Bytes::from_owned(list.into_bytes())),
+            ]);
+            let owned = system_clipboard().and_then(|clipboard| {
+                clipboard
+                    .set_content(Some(&provider))
+                    .map_err(|error| error.to_string())
             });
             let _ = done.send(owned);
         })
         .map_err(|error| error.to_string())?;
-    match result.await {
-        Ok(true) => Ok(()),
-        Ok(false) => Err("failed to own the clipboard".to_owned()),
-        Err(error) => Err(error.to_string()),
-    }
+    result.await.map_err(|error| error.to_string())?
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -169,5 +198,14 @@ mod tests {
             ["file:///a%20b", "file:///c"]
         );
         assert!(gnome_copied_uris(b"").is_empty());
+    }
+
+    #[test]
+    fn uri_list_skips_comments_and_crlf() {
+        assert_eq!(
+            uri_list(b"# comment\r\nfile:///a%20b\r\nfile:///c\r\n"),
+            ["file:///a%20b", "file:///c"]
+        );
+        assert!(uri_list(b"").is_empty());
     }
 }

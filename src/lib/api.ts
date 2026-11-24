@@ -1,3 +1,4 @@
+import { saveFileDialog } from "./platform"
 import { getTransport } from "./transport"
 import type {
   AgentType,
@@ -1634,11 +1635,10 @@ export async function listenBackupProgress(
 export async function exportBackupDesktop(
   opts: BackupExportOptions
 ): Promise<BackupManifest | null> {
-  const { save } = await import("@tauri-apps/plugin-dialog")
   const encrypted = !!opts.passphrase
   const ext = encrypted ? "berthbak" : "berth.zip"
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")
-  const destPath = await save({
+  const destPath = await saveFileDialog({
     defaultPath: `berth-backup-${stamp}.${ext}`,
     filters: [{ name: "Berth backup", extensions: [ext] }],
   })

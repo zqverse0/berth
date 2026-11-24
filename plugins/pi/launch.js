@@ -14,8 +14,11 @@ const GLOBAL_KEYS = new Set([
   "skills",
   "mcp",
 ])
-// Berth 选中服务商时写进会话 models.json 的 provider 名前缀（`berth-<端点>`）。
+// Berth 服务商写进会话 models.json 的 provider 名前缀：`berth-<服务商 id>-<端点>`（多家不撞名；旧宿主没有 id 时 `berth-<端点>`）。
 const BERTH_PROVIDER = "berth"
+
+const providerPrefix = (/** @type {import("berth").Provider} */ provider) =>
+  provider.id == null ? BERTH_PROVIDER : `${BERTH_PROVIDER}-${provider.id}`
 
 // 镜像 agent 目录时不带进会话的用户级资产（隔离原则 2）；其余（auth、models、sessions、
 // trust、npm…）软链回原处，登录与会话存储不动。settings.json 另行重写。
@@ -185,24 +188,44 @@ async function prepareAgentDir(
 }
 
 /**
- * Berth 服务商 → Pi providers：每个用到的端点一个 `berth-<端点>`（各端点 Key 可能不同），
+ * Berth 服务商 → Pi providers：每家每个用到的端点一个 `berth-<id>-<端点>`（各端点 Key 可能不同），
  * 模型带 Berth 为它选定的接口与地址（anthropic 用根地址，OpenAI 两种接口用 /v1）。
- * Key 走 `$BERTH_PI_KEY_<端点>` 插值，只进 pi 子进程环境，不落盘。
+ * Key 走 `$BERTH_PI_KEY_<id>_<端点>` 插值，只进 pi 子进程环境，不落盘。
+ * 群组成员另写 `ctx.providers` 里的其他家：群里换服务商时 pi 会话内切换、不重启。
  */
-function berthProviders(/** @type {import("berth").Provider} */ provider) {
+function berthProviders(
+  /** @type {import("berth").Provider} */ selected,
+  /** @type {readonly import("berth").Provider[]} */ others = []
+) {
   /** @type {Record<string, any>} */
   const providers = {}
   /** @type {Record<string, string>} */
   const env = {}
+  const all = [
+    selected,
+    ...others.filter((other) => other.id == null || other.id !== selected.id),
+  ]
+  for (const provider of all) addProvider(provider, providers, env)
+  return { providers, env }
+}
+
+function addProvider(
+  /** @type {import("berth").Provider} */ provider,
+  /** @type {Record<string, any>} */ providers,
+  /** @type {Record<string, string>} */ env
+) {
+  const prefix = providerPrefix(provider)
   for (const item of provider.models) {
     const api = PI_APIS[item.api]
     if (api === undefined) continue
     const endpoint = item.endpoint
     const { baseUrl, apiKey } = provider.endpoint(endpoint)
     const url = api === "anthropic-messages" ? baseUrl : withV1(baseUrl)
-    const variable = `BERTH_PI_KEY_${endpoint.toUpperCase()}`
+    const variable = `${prefix.replace(/^berth/, "BERTH_PI_KEY")}_${endpoint}`
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]/g, "_")
     env[variable] = apiKey
-    const name = `${BERTH_PROVIDER}-${endpoint}`
+    const name = `${prefix}-${endpoint}`
     providers[name] ??= {
       baseUrl: url,
       api,
@@ -214,9 +237,10 @@ function berthProviders(/** @type {import("berth").Provider} */ provider) {
     // 中转站的模型名 Pi 不认识：上下文长度决定自动压缩时机，最长输出即请求的 max_tokens。
     if (item.contextWindow) model.contextWindow = item.contextWindow
     if (item.maxOutput) model.maxTokens = item.maxOutput
-    providers[name].models.push(model)
+    // 同一家的同一模型不重复（选中的模型在档案里排最前，可能与目录重复）。
+    if (!providers[name].models.some((row) => row.id === item.id))
+      providers[name].models.push(model)
   }
-  return { providers, env }
 }
 
 /** 启动的模型（未选则第一个可用模型）→ [Pi provider 名, 模型 id]。 */
@@ -226,7 +250,7 @@ function selectedBerthModel(
 ) {
   const usable = provider.models.filter((item) => item.api in PI_APIS)
   const item = usable.find((row) => row.id === model) ?? usable[0]
-  return item ? [`${BERTH_PROVIDER}-${item.endpoint}`, item.id] : null
+  return item ? [`${providerPrefix(provider)}-${item.endpoint}`, item.id] : null
 }
 
 /** 会话 models.json = 用户 models.json + Berth providers（替换镜像来的软链）。 */
@@ -283,10 +307,11 @@ async function inputArgs(
 
 // ACP 模式（群组）：pi-acp@0.0.34 打包成单文件随插件发（private/acp/），装插件即带上；
 // 它起 pi 时不让加参数，经包装脚本带上。
-// 群组里不接终端状态 hook（运行时直接收发），换成审批扩展：每个工具调用先经 session/request_permission。
+// 群组里不接终端状态 hook（运行时直接收发），换成审批扩展：每个工具调用先经 session/request_permission；
+// 另加错误扩展：模型请求失败时把原因作为回答发出。
 const ACP_EXTENSIONS = {
   drop: "berth-agent-status.ts",
-  add: "berth-approve.ts",
+  add: ["berth-approve.ts", "berth-errors.ts"],
 }
 
 /** pi 按工作目录分的会话子目录名（同 pi `getDefaultSessionDirPath`）：`/tmp/a` → `--tmp-a--`。 */
@@ -424,7 +449,7 @@ async function assemble(
         ...global.extensions.filter(
           (/** @type {string} */ id) => id !== ACP_EXTENSIONS.drop
         ),
-        ACP_EXTENSIONS.add,
+        ...ACP_EXTENSIONS.add,
       ]
     : global.extensions
   for (const id of ids) {
@@ -459,7 +484,10 @@ async function assemble(
   /** @type {Record<string, string>} */
   let providerEnv = {}
   if (ctx.provider) {
-    const { providers, env } = berthProviders(ctx.provider)
+    const { providers, env } = berthProviders(
+      ctx.provider,
+      acp ? (ctx.providers ?? []) : []
+    )
     providerEnv = env
     await writeSessionModels(home, agentDir, providers)
   }
@@ -512,6 +540,9 @@ export default {
     if (!node)
       throw new Error("找不到 node：pi-acp 需要 Node.js，先装 Node 再试")
     const { args, env } = await assemble(ctx, true)
+    const chosen =
+      ctx.provider &&
+      selectedBerthModel(ctx.provider, textInput(ctx.inputs, "model"))
     const pi = (await process.which("pi")) ?? "pi"
     const wrap = `${ctx.paths.tmp}/pi-acp-wrap`
     // 会话目录给真实路径：否则 pi 报的会话文件在临时 agent 目录下（经软链），pi-acp 把这个路径记进
@@ -532,6 +563,8 @@ export default {
       // pi-acp 0.0.34 收下 mcpServers 却不交给 pi（S0 实测）
       delegation: false,
       approvesAllTools: true,
+      // pi-acp 的 model 配置项的值是 `<pi provider>/<模型 id>`。
+      modelOption: chosen ? chosen.join("/") : undefined,
     }
   },
 }

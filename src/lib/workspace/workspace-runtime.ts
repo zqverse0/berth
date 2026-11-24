@@ -26,7 +26,6 @@ import {
 } from "@/lib/files/language-detect"
 import { fileOpenStrategyFromPath } from "@/lib/files/file-open-strategy"
 import {
-  buildBerthSessionTabId,
   buildTaskTabId,
   isResourceFileTab,
   isTextFileTab,
@@ -110,10 +109,6 @@ export interface WorkspaceRuntimeActions {
   ) => void
   openTaskTab: (
     options: TaskTabOptions,
-    deps: WorkspaceRuntimeDependencies
-  ) => void
-  openBerthSessionTab: (
-    options: BerthSessionTabOptions,
     deps: WorkspaceRuntimeDependencies
   ) => void
   reloadOpenFileBackground: (
@@ -229,12 +224,6 @@ export interface TranscriptTabOptions {
   conversationId: number
   folderId: number
   agentType: AgentType
-  title: string
-}
-
-export interface BerthSessionTabOptions {
-  folderId: number
-  session: string
   title: string
 }
 
@@ -837,29 +826,6 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     activateLayoutTab(id, deps)
   }
 
-  const openBerthSessionTab = (
-    options: BerthSessionTabOptions,
-    deps: WorkspaceRuntimeDependencies
-  ): void => {
-    const id = buildBerthSessionTabId(options.folderId, options.session)
-    if (!currentTab(id)) {
-      useWorkspaceFileStore.getState().insertFileTab({
-        id,
-        kind: "berth-session",
-        folderId: options.folderId,
-        session: options.session,
-        title: options.title,
-        description: options.session,
-        path: null,
-        readonly: true,
-        loading: false,
-        saveState: "idle",
-        saveError: null,
-      })
-    }
-    activateLayoutTab(id, deps)
-  }
-
   const openExternalConflictDiff = (
     filePath: string,
     diskContent: string,
@@ -1400,7 +1366,6 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     openReadonlyTextPreview,
     openTranscriptTab,
     openTaskTab,
-    openBerthSessionTab,
     reloadOpenFileBackground: (path, deps) =>
       workspaceFileRuntime.reloadOpenFileBackground(path, runtimeContext(deps)),
     bumpResourceRevision: (path) =>

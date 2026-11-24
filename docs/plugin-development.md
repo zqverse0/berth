@@ -148,7 +148,8 @@ export default {
 | `ctx.args` | `args()` 结果 + 用户手动追加的参数，原样放在命令最后 |
 | `ctx.inputs` | 启动栏原始输入；`args()` 拿不到 `ctx`，要结合服务商等信息时在 `launch` 里读它 |
 | `ctx.expert` | 专家或 `null` |
-| `ctx.provider` | 服务商或 `null`（`null` = 用 Agent 自己的登录）。`models[0]` 是选中模型；`endpoint("chat")` 取地址和 Key |
+| `ctx.provider` | 服务商或 `null`（`null` = 用 Agent 自己的登录）。`id` 是档案 id；`models[0]` 是选中模型；`endpoint("chat")` 取地址和 Key |
+| `ctx.providers` | 群组 ACP 成员选了服务商时：本 Agent 能用的全部服务商（含选中那家，各自经 Berth 代理、`model` 为 `null`），其余启动为空数组。都写进会话、`acp()` 返回 `modelOption`，群里换服务商 / 模型就能不重启（见 `agent-contracts.md`「群内切换」） |
 | `ctx.project` | 启动目录所在项目的成员或 `null`：`{ name, home, checkouts[], references[] }`，同 `berth project . member ls --json`。检出带 `path`、`branch`、`main`、`stale`、`temporary`、`agents`（在跑的 Agent）。交不交给 `--add-dir`、参考是否只读、有 Agent 在跑的检出给不给写，由插件决定；Berth 不做沙箱 |
 | `ctx.brief` | 追加进系统提示词的 Berth 说明，可能为空串 |
 | `ctx.unattended` | 定时任务无人值守启动 |

@@ -52,6 +52,7 @@ import { focusTerminalTab } from "@/lib/terminal/create-and-open-primary-termina
 import { cn } from "@/lib/utils"
 import { useAppUiStore } from "@/stores/app-ui-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
 import { CommitHeatmap } from "./commit-heatmap"
 import { Harbor, type BerthTask, type HarborBerth } from "./harbor"
@@ -69,6 +70,30 @@ const LazyGroupPanel = lazy(() =>
     (m) => ({ default: m.GroupPanel })
   )
 )
+
+const LazyExpertEditor = lazy(() =>
+  import("@/components/project-management/group/expert-editor").then((m) => ({
+    default: m.ExpertEditor,
+  }))
+)
+
+/** 首页下部：群对话；侧栏专家页选中专家时换成它的编辑器。 */
+function HomeGroup({ folderId }: { folderId: number }) {
+  const expert = useGroupWorkspaceStore((state) => state.expert)
+  return (
+    <Suspense fallback={null}>
+      {expert ? (
+        <LazyExpertEditor
+          key={expert}
+          id={expert}
+          onDeleted={() => useGroupWorkspaceStore.getState().showExpert(null)}
+        />
+      ) : (
+        <LazyGroupPanel key={folderId} folderId={folderId} />
+      )}
+    </Suspense>
+  )
+}
 
 /**
  * 没有打开的 tab（或点了 tab 条的「空间」tab）时，中间工作区显示的空间首页。
@@ -570,9 +595,7 @@ function ProjectHomeBody({
       </div>
 
       <div className="min-h-0 flex-1">
-        <Suspense fallback={null}>
-          <LazyGroupPanel key={folder.id} folderId={folder.id} />
-        </Suspense>
+        <HomeGroup folderId={folder.id} />
       </div>
     </div>
   )

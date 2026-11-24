@@ -1735,3 +1735,26 @@ fn a_group_whose_tasks_all_completed_is_ended() {
     assert_eq!(ended.len(), 1);
     assert!(git::same_path(&ended[0], &wt));
 }
+
+#[test]
+fn group_settings_default_and_chat_groups_skip_checkout_records() {
+    let repo = Repo::new();
+    let main = &repo.main;
+    // 对账出主目录群与一条 worktree 的 checkout 记录。
+    sh(main, &["git", "worktree", "add", "-q", "-b", "side", "../side"]);
+    let checkouts = group::checkout_groups(main).unwrap();
+    assert_eq!(checkouts.len(), 2);
+    let defaults = group::settings(main, group::MAIN_GROUP).unwrap();
+    assert_eq!((defaults.cwd.clone(), defaults.title.clone()), (None, None));
+    assert_eq!(defaults.dir(main), main.to_path_buf());
+    group::create(main, "review").unwrap();
+    let side = main.parent().unwrap().join("side");
+    group::set_cwd(main, "review", Some(&side)).unwrap();
+    group::set_title(main, "review", Some("评审")).unwrap();
+    let set = group::settings(main, "review").unwrap();
+    assert_eq!((set.dir(main), set.title.as_deref()), (side, Some("评审")));
+    assert!(group::set_cwd(main, "nope", None).is_err());
+    // 群列表：main 在前，checkout 记录不算群。
+    assert_eq!(group::chat_groups(main).unwrap(), vec!["main".to_owned(), "review".to_owned()]);
+    assert!(!group::is_chat_group(main, &checkouts.iter().find(|(name, _)| name != "main").unwrap().0).unwrap());
+}

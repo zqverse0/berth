@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "@/lib/notify"
+import { openFileDialog } from "@/lib/platform"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -165,13 +166,12 @@ export function BackupSettings() {
   )
 
   const handlePickDesktop = useCallback(async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog")
-    const picked = await open({
+    const picked = await openFileDialog({
       multiple: false,
       filters: [
         {
           name: "Berth backup",
-          extensions: ["berthbak", "berthbak", "zip"],
+          extensions: ["berthbak", "zip"],
         },
       ],
     })

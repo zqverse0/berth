@@ -11,7 +11,6 @@ const readerTypes: WorkspaceTabType[] = [
   "rich-diff",
   "transcript",
   "task",
-  "berth-session",
   "conversation",
   "global",
 ]

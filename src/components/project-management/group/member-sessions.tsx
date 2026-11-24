@@ -5,10 +5,9 @@ import { useFormatter, useNow, useTranslations } from "next-intl"
 import { Loader2 } from "lucide-react"
 import { toast } from "@/lib/notify"
 import { Button } from "@/components/ui/button"
-import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { listProjectSessionOverview } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
-import { listBerthSessions, type GroupEvent } from "@/lib/agent/berth-group"
+import type { GroupEvent } from "@/lib/agent/berth-group"
 import {
   trimSlash,
   useOpenProjectSession,
@@ -48,7 +47,6 @@ export function MemberSessions({
   const tView = useTranslations("Folder.sessionsView")
   const format = useFormatter()
   const now = useNow({ updateInterval: 30_000 })
-  const workspace = useWorkspaceRuntimeActions()
   const openSession = useOpenProjectSession(folderId)
   const { member } = row
   const [limit, setLimit] = useState(PAGE)
@@ -75,68 +73,45 @@ export function MemberSessions({
     const fail = (cause: unknown) => {
       if (live) setError(toErrorMessage(cause))
     }
-    if (member.builtin) {
-      listBerthSessions(folderId)
-        .then((response) => {
-          if (!response.ok) return fail(response.error.message)
-          done(
-            response.result.map((session, index) => ({
-              key: session.name,
-              title: session.title,
-              updatedAt: session.updatedAt,
-              mark: index === 0 ? t("current") : null,
-              blocked: null,
-              open: () =>
-                workspace.openBerthSessionTab({
-                  folderId,
-                  session: session.name,
-                  title: `Berth · ${session.title ?? session.name}`,
-                }),
-            }))
-          )
-        })
-        .catch(fail)
-    } else {
-      // ponytail: 总览按全部 Agent 取最近 N 条再筛，Agent 多、会话多时这位成员的旧会话要点「更多」。
-      listProjectSessionOverview(folderId, limit)
-        .then((overview) =>
-          done(
-            overview.items
-              .filter((item) => agentKey.split(",").includes(item.agent))
-              .map((item) => ({
-                key: `${item.agent}:${item.sessionId ?? item.updatedAt}`,
-                title: item.title,
-                updatedAt: item.updatedAt,
-                mark:
-                  item.liveMember === member.name
-                    ? t("live")
-                    : item.sessionId && own.has(item.sessionId)
-                      ? t("own")
-                      : null,
-                blocked: !item.sessionId
-                  ? tView("cannotOpenAgent")
-                  : trimSlash(item.cwd) !== trimSlash(item.groupDir)
-                    ? tView("cannotOpenSubdir")
+    // ponytail: 总览按全部 Agent 取最近 N 条再筛，Agent 多、会话多时这位成员的旧会话要点「更多」。
+    listProjectSessionOverview(folderId, limit)
+      .then((overview) =>
+        done(
+          overview.items
+            .filter((item) => agentKey.split(",").includes(item.agent))
+            .map((item) => ({
+              key: `${item.agent}:${item.sessionId ?? item.updatedAt}`,
+              title: item.title,
+              updatedAt: item.updatedAt,
+              mark:
+                item.liveMember === member.name
+                  ? t("live")
+                  : item.sessionId && own.has(item.sessionId)
+                    ? t("own")
                     : null,
-                open: () =>
-                  void openSession({
-                    agent: item.agent,
-                    sessionId: item.sessionId!,
-                    cwd: item.cwd,
-                    title: item.title,
-                  }),
-              })),
-            overview.hasMore
-          )
+              blocked: !item.sessionId
+                ? tView("cannotOpenAgent")
+                : trimSlash(item.cwd) !== trimSlash(item.groupDir)
+                  ? tView("cannotOpenSubdir")
+                  : null,
+              open: () =>
+                void openSession({
+                  agent: item.agent,
+                  sessionId: item.sessionId!,
+                  cwd: item.cwd,
+                  title: item.title,
+                }),
+            })),
+          overview.hasMore
         )
-        .catch(fail)
-    }
+      )
+      .catch(fail)
     return () => {
       live = false
     }
     // 只在成员、Agent 与页数变化时重读；回调每次渲染都是新的。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folderId, member.name, member.builtin, agentKey, limit])
+  }, [folderId, member.name, agentKey, limit])
 
   if (error)
     return (
@@ -153,16 +128,14 @@ export function MemberSessions({
     )
   return (
     <div data-member-sessions={member.name} className="space-y-px">
-      {member.builtin ? null : (
-        <MemberTrajectory
-          folderId={folderId}
-          refreshKey={`${row.status}:${events.length}`}
-          accept={(item) =>
-            item.liveMember === member.name ||
-            (item.sessionId != null && own.has(item.sessionId))
-          }
-        />
-      )}
+      <MemberTrajectory
+        folderId={folderId}
+        refreshKey={`${row.status}:${events.length}`}
+        accept={(item) =>
+          item.liveMember === member.name ||
+          (item.sessionId != null && own.has(item.sessionId))
+        }
+      />
       {page.entries.length === 0 ? (
         <p className="px-2 py-1 text-[11px] text-muted-foreground">
           {tView("empty")}

@@ -59,7 +59,7 @@ enum TaskCommand {
         /// 步骤编号，如 S1。
         step: String,
     },
-    /// 把任务分配给群组（`main` 或已有群组；群组 = worktree，可含多个任务）。
+    /// 把任务标到一个群（`main` 或已有的群；写 worktree 名时指向目录是它的群）；派 worker 用 `berth group spawn`。
     Assign {
         reference: String,
         #[arg(long)]

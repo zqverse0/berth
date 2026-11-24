@@ -515,6 +515,13 @@ fn read_provider_file(path: &Path) -> Result<Value, String> {
         .ok_or_else(|| {
             format!("服务商启动档案不是 {LAUNCH_PROFILE_SCHEMA}，请升级 Berth 或工具包")
         })?;
+    let mut provider = provider_value(&profile);
+    provider["providers"] = Value::Array(profile.providers.iter().map(provider_value).collect());
+    Ok(provider)
+}
+
+/// 一份档案 → `Provider` 数据：模型规范化、选中的排最前，端点去尾斜杠。
+fn provider_value(profile: &LaunchProfile) -> Value {
     let model = profile
         .model
         .as_deref()
@@ -552,7 +559,7 @@ fn read_provider_file(path: &Path) -> Result<Value, String> {
             (protocol.clone(), json!({"baseUrl": endpoint.base_url.trim_end_matches('/'), "apiKey": endpoint.api_key}))
         })
         .collect();
-    Ok(json!({ "name": profile.name, "model": model, "models": models, "endpoints": endpoints }))
+    json!({ "id": profile.id, "name": profile.name, "model": model, "models": models, "endpoints": endpoints })
 }
 
 /// `$BERTH_HOME/.env`：只补进程里还没有的变量（MCP 定义引用的 Key 常放这里）。
@@ -978,6 +985,24 @@ mod tests {
             json!("https://x")
         );
         assert!(read_provider_file(&file).unwrap_err().contains("已失效"));
+    }
+
+    #[test]
+    fn provider_file_carries_every_provider_for_group_members() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p.json");
+        std::fs::write(
+            &file,
+            r#"{"schema":"berth.provider/1","name":"relay","model":"m1","models":[],"endpoints":{},"id":3,
+               "providers":[{"schema":"berth.provider/1","name":"other","model":null,"id":4,
+                 "models":[{"id":"x"}],"endpoints":{"chat":{"baseUrl":"http://p/","apiKey":"t"}}}]}"#,
+        )
+        .unwrap();
+        let provider = read_provider_file(&file).unwrap();
+        assert_eq!(provider["id"], json!(3));
+        assert_eq!(provider["providers"][0]["id"], json!(4));
+        assert_eq!(provider["providers"][0]["models"][0]["name"], json!("x"));
+        assert_eq!(provider["providers"][0]["endpoints"]["chat"]["baseUrl"], json!("http://p"));
     }
 
     #[test]

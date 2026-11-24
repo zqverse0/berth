@@ -606,7 +606,7 @@ pub(crate) async fn create_terminal(
                 agent_argv(&berth_tool_core::paths::tools_root(), id, inputs).map_err(&invalid)?;
             // 与 GUI 同一注入：`--berth-provider <启动档案>` 追加在启动输入之后。
             let provider_args =
-                crate::provider_launch::resolve(&instance, id, provider_id, model_id, false)
+                crate::provider_launch::resolve(&instance, id, provider_id, model_id, false, false)
                     .await
                     .map_err(&invalid)?;
             if provider_args.iter().any(|arg| arg.contains('\0')) {

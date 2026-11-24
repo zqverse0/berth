@@ -173,6 +173,9 @@ pub mod testing {
 
     /// 把 `main` 登记为一个新空间的主项目，返回空间目录（不创建）。
     pub fn register(main: &Path) -> PathBuf {
+        // 并行测试同时写：两条 UPDATE 都持读锁再升级会被 SQLite 判为死锁、直接报 busy（不走 busy_timeout），所以排队写。
+        static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _write = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let conn = rusqlite::Connection::open(db()).unwrap();
         conn.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
         conn.execute(

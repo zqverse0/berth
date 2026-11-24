@@ -40,6 +40,26 @@ vi.mock("@/lib/agent/berth-group", async (importOriginal) => ({
   postToMember: (...args: unknown[]) => postToMember(...args),
   ensureGroupWatch: (...args: unknown[]) => ensureGroupWatch(...args),
   finishTask: (...args: unknown[]) => finishTask(...args),
+  listExpertConfigs: () =>
+    Promise.resolve({
+      ok: true,
+      result: {
+        experts: [
+          {
+            id: "dev",
+            name: "Dev",
+            config: {
+              agent: "claude",
+              inputs: {},
+              provider: null,
+              model: null,
+            },
+          },
+        ],
+      },
+    }),
+  openExpertDm: (_folderId: number, expert: string) =>
+    Promise.resolve({ ok: true, result: { name: `dm-${expert}` } }),
 }))
 vi.mock("@/lib/api", () => ({
   terminateTerminalSession: (...args: unknown[]) =>
@@ -121,6 +141,7 @@ vi.mock("@/components/agents/profile/agent-profile-icon", () => ({
 }))
 vi.mock("@/components/agent-icon", () => ({ AgentIcon: () => <span /> }))
 
+import { useExpertCatalog } from "@/components/project-management/group/expert-editor"
 import { GroupPanel } from "./group-panel"
 
 function view(extra: Record<string, unknown> = {}) {
@@ -182,7 +203,6 @@ function group(extra: Record<string, unknown> = {}) {
       name: "10-01-demo",
       nextAfter: 4,
       members: [member],
-      builtin: { name: "berth", busy: false },
       delivery: { "3": "queued" },
       events: [
         {
@@ -287,17 +307,18 @@ beforeEach(() => {
 })
 
 describe("GroupPanel", () => {
-  it("opens on the group chat and says when no lead is set", async () => {
+  it("opens on the group chat and says unaddressed messages are only recorded", async () => {
     listBerthTaskViews.mockResolvedValue({ ok: true, result: { tasks: [] } })
     readTaskGroup.mockResolvedValue(group())
     renderDetail()
-    await waitFor(() => expect(readTaskGroup).toHaveBeenCalledWith(7, 0))
-    // 首页就是群聊：没有成员条，没设负责人时输入框提示。
+    await waitFor(() =>
+      expect(readTaskGroup).toHaveBeenCalledWith(7, 0, undefined, "main")
+    )
+    // 首页就是群聊：没有成员条，输入框提示不指定收件人只记录。
     expect(await screen.findByText("please do S1")).toBeVisible()
     expect(document.querySelector("[data-group-chats]")).toBeNull()
-    expect(document.querySelector("[data-composer-no-lead]")).not.toBeNull()
     expect(
-      screen.getByPlaceholderText("Message the group (no lead set)")
+      screen.getByPlaceholderText(/^Type @ to pick who answers/)
     ).toBeVisible()
   })
   it("shows the group timeline with delivery state, members and its tasks", async () => {
@@ -347,11 +368,10 @@ describe("GroupPanel", () => {
     expect(screen.queryByTitle("Jump to its terminal")).toBeNull()
   })
 
-  it("sends a group message once without a recipient for the lead to answer", async () => {
+  it("sends a group message once without a recipient", async () => {
     getTaskView.mockResolvedValue(view())
     readTaskGroup.mockResolvedValue(
       group({
-        lead: "claude-1",
         members: [
           member,
           {
@@ -367,9 +387,8 @@ describe("GroupPanel", () => {
     renderDetail()
     await openChat("all")
     const input = await screen.findByPlaceholderText(
-      "Message the group; lead claude-1 answers"
+      /^Type @ to pick who answers/
     )
-    expect(document.querySelector("[data-composer-no-lead]")).toBeNull()
     fireEvent.change(input, { target: { value: "sync up" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(postToMember).toHaveBeenCalledTimes(1))
@@ -394,6 +413,67 @@ describe("GroupPanel", () => {
     expect(
       screen.getByRole("button", { name: "Send to claude-1" })
     ).toBeVisible()
+  })
+
+  it("chats with an expert in its own ledger, not in the group", async () => {
+    useExpertCatalog.setState({
+      catalog: {
+        home: "/home",
+        experts: [
+          {
+            id: "dev",
+            expert: {
+              name: "Dev",
+              prompt: "",
+              skills: [],
+              mcp: [],
+              plugins: [],
+            },
+            promptText: null,
+            modified: null,
+            error: null,
+            issues: [],
+          },
+        ],
+        skills: [],
+        mcp: [],
+        plugins: [],
+        invalid: { skills: [], mcp: [], plugins: [] },
+      },
+    })
+    readTaskGroup.mockImplementation((_folder, _after, _page, name) =>
+      Promise.resolve(
+        name === "dm-dev"
+          ? group({ name: "dm-dev", members: [], events: [], delivery: {} })
+          : group()
+      )
+    )
+    postToMember.mockResolvedValue({ ok: true, result: {} })
+    renderDetail()
+    await openChat("all")
+    await screen.findByText("please do S1")
+    act(() => useGroupWorkspaceStore.getState().setFocusedMember("dev"))
+    await waitFor(() =>
+      expect(readTaskGroup).toHaveBeenCalledWith(7, 0, undefined, "dm-dev")
+    )
+    // 群里的消息不出现在私聊里；侧栏仍停在原来的群。
+    await waitFor(() => expect(screen.queryByText("please do S1")).toBeNull())
+    expect(useGroupWorkspaceStore.getState().group).toBe("10-01-demo")
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "just us" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Send to Dev" }))
+    await waitFor(() =>
+      expect(postToMember).toHaveBeenCalledWith(
+        7,
+        "dm-dev",
+        "dev",
+        "just us",
+        expect.any(String),
+        undefined
+      )
+    )
+    useExpertCatalog.setState({ catalog: null })
   })
 
   it("opens a focused member on its messages with its member actions", async () => {
@@ -553,10 +633,13 @@ describe("GroupPanel", () => {
     await screen.findByText("please do S1")
     fireEvent.click(document.querySelector("[data-group-older]")!)
     await waitFor(() =>
-      expect(readTaskGroup).toHaveBeenCalledWith(9, 0, {
-        before: 1,
-        limit: 200,
-      })
+      expect(readTaskGroup).toHaveBeenCalledWith(
+        9,
+        0,
+        { before: 1, limit: 200 },
+        // 群页把读到的群设为选中，之后按它读。
+        "10-01-demo"
+      )
     )
     expect(await screen.findByText("older ask")).toBeVisible()
     expect(document.querySelector("[data-group-older]")).toBeNull()

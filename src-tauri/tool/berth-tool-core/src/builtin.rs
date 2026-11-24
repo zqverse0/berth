@@ -1,6 +1,6 @@
-//! 随 Berth 内置的资产：群组内置成员 Berth 用的专家「Berth 助手」（`$BERTH_HOME` 下的专家表与提示词）。
+//! 随 Berth 内置的资产：专家「Berth 助手」（`$BERTH_HOME` 下的专家表与提示词），启动时附项目简报。
 //!
-//! 它是普通专家，用户可以在 设置 → 专家 里改。GUI 启动时逐个文件对齐内置版本：
+//! 它是普通专家，用户可以在群组的「专家」页里改，配任意插件 Agent 入群。GUI 启动时逐个文件对齐内置版本：
 //! 缺失就写入；用户没改过（内容还是上次写入的那版）就换成新版；用户改过的不动。
 //! 上次写入的版本记在 `$BERTH_HOME/state/builtin.json`（文件 → 内容指纹）。
 
@@ -10,7 +10,7 @@ use std::path::Path;
 use crate::error::ToolCoreError;
 use crate::paths::berth_home_dir;
 
-/// 群组内置成员 Berth 用的专家 id（`experts/<id>.json`）。
+/// 内置专家「Berth 助手」的 id（`experts/<id>.json`）。
 pub const EXPERT: &str = "berth-assistant";
 
 /// 内置文件（路径相对 `$BERTH_HOME`）。
@@ -18,9 +18,6 @@ const FILES: &[(&str, &str)] = &[
     ("experts/berth-assistant.json", include_str!("../builtin/experts/berth-assistant.json")),
     ("prompts/berth-assistant.md", include_str!("../builtin/prompts/berth-assistant.md")),
 ];
-
-/// 内置的提示词正文：专家表或提示词文件读不到时 Berth 用它。
-pub const PROMPT: &str = include_str!("../builtin/prompts/berth-assistant.md");
 
 /// 对齐内置文件；返回本次写入的文件。
 pub fn ensure() -> Result<Vec<&'static str>, ToolCoreError> {

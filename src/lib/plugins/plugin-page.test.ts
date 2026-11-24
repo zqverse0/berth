@@ -75,6 +75,35 @@ describe("handlePageCall", () => {
       handlePageCall(host(), "ui.openUrl", { url: "javascript:alert(1)" })
     ).rejects.toMatchObject({ reason: "invalid-params" })
   })
+  it("hands sessions.open to the host without a permission", async () => {
+    const openSession = vi.fn()
+    await handlePageCall(
+      host({ permissions: [], openSession }),
+      "sessions.open",
+      {
+        agent: "pi",
+        sessionId: "s1",
+        cwd: "/repo",
+      }
+    )
+    expect(openSession).toHaveBeenCalledWith({
+      agent: "pi",
+      sessionId: "s1",
+      cwd: "/repo",
+      title: null,
+    })
+    await expect(
+      handlePageCall(host({ openSession }), "sessions.open", { agent: "pi" })
+    ).rejects.toMatchObject({ reason: "invalid-params" })
+    await expect(
+      handlePageCall(host(), "sessions.open", {
+        agent: "pi",
+        sessionId: "s1",
+        cwd: "/repo",
+      })
+    ).rejects.toMatchObject({ reason: "unsupported" })
+  })
+
   it("hands agent.attach text to the host only with the agent permission", async () => {
     const sendToAgent = vi.fn()
     await expect(

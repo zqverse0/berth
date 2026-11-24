@@ -1,6 +1,7 @@
 // Excalidraw 画板（Berth 插件页面）：`.excalidraw` / Obsidian `.excalidraw.md` 的编辑与 Markdown 嵌入渲染。
 // 读写、自动保存、Ctrl+S、外部修改都归宿主；这里只把场景与文件文本互转（docs/plugin-architecture.md §4.2）。
 /// <reference path="../../berth-plugin.d.ts" />
+import "./asset-path.js"
 import "@excalidraw/excalidraw/index.css"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"

@@ -13,6 +13,7 @@ import { toast } from "@/lib/notify"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useSendToAgent } from "@/hooks/use-send-to-agent"
+import { useOpenProjectSession } from "@/sessions/project/open-project-session"
 import { localizedTitle, type PluginView } from "@/lib/plugins/plugin-views"
 import {
   connectPluginPage,
@@ -195,6 +196,12 @@ export function PluginSidebarPage({
   const locale = useLocale()
   const { openFilePreview } = useWorkspaceRuntimeActions()
   const { send: sendToAgent } = useSendToAgent()
+  // 打开会话的函数每次渲染都是新的：经 ref 取最新的，免得每次渲染都换页面的宿主。
+  const openSession = useOpenProjectSession(activeFolder?.id ?? 0)
+  const openSessionRef = useRef(openSession)
+  useEffect(() => {
+    openSessionRef.current = openSession
+  })
   const [header, setHeader] = useState<{
     tabs: { id: string; label: string }[]
     value: string
@@ -235,6 +242,9 @@ export function PluginSidebarPage({
       notify: (message, kind) =>
         kind === "error" ? toast.error(message) : toast(message),
       sendToAgent: (text) => void sendToAgent(text),
+      openSession: activeFolder
+        ? (session) => void openSessionRef.current(session)
+        : undefined,
     }),
     [view, activeFolder, locale, openFilePreview, sendToAgent, setHeaderTabs]
   )

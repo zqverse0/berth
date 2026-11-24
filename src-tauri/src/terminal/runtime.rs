@@ -367,6 +367,15 @@ pub(super) fn resolve_cli_command() -> Option<PathBuf> {
 }
 
 fn resolve_companion_binary(binary_name: &str, override_env: Option<&str>) -> Option<PathBuf> {
+    let current = std::env::current_exe().ok()?;
+    resolve_companion_binary_from(binary_name, override_env, &current)
+}
+
+fn resolve_companion_binary_from(
+    binary_name: &str,
+    override_env: Option<&str>,
+    current: &Path,
+) -> Option<PathBuf> {
     let filename = if cfg!(windows) {
         format!("{binary_name}.exe")
     } else {
@@ -397,13 +406,12 @@ fn resolve_companion_binary(binary_name: &str, override_env: Option<&str>) -> Op
         }
     }
 
-    let current = std::env::current_exe().ok()?;
     if current
         .file_stem()
         .and_then(|stem| stem.to_str())
         .is_some_and(|stem| stem == binary_name)
     {
-        return Some(current);
+        return Some(current.to_path_buf());
     }
 
     let mut candidates = Vec::new();
@@ -430,6 +438,18 @@ fn resolve_companion_binary(binary_name: &str, override_env: Option<&str>) -> Op
             sidecars.sort();
             candidates.extend(sidecars);
         }
+    }
+
+    // CEF 的 deb/rpm 打包把主程序放在 `<prefix>/share/<productName>/`，sidecar 仍在 `<prefix>/bin/`。
+    // 只针对该布局查 `<prefix>/bin/`，避免祖先遍历到 `/` 时经 `/bin -> /usr/bin` 误命中系统正式版。
+    let prefix_bin = current
+        .parent()
+        .and_then(Path::parent)
+        .filter(|share_dir| share_dir.file_name().and_then(|name| name.to_str()) == Some("share"))
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("bin").join(&filename));
+    if let Some(candidate) = prefix_bin {
+        candidates.push(candidate);
     }
 
     let mut fallback_roots = Vec::new();
@@ -477,10 +497,36 @@ fn resolve_companion_binary(binary_name: &str, override_env: Option<&str>) -> Op
     candidates.into_iter().find(|path| is_executable_file(path))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::resolve_companion_binary_from;
+    #[cfg(unix)]
     use super::daemon_exe_is_stale;
 
+    fn write_executable(path: &Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent dir");
+        }
+        std::fs::write(path, b"#!/bin/sh\n").expect("write mock binary");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod mock binary");
+        }
+    }
+
+    fn exe_name(stem: &str) -> String {
+        if cfg!(windows) {
+            format!("{stem}.exe")
+        } else {
+            stem.to_owned()
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn legacy_terminald_name_is_stale_after_rename() {
         assert!(daemon_exe_is_stale(
@@ -493,6 +539,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn deleted_current_daemon_is_stale() {
         assert!(daemon_exe_is_stale(
@@ -501,8 +548,67 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn live_current_daemon_is_kept() {
         assert!(!daemon_exe_is_stale("/usr/bin/berth-termd", "berth-termd"));
+    }
+
+    #[test]
+    fn resolves_cef_deb_rpm_layout_sidecar_under_prefix_bin() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gui = dir.path().join("usr/share/berth").join(exe_name("berth-gui"));
+        let termd = dir.path().join("usr/bin").join(exe_name("berth-termd"));
+        let cli = dir.path().join("usr/bin").join(exe_name("berth-cli"));
+        write_executable(&gui);
+        write_executable(&termd);
+        write_executable(&cli);
+
+        assert_eq!(
+            resolve_companion_binary_from("berth-termd", None, &gui),
+            Some(termd)
+        );
+        assert_eq!(
+            resolve_companion_binary_from("berth-cli", None, &gui),
+            Some(cli)
+        );
+    }
+
+    #[test]
+    fn keeps_sibling_priority_over_prefix_bin() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gui = dir.path().join("usr/share/berth").join(exe_name("berth-gui"));
+        let sibling = dir
+            .path()
+            .join("usr/share/berth")
+            .join(exe_name("berth-termd"));
+        let prefix_bin = dir.path().join("usr/bin").join(exe_name("berth-termd"));
+        write_executable(&gui);
+        write_executable(&sibling);
+        write_executable(&prefix_bin);
+
+        assert_eq!(
+            resolve_companion_binary_from("berth-termd", None, &gui),
+            Some(sibling)
+        );
+    }
+
+    #[test]
+    fn does_not_probe_bin_outside_share_layout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gui = dir
+            .path()
+            .join("target/debug")
+            .join(exe_name("berth-gui"));
+        let unrelated_bin = dir
+            .path()
+            .join("bin")
+            .join(exe_name("berth-sidecar-nonexistent-test"));
+        write_executable(&gui);
+        write_executable(&unrelated_bin);
+
+        let resolved: Option<PathBuf> =
+            resolve_companion_binary_from("berth-sidecar-nonexistent-test", None, &gui);
+        assert_eq!(resolved, None);
     }
 }

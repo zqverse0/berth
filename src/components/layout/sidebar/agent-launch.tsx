@@ -133,6 +133,10 @@ export function AgentLaunchShelfContent({
               !(defaultsOnly || launch) ||
               item.optionsFrom !== "projectSessions"
           )
+          // 群组入群：专家已在上一步选好并预填，不再显示。
+          .filter(
+            (item) => !(launch && expert) || item.optionsFrom !== "experts"
+          )
           .map((item) => {
             const Component = LAUNCHBAR_COMPONENTS[item.component]
             if (!Component) return null

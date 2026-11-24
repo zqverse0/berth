@@ -7,7 +7,7 @@ import {
 
 const supportedEnvironment = {
   isLinux: true,
-  isTauri: true,
+  isWebKit: true,
 }
 
 type TermFixture = LinuxWebKitTerminalImeTarget & {
@@ -111,7 +111,7 @@ describe("isLinuxWebKitImeEnvironment", () => {
       isLinuxWebKitImeEnvironment({ ...supportedEnvironment, isLinux: false })
     ).toBe(false)
     expect(
-      isLinuxWebKitImeEnvironment({ ...supportedEnvironment, isTauri: false })
+      isLinuxWebKitImeEnvironment({ ...supportedEnvironment, isWebKit: false })
     ).toBe(false)
   })
 })
@@ -194,7 +194,7 @@ describe("bindLinuxWebKitTerminalIme", () => {
   it("does not install listeners in unsupported environments", () => {
     for (const environment of [
       { ...supportedEnvironment, isLinux: false },
-      { ...supportedEnvironment, isTauri: false },
+      { ...supportedEnvironment, isWebKit: false },
     ]) {
       const term = createTerm()
       const hostListener = vi.spyOn(term.element, "addEventListener")

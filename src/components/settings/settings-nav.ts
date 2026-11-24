@@ -1,25 +1,18 @@
-import {
-  Cable,
-  SlidersHorizontal,
-  UserCog,
-  Wrench,
-  type LucideIcon,
-} from "lucide-react"
+import { Cable, SlidersHorizontal, Wrench, type LucideIcon } from "lucide-react"
 import { create } from "zustand"
 import { useIsMobile } from "@/hooks/use-mobile"
 import type { SettingsPageId } from "@/lib/workspace/settings-tab"
 
 /** 活动栏里设置的页面：「通用」合并外观与高级，侧栏列出它们的分节。 */
-export type SettingsNavId = "model-providers" | "tools" | "experts" | "general"
+export type SettingsNavId = "model-providers" | "tools" | "general"
 
 export const SETTINGS_NAV: {
   id: SettingsNavId
   icon: LucideIcon
-  labelKey: "modelProviders" | "tools" | "experts" | "general"
+  labelKey: "modelProviders" | "tools" | "general"
 }[] = [
   { id: "model-providers", icon: Cable, labelKey: "modelProviders" },
   { id: "tools", icon: Wrench, labelKey: "tools" },
-  { id: "experts", icon: UserCog, labelKey: "experts" },
   { id: "general", icon: SlidersHorizontal, labelKey: "general" },
 ]
 

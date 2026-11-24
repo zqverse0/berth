@@ -43,6 +43,21 @@ fn model_input(agent: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// 启动输入去掉选服务商 / 模型的项（`optionsFrom` 为 `providerVendor` / `providerModels`，GUI 把所选值同时放进去）：
+/// 剩下的变了才须重启 Agent，服务商与模型由运行时按会话的 model 配置项决定能否不重启切换。
+pub(crate) fn launch_inputs(agent: &str, inputs: &Value) -> Value {
+    let mut inputs = inputs.clone();
+    let items = tool_file(agent, "launchbar.json").and_then(|launchbar| launchbar["items"].as_array().cloned());
+    if let (Some(map), Some(items)) = (inputs.as_object_mut(), items) {
+        for item in items.iter().filter(|item| matches!(item["optionsFrom"].as_str(), Some("providerVendor" | "providerModels"))) {
+            if let Some(id) = item["id"].as_str() {
+                map.remove(id);
+            }
+        }
+    }
+    inputs
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Preset {
     agent: String,
@@ -192,12 +207,16 @@ fn parse_inputs(pairs: &[String]) -> TaskResult<BTreeMap<String, Value>> {
         .collect()
 }
 
+/// 成员按专家命名：启动栏「专家」项（`optionsFrom: "experts"`）选中的专家 id；没选为 None。
+pub(crate) fn expert_of(agent: &str, inputs: &Value) -> Option<String> {
+    berth_tool_core::paths::launch_expert(&berth_tool_core::paths::tools_root().join(agent), inputs)
+}
+
 pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
     let main = &ctx.main;
     // ---- 校验（不写任何东西）
-    // `--group` 选在哪个目录（主目录或 worktree）启动；消息、成员都在项目群。
+    // `--group` 选在哪个目录（主目录或 worktree）启动：成员进目录是它的群（没有就建一个，规则 4）。
     let (checkout, env) = group::project_group(main, &request.group)?;
-    let name = group::MAIN_GROUP.to_owned();
     let cwd = PathBuf::from(&env.worktree);
     if request
         .branch
@@ -233,7 +252,22 @@ pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
         }
     }
 
-    // worker 始终启动在目标项目群对应的目录，任务只提供需求上下文。
+    // 派发要求选专家：worker 按专家命名（重名编号），没选就不启动。
+    let tool_dir = berth_tool_core::paths::tools_root().join(&agent);
+    if let Some(expert) = request.expert.as_deref().map(str::trim).filter(|expert| !expert.is_empty()) {
+        let key = berth_tool_core::paths::expert_input(&tool_dir)
+            .ok_or_else(|| invalid(format!("{agent} has no expert option in its launch bar")))?;
+        inputs.insert(key, json!(expert));
+    }
+    let mut chosen = inputs.clone();
+    if let Some(preset) = &preset {
+        chosen.extend(preset.inputs.clone());
+    }
+    let expert = expert_of(&agent, &json!(chosen))
+        .ok_or_else(|| invalid("--expert is required: group members are experts"))?;
+    // 校验都过了才建群。
+    let name = crate::group_for_dir(ctx, &cwd)?;
+    // worker 始终启动在群目录，任务只提供需求上下文。
     let branch = Some(env.branch);
     let events = group::events(main, &name)?;
     // 派发者：`--as`（缺省 lead）；worker 的回答发给它，留在群里。
@@ -260,19 +294,6 @@ pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
             brief = format!("{brief}每个提交末尾加一行 `Task: {task} S<步骤号>`。");
         }
     }
-    // 派发要求选专家：worker 按专家命名（重名编号），没选就不启动。
-    let tool_dir = berth_tool_core::paths::tools_root().join(&agent);
-    if let Some(expert) = request.expert.as_deref().map(str::trim).filter(|expert| !expert.is_empty()) {
-        let key = berth_tool_core::paths::expert_input(&tool_dir)
-            .ok_or_else(|| invalid(format!("{agent} has no expert option in its launch bar")))?;
-        inputs.insert(key, json!(expert));
-    }
-    let mut chosen = inputs.clone();
-    if let Some(preset) = &preset {
-        chosen.extend(preset.inputs.clone());
-    }
-    let expert = berth_tool_core::paths::launch_expert(&tool_dir, &json!(chosen))
-        .ok_or_else(|| invalid("--expert is required: group members are experts"))?;
     // 成员名是专家，重名编号。
     let taken: std::collections::HashSet<String> =
         group::members(&group::events(main, &name)?).into_iter().map(|member| member.name).collect();
@@ -288,7 +309,7 @@ pub(crate) fn spawn(ctx: &Ctx, request: SpawnRequest) -> TaskResult<Value> {
     let provider = preset
         .as_ref()
         .and_then(|preset| preset.provider_id.map(|id| (i64::from(id), preset.model_id.clone())));
-    crate::join_acp(ctx, &name, &worker, &agent, inputs.into_iter().collect(), provider, Some(cwd.clone()))?;
+    crate::join_acp(ctx, &name, Some(&worker), &agent, inputs.into_iter().collect(), provider)?;
     if !label.is_empty() {
         identity::set_label(main, &name, &worker, &label);
     }

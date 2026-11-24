@@ -40,9 +40,9 @@ if (data.mode === "inspect") {
       ? await hooks.args(Object.freeze({ ...data.inputs }))
       : []
   const source = data.provider
-  const provider =
-    source &&
+  const wrap = (source) =>
     Object.freeze({
+      id: source.id ?? null,
       name: source.name,
       model: source.model,
       models: Object.freeze(source.models),
@@ -61,6 +61,9 @@ if (data.mode === "inspect") {
         )
       },
     })
+  const provider = source && wrap(source)
+  // 群组 ACP 成员：本 Agent 能用的全部服务商（经代理），群里换服务商时会话不必重启；其余启动为空。
+  const providers = Object.freeze((source?.providers ?? []).map(wrap))
   // 启动记录：群组成员详情据此显示这个 Agent 带了什么上下文（见 script.rs LAUNCH_RECORD_ENV）。
   const record = (plan) =>
     __berth_launch_record(
@@ -136,6 +139,7 @@ if (data.mode === "inspect") {
       )
     ),
     provider,
+    providers,
     // 启动目录所在项目的成员（各检出）或 null；怎么用由插件决定。
     project: data.project ?? null,
     brief: data.brief,

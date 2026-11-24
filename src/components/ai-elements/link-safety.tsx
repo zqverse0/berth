@@ -170,10 +170,10 @@ function parseExternalUrl(rawUrl: string): URL | null {
   if (!trimmed) return null
 
   if (trimmed.startsWith("//")) {
-    // Protocol-relative: pin to https rather than the page protocol — a
-    // Tauri webview's own scheme (tauri://localhost) would otherwise
-    // classify these as an unsupported protocol, and the desktop opener
-    // capability only allows concrete http(s) URLs.
+    // Protocol-relative: pin to https rather than the page protocol — the
+    // Tauri page origin (CEF: http://tauri.localhost) would otherwise
+    // downgrade these to plain http, and the desktop opener capability only
+    // allows concrete http(s) URLs.
     try {
       return new URL(`https:${trimmed}`)
     } catch {

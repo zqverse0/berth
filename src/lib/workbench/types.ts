@@ -5,7 +5,6 @@ export type WorkbenchPageId = "settings"
 export type WorkbenchPanelId =
   | "model-providers"
   | "tools"
-  | "experts"
   | "appearance"
   | "advanced"
 

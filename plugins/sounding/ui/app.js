@@ -1,6 +1,7 @@
 // @ts-check
 /// <reference path="../../berth-plugin.d.ts" />
-// 「会话分析」页面：填问题、选模型、选会话分析、看结果。后端在 api.js（scripts.run）。
+// 「会话分析」页面：顶栏「会话 | 问题」两页。会话页筛选、打开本项目的 Agent 会话并分析、看结果；
+// 问题页选模型、填问题。后端在 api.js（scripts.run）。
 
 const API = "ui/api.js"
 
@@ -14,6 +15,16 @@ const TYPES = [
   ["grep", "关键词"],
   ["judge", "逐条判断"],
 ]
+const PAGES = [
+  { id: "sessions", label: "会话" },
+  { id: "questions", label: "问题" },
+]
+const ORIGINS = [
+  ["berth", "Berth"],
+  ["external", "外部"],
+  ["unknown", "未知"],
+]
+const PAGE_SIZE = 50
 const UNITS = [
   ["user", "每条用户消息"],
   ["action", "每个工具调用"],
@@ -26,6 +37,10 @@ const model = {
   /** @type {string | null} */ selected: null,
   /** @type {Record<string, string>} 正在分析的会话 → "running" 或错误信息 */ scans:
     {},
+  page: "sessions",
+  limit: PAGE_SIZE,
+  // ponytail: 筛选只在页面里记着，重载插件页就清空；要跨重启记住再存进 berth.storage。
+  filters: { query: "", live: false, agent: "", group: "", origin: "" },
 }
 
 const app = /** @type {HTMLElement} */ (document.getElementById("app"))
@@ -33,6 +48,11 @@ const app = /** @type {HTMLElement} */ (document.getElementById("app"))
 const call = (input) => berth.scripts.run(API, input)
 
 await berth.ready
+await berth.ui.setHeaderTabs(PAGES, model.page)
+berth.ui.onHeaderTab((id) => {
+  model.page = id
+  render()
+})
 render()
 await load()
 // 宿主切走侧栏视图时 iframe 只隐藏不卸载：重新可见时重读。
@@ -42,7 +62,7 @@ new IntersectionObserver(([entry]) => {
 
 async function load() {
   try {
-    model.state = await call({ action: "state" })
+    model.state = await call({ action: "state", limit: model.limit })
     model.error = null
   } catch (error) {
     model.error = String(error)
@@ -93,11 +113,43 @@ function render() {
       state.installed
         ? ""
         : `<p class="banner">没有安装 sounding：在 设置 → 工具 → Sounding 里安装后再分析。</p>`,
-      modelSection(state),
-      questionsSection(state.config.questions),
-      sessionsSection(state),
+      ...(model.page === "questions"
+        ? [modelSection(state), questionsSection(state.config.questions)]
+        : [
+            filtersSection(state),
+            `<div id="list">${sessionsSection(state)}</div>`,
+          ]),
     ].join("")
   }
+}
+
+/** 筛选：搜索标题 / 会话 id / 群，在跑、Agent、群、来源。选项取自已读到的会话。 */
+function filtersSection(/** @type {any} */ state) {
+  const { filters } = model
+  const values = (/** @type {string} */ key) =>
+    [...new Set(state.sessions.map((/** @type {any} */ s) => s[key]))]
+      .filter(Boolean)
+      .sort()
+      .map((/** @type {string} */ v) => [v, v])
+  const select = (
+    /** @type {string} */ key,
+    /** @type {string} */ all,
+    /** @type {string[][]} */ options
+  ) =>
+    `<select class="grow" data-filter="${key}"><option value="">${all}</option>${options
+      .map(
+        ([v, l]) =>
+          `<option value="${esc(v)}" ${/** @type {any} */ (filters)[key] === v ? "selected" : ""}>${esc(l)}</option>`
+      )
+      .join("")}</select>`
+  return `<h2>会话<span class="spacer"></span><button data-act="reload">刷新</button></h2>
+    <input type="text" data-filter="query" placeholder="搜索标题、会话 id、群" value="${esc(filters.query)}">
+    <div class="row filters">
+      ${select("agent", "全部 Agent", values("agent"))}
+      ${select("group", "全部群", values("group"))}
+      ${select("origin", "全部来源", ORIGINS)}
+      <label class="check"><input type="checkbox" data-filter="live" ${filters.live ? "checked" : ""}>在跑</label>
+    </div>`
 }
 
 /** @param {any} state */
@@ -203,7 +255,22 @@ function questionCard(q, index, questions) {
 
 /** @param {any} state */
 function sessionsSection(state) {
-  const rows = state.sessions
+  const { query, live, agent, group, origin } = model.filters
+  const needle = query.trim().toLowerCase()
+  const shown = state.sessions.filter(
+    (/** @type {any} */ s) =>
+      (!live || s.live) &&
+      (!agent || s.agent === agent) &&
+      (!group || s.group === group) &&
+      (!origin || s.origin === origin) &&
+      (!needle ||
+        [s.title, s.id, s.group].some((v) =>
+          String(v ?? "")
+            .toLowerCase()
+            .includes(needle)
+        ))
+  )
+  const rows = shown
     .map((/** @type {any} */ s) => {
       const status = model.scans[s.id]
       const done = state.results[s.id]
@@ -211,14 +278,26 @@ function sessionsSection(state) {
         status === "running"
           ? `<span class="muted">分析中…</span>`
           : `<button data-act="scan" data-id="${esc(s.id)}" ${state.installed ? "" : "disabled"}>${done ? "重新分析" : "分析"}</button>`
+      const result = done
+        ? `<button data-act="select" data-id="${esc(s.id)}">${model.selected === s.id ? "收起" : "结果"}</button>`
+        : ""
+      const origin = ORIGINS.find(([v]) => v === s.origin)?.[1]
       return `<div class="session ${model.selected === s.id ? "selected" : ""}">
-          <div class="row"><div class="grow title" data-act="select" data-id="${esc(s.id)}" title="${esc(s.title ?? "")}">${esc(s.title || s.id)}</div>${action}</div>
-          <div class="muted">${esc(s.agent)} · ${time(s.updatedAt)}${s.live ? " · 在跑" : ""}${done ? " · 已分析" : ""}</div>
+          <div class="row"><div class="grow title" data-act="open" data-id="${esc(s.id)}" title="${s.id ? `打开：${esc(s.title ?? s.id)}` : "这个 Agent 的会话打不开"}">${esc(s.title || s.id || "（无标题）")}</div>${result}${action}</div>
+          <div class="muted">${[s.agent, s.group, origin, time(s.updatedAt), s.live ? "在跑" : "", done ? "已分析" : ""].filter(Boolean).map(esc).join(" · ")}</div>
           ${status && status !== "running" ? `<div class="error">${esc(status)}</div>` : ""}
         </div>${model.selected === s.id ? resultSection() : ""}`
     })
     .join("")
-  return `<h2>会话<span class="spacer"></span><button data-act="reload">刷新</button></h2>${rows || `<p class="muted">这个项目还没有 Agent 会话。</p>`}`
+  const empty = state.sessions.length
+    ? "没有符合筛选的会话。"
+    : "这个项目还没有 Agent 会话。"
+  // 读满一页说明可能还有更早的。
+  const more =
+    state.sessions.length >= model.limit
+      ? `<button class="more" data-act="more">更多</button>`
+      : ""
+  return (rows || `<p class="muted">${empty}</p>`) + more
 }
 
 function resultSection() {
@@ -300,7 +379,22 @@ app.addEventListener("click", (event) => {
   const { act, q, id } = target.dataset
   const questions = model.state?.config.questions
   if (act === "reload") load()
-  else if (act === "add") {
+  else if (act === "more") {
+    model.limit += PAGE_SIZE
+    load()
+  } else if (act === "open") {
+    const session = model.state.sessions.find(
+      (/** @type {any} */ s) => s.id === id
+    )
+    if (session?.id)
+      berth.sessions.open({
+        agent: session.agent,
+        sessionId: session.id,
+        cwd: session.cwd,
+        title: session.title,
+      })
+    else berth.ui.notify("这个 Agent 的会话打不开")
+  } else if (act === "add") {
     questions.push({
       id: `q${Date.now().toString(36)}`,
       type: "boolean",
@@ -325,7 +419,16 @@ app.addEventListener("click", (event) => {
 
 app.addEventListener("input", (event) => {
   const target = /** @type {HTMLInputElement} */ (event.target)
-  const { q, key, field } = target.dataset
+  const { q, key, field, filter } = target.dataset
+  if (filter) {
+    Object.assign(model.filters, {
+      [filter]: target.type === "checkbox" ? target.checked : target.value,
+    })
+    // 只重画列表，搜索框不丢焦点。
+    const list = document.getElementById("list")
+    if (list && model.state) list.innerHTML = sessionsSection(model.state)
+    return
+  }
   const config = model.state?.config
   if (!config) return
   if (field === "provider") {

@@ -14,7 +14,11 @@ import { GroupLiveStatus } from "@/components/project-management/group/group-liv
 import { GroupPermissions } from "@/components/project-management/group/group-permissions"
 import { GroupTimeline } from "@/components/project-management/group/group-timeline"
 import { usePaneActions } from "@/components/project-management/group/pane-actions"
-import { useTaskGroup } from "@/components/project-management/group/use-task-group"
+import {
+  useExpertDm,
+  useSelectedGroup,
+  useTaskGroup,
+} from "@/components/project-management/group/use-task-group"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import {
   type GroupEvent,
@@ -27,19 +31,49 @@ import {
 import { useAgentPaneStore, useAllAgentPanes } from "@/lib/terminal/agent-panes"
 import { terminateTerminalSessionIdempotent } from "@/lib/terminal/terminal-record-cleanup"
 import { handoffAcpMember } from "@/components/project-management/group/acp-handoff"
+import { useExperts } from "@/components/project-management/group/expert-editor"
+import { ChatSettings } from "@/components/project-management/group/expert-settings"
+import { useExpertConfigList } from "@/components/project-management/group/group-experts"
 
 /**
- * 群对话主体，嵌在空间首页下部（一个空间一个群）：时间线（往上翻再读）、实时状态、审批卡片、输入框。
- * 单聊对象由侧栏群组视图选（{@link useGroupWorkspaceStore}），群聊不指定收件人、由负责人兜底。
+ * 当前选中群（侧栏顶栏切换，缺省 `main`）的对话主体，嵌在空间首页下部：时间线（往上翻再读）、实时状态、审批卡片、输入框。
+ * 单聊对象由侧栏群组视图选（{@link useGroupWorkspaceStore}）：专家是和它的私聊（单独的账本，不进群），
+ * 其他成员（spawn 的 worker、旧成员）是群里与它相关的消息。群聊不指定收件人、只记进群。
  * 调用方按 folderId 加 key 重建。
  */
 export function GroupPanel({ folderId }: { folderId: number }) {
   const t = useTranslations("BerthTasks.group")
-  const group = useTaskGroup(folderId, true)
-  const name = group.name
+  // 侧栏选中的群；私聊时下面读的是私聊账本，这里仍是群（切回群聊、侧栏高亮用）。
+  const chat = useSelectedGroup(folderId)
+  const storedFocus = useGroupWorkspaceStore((state) =>
+    state.folderId === folderId && state.group === chat
+      ? state.focusedMember
+      : null
+  )
+  // 专家都能私聊 / @：还不在群里的，发消息时后端按它的配置入群。
+  const { catalog } = useExperts()
+  const configs = useExpertConfigList(folderId)
+  const experts = useMemo(
+    () =>
+      (catalog?.experts ?? []).map((entry) => ({
+        id: entry.id,
+        name: entry.expert.name || entry.id,
+        agent: configs[entry.id]?.agent ?? null,
+      })),
+    [catalog, configs]
+  )
+  const isExpert = (member: string) =>
+    experts.some((expert) => expert.id === member)
+  const dmExpert = storedFocus && isExpert(storedFocus) ? storedFocus : null
+  const dm = useExpertDm(folderId, dmExpert)
+  // 私聊账本还没建好：先不读（不把群的时间线当私聊显示）。
+  const pendingDm = dmExpert != null && dm == null
+  const group = useTaskGroup(folderId, !pendingDm, dm ?? undefined)
+  const name = pendingDm ? null : group.name
   useEffect(() => {
-    if (name) useGroupWorkspaceStore.getState().selectGroup(folderId, name)
-  }, [folderId, name])
+    if (name && !dmExpert)
+      useGroupWorkspaceStore.getState().selectGroup(folderId, name)
+  }, [folderId, name, dmExpert])
   const workspace = useWorkspaceRuntimeActions()
   const panes = useAllAgentPanes()
   const seen = useAgentPaneStore((state) => state.seen)
@@ -60,26 +94,21 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     [t]
   )
   const [posting, setPosting] = useState(false)
-  const storedFocus = useGroupWorkspaceStore((state) =>
-    name && state.folderId === folderId && state.group === name
-      ? state.focusedMember
-      : null
-  )
   const setFocus = (member: string | null) => {
-    if (!name) return
     const store = useGroupWorkspaceStore.getState()
-    store.selectGroup(folderId, name)
+    store.selectGroup(folderId, chat)
     store.setFocusedMember(member)
   }
   const rows = useMemo(
     () => memberRows(group.members, group.events, panes, seen),
     [group.members, group.events, panes, seen]
   )
-  // 记住的单聊对象已不是成员（如已移出的 ACP 成员）：回到群聊。
+  // 记住的单聊对象既不是成员也不是专家（如已移出的旧成员）：回到群聊。
   const focus =
     storedFocus == null ||
     rows.length === 0 ||
-    rows.some((row) => row.member.name === storedFocus)
+    rows.some((row) => row.member.name === storedFocus) ||
+    isExpert(storedFocus)
       ? storedFocus
       : null
   const [reply, setReply] = useState<GroupEvent | null>(null)
@@ -98,8 +127,13 @@ export function GroupPanel({ folderId }: { folderId: number }) {
   )
   const labelOf = useCallback(
     (member: string) =>
-      memberLabel(members.find((m) => m.name === member) ?? { name: member }),
-    [members]
+      memberLabel(
+        members.find((m) => m.name === member) ?? {
+          name: member,
+          expertName: experts.find((expert) => expert.id === member)?.name,
+        }
+      ),
+    [members, experts]
   )
   // 成员正在用的会话（最近入群的、报告过会话的终端）：进行中的提问下显示它的日志。
   const liveSessionOf = useCallback(
@@ -152,18 +186,24 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     (path: string) => void workspace.openFilePreview(path, { folderId }),
     [workspace, folderId]
   )
+  // 私聊账本里全是和它的对话，不用再筛。
   const timelineEvents = useMemo(
-    () => filterMemberEvents(group.events, focus),
-    [group.events, focus]
+    () =>
+      pendingDm
+        ? []
+        : dmExpert
+          ? group.events
+          : filterMemberEvents(group.events, focus),
+    [group.events, focus, dmExpert, pendingDm]
   )
   const openTimelineContext = useCallback(
     (seq: number) => {
       const store = useGroupWorkspaceStore.getState()
-      if (name) store.selectGroup(folderId, name)
+      store.selectGroup(folderId, chat)
       store.setFocusedMember(null)
       setContext({ seq })
     },
-    [folderId, name]
+    [folderId, chat]
   )
   const replyTo = useCallback((event: GroupEvent) => {
     if (!event.author) return
@@ -196,8 +236,7 @@ export function GroupPanel({ folderId }: { folderId: number }) {
   )
 
   // 和 ACP 成员单聊时的成员操作。
-  const acpRow =
-    rows.find((row) => row.member.name === focus && !row.member.builtin) ?? null
+  const acpRow = rows.find((row) => row.member.name === focus) ?? null
   const controlMember = async (action: "stop" | "new" | "leave") => {
     if (!name || !acpRow) return
     const member = acpRow.member.name
@@ -281,8 +320,8 @@ export function GroupPanel({ folderId }: { folderId: number }) {
     // 群聊不指定收件人：发一条到群里。
     for (const member of to.length ? to : [undefined]) {
       const row = rows.find((row) => row.member.name === member)
-      // 已不在群里的成员不发。
-      if (member && !row) {
+      // 已不在群里的成员不发；专家不在群里照发（后端让它入群，没配 Agent 报错）。
+      if (member && !row && !isExpert(member)) {
         failed.push(member)
         firstError ??= t("composer.unavailable", { names: labelOf(member) })
         continue
@@ -346,6 +385,13 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               >
                 {t("focus.back")}
               </button>
+              <ChatSettings
+                folderId={folderId}
+                expert={dmExpert}
+                row={acpRow}
+                events={group.events}
+                onSaved={group.refresh}
+              />
               {acpRow ? (
                 <>
                   {acpRow.member.handedTo != null ? (
@@ -440,8 +486,9 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               events={timelineEvents}
               allEvents={group.events}
               scopeKey={focus ? `member:${focus}` : "all"}
-              context={context}
-              onContext={openTimelineContext}
+              context={dmExpert ? null : context}
+              // 私聊没有群上下文可跳。
+              onContext={dmExpert ? undefined : openTimelineContext}
               onReply={posting ? undefined : replyTo}
               delivery={group.delivery}
               agentOf={agentOf}
@@ -450,7 +497,13 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               onOpenTerminal={openTerminal}
               forwardTo={forwardTo}
               onForward={posting ? undefined : forward}
-              empty={group.name ? t("noEvents") : t("noGroup")}
+              empty={
+                dmExpert
+                  ? t("noDmEvents", { name: labelOf(dmExpert) })
+                  : group.name
+                    ? t("noEvents")
+                    : t("noGroup")
+              }
               liveSessionOf={liveSessionOf}
               liveLogOf={liveLogOf}
               processOf={processOf}
@@ -473,9 +526,15 @@ export function GroupPanel({ folderId }: { folderId: number }) {
               reply={reply}
               onReplyChange={setReply}
               targets={targets}
+              // 私聊里只有它：@ 别的专家会把它拉进这份私聊。
+              experts={
+                dmExpert
+                  ? experts.filter((expert) => expert.id === dmExpert)
+                  : experts
+              }
               onSend={send}
               folderId={folderId}
-              lead={targets.length ? undefined : group.lead}
+              inGroup={targets.length === 0}
             />
           ) : null}
         </main>

@@ -5,7 +5,6 @@ import { useFormatter, useNow, useTranslations } from "next-intl"
 import {
   AtSign,
   ChevronRight,
-  Crown,
   Ellipsis,
   MessagesSquare,
   OctagonX,
@@ -122,15 +121,15 @@ function MemberCard({
   selected,
   current,
   queued,
-  lead,
   menu,
   sessions,
+  subtitle,
 }: {
   row: MemberRow
+  /** 名字下面一行；不给时是「Agent · 专家名」。 */
+  subtitle?: (row: MemberRow) => React.ReactNode
   /** 它正在做的委托还在排队（没投进去）。 */
   queued?: boolean
-  /** 它是负责人。 */
-  lead?: boolean
   /** 行菜单的菜单项；不给时没有「⋯」。 */
   menu?: (row: MemberRow) => React.ReactNode
   /** 展开的会话列表；不给时没有「会话」按钮。 */
@@ -151,7 +150,10 @@ function MemberCard({
   const now = useNow({ updateInterval: 30_000 })
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const { member, status, pane } = row
+  // 空闲不显示状态（点、文字、时间），只显示在做、等你和未读。
+  const showStatus = row.unread || status !== "idle"
   const iconButton = "size-6 text-muted-foreground hover:text-foreground"
   return (
     <div
@@ -184,54 +186,55 @@ function MemberCard({
         >
           <span className="relative">
             <MemberAvatar agent={memberAgent(member)} name={member.name} />
-            <MemberDot
-              status={status}
-              className="absolute -bottom-0.5 -right-0.5 size-2.5 ring-2 ring-background"
-            />
+            {showStatus ? (
+              <MemberDot
+                status={status}
+                className="absolute -bottom-0.5 -right-0.5 size-2.5 ring-2 ring-background"
+              />
+            ) : null}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-1.5">
               <span className="truncate text-sm font-medium">
                 {memberLabel(member)}
               </span>
-              {lead ? (
-                <Crown
-                  data-member-lead
-                  aria-label={t("lead")}
-                  className="size-3 shrink-0 self-center text-amber-500"
-                >
-                  <title>{t("lead")}</title>
-                </Crown>
-              ) : null}
               {member.label ? (
                 <span className="shrink-0 font-mono text-[10px] text-muted-foreground/80">
                   #{member.name}
                 </span>
               ) : null}
-              <span
-                className={cn(
-                  "ml-auto shrink-0 text-[11px]",
-                  STATUS_TEXT[status]
-                )}
-              >
-                {row.unread ? t("needsYou") : t(`status.${status}`)}
-                {row.lastActivity ? (
-                  <span className="text-muted-foreground/80">
-                    {" · "}
-                    {format.relativeTime(
-                      // termd 的状态时间可能比本机时钟快几秒：不显示「几秒后」。
-                      new Date(Math.min(row.lastActivity, now.getTime())),
-                      now
-                    )}
-                  </span>
-                ) : null}
-              </span>
+              {showStatus ? (
+                <span
+                  className={cn(
+                    "ml-auto shrink-0 text-[11px]",
+                    STATUS_TEXT[status]
+                  )}
+                >
+                  {row.unread ? t("needsYou") : t(`status.${status}`)}
+                  {row.lastActivity ? (
+                    <span className="text-muted-foreground/80">
+                      {" · "}
+                      {format.relativeTime(
+                        // termd 的状态时间可能比本机时钟快几秒：不显示「几秒后」。
+                        new Date(Math.min(row.lastActivity, now.getTime())),
+                        now
+                      )}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
             </span>
-            {memberAgent(member) ? (
+            {subtitle ? (
               <span className="block truncate text-[11px] text-muted-foreground/80">
-                {[agentName(memberAgent(member)!), member.expertName]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {subtitle(row)}
+              </span>
+            ) : memberAgent(member) ? (
+              <span className="block truncate text-[11px] text-muted-foreground/80">
+                {[
+                  agentName(memberAgent(member)!),
+                  // 旧成员按 Agent id 命名、没绑专家：照常可用，移出后按专家重加。
+                  member.expertName ?? t("unbound"),
+                ].join(" · ")}
               </span>
             ) : null}
             {current ? (
@@ -249,7 +252,13 @@ function MemberCard({
         </button>
       )}
       {!editing ? (
-        <div className="absolute right-1.5 top-1.5 hidden items-center gap-0.5 rounded-md bg-background/90 group-hover:flex group-focus-within:flex">
+        // 用透明度藏起来而不是 display:none：菜单打开后行失去悬停，触发按钮仍要有位置，菜单才不会跑到左上角。
+        <div
+          className={cn(
+            "pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-md bg-background/90 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            menuOpen && "pointer-events-auto opacity-100"
+          )}
+        >
           {onMention ? (
             <Button
               variant="ghost"
@@ -314,7 +323,7 @@ function MemberCard({
             <OctagonX aria-hidden="true" className="size-3.5" />
           </Button>
           {menu ? (
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
@@ -356,15 +365,14 @@ export function GroupMembers({
   empty,
   currentOf,
   queuedOf,
-  lead,
   menu,
   sessions,
+  subtitle,
 }: {
   rows: readonly MemberRow[]
+  subtitle?: (row: MemberRow) => React.ReactNode
   /** 委托还在排队（没投进去）。 */
   queuedOf?: (seq: number) => boolean
-  /** 负责人成员名。 */
-  lead?: string | null
   menu?: (row: MemberRow) => React.ReactNode
   agentName: (agentId: string) => string
   onJump: (row: MemberRow) => void
@@ -386,7 +394,6 @@ export function GroupMembers({
         row={row}
         current={current}
         queued={current ? queuedOf?.(current.seq) : false}
-        lead={lead != null && lead === row.member.name}
         menu={menu}
         agentName={agentName}
         onJump={onJump}
@@ -396,6 +403,7 @@ export function GroupMembers({
         onSelect={onSelect}
         selected={selected}
         sessions={sessions}
+        subtitle={subtitle}
       />
     )
   }

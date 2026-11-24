@@ -16,12 +16,14 @@ use serde_json::Value;
 /// 与 GUI `terminal_create` 的注入同语义：缺任一环则不注入（返回空参数），否则把档案写成
 /// 一次性启动档案，返回追加给 launch.js 的 `--berth-provider <文件>`。`force_proxy` 为真时
 /// 无视档案开关一律经代理（`berth provider run`：真 Key 永不进子进程）。
+/// `all` 为真（群组 ACP 成员）时档案另带本 Agent 能用的全部服务商（`ctx.providers`，各自经代理）。
 pub(crate) async fn resolve(
     instance: &DataInstance,
     agent_id: &str,
     provider_id: Option<i32>,
     model_id: Option<&str>,
     force_proxy: bool,
+    all: bool,
 ) -> Result<Vec<String>, String> {
     let asset = berth_tool_core::repository::load_tool_asset(agent_id)
         .ok()
@@ -36,12 +38,36 @@ pub(crate) async fn resolve(
         return Ok(Vec::new());
     };
     let apis = spec.apis.as_deref();
-    let Some(profile) =
+    let Some(mut profile) =
         launch_profile(instance, project_type, apis, id, model_id, force_proxy).await?
     else {
         return Ok(Vec::new());
     };
+    profile.id = Some(id.into());
+    if all {
+        profile.providers = all_profiles(instance, project_type, apis).await?;
+    }
     provider_injection::write_launch_profile(&profile)
+}
+
+/// 全部非官方档案的启动档案（经代理、不指定模型）；代理没在跑、或某家缺地址 / Key / 共同接口的跳过。
+async fn all_profiles(
+    instance: &DataInstance,
+    project_type: &str,
+    agent_apis: Option<&[String]>,
+) -> Result<Vec<LaunchProfile>, String> {
+    if !berth_provider_proxy::is_listening(proxy_port(instance)) {
+        return Ok(Vec::new());
+    }
+    let mut profiles = Vec::new();
+    for provider in list_with_secrets(instance).await? {
+        let id = provider.launch.provider.id;
+        if let Ok(Some(mut profile)) = launch_profile(instance, project_type, agent_apis, id, None, true).await {
+            profile.id = Some(id.into());
+            profiles.push(profile);
+        }
+    }
+    Ok(profiles)
 }
 
 async fn launch_profile(

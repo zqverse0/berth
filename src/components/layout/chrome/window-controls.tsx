@@ -1,16 +1,11 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { isDesktop } from "@/lib/platform"
+import { getCurrentWindow, isDesktop } from "@/lib/platform"
 import { hasNativeWindowChrome } from "@/lib/window-chrome"
 import { useTranslations } from "next-intl"
 import { usePlatform } from "@/hooks/use-platform"
 import { cn } from "@/lib/utils"
-
-async function getTauriWindow() {
-  const { getCurrentWindow } = await import("@tauri-apps/api/window")
-  return getCurrentWindow()
-}
 
 /** Combined width of the three control buttons (3 × 46px). Exported so the
  *  Linux resize grips can carve this region out of the top edge. */
@@ -21,8 +16,8 @@ export function WindowControls() {
   const { isWindows, isLinux } = usePlatform()
   const showControls = (isWindows || isLinux) && hasNativeWindowChrome()
   const [isMaximized, setIsMaximized] = useState(false)
-  const appWindowRef = useRef<Awaited<
-    ReturnType<typeof getTauriWindow>
+  const appWindowRef = useRef<NonNullable<
+    Awaited<ReturnType<typeof getCurrentWindow>>
   > | null>(null)
 
   useEffect(() => {
@@ -32,8 +27,8 @@ export function WindowControls() {
     let unlistenResize: (() => void) | null = null
     let resizeFrame: number | null = null
 
-    getTauriWindow().then((appWindow) => {
-      if (disposed) return
+    void getCurrentWindow().then((appWindow) => {
+      if (disposed || !appWindow) return
       appWindowRef.current = appWindow
 
       const syncMaximized = async () => {

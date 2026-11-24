@@ -12,8 +12,8 @@ export interface TextShimmerProps {
   className?: string
 }
 
-// 「进行中」文字：跟随全局 1 秒慢闪。原来的扫光是 CSS 无限动画，挂着时 WebKit 每秒出 60 帧，
-// GTK3 下宿主主线程逐帧拷贝整窗（见 status-dot.tsx）。
+// 「进行中」文字：跟随全局 1 秒慢闪。早期为规避 WebKitGTK / GTK3 下 CSS 无限扫光每帧
+// 触发宿主主线程整窗拷贝而做的取舍（见 status-dot.tsx）；切 CEF 后待重测基线再决定是否恢复。
 const ShimmerComponent = ({
   children,
   as: Component = "p",

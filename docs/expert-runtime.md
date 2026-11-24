@@ -34,6 +34,9 @@ $BERTH_HOME/
 专家表与 Agent 无关：Agent 之间的差异只写在各自 `launch.js` 里，**不为某个 Agent
 往专家表加字段**。
 
+`avatar`（`{"shape", "color"}`）是界面头像，只给 GUI 用：形状 `circle` / `square` / `drop` / `hexagon` /
+`star`，颜色 `chart-1`…`chart-5`（主题图表色），认不得的值按没设处理。宿主原样存取，不当资产校验。
+
 其他键是开放字段：`"xxx": ["a"]` 对应 `$BERTH_HOME/xxx/a`，值必须是安全 ID 数组，目录必须存在且不能
 逃出 `xxx/`，键不能是宿主自用目录（`tools`、`experts`、`state`、`run`、`logs` 等，见
 `berth_tool_core::experts::RESERVED_KEYS`）。新增资产类型只加目录，由插件从 `ctx.assets.xxx` 取用，
@@ -122,7 +125,7 @@ select 取值，并读取（随即删除）服务商启动档案；各 `launch.j
 选择值。同一 JSON 也写入 `BERTH_LAUNCH_INPUTS`。Claude 用 `--settings` 叠加
 modelPicker，**不**改 `CLAUDE_CONFIG_DIR`。
 
-专家表与资产引用由 `berth_tool_core::experts::issues` 校验，设置页保存、设置页标记和启动共用这一套，
+专家表与资产引用由 `berth_tool_core::experts::issues` 校验，专家编辑器保存、编辑器标记和启动共用这一套，
 出错即拒绝保存或启动（环境变量是否存在只能在启动时判断）。MCP 敏感值只能写成完整的
 `$ENV_NAME`；变量缺失应阻止本次启动，禁止明文密钥和旧 `secretRef`。
 
@@ -130,15 +133,25 @@ modelPicker，**不**改 `CLAUDE_CONFIG_DIR`。
 `_` 开头的键，含 `env` 内的），没写 `type` 时按 `url` → `http`、否则 `stdio` 补上。定义文件可以照常写说明；
 转成各 Agent 自己的配置归插件。
 
+## 专家即成员
+
+专家在群组里管理：侧栏群组视图的「专家」页列出全部专家与所在群数，选中即在首页打开编辑器（提示词、资产、记忆），
+顶栏「＋」新建。设置里不再有专家页。
+
+入群先选专家、再选 Agent（只列 `tool.json` 声明 `agent.acp` 的插件，该专家上次入群用的排最前，从群事件推出，
+不另存），启动栏里的专家项预填并隐藏。成员名 = 专家 id（`berth_group::join_acp` 不给 `as` 时取启动栏选的专家），
+同一群里同一专家只出现一次。旧成员（按 Agent id 命名、名字不是专家 id）照常可用，成员行标「未绑定专家」，
+移出后按专家重加。同一专家可进多个群，每个群一条会话（见 `agent-contracts.md`「群与目录」）。专家表不加 `agent` 等字段。
+
 ## 专家记忆
 
 每个专家都有自己的记忆，不用配置：装了 `mcp/expert-memory.json`，启动时宿主就给专家带上 `memory/<专家 id>/`
-（`ctx.assets.memory`）和这个读写工具。用户在设置 → 专家 →「专家记忆」里查看和编辑，Agent 经工具读写。
+（`ctx.assets.memory`）和这个读写工具。用户在群组侧栏「专家」页选中专家后，首页编辑器的「专家记忆」里查看和编辑，Agent 经工具读写。
 
 ```text
 $BERTH_HOME/memory/<expert>/seed/*.md     # 随专家分发，只读
 $BERTH_HOME/memory/<expert>/learned/*.md  # 用户积累，更新专家包时不覆盖；同名优先于 seed
-$BERTH_HOME/memory/<expert>/MEMORY.md     # 索引，由工具和设置页生成
+$BERTH_HOME/memory/<expert>/MEMORY.md     # 索引，由工具和专家编辑器生成
 $BERTH_HOME/mcp/expert-memory.json        # 读写工具
 ```
 

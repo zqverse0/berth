@@ -257,6 +257,9 @@
     agent: {
       attach: (item) => call("agent.attach", item),
     },
+    sessions: {
+      open: (session) => call("sessions.open", session),
+    },
     // 权限 `devices`：设备管理面板
     devices: {
       list: () => call("devices.list"),

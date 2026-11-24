@@ -20,16 +20,26 @@ function resolveCargoTargetDir() {
   return path.resolve(srcTauri, process.env.CARGO_TARGET_DIR || "target")
 }
 
-const packageManager = process.env.npm_execpath
-if (!packageManager) {
-  throw new Error("npm_execpath is unavailable; run this script through pnpm")
+// npm 版 @tauri-apps/cli@3.0.0-alpha.6 缺少 CEF libEGL 修复（tauri#16338），
+// 本地打包统一走 cargo tauri（与 src-tauri/Cargo.toml 同一 rev）。
+const probe = spawnSync("cargo", ["tauri", "--version"], {
+  cwd: root,
+  env: process.env,
+  stdio: "ignore",
+})
+if (probe.error || probe.status !== 0) {
+  throw new Error(
+    [
+      "cargo-tauri is not installed. Install the rev pinned in src-tauri/Cargo.toml first:",
+      '  rev=$(sed -nE \'s/^tauri = \\{ git = "[^"]+", rev = "([0-9a-f]+)".*/\\1/p\' src-tauri/Cargo.toml)',
+      '  cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev "$rev" --locked',
+    ].join("\n")
+  )
 }
 
 const result = spawnSync(
-  process.execPath,
+  "cargo",
   [
-    packageManager,
-    "exec",
     "tauri",
     "build",
     "--bundles",

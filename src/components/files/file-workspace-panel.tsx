@@ -47,11 +47,6 @@ const LazyTaskDetail = lazy(() =>
     (m) => ({ default: m.TaskDetail })
   )
 )
-const LazyBerthSessionView = lazy(() =>
-  import("@/components/project-management/group/berth-record").then((m) => ({
-    default: m.BerthSessionView,
-  }))
-)
 const LazyTranscriptReader = lazy(() =>
   import("@/sessions/components/transcript-reader").then((m) => ({
     default: m.TranscriptReader,
@@ -73,12 +68,7 @@ const LazyUnifiedDiffPreview = lazy(() =>
 // a true cold load falls back to the full-pane placeholder.
 function isTabRendererReady(tab: FileWorkspaceTab): boolean {
   if (isResourceFileTab(tab)) return true
-  if (
-    tab.kind === "transcript" ||
-    tab.kind === "task" ||
-    tab.kind === "berth-session"
-  )
-    return true
+  if (tab.kind === "transcript" || tab.kind === "task") return true
   if (tab.kind === "rich-diff") {
     return (
       tab.originalContent !== undefined || tab.modifiedContent !== undefined
@@ -310,14 +300,6 @@ export function FileWorkspacePanel({
     return (
       <Suspense fallback={viewerFallback}>
         <LazyTranscriptReader key={activeFileTab.id} tab={activeFileTab} />
-      </Suspense>
-    )
-  }
-
-  if (activeFileTab.kind === "berth-session") {
-    return (
-      <Suspense fallback={viewerFallback}>
-        <LazyBerthSessionView key={activeFileTab.id} tab={activeFileTab} />
       </Suspense>
     )
   }

@@ -58,7 +58,7 @@ export function SystemRuntimeSettings() {
   const tDynamic = t as unknown as (key: string) => string
   const { isWindows } = usePlatform()
 
-  // 硬件加速开关只对 Windows WebView2 生效。
+  // 硬件加速开关当前只在 Windows 暴露（通过 CEF `--disable-gpu` 生效）。
   const renderingSectionVisible = isWindows
 
   const [loadingTerminal, setLoadingTerminal] = useState(true)

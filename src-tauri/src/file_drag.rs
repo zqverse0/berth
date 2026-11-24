@@ -1,11 +1,12 @@
 //! 把本机文件作为系统拖动发起（对方设备的文件拖到文件管理器），拖动结束后返回。
 //!
-//! Linux 不用 `drag` crate：它在 drop-performed 时就断开 drag-data-get，而放下的一方这之后才来要
-//! 数据，于是文件管理器什么也收不到。这里等 drag-end（对方取完数据或拖动失败）才清理。
+//! Linux 不用 `drag` crate（只支持 GTK3，CEF 窗口是 GTK4）：直接 `gdk::Drag::begin`，内容由
+//! ContentProvider 按需提供，等 dnd-finished / cancel（对方取完数据或拖动失败）才算结束。
 
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
+use tauri::Manager as _;
 use tokio::sync::oneshot;
 
 #[tauri::command]
@@ -41,56 +42,48 @@ fn begin<R: tauri::Runtime>(
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use gtk::gdk_pixbuf::prelude::PixbufLoaderExt;
-    use gtk::glib::prelude::ObjectExt;
-    use gtk::prelude::{DragContextExtManual, WidgetExt};
+    use gtk4::gdk;
+    use gtk4::gdk::prelude::{DisplayExt, DragExt, SeatExt, SurfaceExt};
+    use gtk4::gdk_pixbuf::prelude::PixbufLoaderExt;
+    use gtk4::glib;
+    use gtk4::prelude::NativeExt;
 
     let gtk_window = window.gtk_window().map_err(|error| error.to_string())?;
-    let uri = gtk::glib::filename_to_uri(path, None).map_err(|error| error.to_string())?;
-    let targets = gtk::TargetList::new(&[]);
-    targets.add_uri_targets(0);
+    let surface = gtk_window.surface().ok_or("window has no surface")?;
+    let device = surface
+        .display()
+        .default_seat()
+        .and_then(|seat| seat.pointer())
+        .ok_or("no pointer device")?;
+    let (x, y, _) = surface
+        .device_position(&device)
+        .unwrap_or((0.0, 0.0, gdk::ModifierType::empty()));
+    let uri = glib::filename_to_uri(path, None).map_err(|error| error.to_string())?;
+    let content = gdk::ContentProvider::for_bytes(
+        "text/uri-list",
+        &glib::Bytes::from_owned(format!("{uri}\r\n").into_bytes()),
+    );
+    let drag = gdk::Drag::begin(&surface, &device, &content, gdk::DragAction::COPY, x, y)
+        .ok_or("failed to start the drag")?;
 
-    let handlers = Rc::new(RefCell::new(Vec::new()));
-    handlers
-        .borrow_mut()
-        .push(gtk_window.connect_drag_data_get(move |_, _, data, _, _| {
-            data.set_uris(&[uri.as_str()]);
-        }));
-    let disconnect = {
-        let handlers = handlers.clone();
-        move |widget: &gtk::ApplicationWindow| {
-            for handler in handlers.borrow_mut().drain(..) {
-                widget.disconnect(handler);
-            }
-        }
-    };
-    let ended = RefCell::new(Some(ended));
-    let on_end = disconnect.clone();
-    let end = gtk_window.connect_drag_end(move |widget, _| {
-        if let Some(ended) = ended.borrow_mut().take() {
-            let _ = ended.send(());
-        }
-        on_end(widget);
-    });
-    handlers.borrow_mut().push(end);
-
-    let Some(context) = gtk_window.drag_begin_with_coordinates(
-        &targets,
-        gtk::gdk::DragAction::COPY,
-        1,
-        None,
-        -1,
-        -1,
-    ) else {
-        disconnect(&gtk_window);
-        return Err("failed to start the drag".to_owned());
-    };
-    let loader = gtk::gdk_pixbuf::PixbufLoader::new();
+    let loader = gtk4::gdk_pixbuf::PixbufLoader::new();
     if loader.write(&image).and_then(|()| loader.close()).is_ok() {
         if let Some(icon) = loader.pixbuf() {
-            context.drag_set_icon_pixbuf(&icon, 0, 0);
+            #[allow(deprecated)]
+            gtk4::DragIcon::set_from_paintable(&drag, &gdk::Texture::for_pixbuf(&icon), 0, 0);
         }
     }
+
+    // 拖动期间自己持有 Drag 引用，结束（放下完成或取消）时放掉并通知等待方。
+    let held = Rc::new(RefCell::new(Some((drag.clone(), ended))));
+    let finish = move || {
+        if let Some((_, ended)) = held.borrow_mut().take() {
+            let _ = ended.send(());
+        }
+    };
+    let on_finished = finish.clone();
+    drag.connect_dnd_finished(move |_| on_finished());
+    drag.connect_cancel(move |_, _| finish());
     Ok(())
 }
 

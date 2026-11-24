@@ -24,12 +24,6 @@ export const WORKBENCH_PANELS: readonly WorkbenchPanelDef[] = [
     labelKey: "tools",
   },
   {
-    id: "experts",
-    scope: "global",
-    factoryPageId: "settings",
-    labelKey: "experts",
-  },
-  {
     id: "appearance",
     scope: "global",
     factoryPageId: "settings",

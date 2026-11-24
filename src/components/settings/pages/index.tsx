@@ -15,7 +15,6 @@ export const SETTINGS_PAGE_LOADERS: Record<
       default: m.ModelProviderSettings,
     })),
   tools: () => import("./tools"),
-  experts: () => import("./experts"),
   appearance: () =>
     import("../appearance-settings").then((m) => ({
       default: m.AppearanceSettings,

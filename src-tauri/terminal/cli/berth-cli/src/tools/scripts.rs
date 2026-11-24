@@ -53,7 +53,7 @@ fn with_provider(script: &Path, args: &[String]) -> Result<Vec<String>, String> 
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    rest.extend(runtime.block_on(crate::provider_launch::resolve(&instance, agent, id, model.as_deref(), false))?);
+    rest.extend(runtime.block_on(crate::provider_launch::resolve(&instance, agent, id, model.as_deref(), false, true))?);
     Ok(rest)
 }
 

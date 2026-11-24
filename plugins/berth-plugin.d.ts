@@ -73,6 +73,11 @@ declare module "berth" {
     delegation?: boolean
     /** 每个工具调用都先经 session/request_permission；缺省 false。 */
     approvesAllTools?: boolean
+    /**
+     * `ctx.provider` + 选中模型在适配器会话 model 配置项（ACP `configOptions` 里 category 为 `model`）中的值。
+     * 群里换服务商 / 模型时，运行中的会话列着这个值就用 `session/set_config_option` 切过去、不重启。
+     */
+    modelOption?: string
   }
 
   /** `contributes.command` 的脚本默认导出。 */
@@ -215,6 +220,11 @@ declare module "berth" {
     /** 选了自定义服务商才有；没有 = 用 Agent 自己的登录。 */
     readonly provider: Provider | null
     /**
+     * 群组 ACP 成员选了服务商时：本 Agent 能用的全部服务商（含选中的那家，各自经 Berth 代理，`model` 为 null），
+     * 写进会话后群里换服务商 / 模型可以不重启（`acp()` 返回的 `modelOption`）。其余启动为空数组；旧宿主没有这个字段。
+     */
+    readonly providers: readonly Provider[]
+    /**
      * 启动目录所在项目的成员（同 `berth project . member ls --json`）；不在项目里为 null。
      * 要不要交给 `--add-dir`、参考是否只读、有 Agent 在跑的检出给不给写，由插件决定。
      */
@@ -295,6 +305,8 @@ declare module "berth" {
   }
 
   export interface Provider {
+    /** 服务商档案 id；`ctx.provider` 与 `ctx.providers` 里的同一家相同。旧宿主为 null。 */
+    readonly id: number | null
     readonly name: string
     readonly model: string | null
     /** 选中模型在最前；已滤掉和本 Agent 没有共同接口的模型。 */
@@ -429,6 +441,19 @@ declare module "berth" {
       description?: string
     }): Promise<TaskSummary>
     open(id: string): Promise<void>
+  }
+
+  /**
+   * sessions@1 · 页面 · 无需权限。会话列表用 `berth project <根> session ls --json`（权限 `process`）；
+   * `open` 只把会话开到工作区标签给用户看，内容不回页面。
+   */
+  export interface SessionsApi {
+    open(session: {
+      agent: string
+      sessionId: string
+      cwd: string
+      title?: string | null
+    }): Promise<void>
   }
 
   /** knowledge@1 · 两者 · 权限 `knowledge` */
@@ -728,6 +753,7 @@ declare module "berth" {
     readonly fs: FsApi
     readonly files: FilesApi
     readonly tasks: TasksApi
+    readonly sessions: SessionsApi
     readonly knowledge: KnowledgeApi
     readonly agent: AgentApi
     readonly storage: StorageApi

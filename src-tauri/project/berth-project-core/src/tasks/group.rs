@@ -355,12 +355,22 @@ pub fn move_checkout(
     })
 }
 
-/// 群设置（`groups.json` 群条目）：负责人（没 @ 谁的消息发给它）、每轮带给成员的群上下文条数与字数。
+/// 群设置（`groups.json` 群条目）：每轮带给成员的群上下文条数与字数、显示名、群目录（成员的 Agent 在这里运行，
+/// 缺省主项目）、私聊的专家（`dm`，是与它私聊的账本，建时写定）。这些键只在这里读写；旧版写的 `lead` / `responders` 不再读。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    pub lead: Option<String>,
     pub context_items: usize,
     pub context_chars: usize,
+    pub title: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub dm: Option<String>,
+}
+
+impl Settings {
+    /// 群目录：设了用它，否则主项目。
+    pub fn dir(&self, main: &Path) -> PathBuf {
+        self.cwd.clone().unwrap_or_else(|| main.to_path_buf())
+    }
 }
 
 pub fn settings(main: &Path, name: &str) -> TaskResult<Settings> {
@@ -371,26 +381,83 @@ pub fn settings(main: &Path, name: &str) -> TaskResult<Settings> {
             .and_then(Value::as_u64)
             .map_or(default, |value| value as usize)
     };
+    let text = |key: &str| entry.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).map(str::to_owned);
     Ok(Settings {
-        lead: entry.get("lead").and_then(Value::as_str).filter(|lead| !lead.is_empty()).map(str::to_owned),
         context_items: limit("items", 30),
         context_chars: limit("chars", 6000),
+        title: text("title"),
+        cwd: text("cwd").map(PathBuf::from),
+        dm: text("dm"),
     })
 }
 
-/// 设（`Some`）或清除（`None`）负责人；是否在群由调用方检查。
-pub fn set_lead(main: &Path, name: &str, lead: Option<&str>) -> TaskResult<()> {
+/// 设（`Some`）或清除（`None`）群条目里的一个设置键；群须存在。
+fn set_setting(main: &Path, name: &str, key: &str, value: Option<Value>) -> TaskResult<()> {
     let _guard = fsutil::lock(&dir(main).join(".lock"))?;
     let mut meta = meta(main)?;
     let entry = meta["groups"]
         .get_mut(name)
         .and_then(Value::as_object_mut)
         .ok_or_else(|| TaskError::new("not_found", format!("Group not found: {name}")))?;
-    match lead {
-        Some(lead) => entry.insert("lead".to_owned(), json!(lead)),
-        None => entry.remove("lead"),
+    match value {
+        Some(value) => entry.insert(key.to_owned(), value),
+        None => entry.remove(key),
     };
     fsutil::write_json(&meta_path(main), &meta)
+}
+
+/// 显示名；`None` 改回群键。
+pub fn set_title(main: &Path, name: &str, title: Option<&str>) -> TaskResult<()> {
+    set_setting(main, name, "title", title.map(|title| json!(title)))
+}
+
+/// 群目录；`None` 为主项目。是否在空间内由调用方检查。
+pub fn set_cwd(main: &Path, name: &str, cwd: Option<&Path>) -> TaskResult<()> {
+    set_setting(main, name, "cwd", cwd.map(|cwd| json!(cwd.to_string_lossy())))
+}
+
+fn experts_path(main: &Path) -> PathBuf {
+    dir(main).join("experts.json")
+}
+
+/// 专家在本空间用哪个 Agent（`groups/experts.json`）：专家 id → `{agent, inputs, provider, model}`，所有群共用；
+/// 没有记录 = 未配置。只在这里读写。
+pub fn expert_configs(main: &Path) -> TaskResult<Map<String, Value>> {
+    Ok(fsutil::read_json(&experts_path(main))?
+        .and_then(|value| value.get("experts").and_then(Value::as_object).cloned())
+        .unwrap_or_default())
+}
+
+/// 设（`Some`）或清除（`None`）一位专家的配置。
+pub fn set_expert_config(main: &Path, expert: &str, config: Option<Value>) -> TaskResult<()> {
+    let _guard = fsutil::lock(&dir(main).join(".lock"))?;
+    let mut experts = expert_configs(main)?;
+    match config {
+        Some(config) => experts.insert(expert.to_owned(), config),
+        None => experts.remove(expert),
+    };
+    fsutil::write_json(&experts_path(main), &json!({"version": 1, "experts": experts}))
+}
+
+/// 聊天群（群列表）：`main` 在前，其余按建群时间。worktree 的 checkout 记录（带 `env`、没账本或旧版只读账本）不算。
+pub fn chat_groups(main: &Path) -> TaskResult<Vec<String>> {
+    ensure_group(main, MAIN_GROUP)?;
+    let meta = meta(main)?;
+    let mut rest: Vec<(String, String)> = meta["groups"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(name, entry)| name.as_str() != MAIN_GROUP && entry.get("env").is_none())
+        .filter(|(name, _)| has_ledger(main, name))
+        .map(|(name, entry)| (entry["createdAt"].as_str().unwrap_or_default().to_owned(), name.clone()))
+        .collect();
+    rest.sort();
+    Ok(std::iter::once(MAIN_GROUP.to_owned()).chain(rest.into_iter().map(|(_, name)| name)).collect())
+}
+
+/// `name` 是聊天群。
+pub fn is_chat_group(main: &Path, name: &str) -> TaskResult<bool> {
+    Ok(chat_groups(main)?.iter().any(|group| group == name))
 }
 
 /// 群不存在就建（不绑定任务，如 `main`）。
@@ -626,13 +693,22 @@ fn read_events(path: &Path) -> TaskResult<Vec<Value>> {
 
 /// 新建群；已存在报 `already_exists`。返回 `created` 事件。
 pub fn create(main: &Path, name: &str) -> TaskResult<Value> {
+    create_entry(main, name, json!({"createdAt": now()}))
+}
+
+/// 新建与专家 `expert` 私聊的账本（群条目带 `dm`，和建群一次写入）；已存在报 `already_exists`。
+pub fn create_dm(main: &Path, name: &str, expert: &str) -> TaskResult<Value> {
+    create_entry(main, name, json!({"createdAt": now(), "dm": expert}))
+}
+
+fn create_entry(main: &Path, name: &str, entry: Value) -> TaskResult<Value> {
     let _guard = fsutil::lock(&dir(main).join(".lock"))?;
     let mut meta = meta(main)?;
     let groups = meta["groups"].as_object_mut().expect("checked object");
     if groups.contains_key(name) {
         return Err(TaskError::new("already_exists", "Group already exists"));
     }
-    groups.insert(name.to_owned(), json!({"createdAt": now()}));
+    groups.insert(name.to_owned(), entry);
     fsutil::write_json(&meta_path(main), &meta)?;
     Ok(append_locked(main, name, json!({"kind": "created"}))?.0)
 }

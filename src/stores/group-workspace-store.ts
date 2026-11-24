@@ -11,7 +11,10 @@ export const useGroupWorkspaceStore = create<{
   emptyMember: string | null
   /** 单聊的成员；null 为群聊（默认）。 */
   focusedMember: string | null
+  /** 侧栏专家页选中的专家：首页显示它的编辑器，盖过群聊；选成员 / 群聊时清掉。 */
+  expert: string | null
   setFocusedMember: (name: string | null) => void
+  showExpert: (id: string | null) => void
   selectGroup: (folderId: number, group: string) => void
   preview: (tabId: string | null, emptyMember?: string) => void
   clearEmpty: () => void
@@ -21,7 +24,9 @@ export const useGroupWorkspaceStore = create<{
   previewTabId: null,
   emptyMember: null,
   focusedMember: null,
-  setFocusedMember: (focusedMember) => set({ focusedMember }),
+  expert: null,
+  setFocusedMember: (focusedMember) => set({ focusedMember, expert: null }),
+  showExpert: (expert) => set({ expert }),
   selectGroup: (folderId, group) => {
     const current = get()
     if (current.folderId === folderId && current.group === group) return
@@ -40,6 +45,7 @@ export const useGroupWorkspaceStore = create<{
       previewTabId: null,
       emptyMember: null,
       focusedMember: null,
+      expert: null,
     })
   },
   preview: (previewTabId, emptyMember) => {
@@ -57,5 +63,6 @@ registerBackendScopedStoreReset(() =>
     previewTabId: null,
     emptyMember: null,
     focusedMember: null,
+    expert: null,
   })
 )

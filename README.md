@@ -47,8 +47,8 @@ Agent 跑在真实的 PTY 终端里，你看到的就是 CLI 本来的样子。A
 **🔌 任何 Agent，一个插件包接入**
 Berth 的代码里没有一行按 Agent 品牌写的分支。每个 Agent 是一个插件包（`tool.json` + `launch.js`），官方已经提供 Claude Code、Codex CLI、Pi、Grok、Cline CLI、Antigravity CLI；插件也能给 Berth 加页面和编辑器，比如 Excalidraw 画板、GitHub 发现页。
 
-**🪶 轻量原生**
-Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
+**🪶 原生后端 + 统一渲染**
+Tauri 3 + Rust 原生后端，三平台统一内置 Chromium（CEF）渲染，不依赖系统 WebView 差异。
 
 ## 功能一览
 
@@ -68,7 +68,7 @@ Tauri + Rust 构建，不是 Electron。Linux 安装包约 48MB。
 | **启动** | 选 Agent、模型服务商、专家包，一键在项目目录启动；模型服务商配置一次，各 Agent 通用，密钥存系统 keyring |
 | **会话** | 读取各 Agent 本地的历史会话，按项目归类、可恢复；部分 Agent 显示账户用量和额度重置时间 |
 | **终端** | 独立守护进程、分栏、标签组；右键「复制终端 ID」交给 Agent 精准定位 |
-| **项目群** | 点名发送、空闲送达、回复回贴、转给另一个 Agent、每轮改动文件；成员卡片列出各自会话；内置成员 Berth；手机上也能对话 |
+| **项目群** | 点名发送、空闲送达、回复回贴、转给另一个 Agent、每轮改动文件；成员卡片列出各自会话；手机上也能对话 |
 | **审阅** | Markdown、HTML（沙箱）、PDF（选中、高亮、批注）、图片、Office 文档、Excalidraw 画板（插件）、代码编辑；Git 改动、提交、分支、贮藏、提交记录 |
 | **沉淀** | 双链 Markdown 知识库（搜索、反向链接、待维护提示）；任务带步骤、可绑定分支 / worktree、可定时运行 |
 | **多设备** | 经 SSH 接入另一台 Berth：远端项目、终端、会话、任务、知识库；先出缓存再刷新，离线可读；拖拽上传、断点续传 |
@@ -121,7 +121,7 @@ berth guide                                 # 给 Agent 看的完整说明
 
 | 平台 | 安装包 | 测试情况 |
 |---|---|---|
-| Linux x64 / arm64 | `.deb` / `.rpm` | x64 `.deb` 作者日常使用 |
+| Linux x64 / arm64 | `.deb` / `.rpm` | x64 `.deb` 作者日常使用；最低 Ubuntu 24.04 / Debian 13 |
 | macOS Apple Silicon / Intel | `.dmg` | 测试较少 |
 | Windows x64 / arm64 | `.exe` | 测试较少 |
 

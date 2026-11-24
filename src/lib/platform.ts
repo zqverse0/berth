@@ -51,9 +51,8 @@ export async function openPath(path: string): Promise<void> {
  */
 export async function revealItemInDir(path: string): Promise<void> {
   if (!isDesktop()) return
-  const { revealItemInDir: tauriReveal } =
-    await import("@tauri-apps/plugin-opener")
-  await tauriReveal(path)
+  const { revealItemsInDir } = await import("@tauri-apps/plugin-opener")
+  await revealItemsInDir(path)
 }
 
 /** 把本机文件作为系统拖动发起（可拖到文件管理器），拖动结束后返回。需要鼠标还按着。 */
@@ -90,6 +89,7 @@ export async function openFileDialog(options?: {
   multiple?: boolean
   title?: string
   defaultPath?: string
+  filters?: { name: string; extensions: string[] }[]
 }): Promise<string | string[] | null> {
   if (!isDesktop()) return null
   const { open } = await import("@tauri-apps/plugin-dialog")

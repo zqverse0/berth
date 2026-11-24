@@ -48,7 +48,35 @@ enum GroupCommand {
     },
     /// 在群的 ACP 成员：Agent、目录、专家、会话 id、是否在答、是否交给了终端。
     Who { name: String },
-    /// 以 ACP 方式入群（不占终端）：`--acp` 为插件 id，须声明 `agent.acp`；`--as` 为成员名。
+    /// 群列表：各群的键、显示名、目录与成员。
+    Ls,
+    /// 新建群：成员的 Agent 在 `--cwd`（本空间的主项目或 worktree，缺省主项目）运行。
+    Create {
+        name: String,
+        /// 显示名。
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+    },
+    /// 改群的显示名（群键不变）；不给 `--title` 改回群键。
+    Rename {
+        name: String,
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// 删除群（`main` 不能删）：成员进程停掉，账本删掉。
+    Delete { name: String },
+    /// 改群设置：`--cwd` 群目录（`--main-dir` 改回主项目）。
+    Settings {
+        name: String,
+        #[arg(long, conflicts_with = "main_dir")]
+        cwd: Option<PathBuf>,
+        #[arg(long)]
+        main_dir: bool,
+    },
+    /// 以 ACP 方式入群（不占终端）：`--acp` 为插件 id，须声明 `agent.acp`；`--as` 为成员名，缺省为 `--expert`。
+    /// Agent 在群目录运行；给了 `--cwd` 须与群目录一致（换目录用 `settings --cwd` 或另建群）。
     Join {
         name: String,
         #[arg(long = "as", default_value = "")]
@@ -58,12 +86,10 @@ enum GroupCommand {
         /// 成员的专家。
         #[arg(long)]
         expert: Option<String>,
-        /// 成员的工作目录（本项目的目录之一，缺省主目录）。
+        /// 核对群目录（不一致时报错）。
         #[arg(long)]
         cwd: Option<PathBuf>,
     },
-    /// 设负责人：没 @ 谁的消息发给它；不给成员即清除。
-    Lead { name: String, member: Option<String> },
     /// 应答 ACP 成员的审批请求：`<请求 seq> <选项 id>`，不给选项即取消。
     Approve {
         name: String,
@@ -172,11 +198,21 @@ fn execute(ctx: &Ctx, command: GroupCommand) -> TaskResult<Value> {
             berth_group::read(ctx, &name, after, to.as_deref())
         }
         GroupCommand::Who { name } => berth_group::who(ctx, &name),
-        GroupCommand::Join { name, as_name, acp, expert, cwd } => {
-            let inputs = expert.map(|expert| ("expert".to_owned(), json!(expert))).into_iter().collect();
-            berth_group::join_acp(ctx, &name, &as_name, &acp, inputs, None, cwd)
+        GroupCommand::Ls => berth_group::groups(ctx),
+        GroupCommand::Create { name, title, cwd } => berth_group::create_group(ctx, &name, title.as_deref(), cwd.as_deref()),
+        GroupCommand::Rename { name, title } => berth_group::rename_group(ctx, &name, title.as_deref()),
+        GroupCommand::Delete { name } => berth_group::delete_group(ctx, &name),
+        GroupCommand::Settings { name, cwd, main_dir } => {
+            let cwd = if main_dir { Some(None) } else { cwd.as_deref().map(Some) };
+            berth_group::configure_group(ctx, &name, cwd)
         }
-        GroupCommand::Lead { name, member } => berth_group::lead(ctx, &name, member.as_deref()),
+        GroupCommand::Join { name, as_name, acp, expert, cwd } => {
+            if let Some(cwd) = cwd {
+                berth_group::check_dir(ctx, &name, &cwd)?;
+            }
+            let inputs = expert.map(|expert| ("expert".to_owned(), json!(expert))).into_iter().collect();
+            berth_group::join_acp(ctx, &name, Some(&as_name), &acp, inputs, None)
+        }
         GroupCommand::Approve { name, request, option } => berth_group::approve(ctx, &name, request, option),
         GroupCommand::Member { name, member, action, terminal } => {
             berth_group::control(ctx, &name, &member, &action, terminal)

@@ -979,7 +979,7 @@ function CatalogView({
 
 /** 能力行的跳转：能力在 Berth 的哪个位置用、去哪配。 */
 type PointLink = {
-  labelKey: "goModelProviders" | "goExperts"
+  labelKey: "goModelProviders"
   page: SettingsPageId
 }
 const POINT_LINKS: Partial<Record<keyof typeof POINT_LABEL_KEYS, PointLink>> = {
@@ -988,7 +988,6 @@ const POINT_LINKS: Partial<Record<keyof typeof POINT_LABEL_KEYS, PointLink>> = {
     page: "model-providers",
   },
   "agent.logins": { labelKey: "goModelProviders", page: "model-providers" },
-  "agent.capabilityStores": { labelKey: "goExperts", page: "experts" },
 }
 
 /** 详情分页：概览（能力与程序）/ 默认启动选项（Agent）/ 给 Agent 的说明 / 开发。 */

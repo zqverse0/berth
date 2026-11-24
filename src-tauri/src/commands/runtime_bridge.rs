@@ -65,7 +65,6 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
                         },
                     )
             };
-            let launch_env = launch.as_ref().map(|launch| launch.env.clone());
             return match crate::berth_tasks::collaboration::call(
                 &method,
                 &project_root,
@@ -74,22 +73,7 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
             )
             .await
             {
-                Ok(result) => {
-                    // 发给内置成员 Berth 的消息：宿主在后台回答（没带模型则回一句说明）。
-                    use crate::berth_tasks::collaboration::berth_member;
-                    if method == "group.post"
-                        && params.get("to").and_then(Value::as_str)
-                            == Some(berth_group::builtin::BERTH)
-                    {
-                        berth_member::start(
-                            db.conn.clone(),
-                            &project_root,
-                            result.clone(),
-                            berth_member::Choice::from_params(&params),
-                            launch_env.unwrap_or_default(),
-                        );
-                    }
-                    Ok(json!({
+                Ok(result) => Ok(json!({
                     "ok": true,
                     "result": result,
                     "meta": {
@@ -98,8 +82,7 @@ pub async fn runtime_bridge_operation<#[cfg(feature = "tauri-runtime")] R: tauri
                         "durationMs": started.elapsed().as_millis(),
                         "method": method,
                     }
-                    }))
-                }
+                })),
                 Err(message) => Ok(json!({
                     "ok": false,
                     "error": {

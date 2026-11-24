@@ -27,6 +27,7 @@ fn agent_binary() -> PathBuf {
 
 impl Fixture {
     fn new(env: &[(&str, &str)]) -> Self {
+        crate::tests::fake_home();
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("proj");
         std::fs::create_dir(&main).unwrap();
@@ -38,12 +39,14 @@ impl Fixture {
         std::fs::create_dir(&state).unwrap();
         let mut spec_env: Vec<(String, String)> = vec![("FAKE_DIR".into(), state.display().to_string())];
         spec_env.extend(env.iter().map(|(key, value)| (key.to_string(), value.to_string())));
-        let launcher: super::Launcher = Box::new(move |_, _| {
+        // 模型就是 model 配置项的值。
+        let launcher: super::Launcher = Box::new(move |_, member| {
             Ok(Spec {
                 argv: vec![agent_binary().display().to_string()],
                 env: spec_env.iter().cloned().collect(),
                 session_meta: Some(json!({"berth": 1}).as_object().unwrap().clone()),
                 tmp: None,
+                model_option: member.provider.as_ref().and_then(|(_, model)| model.clone()),
             })
         });
         group::append(
@@ -65,9 +68,8 @@ impl Fixture {
     }
 
     fn tick(&mut self) {
-        let events = self.events();
         let ctx = self.ctx();
-        self.acp.tick(&ctx, &events);
+        self.acp.tick(&ctx);
     }
 
     /// 用户发一条消息并让运行时转交；返回消息 seq。
@@ -167,11 +169,11 @@ fn cancel_ends_the_turn() {
     }
     std::thread::sleep(Duration::from_millis(300));
     // 进行中的一轮：群页读到的过程里已有流式片段
-    assert_eq!(super::live(&fx.main, MEMBER), Some(json!({"ask": seq, "lines": [{"text": "waiting"}]})));
-    fx.acp.cancel(MEMBER);
+    assert_eq!(super::live(&fx.main, group::MAIN_GROUP, MEMBER), Some(json!({"ask": seq, "lines": [{"text": "waiting"}]})));
+    fx.acp.cancel(&(group::MAIN_GROUP.into(), MEMBER.into()));
     let answer = fx.answer(seq);
     assert_eq!(answer["text"], "waiting\n\n（已取消）");
-    assert_eq!(super::live(&fx.main, MEMBER), None);
+    assert_eq!(super::live(&fx.main, group::MAIN_GROUP, MEMBER), None);
 }
 
 #[test]
@@ -212,7 +214,7 @@ fn resume_is_preferred_when_declared() {
 #[test]
 fn missing_session_starts_over_and_says_so() {
     let mut fx = Fixture::new(&[]);
-    let state = MemberState { session_id: Some("s-gone".into()) };
+    let state = MemberState { session_id: Some("s-gone".into()), cwd: None };
     save_state(&fx.main, group::MAIN_GROUP, MEMBER, &format!("{PREFIX}{MEMBER}"), &state);
     let seq = fx.post("say again");
     fx.system("context_lost");
@@ -222,7 +224,7 @@ fn missing_session_starts_over_and_says_so() {
 #[test]
 fn other_restore_errors_are_reported_not_hidden() {
     let mut fx = Fixture::new(&[("FAKE_LOAD_FAIL", "1")]);
-    let state = MemberState { session_id: Some("s-any".into()) };
+    let state = MemberState { session_id: Some("s-any".into()), cwd: None };
     save_state(&fx.main, group::MAIN_GROUP, MEMBER, &format!("{PREFIX}{MEMBER}"), &state);
     let seq = fx.post("say x");
     let failed = fx.system("turn_failed");
@@ -235,7 +237,7 @@ fn stop_cancels_the_running_turn() {
     let mut fx = Fixture::new(&[]);
     let seq = fx.post("wait");
     let main = fx.main.clone();
-    fx.wait("streaming", |_| super::live(&main, MEMBER).is_some_and(|live| live["lines"] != json!([])));
+    fx.wait("streaming", |_| super::live(&main, group::MAIN_GROUP, MEMBER).is_some_and(|live| live["lines"] != json!([])));
     crate::control(&fx.ctx(), group::MAIN_GROUP, MEMBER, "stop", None).unwrap();
     assert_eq!(fx.answer(seq)["text"], "waiting\n\n（已取消）");
 }
@@ -278,12 +280,12 @@ fn a_new_runtime_closes_turns_left_open_by_a_killed_one() {
     let mut fx = Fixture::new(&[]);
     let seq = fx.post("wait");
     let main = fx.main.clone();
-    fx.wait("streaming", |_| super::live(&main, MEMBER).is_some());
+    fx.wait("streaming", |_| super::live(&main, group::MAIN_GROUP, MEMBER).is_some());
     // 上一个运行时被杀：线程不收尾，live 文件留着（这里只模拟文件还在）
     std::mem::forget(std::mem::replace(&mut fx.acp, Acp::new(Box::new(|_, _| Err("no".into())))));
     fx.tick();
     assert_eq!(fx.system("turn_interrupted")["reply_to"], json!(seq));
-    assert_eq!(super::live(&fx.main, MEMBER), None);
+    assert_eq!(super::live(&fx.main, group::MAIN_GROUP, MEMBER), None);
 }
 
 #[test]
@@ -291,7 +293,7 @@ fn joined_records_inputs_and_provider_and_old_records_keep_their_expert() {
     let at = |mut event: Value| {
         event["seq"] = json!(1);
         let events = [event];
-        super::joined(&events, &group::members(&events)[0]).unwrap()
+        super::joined(&events, group::MAIN_GROUP, &group::members(&events)[0]).unwrap()
     };
     let base = json!({"kind": "joined", "author": MEMBER, "target_ref": format!("{PREFIX}{MEMBER}"), "agent": "pi", "cwd": "/p"});
     let mut new = base.clone();
@@ -343,4 +345,100 @@ fn empty_turn_is_reported_with_its_last_steps() {
     assert_eq!((notice["reply_to"].clone(), notice["to"].clone()), (json!(seq), json!(group::USER)));
     assert_eq!(notice["steps"], json!([{"text": "Run echo"}]));
     assert_eq!(fx.member_messages(), 0);
+}
+
+#[test]
+fn changing_the_group_dir_starts_a_new_session_there() {
+    let mut fx = Fixture::new(&[]);
+    let first = fx.post("say one");
+    fx.answer(first);
+    let other = fx.main.parent().unwrap().join("other");
+    std::fs::create_dir(&other).unwrap();
+    group::set_cwd(&fx.main, group::MAIN_GROUP, Some(&other)).unwrap();
+    // 进程停掉；下一条消息在新目录开新会话，旧会话不再恢复。
+    fx.tick();
+    assert!(fx.acp.workers.is_empty());
+    let recall = fx.post("recall");
+    assert_eq!(fx.answer(recall)["event"], "turn_empty");
+    let log = fx.log();
+    assert!(log.contains(&format!("cwd={}", other.display())) && !log.contains("load "), "{log}");
+}
+
+#[test]
+fn each_group_has_its_own_session_for_the_same_member() {
+    let mut fx = Fixture::new(&[]);
+    let first = fx.post("say one");
+    fx.answer(first);
+    group::create(&fx.main, "side").unwrap();
+    group::append(
+        &fx.main,
+        "side",
+        json!({"kind": "joined", "author": MEMBER, "target_ref": format!("{PREFIX}{MEMBER}"),
+               "agent": "fake", "cwd": fx.main, "collect": true}),
+    )
+    .unwrap();
+    let asked = group::append(
+        &fx.main,
+        "side",
+        json!({"kind": "message", "author": group::USER, "to": MEMBER, "text": "recall"}),
+    )
+    .unwrap();
+    // 另一个群：另一个进程、另一条会话，想不起 main 群里的话；回答写回 side 群。
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let answer = loop {
+        fx.tick();
+        let events = group::events(&fx.main, "side").unwrap();
+        if let Some(found) = events.iter().find(|event| event["author"] == MEMBER && event["reply_to"] == json!(group::seq(&asked))) {
+            break found.clone();
+        }
+        assert!(Instant::now() < deadline, "no answer in side: {events:#?}");
+        std::thread::sleep(Duration::from_millis(30));
+    };
+    assert_eq!(answer["event"], "turn_empty");
+    assert_eq!(fx.acp.workers.len(), 2);
+    assert_eq!(fx.log().matches("new ").count(), 2, "{}", fx.log());
+}
+
+/// 改成员设置（`acp_settings`，`berth_group::member_settings` 写的同形事件；与 GUI 一样，服务商与模型也在启动输入里）。
+fn settings(fx: &Fixture, agent: &str, provider: i64, model: &str) {
+    group::append(
+        &fx.main,
+        group::MAIN_GROUP,
+        json!({"kind": "system", "event": "acp_settings", "author": group::USER, "to": MEMBER,
+               "agent": agent, "inputs": {"provider": provider.to_string(), "model": model}, "provider": provider, "model": model}),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_listed_model_is_switched_in_the_running_session() {
+    let mut fx = Fixture::new(&[("FAKE_MODELS", "a,b")]);
+    let first = fx.post("say one");
+    fx.answer(first);
+    settings(&fx, "fake", 1, "b");
+    let recall = fx.post("recall");
+    assert_eq!(fx.answer(recall)["text"], "say one");
+    let log = fx.log();
+    assert!(log.contains("model b"), "{log}");
+    // 同一进程：没有重新 load
+    assert!(!log.contains("load"), "{log}");
+}
+
+#[test]
+fn an_unlisted_model_restarts_and_loads_the_session_and_a_new_agent_starts_over() {
+    let mut fx = Fixture::new(&[("FAKE_MODELS", "a,b")]);
+    let first = fx.post("say one");
+    fx.answer(first);
+    // 不在 model 配置项里：重启，按新设置起进程，load 同一会话。
+    settings(&fx, "fake", 2, "z");
+    let recall = fx.post("recall");
+    assert_eq!(fx.answer(recall)["text"], "say one");
+    let log = fx.log();
+    assert!(log.contains("load s-") && !log.contains("model "), "{log}");
+    // 换 Agent：会话由 member_settings 清掉，这里同样清掉后开新会话。
+    super::forget_session(&fx.main, group::MAIN_GROUP, MEMBER);
+    settings(&fx, "other", 2, "z");
+    let again = fx.post("recall");
+    assert_eq!(fx.answer(again)["event"], "turn_empty");
+    assert_eq!(fx.log().matches("new ").count(), 2, "{}", fx.log());
 }

@@ -36,7 +36,7 @@ pub async fn resolve_for_launch(
     let Some(project_type) = profile.project_type.as_deref() else {
         return Ok(Vec::new());
     };
-    let Some(launch_profile) = launch_profile(
+    let Some(mut launch_profile) = launch_profile(
         conn,
         provider_id,
         project_type,
@@ -48,6 +48,7 @@ pub async fn resolve_for_launch(
     else {
         return Ok(Vec::new());
     };
+    launch_profile.id = Some(provider_id.into());
     provider_injection::write_launch_profile(&launch_profile)
         .map_err(AppCommandError::configuration_invalid)
 }

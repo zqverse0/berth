@@ -198,6 +198,12 @@ pub struct LaunchProfile {
     pub models: Vec<LaunchModel>,
     /// 协议名（`chat` / `claude` / `gemini`；只填了主地址的旧档案为 `any`）→ 根地址与 Key。
     pub endpoints: BTreeMap<String, LaunchEndpoint>,
+    /// 档案 id（`providers` 里的各项有；插件拿来给多家起不撞名的名字）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    /// 群组 ACP 成员：本 Agent 能用的全部服务商（各自经代理，`model` 为空），群里换服务商不必重启；其余启动为空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<LaunchProfile>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -299,6 +305,8 @@ pub fn launch_profile(
         model,
         models,
         endpoints,
+        id: None,
+        providers: Vec::new(),
     })
 }
 

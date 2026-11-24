@@ -86,7 +86,7 @@ pub type EmitFn = dyn Fn(&str, &serde_json::Value) + Send + Sync;
 
 #[derive(Clone)]
 pub enum EventEmitter {
-    /// 桌面宿主（Wry 或无界面 MockRuntime）：只留发事件的能力，发射器不随运行时泛型化。
+    /// 桌面宿主（CEF 或无界面 MockRuntime）：只留发事件的能力，发射器不随运行时泛型化。
     #[cfg(feature = "tauri-runtime")]
     Tauri(Arc<EmitFn>),
     /// 测试用：直接持有 broadcaster + bus。

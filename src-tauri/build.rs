@@ -3,6 +3,11 @@ fn main() {
     {
         ensure_sidecar_placeholder();
         tauri_build::build();
+        // cargo test 的测试二进制位于 target/<profile>/deps/，而 cef-dll-sys 把 libcef.so 拷到
+        // target/<profile>/；tauri-build 只设了 $ORIGIN，这里为 Linux 测试二进制补上 $ORIGIN/..。
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+            println!("cargo:rustc-link-arg-tests=-Wl,-rpath,$ORIGIN/..");
+        }
     }
 }
 

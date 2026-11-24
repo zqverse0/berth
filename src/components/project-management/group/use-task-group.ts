@@ -1,8 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import {
-  builtinMember,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react"
+import {
   mergeGroupEvents,
   type GroupEvent,
   ensureGroupWatch,
@@ -10,8 +15,12 @@ import {
   type DeliveryState,
   type GroupMember,
   type GroupRead,
+  openExpertDm,
+  PROJECT_GROUP,
 } from "@/lib/agent/berth-group"
+import { toast } from "@/lib/notify"
 import { onAgentChanged } from "@/lib/terminal/agent-panes"
+import { useGroupWorkspaceStore } from "@/stores/group-workspace-store"
 
 const POLL_MS = 2_000
 /** 有成员正在回答（Berth / ACP 成员的过程在流式更新）时读得勤一些。 */
@@ -25,8 +34,6 @@ export interface TaskGroupState {
   events: GroupEvent[]
   members: GroupMember[]
   delivery: Record<string, DeliveryState>
-  /** 负责人；没设为 null。 */
-  lead: string | null
   /** 时间线之前还有更早的事件。 */
   more: boolean
   error: string | null
@@ -45,7 +52,6 @@ const EMPTY: GroupData = {
   events: [],
   members: [],
   delivery: {},
-  lead: null,
   more: false,
   error: null,
   loaded: false,
@@ -55,11 +61,12 @@ const EMPTY: GroupData = {
 const PAGE = 200
 
 /**
- * 一个项目（checkout）的群数据。`group.read` 只认当前 checkout 的群，同一项目的群页、成员栏、
- * 交接面板读的是同一份：共用一个轮询，而不是各开一个 2 秒定时器重复读。
+ * 一个空间里一个群的数据。同一个群的群页、成员栏、交接面板读的是同一份：共用一个轮询，
+ * 而不是各开一个 2 秒定时器重复读。
  */
 interface GroupFeed {
   folderId: number
+  group: string
   data: GroupData
   listeners: Set<() => void>
   /** 视图激活中的持有者数；为 0 时停止轮询，数据保留供下次立即显示。 */
@@ -74,14 +81,16 @@ interface GroupFeed {
   subscribe: (listener: () => void) => () => void
 }
 
-const feeds = new Map<number, GroupFeed>()
+const feeds = new Map<string, GroupFeed>()
 
-function feedOf(folderId: number): GroupFeed {
-  let feed = feeds.get(folderId)
+function feedOf(folderId: number, group: string): GroupFeed {
+  const key = `${folderId}\u0000${group}`
+  let feed = feeds.get(key)
   if (!feed) {
     const listeners = new Set<() => void>()
     feed = {
       folderId,
+      group,
       data: EMPTY,
       listeners,
       holders: 0,
@@ -96,7 +105,7 @@ function feedOf(folderId: number): GroupFeed {
         return () => listeners.delete(listener)
       },
     }
-    feeds.set(folderId, feed)
+    feeds.set(key, feed)
   }
   return feed
 }
@@ -108,12 +117,15 @@ function update(feed: GroupFeed, patch: Partial<GroupData>) {
 
 async function readOnce(feed: GroupFeed) {
   const after = feed.cursor
-  const response = await readTaskGroup(feed.folderId, after).catch(
-    (cause: unknown) => ({
-      ok: false as const,
-      error: { message: String(cause) },
-    })
-  )
+  const response = await readTaskGroup(
+    feed.folderId,
+    after,
+    undefined,
+    feed.group
+  ).catch((cause: unknown) => ({
+    ok: false as const,
+    error: { message: String(cause) },
+  }))
   if (!response.ok) {
     update(feed, {
       loaded: true,
@@ -130,15 +142,12 @@ async function readOnce(feed: GroupFeed) {
   if (feed.data.error !== null) patch.error = null
   // 群组页是项目主页、常开；轮询多数时候什么都没变，内容相同就不更新，
   // 否则每 2 秒都会把整条时间线重画一遍。
-  const members = result.builtin
-    ? [builtinMember(result.builtin), ...result.members]
-    : result.members
+  const members = result.members
   const snapshot = JSON.stringify([
     result.name,
     result.env ?? null,
     members,
     result.delivery,
-    result.lead ?? null,
   ])
   if (feed.snapshot !== snapshot) {
     feed.snapshot = snapshot
@@ -146,7 +155,6 @@ async function readOnce(feed: GroupFeed) {
     patch.env = result.env ?? null
     patch.members = members
     patch.delivery = result.delivery
-    patch.lead = result.lead ?? null
   }
   if (after === 0) patch.more = result.more ?? false
   if (switched) patch.events = []
@@ -166,10 +174,12 @@ async function loadOlder(feed: GroupFeed) {
   if (!feed.data.more || first == null || feed.older) return
   feed.older = true
   try {
-    const response = await readTaskGroup(feed.folderId, 0, {
-      before: first,
-      limit: PAGE,
-    })
+    const response = await readTaskGroup(
+      feed.folderId,
+      0,
+      { before: first, limit: PAGE },
+      feed.group
+    )
     if (response.ok)
       update(feed, {
         events: mergeGroupEvents(feed.data.events, response.result.events),
@@ -241,12 +251,21 @@ function hold(feed: GroupFeed): () => void {
   }
 }
 
-/** 项目群组的时间线、成员与送达状态：有激活视图且窗口可见时每 2 秒增量读一次。 */
+/** 侧栏群组视图选中的群（{@link useGroupWorkspaceStore}）；没选过为 `main`。 */
+export function useSelectedGroup(folderId: number) {
+  return useGroupWorkspaceStore((state) =>
+    state.folderId === folderId && state.group ? state.group : PROJECT_GROUP
+  )
+}
+
+/** 当前选中群（或给定的 `group`，如私聊账本）的时间线、成员与送达状态：有激活视图且窗口可见时每 2 秒增量读一次。 */
 export function useTaskGroup(
   folderId: number,
-  active: boolean
+  active: boolean,
+  group?: string
 ): TaskGroupState {
-  const feed = feedOf(folderId)
+  const selected = useSelectedGroup(folderId)
+  const feed = feedOf(folderId, group ?? selected)
   const data = useSyncExternalStore(
     feed.subscribe,
     () => feed.data,
@@ -259,4 +278,45 @@ export function useTaskGroup(
     () => ({ ...data, refresh, loadOlder: older }),
     [data, refresh, older]
   )
+}
+
+/** 已建好的私聊账本：`folderId\u0000专家` → 群键；建失败的不记，下次再建。 */
+const dms = new Map<string, Promise<string | null>>()
+
+/** 与专家私聊的账本群键：第一次用时让后端建好（`group.dm`）；`expert` 为 null 或还没建好时为 null。 */
+export function useExpertDm(folderId: number, expert: string | null) {
+  const key = expert ? `${folderId}\u0000${expert}` : null
+  const [resolved, setResolved] = useState<{
+    key: string
+    name: string | null
+  } | null>(null)
+  useEffect(() => {
+    if (!key || !expert) return
+    let pending = dms.get(key)
+    if (!pending) {
+      pending = openExpertDm(folderId, expert)
+        .then((response) => {
+          if (response.ok) return response.result.name
+          toast.error(response.error.message)
+          return null
+        })
+        .catch((cause: unknown) => {
+          toast.error(String(cause))
+          return null
+        })
+        .then((name) => {
+          if (!name) dms.delete(key)
+          return name
+        })
+      dms.set(key, pending)
+    }
+    let alive = true
+    void pending.then((name) => {
+      if (alive) setResolved({ key, name })
+    })
+    return () => {
+      alive = false
+    }
+  }, [folderId, expert, key])
+  return resolved && resolved.key === key ? resolved.name : null
 }

@@ -13,7 +13,7 @@ export interface GroupLogLine {
   thinking?: boolean
 }
 
-/** 内置成员 Berth 正在回答的提问与到目前的执行过程。 */
+/** 成员正在回答的提问与到目前的执行过程。 */
 export interface BerthLiveLog {
   ask: number
   lines: GroupLogLine[]
@@ -26,47 +26,6 @@ export interface BerthUsage {
   output: number
   cached: number
   context: number
-}
-
-/** 对话记录里的一条：模型的话，或一次工具调用（参数与完整输出；还没结果时 output 为 null）。 */
-export type BerthRecordItem =
-  | { kind: "text"; text: string }
-  | {
-      kind: "tool"
-      id: string
-      name: string
-      args: unknown
-      output: string | null
-      failed: boolean
-    }
-
-/**
- * 对话记录的一轮（会话文件的一行）：提问、过程与回答（`items`）、用量。
- * `complete` 为假是被停下或出错的一轮：只存了提问和那句回答，过程看 `steps`。
- */
-export interface BerthRecordTurn {
-  ask: number
-  at: number | null
-  text: string | null
-  model: string | null
-  usage: BerthUsage | null
-  steps: GroupLogLine[] | null
-  complete: boolean
-  items: BerthRecordItem[]
-}
-
-/** 一个会话的对话记录：会话名（没有会话为 null）与各轮。 */
-export interface BerthRecord {
-  session: string | null
-  turns: BerthRecordTurn[]
-}
-
-/** Berth 在本项目的一个会话（列表新的在前，第一个是当前会话）。 */
-export interface BerthSession {
-  name: string
-  /** 第一轮的提问；空会话为 null。 */
-  title: string | null
-  updatedAt: number | null
 }
 
 /** 群账本里的一条事件。 */
@@ -157,8 +116,6 @@ export interface GroupEvent {
 
 /** 群主（用户）的固定作者名，与 berth-project-core `group::USER` 一致。 */
 export const GROUP_USER = "user"
-/** 群的内置成员 Berth：没有终端，宿主进程用所选模型直接回答。 */
-export const BERTH_MEMBER = "berth"
 
 /** 项目群的内部键（一个项目一个群），与 berth-project-core `group::MAIN_GROUP` 一致。 */
 export const PROJECT_GROUP = "main"
@@ -188,9 +145,7 @@ export interface GroupMember {
   label?: string | null
   /** 专家的显示名（`experts/<id>.json` 的 `name`）；`group.read` 才有，专家文件不在为 null。 */
   expertName?: string | null
-  /** 内置成员 Berth（没有终端）；`busy` 为它正在回答。 */
-  builtin?: boolean
-  /** 正在回答（内置 Berth 与 ACP 成员同形，带 `log`）。 */
+  /** 正在回答（带 `log`）。 */
   busy?: boolean
   log?: BerthLiveLog | null
   /** ACP 成员的会话交给了终端：那个终端的 id（交接了还没开好终端时为 ""）；在群里为 null。 */
@@ -231,59 +186,9 @@ export interface GroupRead {
   nextAfter: number
   /** 这页之前还有更早的事件（往上翻带 `before` = 这页第一条的 seq）。 */
   more?: boolean
-  /** 负责人：没指定收件人的消息发给它；没设为 null。 */
-  lead?: string | null
   members: GroupMember[]
   /** seq → 送达状态。 */
   delivery: Record<string, DeliveryState>
-  /** 内置成员 Berth 的状态。 */
-  builtin?: { name: string; busy: boolean; log?: BerthLiveLog | null }
-}
-
-/** 和 Berth 对话用的模型（模型服务商里的档案与模型 id）。 */
-export interface BerthModel {
-  providerId: number
-  modelId: string
-}
-
-const BERTH_MODEL_KEY = "berth:group-berth-model"
-
-export function loadBerthModel(): BerthModel | null {
-  try {
-    const raw = JSON.parse(localStorage.getItem(BERTH_MODEL_KEY) ?? "null")
-    return typeof raw?.providerId === "number" &&
-      typeof raw?.modelId === "string" &&
-      raw.modelId
-      ? { providerId: raw.providerId, modelId: raw.modelId }
-      : null
-  } catch {
-    return null
-  }
-}
-
-export function saveBerthModel(model: BerthModel) {
-  try {
-    localStorage.setItem(BERTH_MODEL_KEY, JSON.stringify(model))
-  } catch {
-    // 存储不可用时只在本次生效
-  }
-}
-
-/** `group.read` 的内置成员 → 成员行用的成员（固定排在最前，显示名 Berth）。 */
-export function builtinMember(
-  builtin: NonNullable<GroupRead["builtin"]>
-): GroupMember {
-  return {
-    name: builtin.name,
-    bodies: [],
-    joined_seq: 0,
-    joined_at: null,
-    leftAt: null,
-    label: "Berth",
-    builtin: true,
-    busy: builtin.busy,
-    log: builtin.log ?? null,
-  }
 }
 
 function call<T>(
@@ -304,13 +209,68 @@ export function mergeGroupEvents(
   return [...bySeq.values()].sort((left, right) => left.seq - right.seq)
 }
 
-/** 空间的群：`after` 之后的事件（给 `before` 时是它之前的一页）+ 成员 + 送达状态。 */
+/** 空间的群 `group`（缺省 `main`）：`after` 之后的事件（给 `before` 时是它之前的一页）+ 成员 + 送达状态。 */
 export function readTaskGroup(
   folderId: number,
   after = 0,
-  page?: { before: number; limit: number }
+  page?: { before: number; limit: number },
+  group: string = PROJECT_GROUP
 ) {
-  return call<GroupRead>(folderId, "group.read", { after, ...page })
+  return call<GroupRead>(folderId, "group.read", {
+    name: group,
+    after,
+    ...page,
+  })
+}
+
+/** 空间的一个聊天群（群列表）。 */
+export interface ChatGroup {
+  /** 群键：账本、会话都按它存，改名不变。 */
+  name: string
+  title: string | null
+  /** 群目录：成员的 Agent 在这里运行。 */
+  cwd: string
+  /** 在群成员。 */
+  members: string[]
+  /** 与这位专家私聊的账本（不在群列表里显示）；普通群为 null。 */
+  dm?: string | null
+}
+
+/** 群列表：`main` 在前。 */
+export function listChatGroups(folderId: number) {
+  return call<{ groups: ChatGroup[] }>(folderId, "group.list", { chat: true })
+}
+
+/** 新建群；`cwd` 缺省主项目。 */
+export function createChatGroup(
+  folderId: number,
+  name: string,
+  title?: string,
+  cwd?: string
+) {
+  return call<{ name: string }>(folderId, "group.create", { name, title, cwd })
+}
+
+/** 改显示名；空为改回群键。 */
+export function renameChatGroup(folderId: number, name: string, title: string) {
+  return call<{ name: string }>(folderId, "group.rename", { name, title })
+}
+
+/** 删除群（`main` 不能删）。 */
+export function deleteChatGroup(folderId: number, name: string) {
+  return call<{ name: string }>(folderId, "group.delete", { name })
+}
+
+/** 改群设置：`cwd` 为 null 改回主项目、不给不改；改目录后成员下一条消息在新目录开新会话。 */
+export function configureChatGroup(
+  folderId: number,
+  name: string,
+  settings: { cwd?: string | null }
+) {
+  return call<{ name: string }>(folderId, "group.settings", {
+    name,
+    ...settings,
+  })
 }
 
 /** 启动记录：launch 时宿主与 launch.js 记下的 Agent、专家、服务商、Berth 说明长度与启动计划。 */
@@ -423,28 +383,44 @@ export function postToMember(
       text,
       idempotencyKey: `${batch}:${to ?? ""}`,
       ...(replyTo != null ? { replyTo } : {}),
-      // 发给 Berth 带上所选模型：宿主据此回答。
-      ...(to === BERTH_MEMBER ? { model: loadBerthModel() } : {}),
     }
   )
 }
 
-/** 群页「加成员」：声明了 `agent.acp` 的插件以 ACP 成员入群，`as` 是群里的名字。 */
-export function joinAcpMember(
+/** 专家在本空间用的 Agent / 启动栏值 / 服务商与模型（所有群共用）。 */
+export interface ExpertConfig {
+  agent: string
+  inputs: Record<string, string | boolean>
+  provider: number | null
+  model: string | null
+}
+
+/** 全部专家与它在本空间的配置（未配置为 null）、所在群数。 */
+export function listExpertConfigs(folderId: number) {
+  return call<{
+    experts: { id: string; name: string; config: ExpertConfig | null }[]
+  }>(folderId, "group.experts")
+}
+
+/** 与专家私聊的账本（没有就建），返回群键；消息只在这里，不进任何群。 */
+export function openExpertDm(folderId: number, expert: string) {
+  return call<{ name: string }>(folderId, "group.dm", { expert })
+}
+
+/** 存专家用的 Agent 与启动栏选择：它所在的群下一条消息生效，只换模型同一会话、换 Agent 开新会话。 */
+export function setExpertConfig(
   folderId: number,
-  group: string,
+  expert: string,
   agent: string,
-  as: string,
-  choice?: {
+  choice: {
     inputs: Record<string, string | boolean>
     provider: number | null
     model: string | null
   }
 ) {
-  return call<GroupEvent>(folderId, "group.join", {
-    name: group,
+  return call<{ groups: string[] }>(folderId, "group.expert.set", {
+    expert,
     agent,
-    as,
     ...choice,
   })
 }
@@ -478,18 +454,6 @@ export function controlAcpMember(
   })
 }
 
-/** 设负责人（`berth group lead` 同一实现）；`member` 为 null 清除。 */
-export function setGroupLead(
-  folderId: number,
-  group: string,
-  member: string | null
-) {
-  return call<{ lead: string | null }>(folderId, "group.lead", {
-    name: group,
-    ...(member ? { member } : {}),
-  })
-}
-
 /** 应答 ACP 成员的审批请求；不给 `option` 即取消。 */
 export function answerPermission(
   folderId: number,
@@ -520,30 +484,6 @@ export function pendingPermissions(events: readonly GroupEvent[]) {
       !answered.has(event.seq) &&
       !ended.has(`${event.author}:${event.reply_to}`)
   )
-}
-
-/** 停下 Berth 在这个项目里正在回答和排队的消息（各回一句「已停止」）。 */
-export function stopBerth(folderId: number) {
-  return call<{ stopped: boolean }>(folderId, "group.stopBerth")
-}
-
-/** Berth 在本项目的会话，新的在前。 */
-export function listBerthSessions(folderId: number) {
-  return call<BerthSession[]>(folderId, "group.berthSessions")
-}
-
-/** Berth 一个会话（不给为当前会话）的各轮。 */
-export function readBerthRecord(folderId: number, session?: string) {
-  return call<BerthRecord>(
-    folderId,
-    "group.berthRecord",
-    session ? { session } : {}
-  )
-}
-
-/** 开始和 Berth 的新会话（输入框里发 `/new`）：之后的提问从空上下文开始。 */
-export function newBerthSession(folderId: number) {
-  return call<{ session: string }>(folderId, "group.berthNew")
 }
 
 /** 当前 checkout 的唯一群组（`all` 时为项目全部群组），内部键与目录显示名分离。 */

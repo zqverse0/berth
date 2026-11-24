@@ -79,16 +79,18 @@
 两种环境说同一种消息。页面的「后端」逻辑写成脚本，用 `scripts.run` 调用。
 
 页面环境：
-- 地址：桌面 `berth-plugin://localhost/<id>/<包内路径>`（Windows `http://berth-plugin.localhost/…`），与主窗口不同源，
+- 地址：桌面 `http://berth-plugin.localhost/<id>/<包内路径>`（CEF 三平台一致），与主窗口不同源，
   iframe `sandbox="allow-scripts allow-same-origin"`；远程浏览器经同源的 `/__berth/plugin/<id>/…`，iframe 只给
   `allow-scripts`（不透明源，资源响应带 CORS；`localStorage` 由桥换成内存实现）。插件停用后地址即失效。
 - 宿主在 html 的 `<head>` 最前注入桥脚本（`berth-plugin-api/src/page.js`），页面里的 `window.berth` 就是它；
-  页面 CSP 只许加载包内资源与 data / blob，不许联网、不许再嵌 frame。
+  页面 CSP 只许加载包内资源与 data / blob，不许联网、不许再嵌 frame。页面脚本必须是包内文件，不能写内联 `<script>`
+  或 `onclick=` 之类的内联事件：CEF 往每个框架注入自己的脚本并把哈希追加进 `script-src`，`'unsafe-inline'` 随之失效，
+  桥脚本靠 CSP 里它自己的哈希放行。
 - 桥与宿主经 postMessage 说 §2.2 的 JSON-RPC：页面发 `page.hello`，宿主回通知 `page.init`（上下文、主题变量、语言），
   之后 `berth.ready` resolve。宿主发通知 `ui.theme`、`editor.externalChange`、`editor.drop`，调钩子 `editor.render`；
   页面发通知 `editor.change`、`ui.key`（带修饰键的按键，宿主当作自己的快捷键处理；Ctrl/⌘+S 归宿主保存）。
 - 宿主实现的方法：`devices.*`（权限 `devices`，`src/lib/plugins/plugin-devices.ts`）、`files.readText` / `readBase64` / `open`（相对 files 根，权限 `project.files`；`open` 也收绝对路径，只把文件开给用户，内容不回页面）、`agent.attach`（权限 `agent`，
-  放进当前 Agent 终端的输入框，没有时复制到剪贴板）、`ui.notify` / `openUrl`、`env.project`、`scripts.run`；`storage`、`data` 经接口层后端执行。
+  放进当前 Agent 终端的输入框，没有时复制到剪贴板）、`sessions.open`（无需权限，在工作区打开项目里的 Agent 会话，内容不回页面）、`ui.notify` / `openUrl`、`env.project`、`scripts.run`；`storage`、`data` 经接口层后端执行。
 
 ### 2.5 界面两层
 
@@ -281,6 +283,7 @@
 | 2026-11-06 | 页面环境实现 `agent.attach`（随内置「想法」提取成 `ideas` 插件） |
 | 2026-11-11 | 新增脚本命名空间 `editor@1`（`render`，经 control `editor.render` 交给窗口）；`onRender` 入参加 `format`；插件包约定目录加 `skills/`，`tools show` 列出包内 skill；侧栏页面收文件树拖放（通知 `view.drop`，`ViewContext.onDrop`）；脚本 `fs.readBase64` |
 | 2026-11-11 | http@1 加 `fetchAll` 与请求可选 `retry`；页面 `scripts.run` 第三参 `{ signal }`（宿主中断脚本与进行中的 http，经 `scripts.cancel`）；env@1 加 `agent()`；knowledge@1 脚本实现 `findSource` / `addSource`（berth-cli 与 GUI 都注入）；错误可带 `data`（`BerthError.data`） |
+| 2026-11-22 | 新增页面命名空间 `sessions@1`（`open`；随侧栏群组「会话」页并入 `sounding` 插件） |
 | 2026-11-20 | 新增页面命名空间 `devices@1` 与权限 `devices`（随设备管理提取成 `devices` 插件；同日未发布前改定：`inspect` 只给原始结果，本机为 id 0，面板按权限认） |
 | 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
 

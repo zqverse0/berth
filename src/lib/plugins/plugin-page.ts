@@ -50,6 +50,13 @@ export interface PageHost {
   notify?: (message: string, kind: "info" | "error") => void
   /** `agent.attach`：放进当前 Agent 的输入框（不提交）。 */
   sendToAgent?: (text: string) => void
+  /** `sessions.open`：在工作区打开项目里的 Agent 会话（打不开时宿主自己提示）。 */
+  openSession?: (session: {
+    agent: string
+    sessionId: string
+    cwd: string
+    title: string | null
+  }) => void
 }
 
 export interface PageConnection {
@@ -283,6 +290,29 @@ export async function handlePageCall(
         throw new PageError("unsupported", "agent is not available here")
       }
       host.sendToAgent(String(params.text ?? ""))
+      return null
+    }
+    case "sessions.open": {
+      // 只把会话开给用户看，内容不回页面，所以不要权限。
+      const { agent, sessionId, cwd, title } = params
+      if (
+        typeof agent !== "string" ||
+        typeof sessionId !== "string" ||
+        typeof cwd !== "string"
+      ) {
+        throw new PageError(
+          "invalid-params",
+          "sessions.open takes { agent, sessionId, cwd }"
+        )
+      }
+      if (!host.openSession)
+        throw new PageError("unsupported", "sessions are not available here")
+      host.openSession({
+        agent,
+        sessionId,
+        cwd,
+        title: typeof title === "string" ? title : null,
+      })
       return null
     }
     case "ui.setHeaderTabs": {

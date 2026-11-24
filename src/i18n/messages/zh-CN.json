@@ -93,7 +93,6 @@
     "panels": {
       "modelProviders": "模型供应商",
       "tools": "工具",
-      "experts": "专家",
       "appearance": "外观",
       "advanced": "高级",
       "general": "通用"
@@ -1202,37 +1201,6 @@
       "providerModelDefault": "默认",
       "expertLaunchBlockedTitle": "专家启动已被阻止"
     },
-    "sessionDetails": {
-      "menuLabel": "会话详情",
-      "noActiveSession": "暂无活动会话",
-      "title": "会话详情",
-      "subtitle": "会话元信息与 Token 用量",
-      "fieldTitle": "标题",
-      "untitled": "未命名会话",
-      "sessionId": "会话 ID",
-      "externalId": "扩展 ID",
-      "agent": "智能体",
-      "model": "模型",
-      "gitBranch": "Git 分支",
-      "parentId": "父会话",
-      "tokensHeading": "Token 用量",
-      "totalTokens": "总计",
-      "inputTokens": "输入",
-      "outputTokens": "输出",
-      "cacheWrite": "缓存写入",
-      "cacheRead": "缓存读取",
-      "contextWindow": "上下文窗口",
-      "duration": "时长",
-      "loadingStats": "正在加载 Token 用量…",
-      "loadFailed": "加载 Token 用量失败",
-      "noStats": "暂无用量记录",
-      "timestampsHeading": "时间",
-      "createdAt": "创建时间",
-      "updatedAt": "更新时间",
-      "none": "—",
-      "copyField": "复制{field}",
-      "copiedField": "已复制{field}"
-    },
     "sessionViewer": {
       "contentTitle": "会话内容",
       "contextTitle": "启动输入",
@@ -1241,9 +1209,6 @@
       "startupTokens": "首次请求 {tokens} token",
       "startupUnlisted": "未记在会话文件里（工具定义、首个提问等）",
       "approxTokens": "≈{tokens}",
-      "toolResultTokens": "结果约 {tokens} token",
-      "outlineTitle": "提问目录",
-      "preamble": "开场内容",
       "detail": {
         "prompts": "只看提问",
         "answers": "问答",
@@ -1259,18 +1224,12 @@
       "processTools": "工具 {count} 次",
       "processErrors": "出错 {count} 次",
       "processSteps": "{count} 步",
-      "summaryExchanges": "{count} 个提问",
-      "summaryPeakContext": "峰值上下文 {tokens}",
       "contextTokens": "上下文 {tokens}",
-      "skillsLabel": "技能",
-      "toolsLabel": "工具",
       "processSkills": "技能：{names}",
       "detailLabel": "详细程度",
       "filterSkill": "技能：{name}",
       "filterTool": "工具：{name}",
       "clearFilter": "清除筛选 {name}",
-      "openInReader": "在阅读区打开",
-      "noTerminalSession": "这个终端的 Agent 在本项目还没有会话记录。",
       "partCut": "还有 {count} 字没显示",
       "partShowAll": "显示全部",
       "partLoading": "正在读取…",
@@ -2879,18 +2838,6 @@
       "cloneFailed": "克隆仓库失败"
     },
     "sessionsView": {
-      "back": "返回会话列表",
-      "live": "在跑",
-      "refresh": "刷新",
-      "search": "搜索标题或会话 id",
-      "agent": "Agent",
-      "anyAgent": "全部 Agent",
-      "origin": "来源",
-      "anyOrigin": "全部来源",
-      "group": "群",
-      "anyGroup": "全部群",
-      "memberInGroup": "在群里看它",
-      "current": "当前会话",
       "origins": {
         "berth": "Berth",
         "external": "外部",
@@ -3215,10 +3162,8 @@
   },
   "ExpertsSettings": {
     "title": "专家",
-    "description": "装配专家：提示词、Skills、MCP 与 Agent 插件包。",
-    "refresh": "刷新",
     "loading": "加载专家中…",
-    "empty": "还没有专家，在上方输入 id 新建。",
+    "empty": "还没有专家，点上方「+」新建。",
     "select": "选择左侧的专家进行装配。",
     "create": "新建",
     "newIdPlaceholder": "新专家 id",
@@ -3227,6 +3172,8 @@
     "revert": "撤销修改",
     "delete": "删除",
     "name": "名称",
+    "avatar": "头像",
+    "avatarClear": "不用头像（显示 Agent 图标）",
     "prompt": "提示词",
     "invalid": "专家文件无法解析：{error}",
     "skillCount": "{count} 个 Skill",
@@ -3532,7 +3479,6 @@
     "tabDevelop": "开发",
     "capabilitiesTitle": "在 Berth 中提供",
     "goModelProviders": "模型服务商",
-    "goExperts": "专家",
     "defaultsNote": "每次打开启动栏时预先选好的值，和启动栏记住的是同一份；在启动栏里改了，这里也会跟着变。",
     "agentGuideAgent": "启动这个 Agent 时，下面的说明会交给它。",
     "openPackageDir": "打开目录",
@@ -3854,6 +3800,7 @@
       "collapse": "收起",
       "newMessages": "有新消息",
       "noEvents": "群里还没有消息。成员每轮做完会自动在这里汇报。",
+      "noDmEvents": "还没和 {name} 聊过。私聊单独记录，不进群。",
       "setGroupMain": "设为主任务",
       "pageNoTasks": "这个群组里没有进行中的任务。",
       "groupSelect": "所属群组",
@@ -3916,25 +3863,14 @@
       },
       "members": {
         "title": "成员（{count}）",
-        "emptyPlanning": "开工后，在 worktree 里启动的 Agent 会自动入群。",
-        "emptyStarted": "还没有成员。点顶栏「+」加一个 Agent。",
         "jump": "跳到它的终端",
         "mention": "@ 它",
         "interrupt": "打断",
-        "pageSessions": "会话",
         "sessions": {
-          "toggle": "会话",
+          "toggle": "Agent 与会话",
           "loading": "读取中",
-          "current": "当前",
           "live": "在跑",
           "own": "它的"
-        },
-        "recordView": {
-          "loading": "读取中",
-          "empty": "还没有和 Berth 的对话。",
-          "incomplete": "这一轮被停下或出错，只存了提问和这句回答。",
-          "noOutput": "（还没有输出）",
-          "usage": "调用 {calls} 次 · 输入 {input} · 输出 {output} · 缓存 {cached} · 上下文 {context}"
         },
         "needsYou": "需要你",
         "leftCount": "已离开（{count}）",
@@ -3946,18 +3882,14 @@
         "rename": "改显示名",
         "renameHint": "Enter 保存，Esc 取消；留空改回原名。不能含空格或 @",
         "showMessages": "只看它的消息",
-        "sectionDelegations": "进行中的委托",
-        "noDelegations": "没有进行中的委托",
-        "filterAll": "全部",
-        "filterAttention": "等你",
-        "filterWorking": "干活中",
-        "setLead": "设为负责人",
-        "unsetLead": "取消负责人",
-        "lead": "负责人",
-        "leadIs": "负责人 {name}",
-        "noLead": "未设负责人",
         "queued": "排队中",
-        "menu": "更多操作"
+        "menu": "更多操作",
+        "unbound": "未绑定专家",
+        "newExpert": "新建专家",
+        "noAgent": "未选 Agent",
+        "editExpert": "编辑专家",
+        "emptyExperts": "还没有专家。点顶栏「+」新建。",
+        "sectionExperts": "专家"
       },
       "sessions": {
         "title": "关联会话",
@@ -4014,18 +3946,17 @@
         "keysHint": "Enter 发送 · Shift+Enter 换行",
         "attach": "插入文件路径",
         "attachTitle": "选择要发给成员的文件",
-        "berthProvider": "服务商",
-        "berthModel": "模型",
-        "berthNoProvider": "先在「设置 → 模型服务商」添加一个填了 Key 的服务商，Berth 才能回答",
-        "berthPlaceholder": "发给 Berth（输入 / 选指令）",
-        "berthStop": "停止 Berth",
-        "commandsLabel": "指令",
-        "commands": {
-          "new": "开始新会话（之前的对话不再带入）"
+        "placeholderGroup": "输入 @ 选谁来回答；不 @ 只记进群",
+        "mention": {
+          "aria": "@ 成员",
+          "everyone": "群里 {count} 位成员",
+          "agent": "Agent",
+          "group": "群聊",
+          "noAgent": "还没选 Agent",
+          "outside": "未进群"
         },
-        "noLead": "未设负责人：没指定收件人的消息只记进群，没有成员会回答。在侧栏成员菜单里设负责人。",
-        "placeholderLead": "发到群里，由负责人 {name} 回答",
-        "placeholderGroup": "发到群里（未设负责人）"
+        "mentionAmbiguous": "有多位成员叫 {names}：请从 @ 列表里选你要的那位。",
+        "noAgent": "{names} 还没选 Agent：在侧栏点它进私聊，在顶栏「Agent 与会话」里选一个。"
       },
       "fromTerminal": "来自终端 #{number}，点击跳转",
       "terminalClosed": "这个终端已经关闭",
@@ -4043,9 +3974,7 @@
       "copy": "复制全文",
       "copied": "已复制",
       "more": "更多",
-      "chat": {
-        "all": "全部"
-      },
+      "chat": {},
       "pending": {
         "queued": "排队中",
         "working": "思考中",
@@ -4060,11 +3989,6 @@
         "added": "新增",
         "modified": "修改",
         "deleted": "删除"
-      },
-      "add": {
-        "title": "加成员（ACP）",
-        "empty": "没有可进群的 Agent：插件需在 tool.json 声明 agent.acp",
-        "join": "加入群组"
       },
       "permission": {
         "title": "请求执行工具",
@@ -4084,7 +4008,9 @@
         "inTerminal": "会话在终端中，群消息交回后再送达",
         "jump": "打开终端",
         "return": "交回群里",
-        "returnHint": "关掉那个终端，会话回到群里（含在终端里聊的）"
+        "returnHint": "关掉那个终端，会话回到群里（含在终端里聊的）",
+        "private": "在终端里聊",
+        "privateHint": "在群目录开一个带这个专家的终端，对话不进群。"
       },
       "older": "加载更早的消息",
       "routine": {
@@ -4096,6 +4022,28 @@
         "failures": "连续失败 {count} 次",
         "retry": "重试",
         "timeout": "超时没有回答"
+      },
+      "groups": {
+        "create": "新建群组",
+        "settings": "群组设置",
+        "settingsOf": "{name} 设置",
+        "name": "群键",
+        "namePlaceholder": "如 design（字母、数字、- 或 _，建后不能改）",
+        "title": "显示名",
+        "cwd": "目录（成员的 Agent 在这里运行）",
+        "cwdHint": "改目录后，各成员下一条消息会在新目录开新会话。",
+        "everyoneHint": "消息里写 @everyone 发给所有成员。",
+        "delete": "删除群组",
+        "deleteConfirm": "删除群组「{name}」？聊天记录会删掉，群里的成员随之停止。",
+        "save": "保存",
+        "memberCount": "{count, plural, =0 {没有成员} other {# 位成员}}",
+        "memberSeparator": "、",
+        "section": "群"
+      },
+      "memberSettings": {
+        "agent": "Agent",
+        "newSession": "换 Agent 会开新会话，群里的消息保留。",
+        "apply": "应用"
       }
     }
   },

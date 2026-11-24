@@ -42,7 +42,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  BERTH_MEMBER,
   type GroupEvent,
   GROUP_USER,
   type DeliveryState,
@@ -67,6 +66,8 @@ import {
   type Progress,
   type ProgressOf,
 } from "./group-model"
+import { ExpertAvatar, isExpertAvatar } from "./expert-avatar"
+import { useExpertCatalog } from "./expert-editor"
 
 /** 距底部小于该像素视为「在底部」：新消息到达时自动滚到底。 */
 const STICK_PX = 80
@@ -114,6 +115,23 @@ export function MemberAvatar({
   name: string
   className?: string
 }) {
+  // 成员名是专家 id：专家设了头像就用它，不再显示 Agent 图标。
+  const expert = useExpertCatalog(
+    (state) => state.catalog?.experts.find((entry) => entry.id === name)?.expert
+  )
+  if (expert && isExpertAvatar(expert.avatar))
+    return (
+      <span
+        data-expert-avatar={name}
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center",
+          className,
+          "rounded-none border-0 bg-transparent [&_svg]:size-full"
+        )}
+      >
+        <ExpertAvatar avatar={expert.avatar} name={expert.name || name} />
+      </span>
+    )
   return (
     <span
       className={cn(
@@ -121,10 +139,7 @@ export function MemberAvatar({
         className
       )}
     >
-      {name === BERTH_MEMBER ? (
-        // eslint-disable-next-line @next/next/no-img-element -- 静态导出，直接引用软件图标
-        <img src="/icon-32x32.png" alt="" className="size-4" />
-      ) : agent ? (
+      {agent ? (
         <AgentProfileIcon
           agentId={agent}
           name={name}

@@ -22,12 +22,6 @@ vi.mock("@/stores/app-workspace-store", () => {
   useAppWorkspaceStore.subscribe = () => () => {}
   return { useAppWorkspaceStore }
 })
-const listModelProviders = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/api", () => ({ listModelProviders }))
-const runtimeBridgeOperation = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ ok: true, result: {} })
-)
-vi.mock("@/lib/runtime-bridge", () => ({ runtimeBridgeOperation }))
 
 const rows = ["a", "b"].map((name) => ({
   member: { name, bodies: [], joined_seq: 1, joined_at: null, leftAt: null },
@@ -69,7 +63,26 @@ describe("GroupComposer recipient safety", () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
-  it("treats @ in the text as plain text, never as a recipient", async () => {
+  it("sends to an expert that is not in the group yet, by its name", async () => {
+    const onSend = vi.fn().mockResolvedValue([])
+    render(
+      composer({
+        onSend,
+        rows: [],
+        targets: ["dev"],
+        experts: [{ id: "dev", name: "Dev", agent: "claude" }],
+      })
+    )
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "hello" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Send to Dev" }))
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(["dev"], "hello", undefined)
+    )
+  })
+
+  it("sends to the members the text @-mentions, over the reply target", async () => {
     const onSend = vi.fn().mockResolvedValue([])
     const reply = {
       schema_version: 1,
@@ -83,9 +96,88 @@ describe("GroupComposer recipient safety", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "@b this answers A" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Send to a" }))
+    fireEvent.click(screen.getByRole("button", { name: "Send to b" }))
     await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith(["a"], "@b this answers A", 8)
+      expect(onSend).toHaveBeenCalledWith(["b"], "@b this answers A", 8)
+    )
+  })
+
+  it("opens the @ list of members and everyone, and picks with the keyboard", async () => {
+    const onSend = vi.fn().mockResolvedValue([])
+    render(composer({ onSend, targets: [], inGroup: true }))
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } })
+    expect(screen.getAllByRole("option")).toHaveLength(3)
+    fireEvent.change(input, { target: { value: "hi @", selectionStart: 4 } })
+    expect(
+      screen
+        .getAllByRole("option")
+        .map((option) => option.dataset.mentionChoice)
+    ).toEqual(["everyone", "a", "b"])
+    fireEvent.keyDown(input, { key: "ArrowDown" })
+    fireEvent.keyDown(input, { key: "ArrowDown" })
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(input.value).toBe("hi @b ")
+    expect(screen.queryByRole("listbox")).toBeNull()
+    // 收起后删掉重打 @，列表重新弹出。
+    fireEvent.change(input, { target: { value: "hi ", selectionStart: 3 } })
+    fireEvent.change(input, { target: { value: "hi @", selectionStart: 4 } })
+    expect(screen.getAllByRole("option")).toHaveLength(3)
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(screen.queryByRole("listbox")).toBeNull()
+    fireEvent.change(input, { target: { value: "hi @b ", selectionStart: 6 } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(["b"], "hi @b", undefined)
+    )
+  })
+
+  it("refuses a shared name nobody picked", () => {
+    const onSend = vi.fn().mockResolvedValue([])
+    const twins = rows.map((row) => ({
+      ...row,
+      member: { ...row.member, label: "Twin" },
+    }))
+    render(composer({ onSend, rows: twins, targets: [] }))
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "@Twin go" },
+    })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Several members are named Twin"
+    )
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it("@-mentions experts outside the group, refusing those without an Agent", async () => {
+    const onSend = vi.fn().mockResolvedValue([])
+    render(
+      composer({
+        onSend,
+        experts: [
+          { id: "ops", name: "Ops", agent: "claude" },
+          { id: "qa", name: "QA", agent: null },
+        ],
+        inGroup: true,
+        targets: [],
+      })
+    )
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } })
+    expect(
+      screen
+        .getAllByRole("option")
+        .map((option) => option.dataset.mentionChoice)
+    ).toEqual(["everyone", "a", "b", "ops", "qa"])
+    fireEvent.change(input, { target: { value: "@QA look" } })
+    expect(screen.getByRole("alert")).toHaveTextContent("QA has no Agent yet")
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(onSend).not.toHaveBeenCalled()
+    // 配了 Agent 的照发，由后端让它入群。
+    fireEvent.change(input, { target: { value: "@Ops look" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(["ops"], "@Ops look", undefined)
     )
   })
 
@@ -131,130 +223,5 @@ describe("GroupComposer textarea sizing", () => {
     expect(input).toHaveValue("first line\nsecond line")
     fireEvent.change(input, { target: { value: "" } })
     expect(input).toHaveValue("")
-  })
-})
-
-describe("GroupComposer with the built-in Berth member", () => {
-  const berth = {
-    ...rows[0],
-    member: { ...rows[0].member, name: "berth", label: "Berth", builtin: true },
-  } as MemberRow
-  const deepseek = {
-    id: 68,
-    name: "Deepseek",
-    kind: "custom",
-    model: JSON.stringify([{ id: "deepseek-flash", name: "deepseek-flash" }]),
-  }
-
-  it("asks for a model before sending to Berth and sends once one is remembered", async () => {
-    localStorage.removeItem("berth:group-berth-model")
-    listModelProviders.mockResolvedValue([deepseek])
-    const onSend = vi.fn().mockResolvedValue([])
-    const view = render(
-      composer({ rows: [berth, ...rows], targets: ["berth"], onSend })
-    )
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "list plugins" },
-    })
-    const send = screen.getByRole("button", { name: "Send to Berth" })
-    expect(await screen.findByLabelText("Provider")).toBeInTheDocument()
-    expect(send).toBeDisabled()
-
-    localStorage.setItem(
-      "berth:group-berth-model",
-      JSON.stringify({ providerId: 68, modelId: "deepseek-flash" })
-    )
-    view.unmount()
-    render(composer({ rows: [berth, ...rows], targets: ["berth"], onSend }))
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "list plugins" },
-    })
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Send to Berth" })
-      ).toBeEnabled()
-    )
-  })
-
-  it("does not show the model picker for other members", () => {
-    render(composer({ rows: [berth, ...rows], targets: ["a"] }))
-    expect(screen.queryByLabelText("Provider")).not.toBeInTheDocument()
-  })
-
-  it("starts a new Berth session on /new instead of sending it", async () => {
-    localStorage.removeItem("berth:group-berth-model")
-    listModelProviders.mockResolvedValue([deepseek])
-    const onSend = vi.fn().mockResolvedValue([])
-    render(composer({ rows: [berth, ...rows], targets: ["berth"], onSend }))
-    const input = screen.getByRole("textbox")
-    expect(input).toHaveAttribute(
-      "placeholder",
-      "Message Berth (type / for commands)"
-    )
-    fireEvent.change(input, { target: { value: "/new" } })
-    // 不需要先选模型。
-    fireEvent.click(screen.getByRole("button", { name: "Send to Berth" }))
-    await waitFor(() =>
-      expect(runtimeBridgeOperation).toHaveBeenCalledWith({
-        method: "group.berthNew",
-        folderId: 7,
-        params: {},
-      })
-    )
-    expect(onSend).not.toHaveBeenCalled()
-    await waitFor(() => expect(input).toHaveValue(""))
-  })
-
-  it("completes commands after / and runs the picked one", async () => {
-    listModelProviders.mockResolvedValue([deepseek])
-    const onSend = vi.fn().mockResolvedValue([])
-    render(composer({ rows: [berth, ...rows], targets: ["berth"], onSend }))
-    const input = screen.getByRole("textbox")
-    fireEvent.change(input, { target: { value: "/" } })
-    const list = screen.getByRole("listbox", { name: "Commands" })
-    expect(list).toHaveTextContent("/newStart a new session")
-    // Esc 关掉，继续输入别的就不再弹。
-    fireEvent.keyDown(input, { key: "Escape" })
-    expect(screen.queryByRole("listbox")).toBeNull()
-    fireEvent.change(input, { target: { value: "/x" } })
-    expect(screen.queryByRole("listbox")).toBeNull()
-    fireEvent.change(input, { target: { value: "/n" } })
-    fireEvent.keyDown(input, { key: "Tab" })
-    expect(input).toHaveValue("/new")
-    fireEvent.change(input, { target: { value: "/n" } })
-    fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() =>
-      expect(runtimeBridgeOperation).toHaveBeenCalledWith({
-        method: "group.berthNew",
-        folderId: 7,
-        params: {},
-      })
-    )
-    expect(onSend).not.toHaveBeenCalled()
-  })
-
-  it("does not offer commands outside a 1:1 chat with Berth", () => {
-    render(composer())
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/" } })
-    expect(screen.queryByRole("listbox")).toBeNull()
-  })
-
-  it("offers to stop Berth only while it is working", () => {
-    listModelProviders.mockResolvedValue([deepseek])
-    const view = render(
-      composer({ rows: [berth, ...rows], targets: ["berth"] })
-    )
-    expect(
-      screen.queryByRole("button", { name: "Stop Berth" })
-    ).not.toBeInTheDocument()
-
-    const busy = { ...berth, member: { ...berth.member, busy: true } }
-    view.rerender(composer({ rows: [busy, ...rows], targets: ["berth"] }))
-    fireEvent.click(screen.getByRole("button", { name: "Stop Berth" }))
-    expect(runtimeBridgeOperation).toHaveBeenCalledWith({
-      method: "group.stopBerth",
-      folderId: 7,
-      params: {},
-    })
   })
 })

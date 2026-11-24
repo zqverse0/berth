@@ -49,6 +49,14 @@ scripts/publish-plugins         # 把 plugins/ 同步到公开插件仓库 zqver
 - **先改版本再 `--tag`**：版本取自 `package.json`（`scripts/set-version.mjs`），重复版本会撞已有 tag。
 - **Release 失败**：公开仓库会留下一个 draft release，修好后重推 tag 或手动删掉 draft，不要留着。
 - **不公开的内容**：`scripts/publish-public` 的 `EXCLUDE` 决定哪些路径不进公开仓库，新增内部资料目录时加进去；脚本还会拦截本机路径和密钥。
+- **首次 CEF 版本的发布说明要点**：发版提交正文（也是 GitHub Release 正文）需注明两件事：① Linux 最低要求提升至 Ubuntu 24.04 / Debian 13（GTK ≥ 4.14）；② 切换 CEF 后浏览器存储源变化，界面布局、Agent 排序、标签页状态、克隆目录等 `localStorage` 会重置一次（数据库与项目文件不受影响）。
+- **本地打包用 `cargo tauri build`（不要用 `pnpm tauri build`）**：npm 版 `@tauri-apps/cli@3.0.0-alpha.6` 缺少 CEF 154 的 `libEGL` 修复（tauri#16338），在 Linux 上打包必然失败。安装与 `src-tauri/Cargo.toml` 同一 rev 的 CLI 后再打包（`pnpm release:deb` 已同步切到 `cargo tauri`）：
+  ```bash
+  rev=$(sed -nE 's/^tauri = \{ git = "[^"]+", rev = "([0-9a-f]+)".*/\1/p' src-tauri/Cargo.toml)
+  cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev "$rev" --locked
+  cargo tauri build -b deb
+  ```
+  待上游发布包含该修复的更高版本 npm CLI 后改回 `pnpm tauri`。
 - **签名密钥**：updater 私钥在本机 `~/.tauri/berth.key`，密码在 `~/.tauri/berth.key.password`，公钥写在 `tauri.conf.json`；对应的 `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` 只配在公开仓库的 Actions secrets。丢了私钥，已安装的用户就收不到自动更新，要另外备份。macOS 签名见 `macos-signing.md`。
 - **设置 secret 不要用对话框的 `!`**：它不是交互终端，`gh secret set` 会存进空值。用文件喂：`gh secret set NAME -R zqverse0/berth < 文件`。
 - **归档不删**：暂时不用但不确定能删的文件移到本机的 `REMOVE/` 并 `git rm --cached`；该目录被 `.gitignore` 忽略，不进 git。

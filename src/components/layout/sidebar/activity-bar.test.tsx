@@ -27,26 +27,26 @@ describe("ActivityBar settings mode", () => {
       </NextIntlClientProvider>
     )
     const gear = screen.getByRole("button", { name: "Open Settings" })
-    const experts = screen.getByRole("button", { name: "Experts" })
+    const tools = screen.getByRole("button", { name: "Tools" })
     expect(screen.queryByRole("button", { name: "General" })).toBeNull()
 
-    await user.click(experts)
+    await user.click(tools)
     expect(settingsOpen()).toBe(true)
     expect(useSidebarViewStore.getState().view).toBe("settings")
-    expect(screen.getByRole("status").textContent).toBe("experts")
-    expect(experts.getAttribute("aria-pressed")).toBe("true")
+    expect(screen.getByRole("status").textContent).toBe("tools")
+    expect(tools.getAttribute("aria-pressed")).toBe("true")
 
     await user.click(gear)
     expect(screen.getByRole("status").textContent).toBe("appearance")
     expect(gear.getAttribute("aria-pressed")).toBe("true")
-    expect(experts.getAttribute("aria-pressed")).toBe("false")
+    expect(tools.getAttribute("aria-pressed")).toBe("false")
 
     await user.click(gear)
     expect(settingsOpen()).toBe(false)
     expect(useSidebarViewStore.getState().view).toBe("projects")
 
-    await user.click(experts)
-    await user.click(experts)
+    await user.click(tools)
+    await user.click(tools)
     expect(settingsOpen()).toBe(false)
 
     await user.click(gear)

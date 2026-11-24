@@ -2,6 +2,7 @@
 //!
 //! 状态目录 `FAKE_DIR`：`log` 逐行记收到的 new / load / resume 及其 `_meta`，`sessions/<id>` 存各会话的历史提示，
 //! `child.pid` 是 `crash` 前起的子进程。`FAKE_RESUME=1` 时声明 `sessionCapabilities.resume`；`FAKE_LOAD_FAIL=1` 时 load 回内部错误。
+//! `FAKE_MODELS=a,b` 时 new / load 回一个 model 配置项（当前为第一个），`session/set_config_option` 记 `model <值>`。
 //!
 //! 提示词决定行为：`say <词…>` 逐词流式回答；`recall` 回答本会话第一条提示；`tool` 先报一个工具调用；
 //! `ask` 发一个四选项审批，回答选中的 id；`wait` 等到取消；`crash` 起一个子进程后退出。
@@ -15,7 +16,9 @@ use agent_client_protocol::v1::schema::{
     AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
     LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse, PermissionOption,
     PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionId, SessionNotification,
+    ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigOptionValue, SessionConfigSelectOption, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+    SessionId, SessionNotification,
     SessionResumeCapabilities, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallUpdate,
     ToolCallUpdateFields,
 };
@@ -53,6 +56,16 @@ fn meta_text(meta: &Option<serde_json::Map<String, serde_json::Value>>) -> Strin
     serde_json::to_string(meta).unwrap()
 }
 
+/// `FAKE_MODELS` 声明的 model 配置项，当前值为 `current`（缺省第一个）。
+fn models(current: Option<&str>) -> Option<Vec<SessionConfigOption>> {
+    let list = std::env::var("FAKE_MODELS").ok()?;
+    let values: Vec<String> = list.split(',').map(str::to_owned).collect();
+    let current = current.map_or_else(|| values[0].clone(), str::to_owned);
+    let options: Vec<SessionConfigSelectOption> =
+        values.iter().map(|value| SessionConfigSelectOption::new(value.clone(), value.clone())).collect();
+    Some(vec![SessionConfigOption::select("model", "Model", current, options).category(SessionConfigOptionCategory::Model)])
+}
+
 fn main() -> agent_client_protocol::Result<()> {
     std::fs::create_dir_all(dir().join("sessions")).unwrap();
     let cancel: Arc<Mutex<Option<oneshot::Sender<()>>>> = Arc::default();
@@ -77,10 +90,10 @@ fn main() -> agent_client_protocol::Result<()> {
                 async move |request: NewSessionRequest, responder, cx| {
                     let id = format!("s-{}", std::process::id());
                     std::fs::write(dir().join("sessions").join(&id), "").unwrap();
-                    log(format!("new {}", meta_text(&request.meta)));
+                    log(format!("new {} cwd={}", meta_text(&request.meta), request.cwd.display()));
                     let session = SessionId::new(id);
                     cx.send_notification(chunk(&session, SessionUpdate::AgentMessageChunk, "banner"))?;
-                    responder.respond(NewSessionResponse::new(session))
+                    responder.respond(NewSessionResponse::new(session).config_options(models(None)))
                 },
                 agent_client_protocol::on_receive_request!(),
             )
@@ -97,7 +110,7 @@ fn main() -> agent_client_protocol::Result<()> {
                         cx.send_notification(chunk(&request.session_id, SessionUpdate::UserMessageChunk, &prompt))?;
                         cx.send_notification(chunk(&request.session_id, SessionUpdate::AgentMessageChunk, "old answer"))?;
                     }
-                    responder.respond(LoadSessionResponse::new())
+                    responder.respond(LoadSessionResponse::new().config_options(models(None)))
                 },
                 agent_client_protocol::on_receive_request!(),
             )
@@ -108,6 +121,16 @@ fn main() -> agent_client_protocol::Result<()> {
                         return responder.respond_with_error(ErrorCode::RESOURCE_NOT_FOUND.into());
                     }
                     responder.respond(ResumeSessionResponse::new())
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |request: SetSessionConfigOptionRequest, responder, _cx| {
+                    let SessionConfigOptionValue::ValueId { value } = request.value else {
+                        return responder.respond_with_error(agent_client_protocol::Error::invalid_params());
+                    };
+                    log(format!("model {}", value.0));
+                    responder.respond(SetSessionConfigOptionResponse::new(models(Some(&value.0)).unwrap_or_default()))
                 },
                 agent_client_protocol::on_receive_request!(),
             )

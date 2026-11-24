@@ -83,7 +83,7 @@ pub(crate) fn room_window(
     })
 }
 
-/// post / spec / change 之后：收件人是 ACP 成员就叫醒运行时马上发；别的（内置 Berth、离线专家）消息留在群里。
+/// post / spec / change 之后：收件人是 ACP 成员就叫醒运行时马上发；别的（离线专家）消息留在群里。
 pub(crate) fn doorbell(ctx: &Ctx, name: &str, participant: &str) -> Value {
     let Ok(events) = group::events(&ctx.main, name) else {
         return json!({"status": "failed", "reason": "cannot read group"});

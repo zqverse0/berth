@@ -1,7 +1,7 @@
 //! 设置 →「专家」：`<home>/experts/<id>.json` 的读写，以及它引用的资产候选
 //! （`prompts/*.md`、`skills/<id>/`、`mcp/*.json`、`plugins/<id>/`）。
 //!
-//! 字段：`name`、`prompt`、`skills`、`mcp`、`plugins`，其余键是开放资产字段；校验（`issues`）与宿主启动共用；
+//! 字段：`name`、`prompt`、`skills`、`mcp`、`plugins`、`avatar`（界面头像，宿主不解释），其余键是开放资产字段；校验（`issues`）与宿主启动共用；
 //! 启动时由宿主解析后交给 launch.js，这里只负责让用户不手改 JSON 也能装配。
 
 use std::collections::BTreeMap;
@@ -25,6 +25,9 @@ pub struct Expert {
     pub mcp: Vec<String>,
     #[serde(default)]
     pub plugins: Vec<String>,
+    /// 界面头像（`{"shape", "color"}`，GUI 解释，见 `expert-avatar.tsx`）；原样保存，不当资产。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<Value>,
     /// 开放字段：`"xxx": ["a"]` 对应 `$BERTH_HOME/xxx/a`，新资产类型只加目录，不改这里。
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -326,6 +329,9 @@ pub fn save(
             document.insert(key.into(), json!(items));
         }
     }
+    if let Some(avatar) = &expert.avatar {
+        document.insert("avatar".into(), avatar.clone());
+    }
     document.extend(expert.extra.clone());
     std::fs::create_dir_all(home.join("experts")).map_err(|error| error.to_string())?;
     let text = serde_json::to_string_pretty(&document).map_err(|error| error.to_string())? + "\n";
@@ -457,6 +463,9 @@ mod tests {
         expert.skills.pop();
         assert!(save(home, "dev", &expert, None, Some(1)).is_err());
 
+        // 头像原样存取，不当资产校验。
+        expert.avatar = Some(json!({ "shape": "drop", "color": "chart-5" }));
+        assert!(issues(home, &expert).is_empty());
         let catalog = catalog(home).unwrap();
         let stamp = catalog["experts"][0]["modified"].as_u64();
         save(home, "dev", &expert, Some("# 新提示词\n"), stamp).unwrap();

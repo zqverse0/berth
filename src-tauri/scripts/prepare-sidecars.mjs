@@ -38,14 +38,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
@@ -75,7 +68,6 @@ export const BINARIES = [
 // Optional runtimes such as berth-mcp are installed independently and are
 // resolved by the GUI through BERTH_MCP_BIN, Settings, sibling development
 // layouts, or PATH. Only GUI-owned binaries are staged into desktop packages.
-const EXTERNAL_BINARIES = []
 
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
@@ -146,145 +138,6 @@ function isUsableArtifact(path, target) {
   } catch {
     return false
   }
-}
-
-/** Map Rust target triple → Bun standalone dist folder for TS berth-mcp Runtime. */
-function bunDistRelative(binaryName, target) {
-  if (binaryName !== "berth-mcp") return null
-  if (target === "x86_64-unknown-linux-gnu")
-    return "dist/bun-linux-x64/berth-mcp"
-  if (target === "aarch64-unknown-linux-gnu")
-    return "dist/bun-linux-arm64/berth-mcp"
-  if (target === "x86_64-apple-darwin") return "dist/bun-darwin-x64/berth-mcp"
-  if (target === "aarch64-apple-darwin")
-    return "dist/bun-darwin-arm64/berth-mcp"
-  if (target === "x86_64-pc-windows-msvc")
-    return "dist/bun-windows-x64/berth-mcp.exe"
-  // Prefer linux x64 dist when host triple is unusual (dev fallback).
-  return "dist/bun-linux-x64/berth-mcp"
-}
-
-function externalArtifactCandidates(binary, target, profile) {
-  const project = process.env[binary.projectEnv]?.trim()
-  const projectRoot = project ? resolve(project) : binary.defaultProject
-  const configured = process.env[binary.artifactEnv]?.trim()
-  const candidates = []
-
-  if (configured) candidates.push(resolve(configured))
-
-  // TypeScript Runtime standalone (preferred over legacy Cargo target/)
-  const bunRel = bunDistRelative(binary.binaryName, target)
-  if (bunRel) {
-    candidates.push(join(projectRoot, bunRel))
-  }
-
-  const targetOverride = process.env.CARGO_TARGET_DIR?.trim()
-  const targetRoots = []
-  if (targetOverride) {
-    targetRoots.push(
-      isAbsolute(targetOverride)
-        ? targetOverride
-        : resolve(projectRoot, targetOverride)
-    )
-  }
-  targetRoots.push(join(projectRoot, "target"))
-
-  for (const root of targetRoots) {
-    candidates.push(join(root, target, profile, binary.binaryName))
-    candidates.push(join(root, target, profile, `${binary.binaryName}.exe`))
-    candidates.push(join(root, profile, binary.binaryName))
-    candidates.push(join(root, profile, `${binary.binaryName}.exe`))
-  }
-
-  return { projectRoot, candidates }
-}
-
-function resolveExternalArtifact(binary, target, profile) {
-  const { projectRoot, candidates } = externalArtifactCandidates(
-    binary,
-    target,
-    profile
-  )
-  const artifact = candidates.find((candidate) =>
-    isUsableArtifact(candidate, target)
-  )
-  if (artifact) return artifact
-
-  const configured = process.env[binary.artifactEnv]?.trim()
-  const hint = configured
-    ? `the configured ${binary.artifactEnv} artifact is not usable`
-    : `no usable artifact was found under ${projectRoot}`
-  die(
-    `${hint}; build ${binary.binaryName} in its independent project first, ` +
-      `or set ${binary.artifactEnv} to an executable artifact path`
-  )
-}
-
-function externalFingerprint(binary, source, target, profile) {
-  const hash = createHash("sha256")
-  hash.update(
-    JSON.stringify({
-      cacheVersion: CACHE_VERSION,
-      binaryName: binary.binaryName,
-      sidecarName: binary.sidecarName,
-      source,
-      target,
-      profile,
-    })
-  )
-  hash.update(readFileSync(source))
-  return hash.digest("hex")
-}
-
-function stageExternalBinary(binary, target, profile, cache) {
-  const source = resolveExternalArtifact(binary, target, profile)
-  const ext = target.includes("windows") ? ".exe" : ""
-  const destinationPath = join(
-    BINARIES_DIR,
-    `${binary.sidecarName}-${target}${ext}`
-  )
-  const destination = relative(SRC_TAURI, destinationPath)
-  const destinationUsable = isUsableArtifact(destinationPath, target)
-  const destinationHash = destinationUsable ? sha256File(destinationPath) : null
-  const input = {
-    fingerprint: externalFingerprint(binary, source, target, profile),
-    packageVersion: "external-artifact",
-  }
-  const expected = {
-    ...input,
-    artifactHash: destinationHash,
-    artifactUsable: destinationUsable,
-    destination,
-  }
-  const key = cacheKey({
-    sidecarName: binary.sidecarName,
-    target,
-    profile,
-    noDefaultFeatures: false,
-  })
-
-  if (!cacheEntryNeedsBuild(cache.entries[key], expected)) {
-    log(`cache hit for external ${binary.sidecarName}`)
-    return
-  }
-
-  mkdirSync(BINARIES_DIR, { recursive: true })
-  if (filesEqual(source, destinationPath)) {
-    log(`external sidecar unchanged at ${destinationPath}`)
-  } else {
-    replaceFileSync(source, destinationPath)
-    log(`external sidecar staged at ${destinationPath}`)
-  }
-  if (!target.includes("windows")) chmodSync(destinationPath, 0o755)
-
-  cache.entries[key] = {
-    cacheVersion: CACHE_VERSION,
-    fingerprint: input.fingerprint,
-    packageVersion: input.packageVersion,
-    artifactHash: sha256File(destinationPath),
-    destination,
-  }
-  saveCache(cache)
 }
 
 function parseArgs(argv) {
@@ -595,10 +448,6 @@ function main() {
         host: resolveHostTriple(),
       })
     }
-  }
-
-  for (const binary of EXTERNAL_BINARIES) {
-    stageExternalBinary(binary, target, profile, cache)
   }
 }
 

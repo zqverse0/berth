@@ -1,12 +1,11 @@
 //! 空间群组：消息收发、ACP 成员、派发 worker（`berth group` 与 GUI 群组视图共用）。
 //!
-//! 账本在 `berth_project_core::tasks::group`（`<空间目录>/local/groups/`）。一个空间一个群（`main`）：
-//! 主目录和各 worktree 的成员、消息都在这个群里，worktree 只是成员的工作目录。
+//! 账本在 `berth_project_core::tasks::group`（`<空间目录>/local/groups/`）。一个空间可以有多个群（`main` 为默认群），
+//! 每个群有自己的目录（主项目或某个 worktree），成员的 Agent 在群目录里运行；worktree 的 checkout 记录不是群。
 //! 群成员是 ACP 成员：由每个主项目一个的后台进程 `berth group watch`（[`watch`]、[`acp`]）起适配器收发；
 //! 终端里的 Agent 不进群，`berth group hook` 只把它的状态写回终端（[`hook`]）。
 
 pub mod acp;
-pub mod builtin;
 mod deliver;
 mod hook;
 mod identity;
@@ -88,14 +87,57 @@ fn required(value: &str, flag: &str) -> TaskResult<String> {
     Ok(value.to_owned())
 }
 
+/// 群名解析：聊天群（`main`、新建的）原样；worktree 的目录名或 checkout 键（旧写法）→ 目录是它的群，没有就是 `main`。
+fn resolve(ctx: &Ctx, name: &str) -> TaskResult<String> {
+    let name = group::validate_name(name)?;
+    if group::is_chat_group(&ctx.main, &name)? {
+        return Ok(name);
+    }
+    let (_, env) = group::project_group(&ctx.main, &name)?;
+    Ok(group_at(&ctx.main, Path::new(&env.worktree))?.unwrap_or_else(|| group::MAIN_GROUP.to_owned()))
+}
+
+/// 目录是 `dir` 的群（第一个）。
+pub(crate) fn group_at(main: &Path, dir: &Path) -> TaskResult<Option<String>> {
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    for name in group::chat_groups(main)? {
+        let settings = group::settings(main, &name)?;
+        // 私聊不是哪个目录的群。
+        if settings.dm.is_some() {
+            continue;
+        }
+        let cwd = settings.dir(main);
+        if cwd.canonicalize().unwrap_or(cwd) == dir {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
+}
+
+/// 目录是 `dir` 的群；没有就建一个，群名取目录名（重名编号）。`spawn --group <worktree>` 用。
+pub(crate) fn group_for_dir(ctx: &Ctx, dir: &Path) -> TaskResult<String> {
+    if let Some(name) = group_at(&ctx.main, dir)? {
+        return Ok(name);
+    }
+    let base = group::validate_name(&dir.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default())
+        .unwrap_or_else(|_| "group".to_owned());
+    let taken = group::meta(&ctx.main)?;
+    let name = std::iter::once(base.clone())
+        .chain((2..).map(|n| format!("{base}-{n}")))
+        .find(|candidate| taken["groups"].get(candidate).is_none())
+        .unwrap_or(base);
+    group::create(&ctx.main, &name)?;
+    group::set_cwd(&ctx.main, &name, Some(dir))?;
+    Ok(name)
+}
+
 fn existing(ctx: &Ctx, name: &str) -> TaskResult<(String, Value, Vec<Value>)> {
     let name = group::validate_name(name)?;
-    // 内部键照读那个账本（旧版 worktree 群只读保留）；目录名都指向项目群。
+    // 内部键照读那个账本（旧版 worktree 群只读保留）；目录名指向目录是它的群。
     let name = if group::info(&ctx.main, &name)?.is_some() && group::has_ledger(&ctx.main, &name) {
         name
     } else {
-        group::project_group(&ctx.main, &name)?;
-        group::MAIN_GROUP.to_owned()
+        resolve(ctx, &name)?
     };
     let info = group::info(&ctx.main, &name)?
         .ok_or_else(|| TaskError::new("not_found", format!("Channel not found: {name}")))?;
@@ -103,10 +145,10 @@ fn existing(ctx: &Ctx, name: &str) -> TaskResult<(String, Value, Vec<Value>)> {
     Ok((name, info, events))
 }
 
-/// 写操作都进项目群（一个项目一个群）：`name` 写主目录或任何 worktree 的群名都行；旧群只读。
+/// 写操作只进聊天群（见 [`resolve`]）；旧版 worktree 群只读。
 fn project_existing(ctx: &Ctx, name: &str) -> TaskResult<(String, Value, Vec<Value>)> {
-    group::project_group(&ctx.main, name)?;
-    existing(ctx, group::MAIN_GROUP)
+    let name = resolve(ctx, name)?;
+    existing(ctx, &name)
 }
 
 /// 本项目的目录（主目录与各 worktree）。
@@ -139,44 +181,157 @@ pub fn read(ctx: &Ctx, name: &str, after: u64, to: Option<&str>) -> TaskResult<V
 
 /// 群成员：Agent、目录、会话 id、是否正在回答、会话是否交给了终端。
 pub fn who(ctx: &Ctx, name: &str) -> TaskResult<Value> {
-    let (_, _, events) = project_existing(ctx, name)?;
-    Ok(who_rows(ctx, &events))
+    let (name, _, events) = project_existing(ctx, name)?;
+    Ok(who_rows(ctx, &name, &events))
+}
+
+/// 群列表：各群的键、显示名、目录与在群成员（`main` 在前）。
+pub fn groups(ctx: &Ctx) -> TaskResult<Value> {
+    let rows = group::chat_groups(&ctx.main)?
+        .into_iter()
+        .map(|name| {
+            let settings = group::settings(&ctx.main, &name)?;
+            let members: Vec<String> =
+                group::members(&group::events(&ctx.main, &name)?).into_iter().map(|member| member.name).collect();
+            Ok(json!({
+                "name": name, "title": settings.title, "cwd": settings.dir(&ctx.main), "members": members, "dm": settings.dm,
+            }))
+        })
+        .collect::<TaskResult<Vec<Value>>>()?;
+    Ok(json!({ "groups": rows }))
+}
+
+/// 群目录须是本空间的项目目录（主项目或 worktree）。
+fn group_dir(ctx: &Ctx, cwd: &Path) -> TaskResult<PathBuf> {
+    if !in_project(&ctx.main, cwd) {
+        return Err(TaskError::new("invalid_input", format!("{} is not a directory of this project", cwd.display())));
+    }
+    Ok(cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf()))
+}
+
+/// 与专家私聊的账本（群键 `dm-<专家>`，群条目记 `dm`）：没有就建，返回群键。它和群一样收发、按专家配置入群，
+/// 只是不在群列表里显示（GUI 按 `dm` 过滤），消息不进任何群。
+pub fn dm(ctx: &Ctx, expert: &str) -> TaskResult<Value> {
+    let all = all_experts()?;
+    let (id, _) = find_expert(&all, expert)?;
+    let name = group::validate_name(&format!("dm-{id}"))?;
+    match group::info(&ctx.main, &name)? {
+        None => match group::create_dm(&ctx.main, &name, id) {
+            Err(error) if error.code != "already_exists" => return Err(error),
+            _ => {}
+        },
+        Some(entry) if entry.get("dm").and_then(Value::as_str) != Some(id.as_str()) => {
+            return Err(TaskError::new("already_exists", format!("Group already exists: {name}")));
+        }
+        Some(_) => {}
+    }
+    Ok(json!({ "name": name }))
+}
+
+/// 新建群：`name` 是群键（也是 CLI 里的名字），`cwd` 缺省主项目。
+pub fn create_group(ctx: &Ctx, name: &str, title: Option<&str>, cwd: Option<&Path>) -> TaskResult<Value> {
+    let name = group::validate_name(name)?;
+    // checkout 记录与群共用 groups.json 的键。
+    if group::info(&ctx.main, &name)?.is_some() {
+        return Err(TaskError::new("already_exists", format!("Group already exists: {name}")));
+    }
+    let cwd = cwd.map(|cwd| group_dir(ctx, cwd)).transpose()?;
+    group::create(&ctx.main, &name)?;
+    group::set_cwd(&ctx.main, &name, cwd.as_deref())?;
+    group::set_title(&ctx.main, &name, title.map(str::trim).filter(|title| !title.is_empty()))?;
+    Ok(json!({ "name": name }))
+}
+
+/// 改群的显示名（群键不变：账本、投递标记、会话都按键存）；空为改回群键。
+pub fn rename_group(ctx: &Ctx, name: &str, title: Option<&str>) -> TaskResult<Value> {
+    let name = chat_group(ctx, name)?;
+    let title = title.map(str::trim).filter(|title| !title.is_empty());
+    group::set_title(&ctx.main, &name, title)?;
+    Ok(json!({ "name": name, "title": title }))
+}
+
+/// 删除群（`main` 不能删）：成员进程停掉，账本与运行态删掉，在 `retired` 留一行。
+pub fn delete_group(ctx: &Ctx, name: &str) -> TaskResult<Value> {
+    let name = chat_group(ctx, name)?;
+    if name == group::MAIN_GROUP {
+        return Err(TaskError::new("invalid_input", "The default group cannot be deleted"));
+    }
+    group::remove(&ctx.main, &name)?;
+    let _ = std::fs::remove_dir_all(group::runtime_dir(&ctx.main).join("acp").join(&name));
+    watch::kick_now(ctx);
+    Ok(json!({ "name": name, "deleted": true }))
+}
+
+/// 改群目录（`Some(None)` 改回主项目）。改了在群里记一条，成员下一条消息在新目录开新会话。
+pub fn configure_group(ctx: &Ctx, name: &str, cwd: Option<Option<&Path>>) -> TaskResult<Value> {
+    let name = chat_group(ctx, name)?;
+    let cwd = cwd.map(|cwd| cwd.map(|cwd| group_dir(ctx, cwd)).transpose()).transpose()?;
+    if let Some(cwd) = cwd {
+        let before = group::settings(&ctx.main, &name)?.dir(&ctx.main);
+        group::set_cwd(&ctx.main, &name, cwd.as_deref())?;
+        let after = group::settings(&ctx.main, &name)?.dir(&ctx.main);
+        if before != after {
+            group::append(
+                &ctx.main,
+                &name,
+                json!({"kind": "system", "event": "group_cwd", "author": group::USER, "cwd": after, "from": before}),
+            )?;
+            watch::kick_now(ctx);
+        }
+    }
+    Ok(json!({ "name": name, "cwd": group::settings(&ctx.main, &name)?.dir(&ctx.main) }))
+}
+
+/// `join --cwd`：核对群目录，不一致时报错并说明群在哪个目录运行。
+pub fn check_dir(ctx: &Ctx, name: &str, cwd: &Path) -> TaskResult<()> {
+    let name = resolve(ctx, name)?;
+    let dir = group::settings(&ctx.main, &name)?.dir(&ctx.main);
+    let same = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if same(cwd) != same(&dir) {
+        return Err(TaskError::new(
+            "invalid_input",
+            format!("Group {name} runs in {}; use `berth group settings --cwd` or a group in {}", dir.display(), cwd.display()),
+        ));
+    }
+    Ok(())
+}
+
+/// 管理操作只认聊天群的键。
+fn chat_group(ctx: &Ctx, name: &str) -> TaskResult<String> {
+    let name = group::validate_name(name)?;
+    if !group::is_chat_group(&ctx.main, &name)? {
+        return Err(TaskError::new("not_found", format!("Group not found: {name}")));
+    }
+    Ok(name)
 }
 
 /// ACP 成员入群：不占终端，由群组运行时按插件的 `acp(ctx)` 起适配器收发（docs/agent-contracts.md「群组 ACP 模式」）。
-/// 插件须在 `tool.json` 声明 `contributes.agent.acp: true`；`cwd` 缺省为主目录，须是本项目的目录。
+/// 插件须在 `tool.json` 声明 `contributes.agent.acp: true`；Agent 在群目录运行（规则 4）。
 /// `inputs` 是启动栏的选择（含 `expert`），`provider` 是服务商档案 id 与模型，每次起适配器都按它们启动。
+/// `as_name` 不给时成员名取所选专家的 id（规则 3），没选专家报错；同群已有同名成员一律拒绝。
 pub fn join_acp(
     ctx: &Ctx,
     name: &str,
-    as_name: &str,
+    as_name: Option<&str>,
     agent: &str,
     inputs: serde_json::Map<String, Value>,
     provider: Option<(i64, Option<String>)>,
-    cwd: Option<PathBuf>,
 ) -> TaskResult<Value> {
     let (name, _, events) = project_existing(ctx, name)?;
-    let author = required(as_name, "--as")?;
+    let author = match as_name.map(str::trim).filter(|as_name| !as_name.is_empty()) {
+        Some(as_name) => as_name.to_owned(),
+        None => spawn::expert_of(agent, &Value::Object(inputs.clone()))
+            .ok_or_else(|| TaskError::new("invalid_input", "choose an expert: group members are experts"))?,
+    };
     if author == group::USER {
         return Err(TaskError::new("invalid_input", format!("{} is reserved for the user", group::USER)));
     }
     if group::members(&events).iter().any(|member| member.name == author) {
         return Err(TaskError::new("conflict", format!("{author} is already a member")));
     }
-    berth_tool_core::plugins::ensure_enabled(agent).map_err(|error| TaskError::new("invalid_input", error.to_string()))?;
-    let manifest: Value = std::fs::read(berth_tool_core::paths::tools_root().join(agent).join("tool.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
-    let declared = manifest["contributes"]["agent"]["acp"] == json!(true)
-        || manifest["extensions"]["org.berth.agent"]["acp"] == json!(true);
-    if !declared {
-        return Err(TaskError::new("invalid_input", format!("{agent} does not support groups (tool.json agent.acp)")));
-    }
-    let cwd = cwd.unwrap_or_else(|| ctx.main.clone());
-    if !in_project(&ctx.main, &cwd) {
-        return Err(TaskError::new("invalid_input", format!("{} is not a directory of this project", cwd.display())));
-    }
+    acp_agent(agent)?;
+    // 记下入群时的群目录（显示、交给终端用）；运行时总按群当前的目录起进程。
+    let cwd = group::settings(&ctx.main, &name)?.dir(&ctx.main);
     let written = group::append(
         &ctx.main,
         &name,
@@ -188,6 +343,60 @@ pub fn join_acp(
         }),
     )?;
     watch::ensure_running(ctx);
+    Ok(written)
+}
+
+/// 能以 ACP 成员入群的插件：已启用且 `tool.json` 声明 `agent.acp`。
+fn acp_agent(agent: &str) -> TaskResult<()> {
+    berth_tool_core::plugins::ensure_enabled(agent).map_err(|error| TaskError::new("invalid_input", error.to_string()))?;
+    let manifest: Value = std::fs::read(berth_tool_core::paths::tools_root().join(agent).join("tool.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let declared = manifest["contributes"]["agent"]["acp"] == json!(true)
+        || manifest["extensions"]["org.berth.agent"]["acp"] == json!(true);
+    if !declared {
+        return Err(TaskError::new("invalid_input", format!("{agent} does not support groups (tool.json agent.acp)")));
+    }
+    Ok(())
+}
+
+/// 改 ACP 成员的 Agent、启动栏输入、服务商与模型：记一条 `acp_settings`，下一条消息生效（运行时比对后切换，见 `acp`）。
+/// 专家不变（成员就是它）；换了 Agent 旧会话不能续，清掉、下次开新会话。
+pub fn member_settings(
+    ctx: &Ctx,
+    name: &str,
+    member: &str,
+    agent: &str,
+    mut inputs: serde_json::Map<String, Value>,
+    provider: Option<(i64, Option<String>)>,
+) -> TaskResult<Value> {
+    let (name, _, events) = project_existing(ctx, name)?;
+    let present = group::members(&events)
+        .into_iter()
+        .find(|m| m.name == member)
+        .and_then(|present| acp::joined(&events, &name, &present))
+        .ok_or_else(|| TaskError::new("not_found", format!("{member} is not an ACP member")))?;
+    if acp::handed(&events, member).is_some() {
+        return Err(TaskError::new("conflict", format!("{member} is open in a terminal; return it first")));
+    }
+    acp_agent(agent)?;
+    if let Some(expert) = present.inputs.get("expert") {
+        inputs.insert("expert".to_owned(), expert.clone());
+    }
+    if present.agent != agent {
+        acp::forget_session(&ctx.main, &name, member);
+    }
+    let written = group::append(
+        &ctx.main,
+        &name,
+        json!({
+            "kind": "system", "event": "acp_settings", "author": group::USER, "to": member,
+            "agent": agent, "inputs": inputs, "provider": provider.as_ref().map(|(id, _)| id),
+            "model": provider.as_ref().and_then(|(_, model)| model.as_ref()),
+        }),
+    )?;
+    watch::kick_now(ctx);
     Ok(written)
 }
 
@@ -206,12 +415,12 @@ pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Opti
     let handed = acp::handed(&events, member).is_some();
     let event = match action {
         "handoff" => {
-            if acp::live(&ctx.main, member).is_some() {
+            if acp::live(&ctx.main, &name, member).is_some() {
                 return Err(TaskError::new("conflict", format!("{member} is answering; stop it first")));
             }
             let session = group::bound_session_in(&ctx.main, &name, &events, &target_ref)
                 .ok_or_else(|| TaskError::new("invalid_input", format!("{member} has no session yet")))?;
-            let joined = acp::joined(&events, &present)
+            let joined = acp::joined(&events, &name, &present)
                 .ok_or_else(|| TaskError::new("not_found", format!("{member} is not an ACP member")))?;
             json!({
                 "kind": "system", "event": "acp_handoff", "author": group::USER, "to": member,
@@ -227,16 +436,10 @@ pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Opti
         }
         "stop" => json!({"kind": "system", "event": "acp_stop", "author": group::USER, "to": member}),
         "new" => {
-            acp::forget_session(&ctx.main, member);
+            acp::forget_session(&ctx.main, &name, member);
             json!({"kind": "system", "event": "acp_new", "author": group::USER, "to": member})
         }
-        "leave" => {
-            // 负责人移出群：清空，之后没 @ 谁的消息只记进群。
-            if group::settings(&ctx.main, &name)?.lead.as_deref() == Some(member) {
-                group::set_lead(&ctx.main, &name, None)?;
-            }
-            json!({"kind": "left", "author": member, "target_ref": target_ref, "reason": "removed"})
-        }
+        "leave" => json!({"kind": "left", "author": member, "target_ref": target_ref, "reason": "removed"}),
         _ => {
             return Err(TaskError::new(
                 "invalid_input",
@@ -249,19 +452,6 @@ pub fn control(ctx: &Ctx, name: &str, member: &str, action: &str, terminal: Opti
     Ok(written)
 }
 
-/// 设负责人（`berth group lead` 与 GUI `group.lead` 共用）：没 @ 谁的用户消息发给它；`member` 为 None 清除。
-pub fn lead(ctx: &Ctx, name: &str, member: Option<&str>) -> TaskResult<Value> {
-    let (name, _, events) = project_existing(ctx, name)?;
-    let member = member.map(str::trim).filter(|member| !member.is_empty());
-    if let Some(member) = member {
-        if !group::members(&events).iter().any(|present| present.name == member) {
-            return Err(TaskError::new("not_found", format!("{member} is not a member")));
-        }
-    }
-    group::set_lead(&ctx.main, &name, member)?;
-    Ok(json!({ "lead": member }))
-}
-
 /// 例行发群：到点以用户身份发给 `member`，带 `source: routine`（不进别人的群上下文）；`key` 幂等。
 /// 成员正在回答时不发，返回 `None`。
 pub fn routine(ctx: &Ctx, member: &str, text: &str, key: &str) -> TaskResult<Option<u64>> {
@@ -269,7 +459,7 @@ pub fn routine(ctx: &Ctx, member: &str, text: &str, key: &str) -> TaskResult<Opt
     if !group::members(&events).iter().any(|present| present.name == member) {
         return Err(TaskError::new("not_found", format!("{member} is not a member")));
     }
-    if acp::live(&ctx.main, member).is_some() {
+    if acp::live(&ctx.main, &name, member).is_some() {
         return Ok(None);
     }
     let event = json!({
@@ -387,32 +577,72 @@ pub fn post(
     let author = identity::author(author)?;
     let text = required(text, "--text")?;
     let to = to.filter(|to| !to.trim().is_empty());
-    // 用户没指定收件人：被回复消息的作者（在群的成员）> 负责人；不从正文解析 @。没设负责人只记进群。
-    let to = match to {
-        None if author == group::USER => {
-            let members = group::members(&events);
-            let replied = reply_to
-                .and_then(|seq| events.iter().find(|event| group::seq(event) == seq))
-                .and_then(|event| crate::text(event, "author"))
-                .filter(|author| members.iter().any(|member| member.name == *author))
-                .map(str::to_owned);
-            replied.or(group::settings(&ctx.main, &name)?.lead)
-        }
-        to => to,
+    let recipients = match to {
+        None if author == group::USER => recipients(&events, &text, reply_to),
+        to => vec![to],
     };
-    let mut event = json!({
-        "kind": "message", "author": author, "to": to, "text": text,
-        "idempotency_key": idempotency_key,
-    });
-    if let Some(reply_to) = reply_to {
-        event["reply_to"] = json!(reply_to);
+    admit(ctx, &name, &events, &recipients)?;
+    // 发给多人：每人一条，幂等键按人区分（同一批次，时间线合成一条）。
+    let several = recipients.len() > 1;
+    let mut first: Option<Value> = None;
+    for to in recipients {
+        let key = idempotency_key
+            .as_ref()
+            .map(|key| if several { format!("{key}:{}", to.as_deref().unwrap_or_default()) } else { key.clone() });
+        let mut event = json!({
+            "kind": "message", "author": author, "to": to, "text": text,
+            "idempotency_key": key,
+        });
+        if let Some(reply_to) = reply_to {
+            event["reply_to"] = json!(reply_to);
+        }
+        let (mut written, fresh) = group::append_new(&ctx.main, &name, event)?;
+        // 幂等重放返回旧事件，不再送达。
+        if let (Some(to), true) = (to, fresh) {
+            written["doorbell"] = deliver::doorbell(ctx, &name, &to);
+        }
+        first.get_or_insert(written);
     }
-    let (mut written, fresh) = group::append_new(&ctx.main, &name, event)?;
-    // 幂等重放返回旧事件，不再送达。
-    if let (Some(to), true) = (to, fresh) {
-        written["doorbell"] = deliver::doorbell(ctx, &name, &to);
+    Ok(first.unwrap_or_default())
+}
+
+/// 收件人是专家、还不在群：按它在本空间的配置入群（规则 3），再投递。有专家没配置就报错、什么都不写；
+/// 不是专家的名字（spawn 的 worker、旧成员）照旧。
+fn admit(ctx: &Ctx, name: &str, events: &[Value], recipients: &[Option<String>]) -> TaskResult<()> {
+    let present: Vec<String> = group::members(events).into_iter().map(|member| member.name).collect();
+    let configs = group::expert_configs(&ctx.main)?;
+    let experts = all_experts()?;
+    let mut joins = Vec::new();
+    for to in recipients.iter().flatten() {
+        if present.contains(to) || !experts.iter().any(|(id, _)| id == to) {
+            continue;
+        }
+        let config = configs
+            .get(to)
+            .ok_or_else(|| TaskError::new("invalid_input", format!("Choose an Agent for {to} on the Experts page first")))?;
+        joins.push((to, config));
     }
-    Ok(written)
+    for (to, config) in joins {
+        let inputs = config["inputs"].as_object().cloned().unwrap_or_default();
+        let provider = config["provider"].as_i64().map(|id| (id, config["model"].as_str().map(str::to_owned)));
+        join_acp(ctx, name, Some(to), config["agent"].as_str().unwrap_or_default(), inputs, provider)?;
+    }
+    Ok(())
+}
+
+/// 用户没指定收件人时发给谁（规则 5）；不从正文解析 @，只认 `@everyone`：
+/// `@everyone` → 所有在群成员；回复某成员的话 → 它；否则只记进群（`[None]`）。
+fn recipients(events: &[Value], text: &str, reply_to: Option<u64>) -> Vec<Option<String>> {
+    let members: Vec<String> = group::members(events).into_iter().map(|member| member.name).collect();
+    if text.split_whitespace().any(|word| word == "@everyone") && !members.is_empty() {
+        return members.into_iter().map(Some).collect();
+    }
+    let replied = reply_to
+        .and_then(|seq| events.iter().find(|event| group::seq(event) == seq))
+        .and_then(|event| crate::text(event, "author"))
+        .filter(|author| members.iter().any(|member| member == author))
+        .map(str::to_owned);
+    vec![replied]
 }
 
 pub fn spec(
@@ -454,41 +684,80 @@ pub fn spec(
     Ok(written)
 }
 
-/// 专家（`$BERTH_HOME/experts`）与以它入群的成员；`id` 给定时只看它。
+/// 专家（`$BERTH_HOME/experts`）、它在本空间的配置（`config`，未配置为 null）与以它入群的成员（各群的，带 `group`）；
+/// `id` 给定时只看它。
 pub fn experts(ctx: &Ctx, id: Option<&str>) -> TaskResult<Value> {
-    let all = berth_tool_core::paths::experts(&berth_tool_core::paths::berth_home_dir())
-        .map_err(|message| TaskError::new("invalid_input", message))?;
-    let events = group::events(&ctx.main, group::MAIN_GROUP)?;
-    let who = who_rows(ctx, &events);
-    let members = |expert: &str| -> Vec<Value> {
-        who["participants"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|row| row["expert"] == expert)
-            .cloned()
-            .collect()
-    };
+    let all = all_experts()?;
+    let configs = group::expert_configs(&ctx.main)?;
+    let mut rows: Vec<Value> = Vec::new();
+    for name in group::chat_groups(&ctx.main)? {
+        let events = group::events(&ctx.main, &name)?;
+        for mut row in who_rows(ctx, &name, &events)["participants"].as_array().cloned().unwrap_or_default() {
+            row["group"] = json!(name);
+            rows.push(row);
+        }
+    }
+    let members = |expert: &str| -> Vec<Value> { rows.iter().filter(|row| row["expert"] == expert).cloned().collect() };
     let Some(id) = id else {
         let rows: Vec<Value> = all
             .iter()
-            .map(|(id, name)| json!({ "id": id, "name": name, "members": members(id).len() }))
+            .map(|(id, name)| json!({ "id": id, "name": name, "config": configs.get(id), "members": members(id).len() }))
             .collect();
         return Ok(json!({ "experts": rows }));
     };
-    let (id, name) = all
-        .iter()
-        .find(|(expert, _)| expert == id)
-        .ok_or_else(|| TaskError::new("not_found", format!("No expert {id} (see `expert ls`)")))?;
-    Ok(json!({ "id": id, "name": name, "members": members(id) }))
+    let (id, name) = find_expert(&all, id)?;
+    Ok(json!({ "id": id, "name": name, "config": configs.get(id), "members": members(id) }))
 }
 
-/// 在群的成员（`berth group who`、专家列表）。
-pub fn who_rows(ctx: &Ctx, events: &[Value]) -> Value {
+fn all_experts() -> TaskResult<Vec<(String, String)>> {
+    berth_tool_core::paths::experts(&berth_tool_core::paths::berth_home_dir())
+        .map_err(|message| TaskError::new("invalid_input", message))
+}
+
+fn find_expert<'a>(all: &'a [(String, String)], id: &str) -> TaskResult<&'a (String, String)> {
+    all.iter()
+        .find(|(expert, _)| expert == id)
+        .ok_or_else(|| TaskError::new("not_found", format!("No expert {id} (see `expert ls`)")))
+}
+
+/// 专家页「Agent / 模型」：存进本空间的专家配置（所有群共用），并对它已在的每个群记 `acp_settings`
+/// （[`member_settings`]，下一条消息切换）。在终端里打开着的群跳过，交回后再存一次才生效。
+/// `inputs` 是该 Agent 启动栏的选择，专家项由这里按启动栏填上。返回配置与已切换的群。
+pub fn set_expert(
+    ctx: &Ctx,
+    expert: &str,
+    agent: &str,
+    mut inputs: serde_json::Map<String, Value>,
+    provider: Option<(i64, Option<String>)>,
+) -> TaskResult<Value> {
+    let (expert, _) = find_expert(&all_experts()?, expert.trim())?.clone();
+    acp_agent(agent)?;
+    let key = berth_tool_core::paths::expert_input(&berth_tool_core::paths::tools_root().join(agent))
+        .ok_or_else(|| TaskError::new("invalid_input", format!("{agent} has no expert option in its launchbar")))?;
+    inputs.insert(key, json!(expert));
+    let config = json!({
+        "agent": agent, "inputs": inputs, "provider": provider.as_ref().map(|(id, _)| id),
+        "model": provider.as_ref().and_then(|(_, model)| model.as_ref()),
+    });
+    group::set_expert_config(&ctx.main, &expert, Some(config.clone()))?;
+    let mut groups = Vec::new();
+    for name in group::chat_groups(&ctx.main)? {
+        match member_settings(ctx, &name, &expert, agent, inputs.clone(), provider.clone()) {
+            Ok(_) => groups.push(name),
+            // 不在这个群，或会话在终端里。
+            Err(error) if matches!(error.code, "not_found" | "conflict") => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(json!({ "expert": expert, "config": config, "groups": groups }))
+}
+
+/// 群 `name` 在群的成员（`berth group who`、专家列表）。
+pub fn who_rows(ctx: &Ctx, name: &str, events: &[Value]) -> Value {
     let rows: Vec<Value> = group::members(events)
         .into_iter()
         .filter_map(|member| {
-            let joined = acp::joined(events, &member)?;
+            let joined = acp::joined(events, name, &member)?;
             let target_ref = format!("{}{}", acp::PREFIX, member.name);
             Some(json!({
                 "name": member.name,
@@ -497,8 +766,8 @@ pub fn who_rows(ctx: &Ctx, events: &[Value]) -> Value {
                 "agent": joined.agent,
                 "cwd": joined.cwd,
                 "expert": joined.inputs.get("expert"),
-                "session_id": group::bound_session_in(&ctx.main, group::MAIN_GROUP, events, &target_ref),
-                "busy": acp::live(&ctx.main, &member.name).is_some(),
+                "session_id": group::bound_session_in(&ctx.main, name, events, &target_ref),
+                "busy": acp::live(&ctx.main, name, &member.name).is_some(),
                 "handed": acp::handed(events, &member.name).map(|event| event["terminal"].clone()),
             }))
         })

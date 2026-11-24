@@ -1,4 +1,3 @@
-pub mod berth_member;
 pub mod group;
 
 use std::path::{Path, PathBuf};
@@ -28,20 +27,27 @@ pub async fn call(
         "task.finish" => group::finish(&root, &params),
         "group.read" => group::read(&root, &params),
         "group.assign" => group::assign(&root, &params),
+        // `chat: true`：聊天群列表；否则是 checkout（任务分配用）。
+        "group.list" if params.get("chat") == Some(&json!(true)) => {
+            ctx(&root, launch.as_ref())
+                .and_then(|ctx| berth_group::groups(&ctx).map_err(|error| error.message))
+        }
         "group.list" => group::list(&root, &params),
+        "group.create" | "group.rename" | "group.delete" | "group.settings" => {
+            manage(&root, &method, &params, launch.as_ref())
+        }
         "group.watch" => {
             let launch = launch.ok_or("Berth terminal is unavailable")?;
             group::ensure_watch(&root, &cli()?, &launch)
         }
         "group.post" => post(&root, &params, launch.as_ref()),
-        "group.join" => join(&root, &params, launch.as_ref()),
         "group.approve" => approve(&root, &params, launch.as_ref()),
-        "group.lead" => lead(&root, &params, launch.as_ref()),
         "group.member.control" => control(&root, &params, launch.as_ref()),
-        "group.stopBerth" => berth_member::stop(&root),
-        "group.berthSessions" => berth_member::sessions(&root),
-        "group.berthRecord" => berth_member::record(&root, &params),
-        "group.berthNew" => berth_member::new_session(&root),
+        "group.experts" => ctx(&root, launch.as_ref())
+            .and_then(|ctx| berth_group::experts(&ctx, None).map_err(|error| error.message)),
+        "group.expert.set" => set_expert(&root, &params, launch.as_ref()),
+        "group.dm" => ctx(&root, launch.as_ref())
+            .and_then(|ctx| berth_group::dm(&ctx, required(&params, "expert")?).map_err(|error| error.message)),
         _ => Err(format!("unsupported method: {method}")),
     })
     .await
@@ -93,40 +99,42 @@ pub async fn routine(
     .map_err(|error| format!("task worker failed: {error}"))?
 }
 
-/// 设负责人（`member` 缺省为清除），与 `berth group lead` 同一实现。
-fn lead(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
-    let ctx = ctx(root, launch)?;
-    berth_group::lead(&ctx, required(params, "name")?, text(params, "member")).map_err(|error| error.message)
-}
-
 fn ctx(root: &Path, launch: Option<&CliLaunch>) -> Result<berth_group::Ctx, String> {
     berth_group::Ctx::new(root, launch.map(|launch| launch.socket.clone()), None, cli()?, None)
         .map_err(|error| error.message)
 }
 
-/// 群页「加成员」：声明了 `agent.acp` 的插件以 ACP 成员入群（`berth group join --acp` 同一实现）。
-/// `inputs` 是启动栏的选择，`provider` / `model` 同终端启动的服务商与模型。
-fn join(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+/// 专家页保存专家用的 Agent / 服务商 / 模型（`expert`、`agent`、`inputs`、`provider`、`model`），它所在的群下一条消息生效。
+fn set_expert(root: &Path, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
     let ctx = ctx(root, launch)?;
     let inputs = params.get("inputs").and_then(Value::as_object).cloned().unwrap_or_default();
     let provider = params
         .get("provider")
         .and_then(Value::as_i64)
         .map(|id| (id, text(params, "model").map(str::to_owned)));
-    let joined = berth_group::join_acp(
-        &ctx,
-        required(params, "name")?,
-        required(params, "as")?,
-        required(params, "agent")?,
-        inputs,
-        provider,
-        None,
-    )
+    berth_group::set_expert(&ctx, required(params, "expert")?, required(params, "agent")?, inputs, provider)
+        .map_err(|error| error.message)
+}
+
+/// 群列表的新建、改名、删除与群设置（`berth group create|rename|delete|settings` 同一实现）。
+/// `group.settings` 的 `cwd` 为 null 时改回主项目，不给则不改。
+fn manage(root: &Path, method: &str, params: &Value, launch: Option<&CliLaunch>) -> Result<Value, String> {
+    let ctx = ctx(root, launch)?;
+    let name = required(params, "name")?;
+    let result = match method {
+        "group.create" => berth_group::create_group(&ctx, name, text(params, "title"), text(params, "cwd").map(Path::new)),
+        "group.rename" => berth_group::rename_group(&ctx, name, text(params, "title")),
+        "group.delete" => berth_group::delete_group(&ctx, name),
+        _ => {
+            let cwd = params.get("cwd").map(|cwd| cwd.as_str().filter(|cwd| !cwd.trim().is_empty()).map(Path::new));
+            berth_group::configure_group(&ctx, name, cwd)
+        }
+    }
     .map_err(|error| error.message)?;
     if let Some(launch) = launch {
         group::ensure_watch(root, &ctx.cli, launch)?;
     }
-    Ok(joined)
+    Ok(result)
 }
 
 /// 审批卡片的应答（`berth group approve` 同一实现）；不给 `option` 即取消。

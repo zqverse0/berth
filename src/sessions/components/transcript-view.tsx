@@ -31,10 +31,7 @@ import {
   useStartupContext,
   useTurnParts,
 } from "@/sessions/transcript-toc"
-import {
-  useTranscriptView,
-  useTranscriptViewStore,
-} from "@/sessions/transcript-view-store"
+import { useTranscriptView } from "@/sessions/transcript-view-store"
 
 function range(start: number, end: number): number[] {
   return Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i)
@@ -274,16 +271,13 @@ export function TranscriptView({
   const listRef = useRef<VirtualizerHandle>(null)
   const scrollRef = useRef<HTMLElement>(null)
   const { level, filter, query } = useTranscriptView(conversationId)
-  const jump = useTranscriptViewStore((state) => state.jump)
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
   const narrowed = isNarrowed(filter)
 
-  const { rows, startRow } = useMemo(() => {
+  const rows = useMemo(() => {
     const rows: Row[] = []
-    const startRow = new Map<string, number>()
     // 启动输入在第一个提问之前，排在最前；收窄筛选或搜索时不显示
     if (context?.length && !narrowed && !query) {
-      startRow.set(STARTUP_CONTEXT_ID, 0)
       rows.push({ kind: "context" })
     }
     for (const segment of toc.segments) {
@@ -295,13 +289,12 @@ export function TranscriptView({
           )
         : []
       if (!matchesSegment(segment, filter, query, loaded)) continue
-      startRow.set(segment.id, rows.length)
       rows.push({ kind: "segment", segment })
     }
-    return { rows, startRow }
+    return rows
   }, [toc, filter, query, narrowed, context, conversationId])
 
-  // 实时追加：停在底部时跟随新内容（包括最后一段取到 Part 后变高），向上翻阅或跳转后不打断
+  // 实时追加：停在底部时跟随新内容（包括最后一段取到 Part 后变高），向上翻阅后不打断
   const atBottom = useRef(true)
   const followBottom = () => {
     if (atBottom.current && rows.length > 0) {
@@ -310,23 +303,15 @@ export function TranscriptView({
   }
   const lastId = toc.segments[toc.segments.length - 1]?.id
   const follow = useRef(followBottom)
-  follow.current = followBottom
+  useEffect(() => {
+    follow.current = followBottom
+  })
   const handleLoaded = useCallback(
     (segment: TocSegment) => {
       if (segment.id === lastId) follow.current()
     },
     [lastId]
   )
-
-  useEffect(() => {
-    if (jump?.conversationId !== conversationId) return
-    atBottom.current = false
-    const index = startRow.get(jump.exchangeId)
-    if (index != null) listRef.current?.scrollToIndex(index, { align: "start" })
-    useTranscriptViewStore.getState().consumeJump()
-    // 只响应新的跳转请求；筛选变化导致的行号变化不应再次滚动
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jump])
 
   useEffect(followBottom, [rows.length, toc])
 

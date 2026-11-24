@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use berth_project_core::tasks::{self, group};
 use serde_json::{json, Value};
 
-use crate::{spawn, watch, Ctx};
+use crate::{spawn, Ctx};
 
 fn sh(cwd: &Path, args: &[&str]) -> String {
     let output = Command::new(args[0])
@@ -102,7 +102,7 @@ impl Project {
     }
 }
 
-/// ACP 成员直接写进账本（git 记录只看有没有成员在群）。
+/// ACP 成员直接写进账本。
 fn join(project: &Project, member: &str, cwd: &Path) {
     group::append(
         &project.main,
@@ -112,106 +112,7 @@ fn join(project: &Project, member: &str, cwd: &Path) {
     .unwrap();
 }
 
-fn record(project: &Project, heads: &mut watch::Heads) {
-    watch::record_commits(&project.ctx(), heads);
-}
-
-// ---------------------------------------------------------------- git
-
-#[test]
-fn commits_are_a_group_event_recorded_once() {
-    let project = Project::new();
-    let worktree = project.start();
-    let mut heads = watch::Heads::new();
-    // 没人在群：不记。
-    record(&project, &mut heads);
-    join(&project, "w", &worktree);
-    record(&project, &mut heads); // 起点
-    fs::write(worktree.join("a.txt"), "a").unwrap();
-    sh(&worktree, &["git", "add", "-A"]);
-    sh(&worktree, &["git", "commit", "-qm", "feat: a"]);
-    record(&project, &mut heads);
-    record(&project, &mut heads);
-    let commits = |project: &Project| -> Vec<Value> {
-        project.events(&project.group()).into_iter().filter(|event| event["event"] == "commits").collect()
-    };
-    let got = commits(&project);
-    assert_eq!(got.len(), 1);
-    assert!(got[0]["commits"][0].as_str().unwrap().ends_with("feat: a"));
-    assert!(got[0].get("author").is_none());
-    // 后台进程重启：从账本接着比，不重记。
-    record(&project, &mut watch::Heads::new());
-    assert_eq!(commits(&project).len(), 1);
-}
-
-#[test]
-fn a_worktree_registered_under_several_keys_records_each_commit_once() {
-    let project = Project::new();
-    let worktree = project.start();
-    // 旧版并发登记留下的重复键：同一目录再挂两个群键。
-    let meta_path = project.data.join("local/groups/groups.json");
-    let mut meta: Value = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
-    let entry = meta["groups"][project.checkout().as_str()].clone();
-    meta["groups"]["checkout-dup-a"] = entry.clone();
-    meta["groups"]["checkout-dup-b"] = entry;
-    fs::write(&meta_path, serde_json::to_string(&meta).unwrap()).unwrap();
-
-    join(&project, "w", &worktree);
-    let mut heads = watch::Heads::new();
-    record(&project, &mut heads);
-    fs::write(worktree.join("a.txt"), "a").unwrap();
-    sh(&worktree, &["git", "add", "-A"]);
-    sh(&worktree, &["git", "commit", "-qm", "feat: a"]);
-    record(&project, &mut heads);
-    record(&project, &mut heads);
-    let commits = project.events(&project.group()).iter().filter(|event| event["event"] == "commits").count();
-    assert_eq!(commits, 1);
-}
-
-#[test]
-fn merges_rewrites_and_resets_are_group_events() {
-    let project = Project::new();
-    let worktree = project.start();
-    join(&project, "w", &worktree);
-    let mut heads = watch::Heads::new();
-    record(&project, &mut heads); // 起点
-    let git_events = |group: &str| -> Vec<Value> {
-        project
-            .events(group)
-            .into_iter()
-            .filter(|event| event["kind"] == "system" && event["event"] != "started")
-            .collect()
-    };
-
-    fs::write(worktree.join("b.txt"), "b").unwrap();
-    sh(&worktree, &["git", "add", "-A"]);
-    sh(&worktree, &["git", "commit", "-qm", "feat: b"]);
-    record(&project, &mut heads);
-    // 合并进主 checkout：各 checkout 的提交都记在项目群，带 `checkout`。
-    sh(&project.main, &["git", "merge", "--no-ff", "-q", "-m", "merge demo", "demo"]);
-    record(&project, &mut heads);
-    let git = git_events(&project.group());
-    assert_eq!(git.len(), 2);
-    assert_eq!(git[0]["checkout"], project.checkout().as_str());
-    assert_eq!(git[0]["branch"], "demo");
-    assert_eq!(git[0]["merged"], Value::Null);
-    assert_eq!(git[1]["checkout"], "main");
-    assert_eq!(git[1]["merged"], "demo");
-    assert_eq!(git[1]["branch"], "dev");
-
-    // amend 改写历史；回退没有新提交。
-    sh(&worktree, &["git", "commit", "-q", "--amend", "-m", "feat: b2"]);
-    record(&project, &mut heads);
-    sh(&worktree, &["git", "reset", "-q", "--hard", "HEAD~1"]);
-    record(&project, &mut heads);
-    let git = git_events(&project.group());
-    assert_eq!(git[2]["rewritten"], true);
-    assert_eq!(git[3]["event"], "head");
-    assert_eq!(git[3]["from_branch"], Value::Null);
-    // 重启后不重记。
-    record(&project, &mut watch::Heads::new());
-    assert_eq!(git_events(&project.group()).len(), 4);
-}
+// ---------------------------------------------------------------- hook
 
 #[test]
 fn hooks_report_state_with_standard_terminal_sequences() {
@@ -238,15 +139,20 @@ fn hooks_report_state_with_standard_terminal_sequences() {
 
 // ---------------------------------------------------------------- spawn
 
-/// 假 `BERTH_HOME`：一个声明了 ACP、启动栏有「专家」项的插件 `fake`。环境变量全进程共享，只设一次。
-fn fake_home() {
+/// 假 `BERTH_HOME`：一个声明了 ACP、启动栏有「专家」「服务商」「模型」项的插件 `fake`。环境变量全进程共享，只设一次。
+pub(crate) fn fake_home() {
     static HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
     HOME.get_or_init(|| {
         let home = tempfile::tempdir().unwrap();
         let tool = home.path().join("tools/fake");
         fs::create_dir_all(&tool).unwrap();
         fs::write(tool.join("tool.json"), r#"{"id":"fake","contributes":{"agent":{"acp":true}}}"#).unwrap();
-        fs::write(tool.join("launchbar.json"), r#"{"items":[{"id":"expert","optionsFrom":"experts"}]}"#).unwrap();
+        fs::write(tool.join("launchbar.json"), r#"{"items":[{"id":"expert","optionsFrom":"experts"},{"id":"provider","optionsFrom":"providerVendor"},{"id":"model","optionsFrom":"providerModels"}]}"#).unwrap();
+        let other = home.path().join("tools/fake2");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("tool.json"), r#"{"id":"fake2","contributes":{"agent":{"acp":true}}}"#).unwrap();
+        fs::create_dir_all(home.path().join("experts")).unwrap();
+        fs::write(home.path().join("experts/dev-expert.json"), r#"{"name":"开发专家"}"#).unwrap();
         std::env::set_var("BERTH_HOME", home.path());
         home
     });
@@ -278,8 +184,12 @@ fn spawn_joins_the_worker_as_an_acp_member_in_the_worktree() {
     let worktree = PathBuf::from(result["worktree"].as_str().unwrap());
     assert_eq!(worktree, project.main.parent().unwrap().join("proj-demo"));
     assert_eq!(result["branch"], "demo");
+    // worker 进目录是这个 worktree 的群（没有就建，群名取目录名），main 群里没有它。
+    let side = "proj-demo";
+    assert_eq!(group::settings(&project.main, side).unwrap().dir(&project.main), worktree.canonicalize().unwrap());
+    assert!(group::members(&project.events("main")).is_empty());
     // worker 的成员名是它的专家，`--name` 只作显示名；ACP 进程在 worktree 里起。
-    let events = project.events(&project.group());
+    let events = project.events(side);
     let members = group::members(&events);
     let worker = members.iter().find(|member| member.label.as_deref() == Some("w1")).unwrap();
     assert_eq!(result["worker"], "dev-expert");
@@ -288,17 +198,146 @@ fn spawn_joins_the_worker_as_an_acp_member_in_the_worktree() {
     let joined = events.iter().find(|event| event["kind"] == "joined").unwrap();
     assert_eq!(PathBuf::from(joined["cwd"].as_str().unwrap()), worktree.canonicalize().unwrap());
     assert_eq!(joined["inputs"]["expert"], "dev-expert");
-    let brief = &project.messages(&project.group())[0];
+    let brief = &project.messages(side)[0];
     assert_eq!(brief["to"], "dev-expert");
     assert_eq!(brief["author"], "lead");
     let text = brief["text"].as_str().unwrap();
     assert!(text.contains("任务契约：") && text.contains("自己的分支 demo，"));
     assert!(text.contains("Task: 10-01-demo S<步骤号>"));
-    // 同一专家再派一个：编号。
+    // 同一专家再派一个：同一个群，编号。
     let mut again = request("w2");
     again.group = project.checkout();
     again.task = None;
     assert_eq!(spawn::spawn(&project.ctx(), again).unwrap()["worker"], "dev-expert-2");
+    assert_eq!(group::chat_groups(&project.main).unwrap(), vec!["main".to_owned(), side.to_owned()]);
+    // 旧写法：按 worktree 目录名发消息，进目录是它的群。
+    let ctx = project.ctx();
+    let posted = crate::post(&ctx, side, "user", "hi", Some("dev-expert".into()), None, None).unwrap();
+    assert_eq!(project.messages(side).last().unwrap()["seq"], posted["seq"]);
+}
+
+#[test]
+fn join_acp_names_the_member_after_its_expert_once_per_group() {
+    fake_home();
+    let project = Project::new();
+    let ctx = project.ctx();
+    let inputs = |expert: &str| json!({ "expert": expert }).as_object().unwrap().clone();
+    let joined = crate::join_acp(&ctx, "main", None, "fake", inputs("dev-expert"), None).unwrap();
+    assert_eq!(joined["author"], "dev-expert");
+    assert_eq!(joined["target_ref"], "acp:dev-expert");
+    // 同一专家在同一个群里只出现一次。
+    let again = crate::join_acp(&ctx, "main", None, "fake", inputs("dev-expert"), None).unwrap_err();
+    assert_eq!(again.code, "conflict");
+    // 没选专家：不能入群。
+    let none = crate::join_acp(&ctx, "main", None, "fake", Default::default(), None).unwrap_err();
+    assert_eq!(none.code, "invalid_input");
+    // 显式给名字照旧（CLI `--as`）。
+    let named = crate::join_acp(&ctx, "main", Some("pi-2"), "fake", Default::default(), None).unwrap();
+    assert_eq!(named["author"], "pi-2");
+}
+
+#[test]
+fn expert_config_is_saved_per_space_and_switches_the_groups_it_is_in() {
+    fake_home();
+    let project = Project::new();
+    let ctx = project.ctx();
+    let inputs = |value: Value| value.as_object().unwrap().clone();
+    let config = |ctx: &Ctx| crate::experts(ctx, Some("dev-expert")).unwrap()["config"].clone();
+    assert_eq!(config(&ctx), Value::Null);
+    crate::create_group(&ctx, "side", None, None).unwrap();
+    crate::join_acp(&ctx, "main", None, "fake", inputs(json!({ "expert": "dev-expert" })), None).unwrap();
+    let saved = crate::set_expert(&ctx, "dev-expert", "fake", inputs(json!({ "thinking": "high" })), Some((3, Some("m".into()))))
+        .unwrap();
+    // 专家项按启动栏填上；只切换它在的群。
+    assert_eq!(saved["groups"], json!(["main"]));
+    assert_eq!(config(&ctx), json!({"agent": "fake", "inputs": {"expert": "dev-expert", "thinking": "high"}, "provider": 3, "model": "m"}));
+    let switched = |name: &str| {
+        group::events(&project.main, name).unwrap().iter().filter(|event| event["event"] == "acp_settings").count()
+    };
+    assert_eq!((switched("main"), switched("side")), (1, 0));
+    // 没有的专家、不支持群的插件、启动栏没有专家项的插件都拒绝，配置不变。
+    assert_eq!(crate::set_expert(&ctx, "nobody", "fake", Default::default(), None).unwrap_err().code, "not_found");
+    assert_eq!(crate::set_expert(&ctx, "dev-expert", "fake2", Default::default(), None).unwrap_err().code, "invalid_input");
+    assert_eq!(config(&ctx)["agent"], "fake");
+}
+
+#[test]
+fn a_private_chat_is_its_own_ledger_marked_dm() {
+    fake_home();
+    let project = Project::new();
+    let ctx = project.ctx();
+    let name = crate::dm(&ctx, "dev-expert").unwrap()["name"].as_str().unwrap().to_owned();
+    assert_eq!(name, "dm-dev-expert");
+    // 再开还是同一份；没有的专家报错。
+    assert_eq!(crate::dm(&ctx, "dev-expert").unwrap()["name"], json!(name));
+    assert_eq!(crate::dm(&ctx, "nobody").unwrap_err().code, "not_found");
+    // 发给专家只记在私聊里，主群没有。
+    crate::set_expert(&ctx, "dev-expert", "fake", Default::default(), None).unwrap();
+    crate::post(&ctx, &name, "user", "secret", Some("dev-expert".into()), None, None).unwrap();
+    let texts = |group: &str| -> Vec<Value> {
+        group::events(&project.main, group).unwrap().iter().filter(|event| event["kind"] == "message").map(|event| event["text"].clone()).collect()
+    };
+    assert_eq!(texts(&name), vec![json!("secret")]);
+    assert!(texts("main").is_empty());
+    let rows = crate::groups(&ctx).unwrap()["groups"].as_array().unwrap().clone();
+    let row = rows.iter().find(|row| row["name"] == json!(name)).unwrap();
+    assert_eq!(row["dm"], "dev-expert");
+    assert_eq!(rows.iter().find(|row| row["name"] == "main").unwrap()["dm"], Value::Null);
+    // 私聊不是主项目目录的群。
+    assert_eq!(crate::group_at(&project.main, &project.main).unwrap().as_deref(), Some("main"));
+}
+
+#[test]
+fn posting_to_an_expert_not_in_the_group_joins_it_with_its_config() {
+    fake_home();
+    let project = Project::new();
+    let ctx = project.ctx();
+    let count = || group::events(&project.main, "main").unwrap().len();
+    // 没配置：报错，账本不变（先读一次群列表，`main` 已建好）。
+    crate::groups(&ctx).unwrap();
+    let before = count();
+    let error = crate::post(&ctx, "main", "user", "hi", Some("dev-expert".into()), None, None).unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+    assert_eq!(count(), before);
+    // 配置后：先入群（按配置），再投递。
+    crate::set_expert(&ctx, "dev-expert", "fake", Default::default(), Some((3, Some("m".into())))).unwrap();
+    let posted = crate::post(&ctx, "main", "user", "hi", Some("dev-expert".into()), None, None).unwrap();
+    let events = group::events(&project.main, "main").unwrap();
+    let joined = events.iter().find(|event| event["kind"] == "joined" && event["author"] == "dev-expert").unwrap();
+    assert!(group::seq(joined) < group::seq(&posted));
+    assert_eq!((joined["agent"].clone(), joined["provider"].clone(), joined["model"].clone()), (json!("fake"), json!(3), json!("m")));
+    // 已在群：不再入群；不是专家的名字照旧只投递。
+    crate::post(&ctx, "main", "user", "again", Some("dev-expert".into()), None, None).unwrap();
+    crate::post(&ctx, "main", "user", "hey", Some("worker-1".into()), None, None).unwrap();
+    let joins = group::events(&project.main, "main").unwrap().iter().filter(|event| event["kind"] == "joined").count();
+    assert_eq!(joins, 1);
+}
+
+#[test]
+fn member_settings_keep_the_expert_and_a_new_agent_forgets_the_session() {
+    fake_home();
+    let project = Project::new();
+    let ctx = project.ctx();
+    let inputs = |value: Value| value.as_object().unwrap().clone();
+    crate::join_acp(&ctx, "main", None, "fake", inputs(json!({ "expert": "dev-expert" })), None).unwrap();
+    let target = "acp:dev-expert";
+    let state = crate::watch::MemberState { session_id: Some("s-1".into()), ..Default::default() };
+    crate::watch::save_state(&project.main, "main", "dev-expert", target, &state);
+    let session = || crate::watch::member_state(&project.main, "main", "dev-expert", target).unwrap_or_default().session_id;
+    // 同一 Agent 换服务商 / 模型：会话留着，专家不能被改掉。
+    crate::member_settings(&ctx, "main", "dev-expert", "fake", inputs(json!({ "expert": "x", "thinking": "high" })), Some((3, Some("m".into()))))
+        .unwrap();
+    let events = group::events(&project.main, "main").unwrap();
+    let member = group::members(&events).into_iter().find(|m| m.name == "dev-expert").unwrap();
+    let joined = crate::acp::joined(&events, "main", &member).unwrap();
+    assert_eq!(joined.inputs, json!({ "expert": "dev-expert", "thinking": "high" }));
+    assert_eq!(joined.provider, Some((3, Some("m".into()))));
+    assert_eq!(session(), Some("s-1".into()));
+    // 换 Agent：旧会话清掉。
+    crate::member_settings(&ctx, "main", "dev-expert", "fake2", Default::default(), None).unwrap();
+    assert_eq!(session(), None);
+    let missing = crate::member_settings(&ctx, "main", "nobody", "fake", Default::default(), None).unwrap_err();
+    assert_eq!(missing.code, "not_found");
 }
 
 #[test]
@@ -408,35 +447,6 @@ fn room_window_carries_others_words_with_provenance() {
     assert!(short.contains("\n[群消息] 用户…\n"), "{short}");
 }
 
-// ---------------------------------------------------------------- 负责人
-
-#[test]
-fn lead_receives_unaddressed_messages_replies_go_to_the_replied_member() {
-    let project = Project::new();
-    let ctx = project.ctx();
-    let name = project.group();
-    group::ensure_group(&project.main, &name).unwrap();
-    join(&project, "a", &project.main);
-    join(&project, "b", &project.main);
-    // 没设负责人：只记进群。
-    let loose = crate::post(&ctx, &name, "user", "hi", None, None, None).unwrap();
-    assert!(loose["to"].is_null());
-    assert!(crate::lead(&ctx, &name, Some("nobody")).is_err());
-    crate::lead(&ctx, &name, Some("a")).unwrap();
-    assert_eq!(crate::post(&ctx, &name, "user", "hi", None, None, None).unwrap()["to"], "a");
-    // 引用回复 b 的话由 b 答；结构化 to 优先。
-    let said = group::append(&project.main, &name, json!({"kind": "message", "author": "b", "to": "user", "text": "x"})).unwrap();
-    let reply = crate::post(&ctx, &name, "user", "why", None, Some(group::seq(&said)), None).unwrap();
-    assert_eq!(reply["to"], "b");
-    assert_eq!(crate::post(&ctx, &name, "user", "hey", Some("b".into()), None, None).unwrap()["to"], "b");
-    // 成员发的不经负责人兜底。
-    assert!(crate::post(&ctx, &name, "b", "note", None, None, None).unwrap()["to"].is_null());
-    // 负责人移出群：清空。
-    crate::control(&ctx, &name, "a", "leave", None).unwrap();
-    assert_eq!(group::settings(&project.main, &name).unwrap().lead, None);
-    assert!(crate::post(&ctx, &name, "user", "hi", None, None, None).unwrap()["to"].is_null());
-}
-
 // ---------------------------------------------------------------- 例行发群
 
 #[test]
@@ -465,4 +475,64 @@ fn routine_posts_once_and_settles_by_the_members_turn() {
     append(json!({"kind": "message", "author": "a", "to": "user", "event": "context_lost", "text": "上下文丢失了"}));
     append(json!({"kind": "message", "author": "a", "to": "user", "reply_to": lost, "text": "done"}));
     assert_eq!(crate::routine_outcome(&project.main, "a", lost).unwrap(), Some(Err("上下文丢失了".into())));
+}
+
+// ---------------------------------------------------------------- 收件人与多群
+
+#[test]
+fn unaddressed_messages_are_only_recorded_replies_and_everyone_pick_the_recipients() {
+    let project = Project::new();
+    let ctx = project.ctx();
+    let name = project.group();
+    group::ensure_group(&project.main, &name).unwrap();
+    join(&project, "a", &project.main);
+    join(&project, "b", &project.main);
+    let to = |text: &str, reply_to: Option<u64>| {
+        let before = project.messages(&name).len();
+        crate::post(&ctx, &name, "user", text, None, reply_to, Some(format!("gui-{text}:"))).unwrap();
+        project.messages(&name)[before..].iter().map(|event| event["to"].clone()).collect::<Vec<_>>()
+    };
+    // 旧版写的负责人 / 回答方式不再生效：不 @ 只记录。
+    let meta = group::dir(&project.main).join("groups.json");
+    let mut groups: Value = serde_json::from_slice(&fs::read(&meta).unwrap()).unwrap();
+    groups["groups"][&name]["lead"] = json!("a");
+    groups["groups"][&name]["responders"] = json!("all");
+    fs::write(&meta, serde_json::to_vec(&groups).unwrap()).unwrap();
+    assert_eq!(to("quiet", None), vec![Value::Null]);
+    // 引用回复 b 的话由 b 答；结构化 to 优先；成员发的不 @ 也只记录。
+    let said = group::append(&project.main, &name, json!({"kind": "message", "author": "b", "to": "user", "text": "x"})).unwrap();
+    assert_eq!(to("why", Some(group::seq(&said))), vec![json!("b")]);
+    assert_eq!(crate::post(&ctx, &name, "user", "hey", Some("b".into()), None, None).unwrap()["to"], "b");
+    assert!(crate::post(&ctx, &name, "b", "note", None, None, None).unwrap()["to"].is_null());
+    // @everyone：每个在群成员一条，幂等键按人区分。
+    assert_eq!(to("hi @everyone", None), vec![json!("a"), json!("b")]);
+    let keys: Vec<Value> = project.messages(&name).iter().rev().take(2).map(|event| event["idempotency_key"].clone()).collect();
+    assert_eq!(keys, vec![json!("gui-hi @everyone::b"), json!("gui-hi @everyone::a")]);
+}
+
+#[test]
+fn groups_are_created_renamed_configured_and_deleted() {
+    let project = Project::new();
+    project.start();
+    let ctx = project.ctx();
+    let worktree = project.main.parent().unwrap().join("proj-demo");
+    crate::create_group(&ctx, "review", Some("评审"), Some(&worktree)).unwrap();
+    assert_eq!(crate::create_group(&ctx, "review", None, None).unwrap_err().code, "already_exists");
+    // 群目录须在本空间里。
+    assert!(crate::create_group(&ctx, "outside", None, Some(Path::new("/tmp"))).is_err());
+    let listed = crate::groups(&ctx).unwrap();
+    let rows = listed["groups"].as_array().unwrap();
+    assert_eq!(rows.iter().map(|row| row["name"].clone()).collect::<Vec<_>>(), vec![json!("main"), json!("review")]);
+    assert_eq!(rows[1]["title"], "评审");
+    assert_eq!(PathBuf::from(rows[1]["cwd"].as_str().unwrap()), worktree.canonicalize().unwrap());
+    crate::rename_group(&ctx, "review", Some("代码评审")).unwrap();
+    assert_eq!(group::settings(&project.main, "review").unwrap().title.as_deref(), Some("代码评审"));
+    // 改回主项目：群里记一条。
+    crate::configure_group(&ctx, "review", Some(None)).unwrap();
+    assert!(project.events("review").iter().any(|event| event["event"] == "group_cwd"));
+    // 按目录名找群：worktree 现在没有群，回到 main。
+    assert_eq!(crate::who(&ctx, "proj-demo").unwrap()["participants"], json!([]));
+    assert!(crate::delete_group(&ctx, "main").is_err());
+    crate::delete_group(&ctx, "review").unwrap();
+    assert_eq!(group::chat_groups(&project.main).unwrap(), vec!["main".to_owned()]);
 }

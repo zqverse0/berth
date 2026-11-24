@@ -28,7 +28,6 @@ import {
 import {
   exchangesOf,
   useTranscriptView,
-  useTranscriptViewStore,
 } from "@/sessions/transcript-view-store"
 
 interface SessionAnalysisViewProps {
@@ -106,7 +105,6 @@ export function SessionAnalysisView({
   const listRef = useRef<VirtualizerHandle>(null)
   const scrollRef = useRef<HTMLElement>(null)
   const { level, filter, query } = useTranscriptView(conversationId)
-  const jump = useTranscriptViewStore((state) => state.jump)
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
 
   const exchanges = useMemo(() => exchangesOf(detail), [detail])
@@ -116,16 +114,13 @@ export function SessionAnalysisView({
     [exchanges, filter, query]
   )
 
-  const { rows, startRow } = useMemo(() => {
+  const rows = useMemo(() => {
     const rows: Row[] = []
-    const startRow = new Map<string, number>()
     // 启动输入在第一个提问之前，排在最前；收窄筛选或搜索时不显示
     if (detail.context?.length && !narrowed && !query) {
-      startRow.set(STARTUP_CONTEXT_ID, 0)
       rows.push({ kind: "context" })
     }
     for (const exchange of visible) {
-      startRow.set(exchange.id, rows.length)
       if (exchange.prompt) rows.push({ kind: "prompt", exchange })
       if (level === "prompts" && exchange.prompt) continue
       const process = filterProcess(exchange.process, filter)
@@ -143,25 +138,15 @@ export function SessionAnalysisView({
         rows.push({ kind: "answer", exchange, turn: exchange.answer })
       }
     }
-    return { rows, startRow }
+    return rows
   }, [visible, level, filter, narrowed, opened, detail.context, query])
   const startupTokens = useMemo(
     () => firstCallTokens(detail.turns),
     [detail.turns]
   )
 
-  // 实时追加：停在底部时跟随新内容，向上翻阅或跳转后不打断
+  // 实时追加：停在底部时跟随新内容，向上翻阅后不打断
   const atBottom = useRef(true)
-  useEffect(() => {
-    if (jump?.conversationId !== conversationId) return
-    atBottom.current = false
-    const index = startRow.get(jump.exchangeId)
-    if (index != null) listRef.current?.scrollToIndex(index, { align: "start" })
-    useTranscriptViewStore.getState().consumeJump()
-    // 只响应新的跳转请求；筛选变化导致的行号变化不应再次滚动
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jump])
-
   useEffect(() => {
     if (atBottom.current && rows.length > 0) {
       listRef.current?.scrollToIndex(rows.length - 1, { align: "end" })

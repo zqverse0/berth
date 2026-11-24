@@ -23,6 +23,8 @@ mod control_pending;
 pub mod db;
 pub mod devices;
 pub mod event_bridge;
+#[cfg(all(target_os = "linux", feature = "tauri-runtime"))]
+mod cef_focus;
 #[cfg(feature = "tauri-runtime")]
 mod file_clipboard;
 #[cfg(feature = "tauri-runtime")]
@@ -85,62 +87,62 @@ mod tauri_app {
 
     static APP_QUITTING: AtomicBool = AtomicBool::new(false);
 
-    /// On Windows, opt-out users can disable WebView2 hardware acceleration to
-    /// work around AMD/Intel GPU driver bugs that produce a black-screen
-    /// webview. The flag is stored in a tiny sidecar file at
-    /// `$BERTH_HOME/preferences.json` so it can be read **before** the Tauri
-    /// builder, plugins, or tokio runtime start — once a tokio worker is alive,
-    /// `std::env::set_var` would race with concurrent `getenv` calls from
-    /// libraries like reqwest/rustls that read `HTTP_PROXY` etc.
-    #[cfg(target_os = "windows")]
-    fn apply_webview2_rendering_override() {
-        // Matches the dominant pattern across the Tauri 2 ecosystem (Dorion,
-        // Seelen-UI, and most production Tauri 2 apps that ship a "disable
-        // hardware acceleration" toggle all use `--disable-gpu`).
-        const DISABLE_GPU_ARGS: [&str; 1] = ["--disable-gpu"];
-        const ENV_KEY: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
-
-        let prefs = crate::platform::preferences::load();
-        if !prefs.disable_hardware_acceleration {
-            return;
+    /// CEF 运行时参数。
+    /// - 关闭 Chromium 自带的组件更新、Safe Browsing、安全 DNS、网络时间等后台外联，避免国内网络超时或意外请求；
+    /// - Windows 上用户可在设置里关掉硬件加速（`$BERTH_HOME/preferences.json`，重启生效），绕开驱动黑屏。
+    fn cef_runtime() -> tauri_runtime_cef::Cef {
+        let cef = tauri_runtime_cef::Cef::default()
+            // 禁止 Chromium 后台外联（保留应用自身与插件的正常网络请求）。
+            .command_line_arg("--disable-background-networking", None::<String>)
+            .command_line_arg("--disable-component-update", None::<String>)
+            .command_line_arg("--disable-component-extensions-with-background-pages", None::<String>)
+            .command_line_arg("--disable-default-apps", None::<String>)
+            .command_line_arg("--disable-domain-reliability", None::<String>)
+            .command_line_arg("--disable-sync", None::<String>)
+            .disable_features([
+                "MediaRouter",
+                "OptimizationHints",
+                "AutofillServerCommunication",
+                "NetworkTimeServiceQuerying",
+                "Translate",
+                "AimEnabled",
+                "AimServerEligibilityEnabled",
+                "OnDeviceModelService",
+            ])
+            .profile_preference("safebrowsing.enabled", false)
+            .profile_preference("signin.allowed", false)
+            .profile_preference("signin.allowed_on_next_startup", false)
+            // DoH / 网络时间 / 组件更新属于 Chromium Local State（全局偏好）。
+            .global_preference("dns_over_https.mode", "off")
+            .global_preference("network_time.network_time_queries_enabled", false)
+            .global_preference("component_updates.component_updates_enabled", false);
+        // dev 构建的 chrome-sandbox 在 target 目录里、属主不是 root，Ubuntu 又默认限制非特权 user namespace，
+        // 两种沙箱都起不来 CEF 会直接 abort；正式版 deb/rpm 把它装成 root 4755，保持上游默认策略。
+        #[cfg(all(target_os = "linux", debug_assertions))]
+        let cef = cef.sandbox(tauri_runtime_cef::SandboxPolicy::Disabled);
+        #[cfg(target_os = "windows")]
+        if crate::platform::preferences::load().disable_hardware_acceleration {
+            return cef.command_line_arg("--disable-gpu", None::<String>);
         }
-
-        let mut tokens: Vec<String> = match std::env::var(ENV_KEY) {
-            Ok(prev) => prev.split_whitespace().map(str::to_string).collect(),
-            Err(_) => Vec::new(),
-        };
-        for arg in DISABLE_GPU_ARGS {
-            if !tokens.iter().any(|t| t == arg) {
-                tokens.push(arg.to_string());
-            }
-        }
-        // SAFETY: called before any tokio worker or plugin thread spawns, so
-        // no concurrent `getenv` can race. `set_var` is `unsafe` since Rust 1.82.
-        unsafe {
-            std::env::set_var(ENV_KEY, tokens.join(" "));
-        }
+        cef
     }
 
-    #[cfg_attr(mobile, tauri::mobile_entry_point)]
     pub fn run() {
-        if *crate::HEADLESS {
-            run_with::<tauri::test::MockRuntime>()
+        // 运行时在 DynRuntime 下按启动方式选：无界面宿主用 MockRuntime，桌面用 CEF。
+        let builder = if *crate::HEADLESS {
+            tauri::Builder::default().runtime(tauri::test::MockRuntimeInitAttrs::default())
         } else {
-            run_with::<tauri::Wry>()
-        }
+            tauri::Builder::default().runtime(cef_runtime())
+        };
+        run_with(builder)
     }
 
-    fn run_with<R: tauri::Runtime>() {
+    fn run_with(builder: tauri::Builder) {
         // Install the logging subscriber first so it captures everything from
         // here on. The file appender's logs dir is resolved from env (no DB
         // needed); hold the guard for the whole process so buffered file lines
         // flush on a graceful exit.
         let _log_guard = crate::logging::init::init_desktop();
-
-        // Apply the WebView2 rendering override before *any* tokio worker
-        // exists or any plugin reads the env. See doc comment above.
-        #[cfg(target_os = "windows")]
-        apply_webview2_rendering_override();
 
         if let Err(err) = fix_path_env::fix() {
             tracing::error!("[PATH] fix_path_env failed: {err}");
@@ -155,7 +157,6 @@ mod tauri_app {
                 workspace_resources.clone(),
             ),
         );
-        let builder = tauri::Builder::<R>::new();
 
         // Must be the first plugin: it short-circuits second launches by
         // signalling the running instance and exiting before any other
@@ -262,9 +263,8 @@ mod tauri_app {
 
                 let effective_data_dir = paths::resolve_effective_data_dir(&app_data_dir);
                 // SAFETY: see the rationale block above — still
-                // single-threaded at setup; edition 2024 will require
-                // the `unsafe` block, mirroring the WebView2 rendering
-                // override.
+                // single-threaded at setup; edition 2024 requires the
+                // `unsafe` block around `std::env::set_var`.
                 unsafe {
                     std::env::set_var("BERTH_DATA_DIR", &effective_data_dir);
                 }
@@ -281,7 +281,7 @@ mod tauri_app {
                     crate::host_lock::take_over(&effective_data_dir);
                 }
 
-                // 内置专家「Berth 助手」（群组成员 Berth 用）：缺失补上，用户没改过的随版本更新，改过的不动。
+                // 内置专家「Berth 助手」：缺失补上，用户没改过的随版本更新，改过的不动。
                 match berth_tool_core::builtin::ensure() {
                     Ok(written) if !written.is_empty() => {
                         tracing::info!("[builtin] wrote {}", written.join(", "))
@@ -523,6 +523,11 @@ mod tauri_app {
                 }
             })
             .on_window_event(|window, event| {
+                #[cfg(target_os = "linux")]
+                if let tauri::WindowEvent::Focused(true) = event {
+                    crate::cef_focus::focus_browser(window);
+                }
+
                 let label = window.label().to_string();
 
                 if label == "main" {

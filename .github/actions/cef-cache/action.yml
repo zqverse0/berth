@@ -1,0 +1,38 @@
+name: Cache CEF binary distribution
+description: Resolve cef-dll-sys version from Cargo.lock, set CEF_PATH, and cache ~/.cache/tauri-cef.
+
+inputs:
+  target:
+    description: Target triple or architecture qualifier for the cache key (prevents macOS x64/arm64 collisions).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - id: cef-version
+      name: Resolve CEF version
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=$(awk '
+          $0 == "name = \"cef-dll-sys\"" { found = 1; next }
+          found && /^version = / {
+            gsub(/^version = "|"$/, "", $0)
+            print $0
+            exit
+          }
+        ' src-tauri/Cargo.lock)
+        if [ -z "$version" ]; then
+          echo "::error::Could not resolve cef-dll-sys version from src-tauri/Cargo.lock"
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        # Windows 下用 USERPROFILE 保持原生路径格式给 cargo，bash 的 $HOME 是 MSYS 路径。
+        echo "CEF_PATH=${USERPROFILE:-$HOME}/.cache/tauri-cef" >> "$GITHUB_ENV"
+
+    - name: Cache CEF
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/tauri-cef
+        key: cef-${{ runner.os }}-${{ inputs.target || runner.arch }}-${{ steps.cef-version.outputs.version }}

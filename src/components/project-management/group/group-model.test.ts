@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import {
-  builtinMember,
   pendingPermissions,
   type GroupEvent,
   type GroupMember,
@@ -68,13 +67,6 @@ function message(
 }
 
 describe("memberRows", () => {
-  it("shows the built-in Berth member as working or idle without a terminal", () => {
-    const status = (busy: boolean) =>
-      memberRows([builtinMember({ name: "berth", busy })], [], [], {})[0].status
-    expect(status(true)).toBe("working")
-    expect(status(false)).toBe("idle")
-  })
-
   it("lists members in the group by urgency and drops removed ones", () => {
     const rows = memberRows(
       [

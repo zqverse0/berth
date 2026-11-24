@@ -145,6 +145,7 @@ pub(crate) fn run(
                     Some(id),
                     model,
                     true,
+                    false,
                 ))
                 .map_err(CliError::user)?;
             if provider_args.is_empty() {

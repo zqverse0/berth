@@ -1,9 +1,8 @@
 //! 用户偏好存于 `$BERTH_HOME/preferences.json`（默认 `~/.berth`）。
 //!
 //! These are settings that must be readable **before** the Tauri builder and
-//! tokio runtime start (e.g. WebView2 rendering flags applied via
-//! `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`). All access is synchronous I/O so
-//! the data must stay tiny.
+//! tokio runtime start (e.g. CEF startup flags such as `--disable-gpu` on
+//! Windows). All access is synchronous I/O so the data must stay tiny.
 
 use std::fs;
 use std::io;

@@ -1,4 +1,4 @@
-import { isDesktop } from "@/lib/platform"
+import { isDesktop, saveFileDialog } from "@/lib/platform"
 import { getTransport } from "@/lib/transport"
 
 /**
@@ -21,10 +21,8 @@ export async function downloadImage(opts: {
   const { data, mime_type, suggestedName } = opts
 
   if (isDesktop()) {
-    const { save } = await import("@tauri-apps/plugin-dialog")
-
     const ext = extensionForMime(mime_type)
-    const path = await save({
+    const path = await saveFileDialog({
       defaultPath: suggestedName,
       filters: [{ name: "Image", extensions: [ext] }],
     })

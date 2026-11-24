@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
-import { isDesktop } from "@/lib/platform"
 import { useMarkAttentionSeen } from "@/lib/terminal/agent-panes"
 import { bindLinuxWebKitTerminalIme } from "@/lib/terminal/linux-webkit-ime"
 import type { TerminalSnapshot } from "@/lib/terminal/terminal-stream"
@@ -43,7 +42,7 @@ import {
 } from "@/lib/terminal/terminal-resize-coordinator"
 import { useSplitLayoutTransaction } from "@/lib/workspace/split-layout-transaction-context"
 import { useZoomLevel, useTerminalFont } from "@/hooks/use-appearance"
-import { detectPlatform } from "@/hooks/use-platform"
+import { detectPlatform, isWebKitEngine } from "@/hooks/use-platform"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { sanitizeTerminalPaste } from "@/lib/content-reference/serialize"
 import {
@@ -466,7 +465,7 @@ export function TerminalView({
       }
       const disposeLinuxWebKitIme = bindLinuxWebKitTerminalIme(term, {
         isLinux: detectPlatform() === "linux",
-        isTauri: isDesktop(),
+        isWebKit: isWebKitEngine(),
       })
       const disposeDeferredInserts = sendDeferredKeyCode229Inserts(term)
       const disposeImeTextarea = clearImeTextareaAfterCommit(term)

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type CSSProperties } from "react"
-import { isDesktop } from "@/lib/platform"
+import { getCurrentWindow, isDesktop } from "@/lib/platform"
 import { usePlatform } from "@/hooks/use-platform"
 import { WINDOW_CONTROLS_WIDTH } from "@/components/layout/chrome/window-controls"
 
@@ -44,8 +44,8 @@ async function beginResize(dir: ResizeDir) {
   try {
     // `ResizeDirection` is a string-union type in @tauri-apps/api; the method
     // accepts the literal directly (our `ResizeDir` values match it exactly).
-    const { getCurrentWindow } = await import("@tauri-apps/api/window")
-    await getCurrentWindow().startResizeDragging(dir)
+    const win = await getCurrentWindow()
+    await win?.startResizeDragging(dir)
   } catch (err) {
     console.error("[WindowResizeGrips] startResizeDragging failed:", err)
   }
@@ -98,16 +98,14 @@ export function WindowResizeGrips() {
 
   useEffect(() => {
     if (!isLinux || !isDesktop()) {
-      setEnabled(false)
       return
     }
 
     let disposed = false
     let unlisten: (() => void) | null = null
 
-    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-      if (disposed) return
-      const win = getCurrentWindow()
+    void getCurrentWindow().then(async (win) => {
+      if (disposed || !win) return
 
       // Non-resizable windows (pet, pet-panel) get no grips.
       let resizable = true
@@ -148,7 +146,7 @@ export function WindowResizeGrips() {
     }
   }, [isLinux])
 
-  if (!enabled) return null
+  if (!isLinux || !isDesktop() || !enabled) return null
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[100]">

@@ -8,13 +8,13 @@ export type LinuxWebKitTerminalImeTarget = {
 
 export type LinuxWebKitTerminalImeEnvironment = {
   isLinux: boolean
-  isTauri: boolean
+  isWebKit: boolean
 }
 
 export function isLinuxWebKitImeEnvironment(
   environment: LinuxWebKitTerminalImeEnvironment
 ): boolean {
-  return environment.isLinux && environment.isTauri
+  return environment.isLinux && environment.isWebKit
 }
 
 /**

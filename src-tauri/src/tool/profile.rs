@@ -167,7 +167,7 @@ pub struct AgentProfileSummary {
     pub capability_stores: Option<CapabilityStores>,
     /// `org.berth.agent.interruptKey` 投影；`None` 表示使用缺省 `Escape`。
     pub interrupt_key: Option<String>,
-    /// `org.berth.agent.acp` 投影：群页「加成员」只列这些。
+    /// `org.berth.agent.acp` 投影：专家页选 Agent 只列这些。
     pub acp: bool,
 }
 

@@ -68,27 +68,18 @@ function rememberLevel(level: ExchangeDetail): void {
   }
 }
 
-interface JumpRequest {
-  conversationId: number
-  exchangeId: string
-}
-
 interface TranscriptViewStore {
   views: Record<number, TranscriptView>
   errors: Record<number, string>
-  jump: JumpRequest | null
   updateView: (
     conversationId: number,
     update: (view: TranscriptView) => TranscriptView
   ) => void
-  requestJump: (conversationId: number, exchangeId: string) => void
-  consumeJump: () => void
 }
 
 export const useTranscriptViewStore = create<TranscriptViewStore>((set) => ({
   views: {},
   errors: {},
-  jump: null,
   updateView: (conversationId, update) =>
     set((state) => {
       const prev = state.views[conversationId] ?? defaultView
@@ -96,9 +87,6 @@ export const useTranscriptViewStore = create<TranscriptViewStore>((set) => ({
       if (next.level !== prev.level) rememberLevel(next.level)
       return { views: { ...state.views, [conversationId]: next } }
     }),
-  requestJump: (conversationId, exchangeId) =>
-    set({ jump: { conversationId, exchangeId } }),
-  consumeJump: () => set({ jump: null }),
 }))
 
 export function useTranscriptView(conversationId: number): TranscriptView {

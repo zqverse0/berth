@@ -1,11 +1,9 @@
 //! 每个主项目一个的后台进程 `berth group watch`：群组运行时。
 //!
-//! - **ACP 成员**：起适配器进程、发消息、收回答（[`crate::acp`]）；
-//! - **git 动作**：各 checkout 的提交、合并、回退记成项目群的群级事件。
+//! ACP 成员：起适配器进程、发消息、收回答（[`crate::acp`]）。
 //!
 //! 由 join / post / spawn / GUI 按需拉起，单实例（文件锁），经 [`kick_now`] 叫醒；10 分钟没有成员在忙就退出。
 
-use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -13,13 +11,12 @@ use std::time::{Duration, Instant};
 
 use berth_project_core::tasks::{self, group};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 #[cfg(unix)]
 use sha2::{Digest, Sha256};
 
-use crate::{text, Ctx};
+use crate::Ctx;
 
-/// 兜底周期：叫醒是主路径，周期只用来记提交。
+/// 兜底周期：叫醒是主路径，周期只防漏叫醒。
 #[cfg(unix)]
 const IDLE_TICK: Duration = Duration::from_secs(30);
 /// 没有叫醒通道（非 Unix 或 socket 绑不上）时只能靠周期，退回短周期。
@@ -110,6 +107,9 @@ pub(crate) fn ensure_running(ctx: &Ctx) {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemberState {
     pub(crate) session_id: Option<String>,
+    /// 会话开在哪个目录：群目录改了就不再恢复它。旧记录没有。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cwd: Option<String>,
 }
 
 pub(crate) fn now_ms() -> u64 {
@@ -133,32 +133,6 @@ pub(crate) fn save_state(main: &Path, name: &str, member: &str, target_ref: &str
     }
 }
 
-fn git(cwd: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-fn git_ok(cwd: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
 fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
@@ -166,9 +140,6 @@ fn canonical(path: &Path) -> PathBuf {
 fn inside(path: &Path, root: &Path) -> bool {
     canonical(path).starts_with(canonical(root))
 }
-
-/// 记过的 checkout → (HEAD, 分支)。
-pub(crate) type Heads = HashMap<String, (String, String)>;
 
 /// 后台循环；拿不到单实例锁就直接返回。
 pub(crate) fn run(ctx: &Ctx) {
@@ -186,7 +157,6 @@ pub(crate) fn run(ctx: &Ctx) {
     // CLI 升级后（可执行文件被替换）换新进程接着跑，长驻进程不一直用旧代码。
     let exe = Some(ctx.cli.as_path());
     let built = exe.and_then(modified);
-    let mut heads = Heads::new();
     let mut last_busy = Instant::now();
     let wake = Wake::bind(ctx);
     let mut acp = crate::acp::Acp::new(crate::acp::cli_launcher());
@@ -198,10 +168,7 @@ pub(crate) fn run(ctx: &Ctx) {
             ensure_running(ctx);
             return;
         }
-        let acp_busy = group::events_shared(&ctx.main, group::MAIN_GROUP)
-            .map(|events| acp.tick(ctx, &events))
-            .unwrap_or(false);
-        record_commits(ctx, &mut heads);
+        let acp_busy = acp.tick(ctx);
         if acp_busy {
             last_busy = Instant::now();
         } else if last_busy.elapsed() > IDLE_EXIT {
@@ -271,101 +238,6 @@ impl Drop for Wake {
     }
 }
 
-/// 各 checkout 的 git 动作记进项目群；只在有成员在群时记（没人在时的提交等有人入群再一并记）。
-pub(crate) fn record_commits(ctx: &Ctx, heads: &mut Heads) {
-    let main = &ctx.main;
-    let Ok(envs) = group::checkout_groups(main) else {
-        return;
-    };
-    let Ok(events) = group::events_shared(main, group::MAIN_GROUP) else {
-        return;
-    };
-    if group::members(&events).iter().all(|member| member.bodies.is_empty()) {
-        return;
-    }
-    let branches: Vec<(String, String)> = envs.iter().map(|(name, env)| (name.clone(), env.branch.clone())).collect();
-    // 旧版并发登记会给同一目录留下多个群键：每个目录只记一次，否则一个提交按键数重复记。
-    let mut recorded = HashSet::new();
-    for (checkout, env) in &envs {
-        let dir = PathBuf::from(&env.worktree);
-        if recorded.insert(canonical(&dir)) {
-            record_git(main, checkout, &dir, &events, &branches, heads);
-        }
-    }
-}
-
-/// 一个 checkout 的 git 动作记成项目群的群级事件（带 `checkout`）；是谁做的不猜，不挂到某个成员的汇报上。
-/// - 有新提交：`commits`；合并（合并提交或快进到别的 checkout 的分支）带 `merged`；
-///   旧 HEAD 不在新历史里（rebase / amend）带 `rewritten`。
-/// - 没有新提交：`head`，换了分支带 `from_branch`，否则是回退。
-///
-/// 后台进程重启后从账本里最后一条 git 事件接着比；从没记过就以当前 HEAD 为起点。
-fn record_git(
-    main: &Path,
-    checkout: &str,
-    dir: &Path,
-    events: &[Value],
-    branches: &[(String, String)],
-    heads: &mut HashMap<String, (String, String)>,
-) {
-    let Some(now) = git(dir, &["rev-parse", "HEAD", "--abbrev-ref", "HEAD"]) else {
-        return;
-    };
-    let mut lines = now.lines().map(str::to_owned);
-    let (Some(head), Some(branch)) = (lines.next(), lines.next()) else {
-        return;
-    };
-    let before = heads.get(checkout).cloned().or_else(|| {
-        // 旧事件没有 `checkout`：那时每个 checkout 一个群，`main` 群里的就是主目录的。
-        let last = events.iter().rev().find(|event| {
-            matches!(text(event, "event"), Some("commits" | "head"))
-                && text(event, "checkout").unwrap_or(group::MAIN_GROUP) == checkout
-        })?;
-        Some((
-            text(last, "head")?.to_owned(),
-            text(last, "branch").unwrap_or(&branch).to_owned(),
-        ))
-    });
-    heads.insert(checkout.to_owned(), (head.clone(), branch.clone()));
-    let Some((before, before_branch)) = before.filter(|(before, _)| *before != head) else {
-        return;
-    };
-    let range = format!("{before}..{head}");
-    // ponytail: 大跳变只列最近 20 条。
-    let commits = git(dir, &["log", "--oneline", "-n", "20", &range]).unwrap_or_default();
-    if commits.is_empty() {
-        let switched = before_branch != branch;
-        let _ = group::append(
-            main,
-            group::MAIN_GROUP,
-            json!({
-                "kind": "system", "event": "head", "checkout": checkout, "head": head, "branch": branch,
-                "from_branch": switched.then_some(before_branch),
-                "idempotency_key": format!("head:{checkout}:{before}:{head}"),
-            }),
-        );
-        return;
-    }
-    // 合并来源：合并提交的第二个父提交，或快进后的 HEAD，正好是别的群分支的末端。
-    let parents = git(dir, &["rev-list", "--parents", "-n", "1", &head]).unwrap_or_default();
-    let tip = parents.split_whitespace().nth(2).unwrap_or(&head).to_owned();
-    let source = branches.iter().find(|(group, other)| {
-        group != checkout && *other != branch && git(main, &["rev-parse", other]).as_deref() == Some(tip.as_str())
-    });
-    let rewritten = !git_ok(dir, &["merge-base", "--is-ancestor", &before, &head]);
-    let diffstat = git(dir, &["diff", "--shortstat", &range]).unwrap_or_default();
-    let _ = group::append(
-        main,
-        group::MAIN_GROUP,
-        json!({
-            "kind": "system", "event": "commits", "checkout": checkout, "head": head, "branch": branch,
-            "commits": commits.lines().collect::<Vec<_>>(), "diffstat": diffstat,
-            "merged": source.map(|(_, other)| other), "rewritten": rewritten,
-            "idempotency_key": format!("commits:{checkout}:{head}"),
-        }),
-    );
-}
-
 /// 启动提示按群环境定位，不再把群组描述为单个任务或分支。
 pub fn brief_lines(cwd: &Path) -> Option<String> {
     let main = tasks::resolve(cwd).ok()?.main;
@@ -387,5 +259,9 @@ pub fn brief_lines(cwd: &Path) -> Option<String> {
         };
         format!("- 你在 worktree `{display_name}`：负责实现与测试。{assigned}；任务内容在主目录 {}\n", main.display())
     };
-    Some(format!("{role}- 当前群是项目群 `{project}`（标识 `{}`，主目录和各 worktree 共用一个群），你的目录 {}\n", group::MAIN_GROUP, env.worktree))
+    let here = crate::group_at(&main, Path::new(&env.worktree)).ok().flatten().unwrap_or_else(|| group::MAIN_GROUP.to_owned());
+    Some(format!(
+        "{role}- 项目 `{project}` 可以有多个群，各有自己的目录；目录是这里的群是 `{here}`（`berth group ls` 看全部），你的目录 {}\n",
+        env.worktree
+    ))
 }

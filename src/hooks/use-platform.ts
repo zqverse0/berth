@@ -29,6 +29,13 @@ export function detectPlatform(): PlatformType {
   return "unknown"
 }
 
+/** WebKit 内核（WebKitGTK / Safari）；Chromium（含 CEF）UA 也带 AppleWebKit，靠 `Chrome/` 区分。 */
+export function isWebKitEngine(): boolean {
+  if (typeof navigator === "undefined") return false
+  const userAgent = navigator.userAgent
+  return userAgent.includes("AppleWebKit/") && !userAgent.includes("Chrome/")
+}
+
 export function usePlatform() {
   const [platform, setPlatform] = useState<PlatformType>("unknown")
 

@@ -107,10 +107,20 @@ fn mime_of(file: &Path) -> &'static str {
     }
 }
 
+/// 桥脚本的 CSP 哈希。CEF 运行时会把自己的初始化脚本内联进每个框架、把它们的哈希追加进 `script-src`，
+/// 有了哈希 `'unsafe-inline'` 就失效，所以桥脚本按哈希放行；页面自己的脚本要放包内文件，不能内联。
+fn bridge_hash() -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(BRIDGE.as_bytes());
+    format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest))
+}
+
 fn csp(origin: &str) -> String {
     let own = format!("{origin} data: blob:");
+    let bridge = bridge_hash();
     format!(
-        "default-src {own}; script-src {origin} 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src {origin} 'unsafe-inline'; \
+        "default-src {own}; script-src {origin} {bridge} 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src {origin} 'unsafe-inline'; \
          img-src {own}; font-src {own}; media-src {own}; connect-src {own}; worker-src {origin} blob:; \
          frame-src 'none'; object-src 'none'; form-action 'none'; base-uri {origin}"
     )
@@ -159,6 +169,7 @@ mod tests {
         let csp = page.csp.unwrap();
         assert!(csp.contains("connect-src 'self' data: blob:"));
         assert!(csp.contains("frame-src 'none'"));
+        assert!(csp.contains(&bridge_hash()));
         assert_eq!(page.mime, HTML);
     }
 
