@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -70,7 +71,7 @@ interface WorkspaceTabEntry {
  * close/pin/file semantics, while selection, ordering and cross-pane movement
  * are managed once here.
  */
-export function WorkspaceTabStrip({
+export const WorkspaceTabStrip = memo(function WorkspaceTabStrip({
   pane,
   leadingTabs,
   leadingActive = false,
@@ -78,15 +79,36 @@ export function WorkspaceTabStrip({
   className,
 }: WorkspaceTabStripProps) {
   const primaryTabs = useTabStore((state) => state.tabs)
+  // 只订阅本 pane 相关的切片，避免其他分栏切 tab / 拖拽带动无关 tab 条重渲染。
   const {
-    fileTabsByPane,
-    orderedTabsByPane,
+    paneFileTabs,
+    paneOrderedTabs,
     activeWorkspaceTab,
-    activeTabByPane,
+    paneActiveTabRef,
     dragging,
-    dragOverPane,
-    dragInsertIndex,
-  } = useWorkspaceLayoutProjection()
+    dragOverThisPane,
+    paneDragInsertIndex,
+    canSplitFilesPane,
+  } = useWorkspaceLayoutProjection(
+    ({
+      fileTabsByPane,
+      orderedTabsByPane,
+      activeWorkspaceTab,
+      activeTabByPane,
+      dragging,
+      dragOverPane,
+      dragInsertIndex,
+    }) => ({
+      paneFileTabs: fileTabsByPane[pane],
+      paneOrderedTabs: orderedTabsByPane[pane],
+      activeWorkspaceTab,
+      paneActiveTabRef: activeTabByPane[pane],
+      dragging,
+      dragOverThisPane: dragOverPane === pane,
+      paneDragInsertIndex: dragOverPane === pane ? dragInsertIndex : null,
+      canSplitFilesPane: pane === "files" && orderedTabsByPane.files.length > 1,
+    })
+  )
   const selectWorkspaceTab = useWorkspaceLayoutStore(
     (state) => state.selectWorkspaceTab
   )
@@ -105,12 +127,8 @@ export function WorkspaceTabStrip({
 
   const entries = useMemo<WorkspaceTabEntry[]>(() => {
     const primaryById = new Map(primaryTabs.map((tab) => [tab.id, tab]))
-    const fileById = new Map(
-      Object.values(fileTabsByPane)
-        .flat()
-        .map((tab) => [tab.id, tab])
-    )
-    return orderedTabsByPane[pane].flatMap<WorkspaceTabEntry>((ref) => {
+    const fileById = new Map(paneFileTabs.map((tab) => [tab.id, tab]))
+    return paneOrderedTabs.flatMap<WorkspaceTabEntry>((ref) => {
       if (ref.kind === "global") return []
       if (ref.kind === "primary") {
         const primaryTab = primaryById.get(ref.id)
@@ -121,9 +139,9 @@ export function WorkspaceTabStrip({
       const fileTab = fileById.get(ref.id)
       return fileTab ? [{ key: workspaceTabKey(ref), ref, fileTab }] : []
     })
-  }, [fileTabsByPane, orderedTabsByPane, pane, primaryTabs])
+  }, [paneFileTabs, paneOrderedTabs, primaryTabs])
 
-  const paneActiveTab = leadingActive ? null : activeTabByPane[pane]
+  const paneActiveTab = leadingActive ? null : paneActiveTabRef
   const selectTab = useCallback(
     (ref: WorkspaceTabRef) => {
       selectWorkspaceTab(ref)
@@ -168,7 +186,7 @@ export function WorkspaceTabStrip({
         : entries,
     [draggingKey, entries]
   )
-  const gapIndex = draggingKey && dragOverPane === pane ? dragInsertIndex : null
+  const gapIndex = draggingKey && dragOverThisPane ? paneDragInsertIndex : null
   const activeIndex = displayedEntries.findIndex(
     (entry) =>
       paneActiveTab != null &&
@@ -291,7 +309,7 @@ export function WorkspaceTabStrip({
   // 手机主区不渲染右栏，移过去的 tab 就看不见了。
   const groupMove = isMobile
     ? undefined
-    : pane === "files" && orderedTabsByPane.files.length > 1
+    : canSplitFilesPane
       ? "files-split"
       : pane === "files-split"
         ? "files"
@@ -426,7 +444,7 @@ export function WorkspaceTabStrip({
       ) : null}
     </div>
   )
-}
+})
 
 /** tab 条上与 tab 并排的小按钮（全部标签、新建）：同高、同圆角、同悬停色。 */
 export const TAB_TOOLBAR_BUTTON =

@@ -1,6 +1,6 @@
 "use client"
 
-import { lazy, Suspense, useMemo, type ReactNode } from "react"
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react"
 import { useLocale } from "next-intl"
 import { toast } from "@/lib/notify"
 import type { FileViewerKind } from "@/lib/files/file-viewer-definition"
@@ -111,6 +111,16 @@ function PluginEditorTextViewer({
     root && tab.path.length > root.length
       ? tab.path.slice(root.replace(/[\\/]+$/, "").length + 1)
       : tab.title
+  // 初始内容用于握手期快照；后续内容变更经 externalContent 通道下发，不放进 host 依赖避免每次编辑重建 host。
+  const [initialSnapshot, setInitialSnapshot] = useState(() => ({
+    tabId: tab.id,
+    content: tab.content,
+  }))
+  if (initialSnapshot.tabId !== tab.id) {
+    setInitialSnapshot({ tabId: tab.id, content: tab.content })
+  }
+  const initialContent =
+    initialSnapshot.tabId === tab.id ? initialSnapshot.content : tab.content
   const host = useMemo<PageHost | null>(
     () =>
       editor
@@ -126,7 +136,7 @@ function PluginEditorTextViewer({
               mode: "edit",
               path: relPath,
               readOnly: tab.readonly,
-              content: tab.content,
+              content: initialContent,
             },
             onChange: (content) => updateFileTabContent(tab.id, content),
             openFile: (path) => void openFilePreview(path),
@@ -142,7 +152,7 @@ function PluginEditorTextViewer({
       locale,
       relPath,
       tab.readonly,
-      tab.content,
+      initialContent,
       tab.id,
       updateFileTabContent,
       openFilePreview,

@@ -438,7 +438,7 @@ function MobileFolderWorkspaceShell() {
   )
 }
 
-function FolderWorkspaceShell() {
+const FolderWorkspaceShell = memo(function FolderWorkspaceShell() {
   useOsFileDropToTerminals()
   const sidebarOpen = useAppUiStore((state) => state.sidebarOpen)
   const sidebarRestored = useAppUiStore((state) => state.sidebarRestored)
@@ -528,9 +528,37 @@ function FolderWorkspaceShell() {
     sidebarWidth,
   ])
 
+  const committedFromSplitRef = useRef<{
+    sidebarOpen: boolean
+    auxOpen: boolean
+    shellWidth: number
+    sidebarWidth: number
+    auxWidth: number
+  } | null>(null)
+
   useEffect(() => {
+    const committed = committedFromSplitRef.current
+    if (
+      committed &&
+      committed.sidebarOpen === sidebarOpen &&
+      committed.auxOpen === auxOpen &&
+      committed.shellWidth === shellWidth &&
+      Math.abs(committed.sidebarWidth - sidebarWidth) < 1 &&
+      Math.abs(committed.auxWidth - auxWidth) < 1
+    ) {
+      committedFromSplitRef.current = null
+      return
+    }
+    committedFromSplitRef.current = null
     shellGroupRef.current?.setLayout(buildShellLayout())
-  }, [buildShellLayout])
+  }, [
+    auxOpen,
+    auxWidth,
+    buildShellLayout,
+    shellWidth,
+    sidebarOpen,
+    sidebarWidth,
+  ])
 
   // Align the status bar's segments with the side panes. Written straight to
   // CSS variables so pane drags/slides never re-render the status bar.
@@ -572,24 +600,38 @@ function FolderWorkspaceShell() {
   const handleShellLayout = useCallback(
     (layout: number[]) => {
       if (shellWidth <= 0 || layout.length !== 3) return
+      let nextSidebar = sidebarWidth
+      let nextAux = auxWidth
       if (sidebarOpen) {
-        const nextSidebarWidth = clamp(
+        const clamped = clamp(
           ((layout[0] ?? 0) * shellWidth) / 100,
           sidebarMinWidth,
           sidebarMaxWidth
         )
-        if (Math.abs(nextSidebarWidth - sidebarWidth) >= 1) {
-          setSidebarWidth(nextSidebarWidth)
+        if (Math.abs(clamped - sidebarWidth) >= 1) {
+          nextSidebar = clamped
+          setSidebarWidth(clamped)
         }
       }
       if (auxOpen) {
-        const nextAuxWidth = clamp(
+        const clamped = clamp(
           ((layout[2] ?? 0) * shellWidth) / 100,
           auxMinWidth,
           auxMaxWidth
         )
-        if (Math.abs(nextAuxWidth - auxWidth) >= 1) {
-          setAuxWidth(nextAuxWidth)
+        if (Math.abs(clamped - auxWidth) >= 1) {
+          nextAux = clamped
+          setAuxWidth(clamped)
+        }
+      }
+      // SplitView 已经处于本次提交的新几何，记录下来避免后续 effect 重复调用 setLayout。
+      if (nextSidebar !== sidebarWidth || nextAux !== auxWidth) {
+        committedFromSplitRef.current = {
+          sidebarOpen,
+          auxOpen,
+          shellWidth,
+          sidebarWidth: nextSidebar,
+          auxWidth: nextAux,
         }
       }
     },
@@ -699,7 +741,7 @@ function FolderWorkspaceShell() {
       </PerfProfiler>
     </div>
   )
-}
+})
 
 function FolderLayoutShell() {
   const isMobile = useIsMobile()

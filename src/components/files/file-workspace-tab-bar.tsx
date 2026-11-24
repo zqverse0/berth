@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
+import { memo, useMemo, useState, type ReactNode } from "react"
 import { Plus } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -39,14 +39,13 @@ import { cn } from "@/lib/utils"
 
 // Desktop main-workspace tab strip. Settings is a mode entered from the
 // activity bar, not a tab here.
-export function FileWorkspaceTabBar() {
-  const { activeTabByPane } = useWorkspaceLayoutProjection()
+export const FileWorkspaceTabBar = memo(function FileWorkspaceTabBar() {
+  const activeKey = useWorkspaceLayoutProjection(({ activeTabByPane }) =>
+    activeTabByPane.files ? workspaceTabKey(activeTabByPane.files) : ""
+  )
   const { isActive: settingsActive, closeSettings } = useSettingsWorkspace()
   const tHome = useTranslations("ProjectHome")
   const homeOver = useAppUiStore((state) => state.projectHomeOver)
-  const activeKey = activeTabByPane.files
-    ? workspaceTabKey(activeTabByPane.files)
-    : ""
   const homeShown =
     !settingsActive && (activeKey === "" || homeOver === activeKey)
   // 「空间」tab（软件图标）：固定在条首、不可关闭，点它切到空间首页（群对话）；在设置里点它先退出设置。
@@ -90,7 +89,7 @@ export function FileWorkspaceTabBar() {
   return (
     <WorkspaceTabStrip pane="files" className="w-full" leadingTabs={homeTab} />
   )
-}
+})
 
 // 一键新建的预设：空文件即空白笔记；插件编辑器的 `new` 接在后面（空文件即空画板等）
 const FILE_PRESETS = [

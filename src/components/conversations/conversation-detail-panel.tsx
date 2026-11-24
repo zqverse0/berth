@@ -1,10 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
-import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
+import {
+  readWorkspaceLayoutProjection,
+  useWorkspaceLayoutProjection,
+} from "@/hooks/workspace/use-workspace-layout"
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store"
 import { cn } from "@/lib/utils"
 import { isTerminalTab } from "@/lib/workspace/primary-tabs"
@@ -16,7 +19,6 @@ import { createAndOpenPrimaryTerminalDetailed } from "@/lib/terminal/create-and-
 import { handleTerminalExit } from "@/lib/terminal/terminal-exit-cleanup"
 import { removeTerminalRecordIdempotent } from "@/lib/terminal/terminal-record-cleanup"
 import { SessionTabView } from "@/sessions/components/session-tab-view"
-import { workspaceTabRefEqual } from "@/lib/workspace/workspace-pane-model"
 import type {
   WorkspacePane,
   WorkspaceTabRef,
@@ -26,7 +28,7 @@ import type {
  * Renders primary tabs (terminals, conversations). With `pane`, only the tabs
  * placed in that tab group; without it (mobile), every pane's tabs.
  */
-export function ConversationDetailPanel({
+export const ConversationDetailPanel = memo(function ConversationDetailPanel({
   pane: hostPane,
   hidden = false,
 }: {
@@ -39,21 +41,39 @@ export function ConversationDetailPanel({
   const allTabs = useTabStore((s) => s.tabs)
   const activeTabId = useTabStore((s) => s.activeTabId)
   const activeFolderId = useAppWorkspaceStore((s) => s.activeFolderId)
-  const { activeWorkspaceTab, activeTabByPane, paneForTab } =
-    useWorkspaceLayoutProjection()
+  // 只订阅与 primary tab 相关的原始值切片，避免切文件 / 拖文件带动所有终端宿主重渲染。
+  const { activePrimaryId, panePrimaryIdsKey, visiblePrimaryIdsKey } =
+    useWorkspaceLayoutProjection(
+      ({ activeWorkspaceTab, activeTabByPane, tabsByPane }) => {
+        const visiblePrimaryIds: string[] = []
+        for (const tab of Object.values(activeTabByPane)) {
+          if (tab?.kind === "primary") visiblePrimaryIds.push(tab.id)
+        }
+        const panePrimaryIds = hostPane
+          ? tabsByPane[hostPane]
+              .filter((tab) => tab.kind === "primary")
+              .map((tab) => tab.id)
+              .join("\n")
+          : ""
+        return {
+          activePrimaryId:
+            activeWorkspaceTab?.kind === "primary"
+              ? activeWorkspaceTab.id
+              : null,
+          panePrimaryIdsKey: panePrimaryIds,
+          visiblePrimaryIdsKey: visiblePrimaryIds.join("\n"),
+        }
+      }
+    )
   // Moving a tab to another group remounts its view there; terminals repaint
   // from the runtime snapshot, so nothing is lost.
-  const tabs = useMemo(
-    () =>
-      hostPane
-        ? allTabs.filter(
-            (tab) =>
-              paneForTab({ kind: "primary", id: tab.id, type: tab.kind }) ===
-              hostPane
-          )
-        : allTabs,
-    [allTabs, hostPane, paneForTab]
-  )
+  const tabs = useMemo(() => {
+    if (!hostPane) return allTabs
+    const allowed = new Set(
+      panePrimaryIdsKey ? panePrimaryIdsKey.split("\n") : []
+    )
+    return allTabs.filter((tab) => allowed.has(tab.id))
+  }, [allTabs, hostPane, panePrimaryIdsKey])
   const visibleTabs = useMemo(
     () => sortFolderTabs(tabsForFolderScope(tabs, activeFolderId)),
     [tabs, activeFolderId]
@@ -66,13 +86,10 @@ export function ConversationDetailPanel({
     [visibleTabs]
   )
   // Each pane shows only its active tab; primary ones render here.
-  const paneVisibleTabIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const tab of Object.values(activeTabByPane)) {
-      if (tab?.kind === "primary") ids.add(tab.id)
-    }
-    return ids
-  }, [activeTabByPane])
+  const paneVisibleTabIds = useMemo(
+    () => new Set(visiblePrimaryIdsKey ? visiblePrimaryIdsKey.split("\n") : []),
+    [visiblePrimaryIdsKey]
+  )
   const { closeTab } = useTabActions()
   const [warmedTerminalIds, setWarmedTerminalIds] = useState<readonly string[]>(
     []
@@ -114,9 +131,9 @@ export function ConversationDetailPanel({
       id: tab.id,
       type: tab.kind,
     }
-    const pane = paneForTab(tabRef)
+    const pane = hostPane ?? readWorkspaceLayoutProjection().paneForTab(tabRef)
     const paneVisible = inScope && paneVisibleTabIds.has(tab.id)
-    const active = inScope && workspaceTabRefEqual(activeWorkspaceTab, tabRef)
+    const active = inScope && activePrimaryId === tab.id
     const folderPath =
       tab.folderId != null
         ? allFolders.find((f) => f.id === tab.folderId)?.path
@@ -188,4 +205,4 @@ export function ConversationDetailPanel({
       </div>
     </div>
   )
-}
+})

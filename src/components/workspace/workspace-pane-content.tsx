@@ -2,6 +2,7 @@
 
 import { lazy, Suspense, useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
+import { editorDocumentRegistry } from "@/lib/editor/document-registry"
 import { useWorkspaceLayoutProjection } from "@/hooks/workspace/use-workspace-layout"
 import { useWorkspaceFileStore } from "@/stores/workspace-file-store"
 import { ConversationDetailPanel } from "@/components/conversations/conversation-detail-panel"
@@ -63,6 +64,16 @@ export function WorkspacePaneContent({
   const openFileTabIds = useWorkspaceFileStore((state) =>
     state.fileTabs.map((tab) => tab.id).join("\n")
   )
+  // 统一在 pane 宿主层清理已关闭文件的编辑器注册表，避免每个 FileWorkspacePanel 订阅整份 fileTabs。
+  useEffect(() => {
+    if (pane !== "files") return
+    const liveIds = new Set(
+      openFileTabIds
+        ? openFileTabIds.split("\n").map((id) => `file-tab:${id}`)
+        : []
+    )
+    editorDocumentRegistry.retain(liveIds, "file-tab:")
+  }, [openFileTabIds, pane])
 
   // 最近在本组显示过的文件保持挂载（隐藏）：终端 / 设置临时盖住时不丢状态，
   // 切项目再切回来也不用重建编辑器。

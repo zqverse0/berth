@@ -1,8 +1,7 @@
 "use client"
 
-import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo } from "react"
 import { FileCode2 } from "lucide-react"
-import { editorDocumentRegistry } from "@/lib/editor/document-registry"
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -77,7 +76,7 @@ function isTabRendererReady(tab: FileWorkspaceTab): boolean {
   return tab.content !== ""
 }
 
-export function FileWorkspacePanel({
+export const FileWorkspacePanel = memo(function FileWorkspacePanel({
   tabId,
   visible = true,
   active = true,
@@ -89,34 +88,26 @@ export function FileWorkspacePanel({
   const t = useTranslations("Folder.fileWorkspacePanel")
   const { activeFolderId } = useActiveFolder()
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
-  const fileTabs = useWorkspaceFileStore((state) => state.fileTabs)
-  const activeFileTabId = useWorkspaceFileStore(
-    (state) => state.activeFileTabId
+  // 传了 tabId 时只订阅自身对应的那一条 tab，避免修改其他文件时带动隐藏缓存的编辑器重渲染。
+  const activeFileTab = useWorkspaceFileStore((state) => {
+    if (tabId) {
+      return state.fileTabs.find((tab) => tab.id === tabId) ?? null
+    }
+    const visibleTabs = fileTabsForFolderScope(
+      state.fileTabs,
+      activeFolderId,
+      allFolders
+    )
+    return visibleTabs.find((tab) => tab.id === state.activeFileTabId) ?? null
+  })
+  const isTabInPreview = useWorkspaceFileStore((state) =>
+    activeFileTab ? state.previewFileTabIds.has(activeFileTab.id) : false
   )
-  const previewFileTabIds = useWorkspaceFileStore(
-    (state) => state.previewFileTabIds
-  )
-  const visibleFileTabs = useMemo(
-    () => fileTabsForFolderScope(fileTabs, activeFolderId, allFolders),
-    [activeFolderId, allFolders, fileTabs]
-  )
-  const contextActiveFileTab =
-    visibleFileTabs.find((tab) => tab.id === activeFileTabId) ?? null
-  const activeFileTab = tabId
-    ? (fileTabs.find((tab) => tab.id === tabId) ?? null)
-    : contextActiveFileTab
   const editorSuffixes = usePluginViewsStore((state) => state.editorSuffixes)
   const activeFileViewerKind: FileViewerKind | null =
     activeFileTab?.kind === "file"
       ? fileViewerKindFromTab(activeFileTab, editorSuffixes)
       : null
-  const liveEditorDocumentIds = useMemo(
-    () => new Set(fileTabs.map((tab) => `file-tab:${tab.id}`)),
-    [fileTabs]
-  )
-  useEffect(() => {
-    editorDocumentRegistry.retain(liveEditorDocumentIds, "file-tab:")
-  }, [liveEditorDocumentIds])
   const {
     closeFileTab,
     openBranchDiff,
@@ -129,7 +120,7 @@ export function FileWorkspacePanel({
   const isTextPreviewMode = Boolean(
     activeFileTab &&
     isTextFileTab(activeFileTab) &&
-    previewFileTabIds.has(activeFileTab.id) &&
+    isTabInPreview &&
     activeFileViewerKind === "html"
   )
 
@@ -527,4 +518,4 @@ export function FileWorkspacePanel({
   }
 
   return null
-}
+})
