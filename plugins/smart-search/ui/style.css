@@ -76,15 +76,6 @@ a {
   flex: 1;
 }
 
-#tabs {
-  display: flex;
-  gap: 2px;
-  padding: 6px 8px 0;
-}
-#tabs button[aria-selected="true"] {
-  background: var(--hover);
-  font-weight: 600;
-}
 main {
   padding: 8px;
 }

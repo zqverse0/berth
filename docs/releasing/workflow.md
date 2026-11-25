@@ -28,7 +28,8 @@
 git push                        # → origin/dev，私有备份，不对外
 
 # 发版（任意目录）：dev 的工作区要干净（.berth/ 除外）
-scripts/release <版本>          # 推 dev → 合并进 main → 改版本号 → 推 main → 版本号带回 dev → 发公开仓库（打 tag）→ 发插件
+scripts/release <版本>            # 推 dev → 合并进 main → 改版本号 → 推 main → 版本号带回 dev → 等公开 Test 绿 → 打 tag → 发插件
+scripts/release --no-wait <版本>  # 同上，但不等公开 Test，直接打 tag 与 Test 并行构建安装包
 ```
 
 `scripts/release` 组合下面的命令，只有不走完整发版时才单独用（例如 dev 有未发布的工作、要从 main 发紧急修复）：

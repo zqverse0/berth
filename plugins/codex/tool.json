@@ -2,11 +2,15 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "codex",
-  "version": "1.0.1",
+  "version": "1.0.2",
+  "engines": {
+    "berth": ">=0.37"
+  },
   "requires": {
     "process": 1,
     "fs": 1,
-    "data": 1
+    "data": 1,
+    "env": 1
   },
   "permissions": [
     "process",
@@ -196,16 +200,6 @@
         "path": "sessions.json"
       },
       "purpose": "session-parser-spec"
-    }
-  },
-  "knowledge": {
-    "research": {
-      "title": {
-        "zh-CN": "调研记录",
-        "en": "Research notes"
-      },
-      "kind": "maintenance",
-      "path": "research.md"
     }
   },
   "evidence": {

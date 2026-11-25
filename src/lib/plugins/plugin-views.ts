@@ -66,7 +66,12 @@ type ActionBase = {
 export type ViewAction = ActionBase &
   (
     | { type: "open-url"; url: string }
-    | { type: "open-view"; view: string; params?: Record<string, string> }
+    | {
+        type: "open-view"
+        view: string
+        params?: Record<string, string>
+        tabTitle?: string
+      }
     | { type: "script"; script: string; input?: unknown; refresh?: boolean }
     | { type: "copy"; text: string }
     | { type: "clone"; url: string; pickDirectory?: boolean }
@@ -239,7 +244,10 @@ function actionOf(value: unknown): ViewAction | null {
               )
             )
           : undefined
-      return view ? { ...base, type: "open-view", view, params } : null
+      const tabTitle = text(action.tabTitle) ?? undefined
+      return view
+        ? { ...base, type: "open-view", view, params, tabTitle }
+        : null
     }
     case "script": {
       const script = text(action.script)

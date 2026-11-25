@@ -295,7 +295,7 @@ async fn gui_project_owner_rejects_cloned_catalog_on_shared_daemon() {
     let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
-        .expect("owner regression requires the test berth-termd binary");
+        .expect("owner regression requires the test berth-cli binary");
     let _environment = EnvironmentGuard::set(root.path(), daemon);
     let instance = DataInstance::create_if_missing(root.path().join("owner"), "berth.db");
     let (conn, state) = open_or_upgrade(&instance).await;
@@ -415,7 +415,7 @@ async fn gui_project_owner_keeps_legacy_unresolved_and_never_reuses_or_closes_it
     let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
-        .expect("owner regression requires the test berth-termd binary");
+        .expect("owner regression requires the test berth-cli binary");
     let _environment = EnvironmentGuard::set(root.path(), daemon.clone());
     let manager = project_manager(root.path()).await;
     let terminal = Terminal::builder()
@@ -492,7 +492,7 @@ async fn gui_duplicate_terminal_ids_are_skipped_without_rebinding() {
     let _env_lock = env_lock();
     let root = tempfile::tempdir().expect("synthetic instance root");
     let daemon = super::super::runtime::resolve_terminald_binary()
-        .expect("duplicate-id regression requires the test berth-termd binary");
+        .expect("duplicate-id regression requires the test berth-cli binary");
     let _environment = EnvironmentGuard::set(root.path(), daemon);
     let manager = project_manager(root.path()).await;
     manager
@@ -571,11 +571,11 @@ async fn folder_id_reuses_one_terminal_session_and_folder_close_kills_all_window
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -633,11 +633,11 @@ async fn active_pane_inventory_refresh_keeps_snapshot_on_original_binding() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -729,11 +729,11 @@ async fn concurrent_folder_terminals_get_distinct_terminal_windows() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -780,11 +780,11 @@ async fn closing_after_window_reindex_resolves_the_bound_pane_first() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -828,11 +828,11 @@ async fn restarted_daemon_epoch_rejects_captured_binding_without_rebinding() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -925,11 +925,11 @@ async fn detaching_an_idle_terminal_stops_its_stream_worker() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -970,11 +970,11 @@ async fn reattaching_the_same_client_survives_cleanup_of_the_previous_attachment
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -1038,11 +1038,11 @@ async fn attach_snapshot_restores_a_full_screen_app_and_its_modes() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -1095,11 +1095,11 @@ async fn gui_attach_round_trip_and_detach_preserve_bound_pane() {
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");
@@ -1261,11 +1261,11 @@ async fn respawned_pane_rejects_stale_gui_operations_without_touching_new_proces
         .or_else(|| {
             let current = env::current_exe().ok()?;
             let debug_dir = current.parent()?.parent()?;
-            let candidate = debug_dir.join("berth-termd");
+            let candidate = debug_dir.join("berth");
             is_test_daemon_binary(&candidate).then_some(candidate)
         });
     let Some(daemon) = daemon else {
-        eprintln!("skipping terminal integration test: berth-termd is not built");
+        eprintln!("skipping terminal integration test: berth-cli is not built");
         return;
     };
     let socket_root = tempfile::tempdir().expect("socket root");

@@ -114,10 +114,10 @@ export function pluginAssetUrl(plugin: string, path: string): string {
       }
     }
   ).__TAURI_INTERNALS__
-  // `berth-plugin://localhost/`（Windows / Android 是 `http://berth-plugin.localhost/`）
+  // CEF 三平台统一为 `http://berth-plugin.localhost/`
   const base =
     internals?.convertFileSrc?.("", "berth-plugin") ??
-    "berth-plugin://localhost/"
+    "http://berth-plugin.localhost/"
   return `${base}${rel}`
 }
 

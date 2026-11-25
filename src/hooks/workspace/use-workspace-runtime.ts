@@ -9,6 +9,7 @@ import { confirmDialog } from "@/lib/platform"
 import {
   workspaceRuntime,
   type BranchDiffOptions,
+  type PluginPageTabOptions,
   type ReadonlyTextPreviewOptions,
   type TaskTabOptions,
   type TranscriptTabOptions,
@@ -39,6 +40,7 @@ export interface BoundWorkspaceRuntimeActions {
   openReadonlyTextPreview: (options: ReadonlyTextPreviewOptions) => void
   openTranscriptTab: (options: TranscriptTabOptions) => void
   openTaskTab: (options: TaskTabOptions) => void
+  openPluginPageTab: (options: PluginPageTabOptions) => void
   reloadOpenFileBackground: (path: string) => Promise<void>
   bumpResourceRevision: (path: string) => void
   applyExternalReload: (path: string, fetched: FileEditContent) => void
@@ -175,6 +177,8 @@ export function useWorkspaceRuntimeActions(options?: {
         workspaceRuntime.openTranscriptTab(options, deps),
       openTaskTab: (options: TaskTabOptions) =>
         workspaceRuntime.openTaskTab(options, deps),
+      openPluginPageTab: (options: PluginPageTabOptions) =>
+        workspaceRuntime.openPluginPageTab(options, deps),
       reloadOpenFileBackground: (path: string) =>
         workspaceRuntime.reloadOpenFileBackground(path, deps),
       bumpResourceRevision: workspaceRuntime.bumpResourceRevision,

@@ -229,12 +229,13 @@ async fn connect_terminal_for_operation(
             .or_else(resolve_terminald_binary)
             .ok_or_else(|| {
                 TerminalError::SpawnFailed(
-                    "berth-termd is not bundled beside the Berth runtime".to_string(),
+                    "berth-cli (embedded terminal daemon) is not bundled beside the Berth runtime"
+                        .to_string(),
                 )
             })?;
         if !daemon_binary.is_file() {
             return Err(TerminalError::SpawnFailed(format!(
-                "berth-termd was not found at {}",
+                "terminal daemon binary was not found at {}",
                 daemon_binary.display()
             )));
         }
@@ -251,14 +252,14 @@ async fn connect_terminal_for_operation(
     result.map_err(|error| terminal_error_from_sdk(error, None))
 }
 
-/// 旧包名 `berth-terminald` 升级为 `berth-termd` 后，已删除的二进制仍可能占着
+/// 旧版独立守护进程（`berth-terminald` / `berth-termd`）或已删除的旧二进制仍可能占着
 /// default socket。`connect_or_start` 会直接加入，pane spawn 就走旧进程。
 #[cfg(unix)]
 fn replace_stale_endpoint_daemon(endpoint: &Path, expected_binary: &Path) {
     let expected_stem = expected_binary
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("berth-termd");
+        .unwrap_or("berth-cli");
     let endpoint_text = endpoint.to_string_lossy();
     let self_pid = std::process::id();
     for pid in unix_process_ids() {
@@ -279,9 +280,13 @@ fn replace_stale_endpoint_daemon(endpoint: &Path, expected_binary: &Path) {
     }
 }
 
+/// 精准识别终端守护进程：新版按 `--__internal-daemon` 识别，避免误伤 `berth group watch`
+/// 等普通长驻 CLI 进程；同时兼容升级前的 `berth-termd` / `berth-terminald`。
 #[cfg(unix)]
 fn is_terminal_daemon_command(cmdline: &str) -> bool {
-    cmdline.contains("berth-termd") || cmdline.contains("berth-terminald")
+    cmdline.contains("--__internal-daemon")
+        || cmdline.contains("berth-termd")
+        || cmdline.contains("berth-terminald")
 }
 
 #[cfg(unix)]
@@ -294,10 +299,20 @@ fn daemon_exe_is_stale(exe_link: &str, expected_stem: &str) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or("");
     let stem = leaf.strip_suffix(".exe").unwrap_or(leaf);
+    let expected_is_unified_cli = expected_stem == "berth-cli"
+        || expected_stem == "berth"
+        || expected_stem.starts_with("berth-cli-");
+    if matches!(stem, "berth-terminald" | "berth-termd") && expected_is_unified_cli {
+        return true;
+    }
     if stem == "berth-terminald" && expected_stem == "berth-termd" {
         return true;
     }
-    deleted && matches!(stem, "berth-termd" | "berth-terminald")
+    deleted
+        && (matches!(
+            stem,
+            "berth-cli" | "berth" | "berth-termd" | "berth-terminald"
+        ) || stem.starts_with("berth-cli-"))
 }
 
 #[cfg(unix)]
@@ -341,8 +356,9 @@ fn terminate_pid(pid: u32) {
         .status();
 }
 
+/// 终端守护进程已内置进 `berth-cli`；仍保留 `BERTH_TERMINALD_PATH` 环境变量覆盖以便测试与调试。
 pub(super) fn resolve_terminald_binary() -> Option<PathBuf> {
-    resolve_companion_binary("berth-termd", Some("BERTH_TERMINALD_PATH"))
+    resolve_companion_binary("berth-cli", Some("BERTH_TERMINALD_PATH"))
 }
 
 /// 与 GUI 同版本的 berth-cli 二进制（sidecar）；`berth group` 的 GUI 回退用它。
@@ -528,14 +544,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn legacy_terminald_name_is_stale_after_rename() {
+    fn legacy_daemon_names_are_stale_after_unifying_into_cli() {
+        assert!(daemon_exe_is_stale("/usr/bin/berth-terminald", "berth-cli"));
+        assert!(daemon_exe_is_stale("/usr/bin/berth-termd", "berth-cli"));
         assert!(daemon_exe_is_stale(
-            "/usr/bin/berth-terminald",
-            "berth-termd"
-        ));
-        assert!(daemon_exe_is_stale(
-            "/usr/bin/berth-terminald (deleted)",
-            "berth-termd"
+            "/usr/bin/berth-termd (deleted)",
+            "berth-cli"
         ));
     }
 
@@ -543,31 +557,39 @@ mod tests {
     #[test]
     fn deleted_current_daemon_is_stale() {
         assert!(daemon_exe_is_stale(
-            "/usr/bin/berth-termd (deleted)",
-            "berth-termd"
+            "/usr/bin/berth-cli (deleted)",
+            "berth-cli"
         ));
     }
 
     #[cfg(unix)]
     #[test]
     fn live_current_daemon_is_kept() {
-        assert!(!daemon_exe_is_stale("/usr/bin/berth-termd", "berth-termd"));
+        assert!(!daemon_exe_is_stale("/usr/bin/berth-cli", "berth-cli"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_daemon_cmdline_does_not_match_regular_cli_commands() {
+        assert!(is_terminal_daemon_command(
+            "/usr/bin/berth-cli --__internal-daemon /tmp/berth-1000/default"
+        ));
+        assert!(is_terminal_daemon_command(
+            "/usr/bin/berth-termd /tmp/berth-1000/default"
+        ));
+        assert!(!is_terminal_daemon_command(
+            "/usr/bin/berth-cli project demo group watch"
+        ));
     }
 
     #[test]
     fn resolves_cef_deb_rpm_layout_sidecar_under_prefix_bin() {
         let dir = tempfile::tempdir().expect("tempdir");
         let gui = dir.path().join("usr/share/berth").join(exe_name("berth-gui"));
-        let termd = dir.path().join("usr/bin").join(exe_name("berth-termd"));
         let cli = dir.path().join("usr/bin").join(exe_name("berth-cli"));
         write_executable(&gui);
-        write_executable(&termd);
         write_executable(&cli);
 
-        assert_eq!(
-            resolve_companion_binary_from("berth-termd", None, &gui),
-            Some(termd)
-        );
         assert_eq!(
             resolve_companion_binary_from("berth-cli", None, &gui),
             Some(cli)
@@ -581,14 +603,14 @@ mod tests {
         let sibling = dir
             .path()
             .join("usr/share/berth")
-            .join(exe_name("berth-termd"));
-        let prefix_bin = dir.path().join("usr/bin").join(exe_name("berth-termd"));
+            .join(exe_name("berth-cli"));
+        let prefix_bin = dir.path().join("usr/bin").join(exe_name("berth-cli"));
         write_executable(&gui);
         write_executable(&sibling);
         write_executable(&prefix_bin);
 
         assert_eq!(
-            resolve_companion_binary_from("berth-termd", None, &gui),
+            resolve_companion_binary_from("berth-cli", None, &gui),
             Some(sibling)
         );
     }

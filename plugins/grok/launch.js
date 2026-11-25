@@ -266,8 +266,20 @@ function providerEnv(/** @type {import("berth").Provider | null} */ provider) {
   return { GROK_MODELS_BASE_URL: withV1(baseUrl), XAI_API_KEY: apiKey }
 }
 
+/** 专家记忆资产：`<目录>/MEMORY.md` 索引注入提示词，正文按需经 expert-memory MCP 读。还没有记忆时不注入。 */
+async function memoryIndex(/** @type {import("berth").LaunchContext} */ ctx) {
+  const asset = ctx.assets?.memory?.[0]
+  if (!asset) return null
+  const source = `${asset.path}/MEMORY.md`
+  const text = (await fs.stat(source)) ? await fs.readText(source) : ""
+  return { name: asset.name, source, text: text.trim() }
+}
+
 /** 每项资产的实际结果和未识别的目录进启动清单；旧宿主没有 report。 */
-async function reportAssets(/** @type {import("berth").LaunchContext} */ ctx) {
+async function reportAssets(
+  /** @type {import("berth").LaunchContext} */ ctx,
+  /** @type {Awaited<ReturnType<typeof memoryIndex>>} */ memory
+) {
   const native = new Set(ctx.expert?.plugins.map((plugin) => plugin.name))
   const names = await fs.list(grokSourceHome(ctx))
   /** @type {import("berth").ReportItem[]} */
@@ -290,12 +302,20 @@ async function reportAssets(/** @type {import("berth").LaunchContext} */ ctx) {
       status: /** @type {const} */ ("converted"),
       reason: "会话 config.toml 的 mcp_servers",
     })),
-    ...(ctx.assets?.memory ?? []).map((asset) => ({
-      kind: "memory",
-      id: asset.name,
-      status: /** @type {const} */ ("converted"),
-      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
-    })),
+    ...(memory
+      ? [
+          {
+            kind: "memory",
+            id: memory.name,
+            status: /** @type {const} */ ("applied"),
+            reason: memory.text
+              ? "索引经 --rules 追加进系统提示词"
+              : "还没有记忆，索引为空",
+            // 还没有记忆时索引不存在，不给打不开的路径。
+            source: memory.text ? memory.source : undefined,
+          },
+        ]
+      : []),
     ...(ctx.assets?.plugins ?? []).map((asset) =>
       native.has(asset.name)
         ? {
@@ -400,17 +420,19 @@ export default {
         GROK_HOME: sessionHome,
       }
       await installGrokPlugins(plugins, env)
+      const memory = await memoryIndex(ctx)
       const args = [...(trust ? ["--trust"] : [])]
       if (prompt !== null)
         args.push("--system-prompt-override", buildInstructions(prompt))
-      if (ctx.brief) args.push("--rules", ctx.brief)
+      const rules = [memory?.text, ctx.brief].filter(Boolean).join("\n\n")
+      if (rules) args.push("--rules", rules)
       ctx.plan({
         expert: expert?.id ?? null,
         skills: skills.map((skill) => skill.name),
         mcp: Object.keys(servers).sort(),
         compatOff: Object.keys(COMPAT_OFF).sort(),
       })
-      await reportAssets(ctx)
+      await reportAssets(ctx, memory)
       return await process.run("grok", [...args, ...ctx.args], { env })
     } finally {
       await fs.remove(sessionHome)

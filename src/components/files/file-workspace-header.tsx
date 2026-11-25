@@ -287,6 +287,21 @@ export function FileWorkspaceHeader({ tabId }: { tabId?: string }) {
             tabId={activeFileTab.id}
           />
         )}
+        {activeFileTab.kind === "plugin-page" && (
+          <div className="flex h-full items-center gap-2 px-3 text-xs text-muted-foreground">
+            {activeFileTab.icon && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={activeFileTab.icon}
+                alt=""
+                className="h-3.5 w-3.5 shrink-0 rounded-xs object-contain"
+              />
+            )}
+            <span className="truncate font-medium text-foreground">
+              {activeFileTab.title}
+            </span>
+          </div>
+        )}
       </div>
     )
   }

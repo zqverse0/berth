@@ -11,7 +11,8 @@ const STRINGS = {
     monthly: "This month",
     trendingEmpty: "No trending repositories found.",
     starsEmpty: "No starred repositories.",
-    readme: "Read README",
+    openRepo: "View repository",
+    readme: "Read README (Markdown)",
     openOnGithub: "Open on GitHub",
     star: "Star",
     unstar: "Unstar",
@@ -38,7 +39,8 @@ const STRINGS = {
     monthly: "本月",
     trendingEmpty: "暂时没有找到趋势仓库。",
     starsEmpty: "还没有星标仓库。",
-    readme: "阅读 README",
+    openRepo: "查看仓库详情",
+    readme: "阅读 README（Markdown）",
     openOnGithub: "在 GitHub 打开",
     star: "加入星标",
     unstar: "取消星标",
@@ -116,9 +118,10 @@ export function repoItem(repo, s) {
   const actions = [
     {
       type: "open-view",
-      title: s.readme,
+      title: s.openRepo,
+      tabTitle: repo.full_name,
       icon: "book",
-      view: "readme",
+      view: "repo",
       params: { repo: repo.full_name },
     },
   ]
@@ -153,6 +156,14 @@ export function repoItem(repo, s) {
       icon: "send",
       // 单行（终端不支持 bracketed paste 也不会被拆开提交），末尾留空格便于接着输入。
       text: `${repo.full_name} (${url})${summary ? ` — ${summary}` : ""} `,
+    },
+    {
+      type: "open-view",
+      title: s.readme,
+      tabTitle: repo.full_name,
+      icon: "book",
+      view: "readme",
+      params: { repo: repo.full_name },
     },
     { type: "open-url", title: s.openOnGithub, icon: "external-link", url },
     {

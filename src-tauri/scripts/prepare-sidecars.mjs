@@ -5,8 +5,8 @@
 // What it does:
 //   1. Resolves the target triple — `--target <triple>` arg, or
 //      `TAURI_TARGET_TRIPLE` env, or the host's `rustc -vV` host triple.
-//   2. Builds the GUI-owned berth-termd and berth-cli only when their
-//      source/dependency inputs changed.
+//   2. Builds the GUI-owned berth-cli (which also embeds the terminal daemon)
+//      only when its source/dependency inputs changed.
 //   3. Copies each binary to `src-tauri/binaries/<name>-<triple>{.exe}` so
 //      Tauri's externalBin bundler picks them up under their bare names.
 //
@@ -14,7 +14,7 @@
 //   - Cross-compile in release.yml passes `--target <triple>` so we honour
 //     the matrix triple rather than rebuilding for the host.
 //   - Local `pnpm tauri dev` / `pnpm tauri build` invoke it without args and
-//     build berth-termd for the host while locating sibling release artifacts.
+//     build berth-cli for the host while locating sibling release artifacts.
 //   - `--dev` (tauri dev / dev-trial) builds with the fast `sidecar-dev` cargo
 //     profile; release packaging keeps the size-optimised `release` profile.
 //   - Skippable: set `BERTH_SKIP_SIDECAR=1` when iterating on the frontend
@@ -49,14 +49,8 @@ const BINARIES_DIR = join(SRC_TAURI, "binaries")
 const CACHE_FILE = join(BINARIES_DIR, ".prepare-sidecars-cache.json")
 const CACHE_VERSION = 4
 
-// The desktop package owns the daemon and its peer command-line frontend.
+// 桌面端内置单二进制 berth-cli（同时承担命令行入口与 --__internal-daemon 终端守护进程）。
 export const BINARIES = [
-  {
-    packageName: "berth-terminald",
-    binaryName: "berth-termd",
-    sidecarName: "berth-termd",
-    noDefaultFeatures: true,
-  },
   {
     packageName: "berth-cli",
     binaryName: "berth",

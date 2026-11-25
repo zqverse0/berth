@@ -87,16 +87,21 @@ if [ -f "$root/src-tauri/tauri.dev.conf.json" ]; then
     *) unset BERTH ;;
   esac
 
-  # 带 target 后缀的 sidecar 无法通过 CLI 的同目录查找命中，显式配对本 checkout。
+  # 终端守护进程已内置进 berth-cli；开发实例显式指向本 checkout 的 CLI，避免命中 PATH 上的正式版。
   if [ -z "${BERTH_SDK_DAEMON_BINARY:-}" ]; then
-    for daemon in "$root"/src-tauri/binaries/berth-termd-*; do
-      case $daemon in *.exe) continue ;; esac
-      if [ -x "$daemon" ]; then
-        BERTH_SDK_DAEMON_BINARY=$daemon
-        export BERTH_SDK_DAEMON_BINARY
-        break
-      fi
-    done
+    if [ -x "$root/src-tauri/binaries/berth" ]; then
+      BERTH_SDK_DAEMON_BINARY=$root/src-tauri/binaries/berth
+      export BERTH_SDK_DAEMON_BINARY
+    else
+      for daemon in "$root"/src-tauri/binaries/berth-cli-*; do
+        case $daemon in *.exe) continue ;; esac
+        if [ -x "$daemon" ]; then
+          BERTH_SDK_DAEMON_BINARY=$daemon
+          export BERTH_SDK_DAEMON_BINARY
+          break
+        fi
+      done
+    fi
   fi
 fi
 

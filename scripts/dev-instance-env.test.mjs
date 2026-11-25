@@ -53,10 +53,7 @@ function checkout(f) {
     '#!/bin/sh\nprintf "%s\\n" "${BERTH_HOME-}" "${BERTH_DATA_DIR-}" "${BERTH_DATA_FILE-}" "${BERTH_GUI_ENDPOINT-}" "${BERTH_TMPDIR-}" "${BERTH-}" "${BERTH_SDK_DAEMON_BINARY-}" "$1"\n'
   )
   chmodSync(cli, 0o755)
-  const daemon = join(root, "src-tauri", "binaries", "berth-termd-host")
-  writeFileSync(daemon, "#!/bin/sh\nexit 0\n")
-  chmodSync(daemon, 0o755)
-  return { cli: join(root, "bin", "berth"), daemon }
+  return { cli: join(root, "bin", "berth"), daemon: cli }
 }
 
 function runCli(cli, f, override = {}) {

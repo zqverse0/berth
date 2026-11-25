@@ -200,22 +200,16 @@ const model = {
   },
 }
 
-const tabs = /** @type {HTMLElement} */ (document.getElementById("tabs"))
+const HEADER_TABS = /** @type {const} */ (["search", "records", "config"]).map(
+  (id) => ({ id, label: t.tabs[id] })
+)
 const app = /** @type {HTMLElement} */ (document.getElementById("app"))
 
+function syncHeaderTab() {
+  void berth.ui.setHeaderTabs(HEADER_TABS, model.tab)
+}
+
 function render() {
-  tabs.replaceChildren(
-    .../** @type {const} */ (["search", "records", "config"]).map((tab) =>
-      h(
-        "button",
-        {
-          "aria-selected": String(model.tab === tab),
-          onclick: () => switchTab(tab),
-        },
-        [t.tabs[tab]]
-      )
-    )
-  )
   const body =
     model.tab === "search"
       ? renderSearch()
@@ -225,13 +219,20 @@ function render() {
   app.replaceChildren(...body.filter(Boolean))
 }
 
-/** @param {"search" | "records" | "config"} tab */
-function switchTab(tab) {
+/** @param {"search" | "records" | "config"} tab @param {boolean} [sync] */
+function switchTab(tab, sync = true) {
   model.tab = tab
+  if (sync) syncHeaderTab()
   if (tab === "records") loadRecords()
   if (tab === "config" && !model.config.values) loadConfig()
   render()
 }
+
+await berth.ui.setHeaderTabs(HEADER_TABS, model.tab)
+berth.ui.onHeaderTab((id) => {
+  if (id === "search" || id === "records" || id === "config")
+    switchTab(id, false)
+})
 
 // ───────────── 搜索 ─────────────
 
@@ -725,6 +726,7 @@ async function loadRecords() {
 /** @param {string} id */
 async function openRecord(id) {
   model.tab = "records"
+  syncHeaderTab()
   try {
     model.records.open = (await run("history", { action: "show", id })).record
     model.records.error = null

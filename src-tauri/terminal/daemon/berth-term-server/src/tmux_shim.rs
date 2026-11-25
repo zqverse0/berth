@@ -49,7 +49,8 @@ fn ensure_tmux_shim(socket_path: &Path) -> Option<PathBuf> {
 fn public_berth_binary() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
     let file_stem = current.file_stem()?.to_str()?;
-    if file_stem == "berth" {
+    // 合并后守护进程本身就是 `berth` / `berth-cli`（含开发期 `berth-cli-<triple>`），直接复用自身。
+    if file_stem == "berth" || file_stem == "berth-cli" || file_stem.starts_with("berth-cli-") {
         return current.is_file().then_some(current);
     }
     if file_stem != "berth-termd" {

@@ -152,6 +152,7 @@ function buildAgentMd(
   /** @type {string} */ name,
   /** @type {string} */ title,
   /** @type {string | null} */ prompt,
+  /** @type {string | null} */ memoryText,
   /** @type {string} */ brief,
   /** @type {{plugins: string[], rules: string[], skills: string[]}} */ lists
 ) {
@@ -171,8 +172,8 @@ function buildAgentMd(
     `# ${title}`,
     "",
   ]
-  if (prompt !== null) lines.push(prompt)
-  if (brief) lines.push("", brief)
+  const body = [prompt, memoryText, brief].filter(Boolean).join("\n\n")
+  if (body) lines.push(body)
   return lines.join("\n")
 }
 
@@ -199,10 +200,20 @@ async function ensureStatusline() {
   await fs.writeText(AGY_SETTINGS, JSON.stringify(settings, null, 2) + "\n")
 }
 
+/** 专家记忆资产：`<目录>/MEMORY.md` 索引注入提示词，正文按需经 expert-memory MCP 读。还没有记忆时不注入。 */
+async function memoryIndex(/** @type {import("berth").LaunchContext} */ ctx) {
+  const asset = ctx.assets?.memory?.[0]
+  if (!asset) return null
+  const source = `${asset.path}/MEMORY.md`
+  const text = (await fs.stat(source)) ? await fs.readText(source) : ""
+  return { name: asset.name, source, text: text.trim() }
+}
+
 /** 每项资产的实际结果和没转发 / 没隔离的内容进启动清单；旧宿主没有 report。 */
 function reportAssets(
   /** @type {import("berth").LaunchContext} */ ctx,
-  /** @type {string[]} */ skipped
+  /** @type {string[]} */ skipped,
+  /** @type {Awaited<ReturnType<typeof memoryIndex>>} */ memory
 ) {
   /** @type {import("berth").ReportItem[]} */
   const items = [
@@ -224,12 +235,20 @@ function reportAssets(
       status: /** @type {const} */ ("converted"),
       reason: "打进会话插件 mcp_config.json",
     })),
-    ...(ctx.assets?.memory ?? []).map((asset) => ({
-      kind: "memory",
-      id: asset.name,
-      status: /** @type {const} */ ("converted"),
-      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
-    })),
+    ...(memory
+      ? [
+          {
+            kind: "memory",
+            id: memory.name,
+            status: /** @type {const} */ ("applied"),
+            reason: memory.text
+              ? "索引写进会话 agent.md 正文"
+              : "还没有记忆，索引为空",
+            // 还没有记忆时索引不存在，不给打不开的路径。
+            source: memory.text ? memory.source : undefined,
+          },
+        ]
+      : []),
     ...(ctx.assets?.plugins ?? []).map((asset) => ({
       kind: "plugins",
       id: asset.name,
@@ -288,6 +307,7 @@ export default {
       plugins.push(`${ctx.paths.tmp}/berth`)
       await writeSessionPlugin(plugins[0], expert)
     }
+    const memory = await memoryIndex(ctx)
     await fs.mkdir(agentDir)
     try {
       await fs.writeText(
@@ -296,6 +316,7 @@ export default {
           agentName,
           expert ? expert.name : "Berth",
           expert ? expert.prompt : null,
+          memory?.text ?? null,
           ctx.brief,
           { plugins, rules, skills }
         )
@@ -311,7 +332,7 @@ export default {
         ),
         projectNotForwarded: skipped,
       })
-      reportAssets(ctx, skipped)
+      reportAssets(ctx, skipped, memory)
       return await process.run("agy", ["--agent", agentName, ...ctx.args])
     } finally {
       await fs.remove(agentDir).catch(() => {})

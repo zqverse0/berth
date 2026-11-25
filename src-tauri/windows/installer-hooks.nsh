@@ -1,10 +1,11 @@
 ; Tauri NSIS installer hooks.
 ;
-; berth-termd.exe (terminal daemon) and berth-cli.exe are bundled sidecars
+; berth-cli.exe (CLI + embedded terminal daemon) is the bundled sidecar
 ; installed alongside berth-gui.exe. On Windows, running sidecar processes
 ; keep their executable files locked, causing upgrades or uninstalls to fail
-; with "Error opening file for writing". Stop them before writing or removing
-; binaries; taskkill returns non-zero when no processes match, which is fine.
+; with "Error opening file for writing". Also stop legacy berth-termd.exe when
+; upgrading from older releases; taskkill returns non-zero when no processes
+; match, which is fine.
 
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Stopping any running Berth sidecar processes..."

@@ -10,6 +10,7 @@ use berth_project_core::service::catalog::CatalogEntry;
 use berth_term_sdk::{DiscoveredPane, SessionName, Terminal, TerminalClientBuilder};
 
 mod attach_client;
+mod daemon;
 mod gui_client;
 mod gui_launch;
 mod guide;
@@ -789,11 +790,16 @@ fn split_project_scope(mut args: Vec<OsString>) -> (Option<String>, Vec<OsString
 }
 
 fn main() -> ExitCode {
+    // 隐藏终端守护进程入口：跳过 CLI 的实例数据库与项目作用域解析，避免常驻进程多做初始化。
+    let raw_args: Vec<OsString> = std::env::args_os().collect();
+    if daemon::should_run_as_daemon(&raw_args) {
+        return daemon::run_from_args(raw_args.into_iter().skip(1));
+    }
     // 任务、群组、知识库按空间存放；拿不到库（没装 GUI 的机器）时沿用仓库里的 `.berth/`。
     if let Ok(instance) = project::resolve_instance(false) {
         berth_project_core::space::configure(&instance);
     }
-    let (project, args) = split_project_scope(std::env::args_os().collect());
+    let (project, args) = split_project_scope(raw_args);
     if let Some(project) = project {
         let entered = project::project_dir(&project).and_then(|dir| {
             std::env::set_current_dir(&dir)

@@ -55,9 +55,11 @@ import { toast } from "@/lib/notify"
 import { openUrl } from "@/lib/platform"
 import { copyTextFromMenu, cn } from "@/lib/utils"
 import {
+  localizedTitle,
   renderCache,
   renderPluginView,
   runPluginAction,
+  usePluginViewsStore,
   type ListItem,
   type ViewAction,
   type ViewIcon,
@@ -500,6 +502,28 @@ function usePluginActionRunner(plugin: string) {
             return
           case "open-view": {
             const params = action.params ?? {}
+            const target = usePluginViewsStore
+              .getState()
+              .views.find(
+                (view) => view.plugin === plugin && view.id === action.view
+              )
+            if (target?.page) {
+              const title =
+                action.tabTitle ??
+                (localizedTitle(target.title, locale) || action.title)
+              workspace.openPluginPageTab({
+                plugin,
+                viewId: target.id,
+                page: target.page,
+                params,
+                title,
+                description: action.title,
+                permissions: target.permissions,
+                icon: target.icon,
+                lifetime: "global",
+              })
+              return
+            }
             const id = `plugin-view:${plugin}/${action.view}?${new URLSearchParams(params)}`
             const open = (title: string, content: string) =>
               workspace.openReadonlyTextPreview({
@@ -509,7 +533,7 @@ function usePluginActionRunner(plugin: string) {
                 content,
                 lifetime: "global",
               })
-            open(action.title, t("loading"))
+            open(action.tabTitle ?? action.title, t("loading"))
             const result = await renderPluginView({
               plugin,
               view: action.view,
@@ -518,14 +542,20 @@ function usePluginActionRunner(plugin: string) {
               locale,
               project,
             }).catch((err) => {
-              open(action.title, t("failed", { error: toErrorMessage(err) }))
+              open(
+                action.tabTitle ?? action.title,
+                t("failed", { error: toErrorMessage(err) })
+              )
               throw err
             })
             if (result.type !== "detail") {
-              open(action.title, t("tabNeedsDetail"))
+              open(action.tabTitle ?? action.title, t("tabNeedsDetail"))
               return
             }
-            open(result.title ?? action.title, result.markdown)
+            open(
+              result.title ?? action.tabTitle ?? action.title,
+              result.markdown
+            )
             return
           }
         }

@@ -2,7 +2,17 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "excalidraw",
-  "version": "1.6.1",
+  "version": "1.6.2",
+  "engines": {
+    "berth": ">=0.38.5"
+  },
+  "requires": {
+    "editor": 1,
+    "env": 1,
+    "fs": 1,
+    "http": 1,
+    "storage": 1
+  },
   "permissions": ["project.files", "fs", "agent", "network"],
   "knowledge": {
     "drawing": {

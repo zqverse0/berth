@@ -168,6 +168,8 @@ declare module "berth" {
           type: "open-view"
           view: string
           params?: Record<string, string>
+          /** 打开为工作区标签页时的标签标题；缺省取动作 title。 */
+          tabTitle?: string
         }
       | {
           type: "script"
@@ -189,7 +191,7 @@ declare module "berth" {
   /** launch.js 的 `ctx.project`。 */
   export interface ProjectView {
     readonly name: string
-    /** 主成员目录（放 `.berth/` 的 checkout）。 */
+    /** 主成员目录（项目的默认主 checkout）。 */
     readonly home: string
     /** main 与各 worktree，主成员在前。stale：目录不在或已不在 git 列表里；temporary：自动化运行或已结束的群。 */
     readonly checkouts: readonly {
@@ -467,7 +469,7 @@ declare module "berth" {
      */
     findSource(url: string): Promise<{ path: string } | null>
     /**
-     * 仅脚本：写 `.berth/knowledge/来源/<标题>.md`（`type: 来源`、`kind: other`、url、title、added_at、
+     * 仅脚本：写项目知识库「来源」（空间目录 `knowledge/来源/<标题>.md`，`type: 来源`、`kind: other`、url、title、added_at、
      * `digested: false`，`meta` 并入，正文是 `markdown`）。同 url 已有时 reject `conflict`，`data.path` 指向它。
      */
     addSource(source: {

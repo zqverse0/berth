@@ -46,6 +46,11 @@ const LazyTaskDetail = lazy(() =>
     (m) => ({ default: m.TaskDetail })
   )
 )
+const LazyPluginTabPage = lazy(() =>
+  import("@/components/plugins/plugin-page-frame").then((m) => ({
+    default: m.PluginTabPage,
+  }))
+)
 const LazyTranscriptReader = lazy(() =>
   import("@/sessions/components/transcript-reader").then((m) => ({
     default: m.TranscriptReader,
@@ -67,7 +72,12 @@ const LazyUnifiedDiffPreview = lazy(() =>
 // a true cold load falls back to the full-pane placeholder.
 function isTabRendererReady(tab: FileWorkspaceTab): boolean {
   if (isResourceFileTab(tab)) return true
-  if (tab.kind === "transcript" || tab.kind === "task") return true
+  if (
+    tab.kind === "transcript" ||
+    tab.kind === "task" ||
+    tab.kind === "plugin-page"
+  )
+    return true
   if (tab.kind === "rich-diff") {
     return (
       tab.originalContent !== undefined || tab.modifiedContent !== undefined
@@ -299,6 +309,14 @@ export const FileWorkspacePanel = memo(function FileWorkspacePanel({
     return (
       <Suspense fallback={viewerFallback}>
         <LazyTaskDetail key={activeFileTab.id} tab={activeFileTab} />
+      </Suspense>
+    )
+  }
+
+  if (activeFileTab.kind === "plugin-page") {
+    return (
+      <Suspense fallback={viewerFallback}>
+        <LazyPluginTabPage key={activeFileTab.id} tab={activeFileTab} />
       </Suspense>
     )
   }

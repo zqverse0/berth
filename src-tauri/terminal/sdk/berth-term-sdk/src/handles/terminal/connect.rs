@@ -227,7 +227,7 @@ fn hidden_daemon_binary_candidates(daemon_binary: Option<&Path>) -> Vec<OsString
     let explicit = daemon_binary.map(|path| path.as_os_str().to_owned());
     hidden_daemon_binary_candidates_from_sources(
         explicit.or_else(|| std::env::var_os(discovery::SDK_DAEMON_BINARY_ENV)),
-        resolve_executable_on_path("berth-termd"),
+        resolve_executable_on_path("berth").or_else(|| resolve_executable_on_path("berth-cli")),
     )
 }
 
@@ -268,60 +268,86 @@ fn hidden_daemon_binary_candidates_from_sources_with_resolved(
     }
 
     let mut candidates = Vec::new();
-    // 与当前客户端可执行文件同目录的守护进程优先：打包形态里两者相邻，
-    // PATH 上可能存在版本不一致的旧安装。
+    // 守护进程已内置进 `berth` / `berth-cli`：当前客户端本身就是 CLI 时直接复用自身，
+    // 让无头服务器只需单个 `berth` 二进制即可自拉起守护进程。
+    push_self_daemon_candidate(&mut candidates, client_binary);
+    push_self_daemon_candidate(&mut candidates, resolved_client_binary);
+    // 非 CLI 宿主（如 GUI 或第三方 SDK 调用方）优先找同目录的 `berth-cli` / `berth`。
     push_client_sibling_candidates(&mut candidates, client_binary);
     push_client_sibling_candidates(&mut candidates, resolved_client_binary);
-    push_unique_candidate(&mut candidates, OsString::from("berth-termd"));
     if let Some(public_binary) = public_binary.as_deref() {
-        push_daemon_sibling_candidates(&mut candidates, public_binary, resolved_public_binary);
+        push_public_daemon_candidates(&mut candidates, public_binary, resolved_public_binary);
     }
+    push_unique_candidate(&mut candidates, OsString::from("berth"));
+    push_unique_candidate(&mut candidates, OsString::from("berth-cli"));
+    push_unique_candidate(&mut candidates, OsString::from("berth-termd"));
     candidates
 }
 
-/// Resolves the daemon binary sitting next to the running client executable.
-///
-/// Returns `None` when the running client is itself the daemon (re-exec case),
-/// or the sibling is missing or an empty placeholder file.
-fn client_sibling_daemon_path(client_binary: Option<&Path>) -> Option<OsString> {
-    let binary = client_binary?;
-    let file_stem = binary.file_stem()?.to_str()?;
-    if file_stem == "berth-termd" {
-        return None;
-    }
-    let sibling = daemon_sibling_path(binary)?;
-    let is_empty_placeholder = std::fs::metadata(&sibling)
-        .map(|metadata| metadata.len() == 0)
-        .unwrap_or(false);
-    (!is_empty_placeholder).then(|| sibling.into_os_string())
+fn is_embedded_daemon_cli_stem(file_stem: &str) -> bool {
+    file_stem == "berth" || file_stem == "berth-cli" || file_stem.starts_with("berth-cli-")
 }
 
+fn is_non_empty_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
+}
+
+fn push_self_daemon_candidate(candidates: &mut Vec<OsString>, client_binary: Option<&Path>) {
+    let Some(binary) = client_binary else {
+        return;
+    };
+    let Some(file_stem) = binary.file_stem().and_then(|stem| stem.to_str()) else {
+        return;
+    };
+    if is_embedded_daemon_cli_stem(file_stem) && is_non_empty_file(binary) {
+        push_unique_candidate(candidates, binary.as_os_str().to_os_string());
+    }
+}
+
+/// Resolves daemon-capable CLI binaries sitting next to a non-CLI client executable.
 fn push_client_sibling_candidates(candidates: &mut Vec<OsString>, client_binary: Option<&Path>) {
-    if let Some(sibling) = client_sibling_daemon_path(client_binary) {
-        push_unique_candidate(candidates, sibling);
+    let Some(binary) = client_binary else {
+        return;
+    };
+    let Some(file_stem) = binary.file_stem().and_then(|stem| stem.to_str()) else {
+        return;
+    };
+    if is_embedded_daemon_cli_stem(file_stem) || file_stem == "berth-termd" {
+        return;
+    }
+    for stem in ["berth-cli", "berth", "berth-termd"] {
+        if let Some(sibling) = sibling_binary_path(binary, stem) {
+            if is_non_empty_file(&sibling) {
+                push_unique_candidate(candidates, sibling.into_os_string());
+            }
+        }
     }
 }
 
-fn push_daemon_sibling_candidates(
+fn push_public_daemon_candidates(
     candidates: &mut Vec<OsString>,
     public_binary: &Path,
     resolved_binary: Option<&Path>,
 ) {
-    if let Some(path) = daemon_sibling_path(public_binary) {
-        push_unique_candidate(candidates, path.into_os_string());
+    if is_non_empty_file(public_binary) {
+        push_unique_candidate(candidates, public_binary.as_os_str().to_os_string());
     }
-    if let Some(path) = resolved_binary.and_then(daemon_sibling_path) {
-        push_unique_candidate(candidates, path.into_os_string());
+    if let Some(resolved) = resolved_binary {
+        if is_non_empty_file(resolved) {
+            push_unique_candidate(candidates, resolved.as_os_str().to_os_string());
+        }
     }
 }
 
-fn daemon_sibling_path(binary: &Path) -> Option<PathBuf> {
+fn sibling_binary_path(binary: &Path, stem: &str) -> Option<PathBuf> {
     let mut candidate = binary.to_path_buf();
-    let daemon_file_name = match binary.extension().and_then(|extension| extension.to_str()) {
-        Some(extension) if !extension.is_empty() => format!("berth-termd.{extension}"),
-        _ => "berth-termd".to_owned(),
+    let file_name = match binary.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if !extension.is_empty() => format!("{stem}.{extension}"),
+        _ => stem.to_owned(),
     };
-    candidate.set_file_name(daemon_file_name);
+    candidate.set_file_name(file_name);
     candidate.is_file().then_some(candidate)
 }
 
@@ -382,7 +408,7 @@ fn hidden_daemon_not_found_error(
         .join(", ");
     let mut message = format!(
         "no Berth terminal daemon binary candidate was available; tried [{candidates}]. \
-         Install Berth, ensure berth-termd is on PATH, or set {} to an absolute Berth daemon path",
+         Install Berth, ensure berth is on PATH, or set {} to an absolute Berth CLI/daemon path",
         discovery::SDK_DAEMON_BINARY_ENV
     );
     if let Some(error) = last_error {
@@ -507,7 +533,7 @@ fn timeout_error(operation: &str, timeout: Duration) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
@@ -526,27 +552,19 @@ mod tests {
         ))
     }
 
-    fn expected_public_binary_daemon_candidates(public: &Path, daemon: &Path) -> Vec<OsString> {
-        let mut candidates = vec![
+    fn default_path_fallbacks() -> Vec<OsString> {
+        vec![
+            OsString::from("berth"),
+            OsString::from("berth-cli"),
             OsString::from("berth-termd"),
-            daemon.as_os_str().to_os_string(),
-        ];
-        if let Ok(resolved_public) = std::fs::canonicalize(public) {
-            let mut resolved_daemon = resolved_public;
-            resolved_daemon.set_file_name("berth-termd");
-            let candidate = resolved_daemon.into_os_string();
-            if !candidates.iter().any(|existing| existing == &candidate) {
-                candidates.push(candidate);
-            }
-        }
-        candidates
+        ]
     }
 
     #[test]
-    fn hidden_daemon_spawn_prefers_minimal_sibling_binary() {
+    fn hidden_daemon_spawn_falls_back_to_berth_on_path() {
         assert_eq!(
             hidden_daemon_binary_candidates_from_env(None),
-            vec![OsString::from("berth-termd")]
+            default_path_fallbacks()
         );
     }
 
@@ -559,35 +577,46 @@ mod tests {
     }
 
     #[test]
-    fn hidden_daemon_spawn_uses_public_binary_daemon_sibling() {
-        let root = temp_root("public-sibling");
+    fn hidden_daemon_spawn_uses_public_berth_binary() {
+        let root = temp_root("public-berth");
         std::fs::create_dir_all(&root).expect("create root");
         let public = root.join("berth");
-        let daemon = root.join("berth-termd");
         std::fs::write(&public, b"berth").expect("write public");
-        std::fs::write(&daemon, b"daemon").expect("write daemon");
+
+        let mut expected = vec![public.as_os_str().to_os_string()];
+        if let Ok(resolved) = std::fs::canonicalize(&public) {
+            let candidate = resolved.into_os_string();
+            if !expected.contains(&candidate) {
+                expected.push(candidate);
+            }
+        }
+        expected.extend(default_path_fallbacks());
 
         assert_eq!(
             hidden_daemon_binary_candidates_from_sources(None, Some(public)),
-            expected_public_binary_daemon_candidates(&root.join("berth"), &daemon)
+            expected
         );
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn hidden_daemon_spawn_uses_resolved_public_binary_daemon_sibling() {
-        let root = temp_root("resolved-public-sibling");
+    fn hidden_daemon_spawn_uses_resolved_public_binary() {
+        let root = temp_root("resolved-public");
         let links = root.join("links");
         let package = root.join("package");
         std::fs::create_dir_all(&links).expect("create links");
         std::fs::create_dir_all(&package).expect("create package");
         let alias = links.join("berth");
-        let public = package.join("berth");
-        let daemon = package.join("berth-termd");
+        let public = package.join("berth-cli");
         std::fs::write(&alias, b"alias").expect("write alias");
-        std::fs::write(&public, b"berth").expect("write public");
-        std::fs::write(&daemon, b"daemon").expect("write daemon");
+        std::fs::write(&public, b"cli").expect("write public");
+
+        let mut expected = vec![
+            alias.as_os_str().to_os_string(),
+            public.as_os_str().to_os_string(),
+        ];
+        expected.extend(default_path_fallbacks());
 
         assert_eq!(
             hidden_daemon_binary_candidates_from_sources_with_resolved(
@@ -597,20 +626,21 @@ mod tests {
                 None,
                 None,
             ),
-            vec![OsString::from("berth-termd"), daemon.into_os_string(),]
+            expected
         );
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn hidden_daemon_spawn_prefers_client_executable_daemon_sibling() {
-        let root = temp_root("client-sibling");
+    fn hidden_daemon_spawn_reexecs_standalone_berth_cli_directly() {
+        let root = temp_root("standalone-cli");
         std::fs::create_dir_all(&root).expect("create root");
         let client = root.join("berth");
-        let daemon = root.join("berth-termd");
         std::fs::write(&client, b"cli").expect("write client");
-        std::fs::write(&daemon, b"daemon").expect("write daemon");
+
+        let mut expected = vec![client.as_os_str().to_os_string()];
+        expected.extend(default_path_fallbacks());
 
         assert_eq!(
             hidden_daemon_binary_candidates_from_sources_with_resolved(
@@ -620,72 +650,78 @@ mod tests {
                 Some(&client),
                 None,
             ),
-            vec![
-                daemon.as_os_str().to_os_string(),
-                OsString::from("berth-termd"),
-            ]
+            expected
         );
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn hidden_daemon_spawn_ignores_empty_client_daemon_placeholder() {
+    fn hidden_daemon_spawn_prefers_sibling_berth_cli_for_non_cli_host() {
+        let root = temp_root("gui-sibling");
+        std::fs::create_dir_all(&root).expect("create root");
+        let gui = root.join("berth-gui");
+        let cli = root.join("berth-cli");
+        std::fs::write(&gui, b"gui").expect("write gui");
+        std::fs::write(&cli, b"cli").expect("write cli");
+
+        let mut expected = vec![cli.as_os_str().to_os_string()];
+        expected.extend(default_path_fallbacks());
+
+        assert_eq!(
+            hidden_daemon_binary_candidates_from_sources_with_resolved(
+                None,
+                None,
+                None,
+                Some(&gui),
+                None,
+            ),
+            expected
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hidden_daemon_spawn_ignores_empty_client_placeholder() {
         let root = temp_root("client-empty-placeholder");
         std::fs::create_dir_all(&root).expect("create root");
-        let client = root.join("berth");
-        let daemon = root.join("berth-termd");
-        std::fs::write(&client, b"cli").expect("write client");
-        std::fs::write(&daemon, []).expect("write empty daemon placeholder");
+        let gui = root.join("berth-gui");
+        let cli = root.join("berth-cli");
+        std::fs::write(&gui, b"gui").expect("write gui");
+        std::fs::write(&cli, []).expect("write empty placeholder");
 
         assert_eq!(
             hidden_daemon_binary_candidates_from_sources_with_resolved(
                 None,
                 None,
                 None,
-                Some(&client),
+                Some(&gui),
                 None,
             ),
-            vec![OsString::from("berth-termd")]
+            default_path_fallbacks()
         );
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn hidden_daemon_spawn_skips_sibling_when_client_is_daemon() {
-        let root = temp_root("client-is-daemon");
-        std::fs::create_dir_all(&root).expect("create root");
-        let daemon = root.join("berth-termd");
-        std::fs::write(&daemon, b"daemon").expect("write daemon");
-
-        assert_eq!(
-            hidden_daemon_binary_candidates_from_sources_with_resolved(
-                None,
-                None,
-                None,
-                Some(&daemon),
-                None,
-            ),
-            vec![OsString::from("berth-termd")]
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn hidden_daemon_spawn_falls_back_to_resolved_client_daemon_sibling() {
-        let root = temp_root("resolved-client-sibling");
+    fn hidden_daemon_spawn_reexecs_resolved_symlinked_cli() {
+        let root = temp_root("resolved-client-cli");
         let links = root.join("links");
         let package = root.join("package");
         std::fs::create_dir_all(&links).expect("create links");
         std::fs::create_dir_all(&package).expect("create package");
         let alias = links.join("berth");
-        let client = package.join("berth");
-        let daemon = package.join("berth-termd");
+        let client = package.join("berth-cli-x86_64-unknown-linux-gnu");
         std::fs::write(&alias, b"alias").expect("write alias");
         std::fs::write(&client, b"cli").expect("write client");
-        std::fs::write(&daemon, b"daemon").expect("write daemon");
+
+        let mut expected = vec![
+            alias.as_os_str().to_os_string(),
+            client.as_os_str().to_os_string(),
+        ];
+        expected.extend(default_path_fallbacks());
 
         assert_eq!(
             hidden_daemon_binary_candidates_from_sources_with_resolved(
@@ -695,7 +731,7 @@ mod tests {
                 Some(&alias),
                 Some(&client),
             ),
-            vec![daemon.into_os_string(), OsString::from("berth-termd"),]
+            expected
         );
 
         let _ = std::fs::remove_dir_all(&root);
@@ -703,10 +739,10 @@ mod tests {
 
     #[test]
     fn hidden_daemon_not_found_error_mentions_env_override() {
-        let error = hidden_daemon_not_found_error(&[OsString::from("berth-termd")], None);
+        let error = hidden_daemon_not_found_error(&[OsString::from("berth")], None);
         let message = error.to_string();
 
-        assert!(message.contains("berth-termd"));
+        assert!(message.contains("berth"));
         assert!(message.contains("BERTH_SDK_DAEMON_BINARY"));
     }
 }

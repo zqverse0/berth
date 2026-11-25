@@ -33,6 +33,23 @@ export const metadata: Metadata = {
   },
 }
 
+// ponytail: 上游 tauri-runtime-cef（rev 17a5273）的 `csp_inject_initialization_scripts_hashes`
+// 会无视 `dangerousDisableAssetCspModification` 与已有的 `'unsafe-inline'`，强行往
+// `Content-Security-Policy` 响应头的 `script-src` 追加初始化脚本的 `'sha256-...'` 哈希，
+// 导致 Chromium 作废 `'unsafe-inline'` 并拦掉 Next.js 静态导出的内联水合脚本（正式包卡在启动页）。
+// 因此在 tauri.conf.json 置 `security.csp = null`，改由生产 HTML 的 `<meta>` 声明同策略；
+// `connect-src` 放开 `ws: wss:` 以兼容远程浏览器（LAN/Tailscale 非 localhost Origin）。
+// 待上游修复后迁回 tauri.conf.json。
+const APP_CSP = [
+  "default-src 'self' ipc: http://ipc.localhost http://localhost:*",
+  "script-src 'self' 'unsafe-inline' blob: http://localhost:*",
+  "style-src 'self' 'unsafe-inline' http://localhost:*",
+  "font-src 'self' data: http://localhost:*",
+  "img-src 'self' asset: http://asset.localhost data: blob: https: http://localhost:*",
+  "connect-src 'self' ipc: http://ipc.localhost https://github.com https://api.github.com https://*.githubusercontent.com http://localhost:* ws: wss:",
+  "frame-src 'self' https: http://localhost:* berth-plugin: http://berth-plugin.localhost",
+].join("; ")
+
 export default async function RootLayout({
   children,
 }: {
@@ -44,6 +61,11 @@ export default async function RootLayout({
 
   return (
     <html lang={initialLocale} suppressHydrationWarning>
+      <head>
+        {process.env.NODE_ENV === "production" && (
+          <meta httpEquiv="Content-Security-Policy" content={APP_CSP} />
+        )}
+      </head>
       <body>
         {/* CSS-only dark background: applies before JS executes, preventing white flash in dark mode */}
         <style

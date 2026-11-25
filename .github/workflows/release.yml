@@ -256,10 +256,10 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Build and stage Berth's companion binaries for the matrix target.
+      # Build and stage Berth's companion CLI (with embedded terminal daemon).
       # `tauri-action` bundles the entries from `bundle.externalBin` next to
-      # the main executable; the terminal adapter locates berth-termd via
-      # that sibling path at runtime.
+      # the main executable; the terminal adapter locates berth-cli via
+      # that companion path at runtime.
       - name: Stage Berth companion sidecars for Tauri bundle
         shell: bash
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
@@ -271,7 +271,7 @@ jobs:
           case "${{ matrix.target }}" in
             *windows*) ext=".exe" ;;
           esac
-          for name in berth-termd berth-cli; do
+          for name in berth-cli; do
             file="src-tauri/binaries/${name}-${{ matrix.target }}${ext}"
             if [ ! -s "$file" ]; then
               echo "FATAL: sidecar $file missing or empty after prepare-sidecars"

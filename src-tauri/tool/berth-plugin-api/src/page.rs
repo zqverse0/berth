@@ -23,7 +23,14 @@ pub struct Asset {
 /// 读包内 `path`（`/` 分隔、相对包根）；只给 `pages`（tool.json 声明的页面）所在顶层目录里的文件，
 /// 包里其余内容（脚本、Agent 包的 `private/` 等）不经页面通道外露。`origin` 是页面自己的源，
 /// 写进 CSP：桌面传 `'self'`；远程浏览器里页面是不透明源，`'self'` 不可靠，传服务地址。
-pub fn asset(package: &Path, pages: &[String], path: &str, origin: &str) -> Result<Asset, String> {
+/// `allow_external_images` 为真时（插件声明了 `network` 权限），CSP 的 `img-src` 额外放行 `https:`。
+pub fn asset(
+    package: &Path,
+    pages: &[String],
+    path: &str,
+    origin: &str,
+    allow_external_images: bool,
+) -> Result<Asset, String> {
     let root = std::fs::canonicalize(package).map_err(|error| error.to_string())?;
     let file = std::fs::canonicalize(root.join(path.trim_start_matches('/')))
         .map_err(|error| format!("{path}: {error}"))?;
@@ -51,7 +58,7 @@ pub fn asset(package: &Path, pages: &[String], path: &str, origin: &str) -> Resu
     Ok(Asset {
         mime,
         bytes: inject_bridge(&String::from_utf8_lossy(&bytes)).into_bytes(),
-        csp: Some(csp(origin)),
+        csp: Some(csp(origin, allow_external_images)),
     })
 }
 
@@ -116,12 +123,17 @@ fn bridge_hash() -> String {
     format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest))
 }
 
-fn csp(origin: &str) -> String {
+fn csp(origin: &str, allow_external_images: bool) -> String {
     let own = format!("{origin} data: blob:");
+    let img = if allow_external_images {
+        format!("{own} https:")
+    } else {
+        own.clone()
+    };
     let bridge = bridge_hash();
     format!(
         "default-src {own}; script-src {origin} {bridge} 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src {origin} 'unsafe-inline'; \
-         img-src {own}; font-src {own}; media-src {own}; connect-src {own}; worker-src {origin} blob:; \
+         img-src {img}; font-src {own}; media-src {own}; connect-src {own}; worker-src {origin} blob:; \
          frame-src 'none'; object-src 'none'; form-action 'none'; base-uri {origin}"
     )
 }
@@ -161,22 +173,28 @@ mod tests {
     #[test]
     fn page_html_gets_the_bridge_first_and_a_csp() {
         let dir = package();
-        let page = asset(dir.path(), &pages(), "page/index.html", "'self'").unwrap();
+        let page = asset(dir.path(), &pages(), "page/index.html", "'self'", false).unwrap();
         let html = String::from_utf8(page.bytes).unwrap();
         let bridge = html.find("window.berth").unwrap();
         assert!(html.find("<HEAD lang=\"x\">").unwrap() < bridge);
         assert!(bridge < html.find("<title>").unwrap());
         let csp = page.csp.unwrap();
         assert!(csp.contains("connect-src 'self' data: blob:"));
+        assert!(csp.contains("img-src 'self' data: blob:;"));
         assert!(csp.contains("frame-src 'none'"));
         assert!(csp.contains(&bridge_hash()));
         assert_eq!(page.mime, HTML);
+
+        let with_images = asset(dir.path(), &pages(), "page/index.html", "'self'", true).unwrap();
+        let img_csp = with_images.csp.unwrap();
+        assert!(img_csp.contains("img-src 'self' data: blob: https:;"));
+        assert!(img_csp.contains("connect-src 'self' data: blob:;"));
     }
 
     #[test]
     fn assets_keep_their_bytes_and_mime() {
         let dir = package();
-        let font = asset(dir.path(), &pages(), "/page/fonts/a.woff2", "'self'").unwrap();
+        let font = asset(dir.path(), &pages(), "/page/fonts/a.woff2", "'self'", false).unwrap();
         assert_eq!(font.bytes, [1, 2, 3]);
         assert_eq!(font.mime, "font/woff2");
         assert!(font.csp.is_none());
@@ -197,19 +215,19 @@ mod tests {
     #[test]
     fn paths_outside_the_package_or_missing_are_rejected() {
         let dir = package();
-        assert!(asset(dir.path(), &pages(), "page/../secret.txt", "'self'").is_err());
+        assert!(asset(dir.path(), &pages(), "page/../secret.txt", "'self'", false).is_err());
         // 包里页面目录以外的文件不给
-        assert!(asset(dir.path(), &pages(), "secret.txt", "'self'").is_err());
-        assert!(asset(dir.path(), &[], "page/index.html", "'self'").is_err());
+        assert!(asset(dir.path(), &pages(), "secret.txt", "'self'", false).is_err());
+        assert!(asset(dir.path(), &[], "page/index.html", "'self'", false).is_err());
         // 包根下的页面只放行它自己
         std::fs::write(dir.path().join("index.html"), "<html></html>").unwrap();
         let root_page = ["index.html".to_owned()];
-        assert!(asset(dir.path(), &root_page, "index.html", "'self'").is_ok());
-        assert!(asset(dir.path(), &root_page, "secret.txt", "'self'").is_err());
+        assert!(asset(dir.path(), &root_page, "index.html", "'self'", false).is_ok());
+        assert!(asset(dir.path(), &root_page, "secret.txt", "'self'", false).is_err());
         // 深一层的页面：同一顶层目录里的资源都给
         let nested = ["page/fonts/index.html".to_owned()];
-        assert!(asset(dir.path(), &nested, "page/index.html", "'self'").is_ok());
-        assert!(asset(dir.path(), &pages(), "page/missing.js", "'self'").is_err());
-        assert!(asset(dir.path(), &pages(), "page", "'self'").is_err());
+        assert!(asset(dir.path(), &nested, "page/index.html", "'self'", false).is_ok());
+        assert!(asset(dir.path(), &pages(), "page/missing.js", "'self'", false).is_err());
+        assert!(asset(dir.path(), &pages(), "page", "'self'", false).is_err());
     }
 }

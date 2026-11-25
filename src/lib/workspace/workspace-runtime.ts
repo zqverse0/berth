@@ -26,6 +26,7 @@ import {
 } from "@/lib/files/language-detect"
 import { fileOpenStrategyFromPath } from "@/lib/files/file-open-strategy"
 import {
+  buildPluginPageTabId,
   buildTaskTabId,
   isResourceFileTab,
   isTextFileTab,
@@ -109,6 +110,10 @@ export interface WorkspaceRuntimeActions {
   ) => void
   openTaskTab: (
     options: TaskTabOptions,
+    deps: WorkspaceRuntimeDependencies
+  ) => void
+  openPluginPageTab: (
+    options: PluginPageTabOptions,
     deps: WorkspaceRuntimeDependencies
   ) => void
   reloadOpenFileBackground: (
@@ -231,6 +236,19 @@ export interface TaskTabOptions {
   folderId: number
   taskDirName: string
   title: string
+}
+
+export interface PluginPageTabOptions {
+  plugin: string
+  viewId: string
+  page: string
+  params?: Record<string, string>
+  title: string
+  description?: string | null
+  permissions?: string[]
+  icon?: string | null
+  folderId?: number | null
+  lifetime?: "global" | "project"
 }
 
 export interface WorkingTreeDiffOptions {
@@ -826,6 +844,38 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     activateLayoutTab(id, deps)
   }
 
+  const openPluginPageTab = (
+    options: PluginPageTabOptions,
+    deps: WorkspaceRuntimeDependencies
+  ): void => {
+    const params = options.params ?? {}
+    const id = buildPluginPageTabId(options.plugin, options.viewId, params)
+    const existing = currentTab(id)
+    if (!existing) {
+      useWorkspaceFileStore.getState().insertFileTab({
+        id,
+        kind: "plugin-page",
+        plugin: options.plugin,
+        viewId: options.viewId,
+        page: options.page,
+        params,
+        permissions: options.permissions ?? [],
+        icon: options.icon ?? null,
+        folderId: options.folderId ?? null,
+        lifetime: options.lifetime ?? "global",
+        openedInFolderId: deps.scope ?? null,
+        title: options.title,
+        description: options.description ?? options.title,
+        path: null,
+        readonly: true,
+        loading: false,
+        saveState: "idle",
+        saveError: null,
+      })
+    }
+    activateLayoutTab(id, deps)
+  }
+
   const openExternalConflictDiff = (
     filePath: string,
     diskContent: string,
@@ -1366,6 +1416,7 @@ export function createWorkspaceRuntime(): WorkspaceRuntimeActions {
     openReadonlyTextPreview,
     openTranscriptTab,
     openTaskTab,
+    openPluginPageTab,
     reloadOpenFileBackground: (path, deps) =>
       workspaceFileRuntime.reloadOpenFileBackground(path, runtimeContext(deps)),
     bumpResourceRevision: (path) =>

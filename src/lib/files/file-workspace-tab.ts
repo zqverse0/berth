@@ -101,6 +101,19 @@ export interface TaskWorkspaceTab extends BaseWorkspaceTab {
   readonly: true
 }
 
+/** 插件第 2 层页面视图（`location: "tab"` + `page`），在阅读区 iframe 里承载。 */
+export interface PluginPageWorkspaceTab extends BaseWorkspaceTab {
+  kind: "plugin-page"
+  plugin: string
+  viewId: string
+  page: string
+  params: Record<string, string>
+  permissions: string[]
+  icon?: string | null
+  path: null
+  readonly: true
+}
+
 export interface WorkspaceFileRef {
   rootPath: string
   path: string
@@ -114,6 +127,18 @@ export function buildTaskTabId(folderId: number, taskDirName: string): string {
   return `task:${folderId}:${taskDirName}`
 }
 
+export function buildPluginPageTabId(
+  plugin: string,
+  viewId: string,
+  params: Record<string, string> = {}
+): string {
+  const entries = Object.entries(params).sort(([a], [b]) => a.localeCompare(b))
+  const query = new URLSearchParams(entries).toString()
+  return query
+    ? `plugin-page:${plugin}/${viewId}?${query}`
+    : `plugin-page:${plugin}/${viewId}`
+}
+
 export type FileWorkspaceTab =
   | TextFileWorkspaceTab
   | ResourceFileWorkspaceTab
@@ -121,6 +146,7 @@ export type FileWorkspaceTab =
   | RichDiffWorkspaceTab
   | TranscriptWorkspaceTab
   | TaskWorkspaceTab
+  | PluginPageWorkspaceTab
 
 export function isTextFileTab(
   tab: FileWorkspaceTab

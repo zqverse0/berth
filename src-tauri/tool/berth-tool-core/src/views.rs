@@ -148,11 +148,6 @@ pub fn parse(raw: &Value) -> (Vec<View>, Vec<AssetDiagnostic>) {
             fail("declare exactly one of script / page, as a path inside the package");
             continue;
         };
-        // ponytail: 标签页里的页面视图要一种新的工作区文档，等有插件需要再做
-        if matches!(source, Source::Page(_)) && place == Location::Tab {
-            fail("page views can only be in the sidebar for now");
-            continue;
-        }
         let icon = match item.get("icon") {
             None => None,
             icon => match package_path(icon) {
@@ -235,15 +230,16 @@ mod tests {
         ])));
         assert_eq!(
             views.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(),
-            ["discover", "readme", "page"]
+            ["discover", "readme", "page", "tabpage"]
         );
         assert_eq!(views[0].location, Location::Sidebar);
         assert_eq!(views[0].icon.as_deref(), Some("icon.svg"));
         assert_eq!(views[1].source, Source::Script("views/readme.js".into()));
         assert_eq!(views[2].source, Source::Page("page/index.html".into()));
-        assert_eq!(findings.len(), 6);
-        assert!(findings[2].message.contains("sidebar"));
-        assert!(findings[3].message.contains("exactly one"));
+        assert_eq!(views[3].location, Location::Tab);
+        assert_eq!(views[3].source, Source::Page("page/index.html".into()));
+        assert_eq!(findings.len(), 5);
+        assert!(findings[2].message.contains("exactly one"));
     }
 
     #[test]

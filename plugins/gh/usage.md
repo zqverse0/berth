@@ -11,7 +11,7 @@ gh auth status            # 未登录时请用户在终端里跑一次 `gh auth 
 ## 1. 对外动作先给用户看
 
 开 PR、发评论、合并、关 issue 都会公开发布，**先让用户确认**。正文先写到仓库外的临时文件
-（别写进仓库，`.berth/` 是 git 跟踪的），用 Berth 打开给用户看：
+（别写进代码仓库），用 Berth 打开给用户看：
 
 ```bash
 draft=$(mktemp -d)                # 把正文写进 "$draft/pr-body.md"
@@ -26,7 +26,7 @@ gh pr comment <编号> --body-file "$draft/reply.md"
 ```
 
 - 不要用 `-w/--web`：那会打开外部浏览器。给用户看东西一律 `berth open`。
-- 任务绑定了 PRD（`.berth/tasks/<任务>/prd.md`）时，PR 正文写“改了什么 + 怎么验证的”，需求引用 PRD，不要整段复制。
+- 任务绑定了 PRD（经 `berth task show` 查看）时，PR 正文写“改了什么 + 怎么验证的”，需求引用 PRD，不要整段复制。
 
 ## 2. 等 CI、看失败原因
 

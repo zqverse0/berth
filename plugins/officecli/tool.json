@@ -2,7 +2,10 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "officecli",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "engines": {
+    "berth": ">=0.37"
+  },
   "contributes": {
     "identity": {
       "name": "OfficeCLI",

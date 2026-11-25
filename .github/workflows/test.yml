@@ -112,17 +112,17 @@ jobs:
           mkdir -p out
           printf '<!doctype html><html><body></body></html>\n' > out/index.html
 
-      - name: Build berth-termd for terminal tests
-        # 终端回归测试要真的拉起守护进程。放进 src-tauri/binaries/（与本地 sidecar
+      - name: Build berth-cli for terminal tests
+        # 终端回归测试要真的拉起内置守护进程。放进 src-tauri/binaries/（与本地 sidecar
         # 同位置），测试二进制沿祖先目录找到它；不用 BERTH_TERMINALD_PATH，那个变量
         # 会被别的测试临时改成不存在的路径。Windows 只编译测试不运行，不需要。
         if: matrix.os != 'windows-latest'
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo build -p berth-terminald --bin berth-termd
+          cargo build -p berth-cli --bin berth
           mkdir -p binaries
-          cp target/debug/berth-termd binaries/berth-termd
+          cp target/debug/berth binaries/berth-cli
 
       - name: cargo test
         # Windows desktop test binaries link the Tauri runtime and can fail at

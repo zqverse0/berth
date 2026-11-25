@@ -13,7 +13,6 @@ members = [
     "terminal/daemon/berth-term-engine",
     "terminal/daemon/berth-term-pty",
     "terminal/daemon/berth-term-server",
-    "terminal/daemon/berth-termd",
     "terminal/sdk/berth-term-sdk",
     "terminal/cli/berth-cli",
     "device/berth-node",
@@ -22,7 +21,7 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.package]
-version = "0.39.0"
+version = "0.39.1"
 edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -234,17 +233,17 @@ debug = false
 # 收益体现在之后的每次增量编译。
 opt-level = 3
 
-# 体积优先的生产基线。覆盖 workspace 内 berth-gui 与 berth-termd。
+# 体积优先的生产基线。覆盖 workspace 内 berth-gui 与 berth-cli（内置终端守护进程）。
 # strip 后崩溃栈不可读，靠应用内 Runtime Logs。
-# 不设 panic = "abort"：lib.rs 启动线程用 catch_unwind 隔离 ACP 缓存清扫。
+# 保留默认 unwind（不设 panic = "abort"）：隔离后台/守护进程线程级异常，避免单线程 panic 直接拖垮整棵进程。
 [profile.release]
-opt-level = "s"
-lto = "thin"
-codegen-units = 16
+opt-level = "z"
+lto = true
+codegen-units = 1
 strip = true
 
-# `tauri dev` / dev-trial 编 sidecar（berth-cli、berth-termd）用：发布 profile 的 thin LTO 与
-# opt-level="s" 让每次改 berth-project-core 后启动 dev 都要等 ~40s。语义与 release 一致
+# `tauri dev` / dev-trial 编 sidecar（berth-cli）用：发布 profile 的 fat LTO 与
+# opt-level="z" 让每次改 berth-project-core 后启动 dev 都要等很久。语义与 release 一致
 # （断言、溢出检查、panic 策略都继承），只换编译速度；发布包仍走 release。
 [profile.sidecar-dev]
 inherits = "release"

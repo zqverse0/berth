@@ -35,8 +35,7 @@ Next.js 16 / React 19 static export
 | 单元 | 职责 |
 |---|---|
 | `berth-gui` | Tauri 桌面应用 |
-| `berth-termd` | terminal session/window/pane 与 PTY 权威 |
-| `berth-cli` / `berth` | terminal、Tool action 与 GUI control CLI |
+| `berth-cli` / `berth` | CLI、Tool action、GUI control 与内置终端守护进程（`--__internal-daemon`，PTY 权威） |
 | `berth-tool-core` | Tool Asset 解析、校验和 plan |
 | `berth-control-proto` | CLI ↔ GUI 的 typed 本地控制协议 |
 

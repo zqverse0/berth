@@ -245,12 +245,15 @@ pub fn page_asset(path: &str, origin: &str) -> Result<berth_plugin_api::page::As
         })
         .chain(berth_tool_core::editors::parse(&raw).0.into_iter().map(|editor| editor.page))
         .collect();
+    let allow_external_images = raw["permissions"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("network")));
     let package = crate::tool::asset_repository::tool_package_dir(plugin)
         .map_err(|error| error.to_string())?;
-    berth_plugin_api::page::asset(&package, &pages, rest, origin)
+    berth_plugin_api::page::asset(&package, &pages, rest, origin, allow_external_images)
 }
 
-/// 桌面 `berth-plugin://localhost/<插件>/<路径>`（Windows `http://berth-plugin.localhost/…`）。
+/// 桌面 `http://berth-plugin.localhost/<插件>/<路径>`（CEF 三平台一致）。
 /// 与主窗口不同源，页面 iframe 可以带 allow-same-origin 而碰不到宿主。
 #[cfg(feature = "tauri-runtime")]
 pub fn page_protocol(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {

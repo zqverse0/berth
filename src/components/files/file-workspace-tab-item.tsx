@@ -75,7 +75,14 @@ export const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
       adjacentActive={adjacentActive}
       status={pickStatusDot(unseen && "new", isGlobal && "pinned")}
       icon={
-        isDiff ? (
+        tab.kind === "plugin-page" && tab.icon ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={tab.icon}
+            alt=""
+            className="h-3.5 w-3.5 shrink-0 rounded-xs object-contain"
+          />
+        ) : isDiff ? (
           <GitCompare className="h-3.5 w-3.5 shrink-0 text-orange-500 dark:text-orange-400" />
         ) : (
           <FileIcon

@@ -303,25 +303,25 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
     }
 
     let target_dir = target_dir()?;
-    let candidate = target_dir.join("debug").join("berth-termd");
+    let candidate = target_dir.join("debug").join("berth");
 
     let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .arg("build")
         .arg("--bin")
-        .arg("berth-termd")
+        .arg("berth")
         .arg("--package")
-        .arg("berth-terminald")
+        .arg("berth-cli")
         .arg("--locked")
         .arg("--manifest-path")
         .arg(workspace_root().join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", &target_dir)
         .status()?;
     if !status.success() {
-        return Err(format!("failed to build berth-termd binary for SDK smoke: {status}").into());
+        return Err(format!("failed to build berth binary for SDK smoke: {status}").into());
     }
     if !candidate.is_file() {
         return Err(format!(
-            "berth-termd build succeeded but '{}' was not created",
+            "berth build succeeded but '{}' was not created",
             candidate.display()
         )
         .into());
@@ -379,7 +379,7 @@ impl Drop for Cleanup {
             return;
         }
         if self.socket_path.exists() {
-            let _ = Command::new(berth_termd_binary().unwrap_or_else(|_| Path::new("berth-termd")))
+            let _ = Command::new(berth_termd_binary().unwrap_or_else(|_| Path::new("berth")))
                 .arg("-S")
                 .arg(&self.socket_path)
                 .arg("kill-server")

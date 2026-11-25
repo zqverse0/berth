@@ -116,11 +116,21 @@ async function nonEmpty(/** @type {string} */ path) {
   return stat?.kind === "dir" && (await fs.list(path)).length > 0
 }
 
+/** 专家记忆资产：`<目录>/MEMORY.md` 索引注入提示词，正文按需经 expert-memory MCP 读。还没有记忆时不注入。 */
+async function memoryIndex(/** @type {import("berth").LaunchContext} */ ctx) {
+  const asset = ctx.assets?.memory?.[0]
+  if (!asset) return null
+  const source = `${asset.path}/MEMORY.md`
+  const text = (await fs.stat(source)) ? await fs.readText(source) : ""
+  return { name: asset.name, source, text: text.trim() }
+}
+
 /** 会话 CLINE_DIR：原目录非用户级条目逐项软链，skills / rules 只放专家资产。 */
 async function prepareConfigDir(
   /** @type {import("berth").LaunchContext} */ ctx,
   /** @type {string} */ configDir,
-  /** @type {readonly import("berth").Asset[]} */ skills
+  /** @type {readonly import("berth").Asset[]} */ skills,
+  /** @type {Awaited<ReturnType<typeof memoryIndex>>} */ memory
 ) {
   const source = clineHome(ctx.paths.home)
   await fs.mkdir(`${source}/data`) // 不软链就会落进临时目录、退出即丢
@@ -131,6 +141,8 @@ async function prepareConfigDir(
   await fs.mkdir(`${configDir}/rules`)
   if (ctx.brief)
     await fs.writeText(`${configDir}/rules/berth.md`, ctx.brief + "\n")
+  if (memory?.text)
+    await fs.writeText(`${configDir}/rules/berth-memory.md`, memory.text + "\n")
   const expert = ctx.expert
   if (!expert) return
   if (skills.length) {
@@ -164,7 +176,8 @@ async function writeModeSettings(
 /** 每项资产的实际结果和未隔离的共享路径进启动清单；旧宿主没有 report。 */
 function reportAssets(
   /** @type {import("berth").LaunchContext} */ ctx,
-  /** @type {string[]} */ shared
+  /** @type {string[]} */ shared,
+  /** @type {Awaited<ReturnType<typeof memoryIndex>>} */ memory
 ) {
   /** @type {import("berth").ReportItem[]} */
   const items = [
@@ -186,12 +199,20 @@ function reportAssets(
       status: /** @type {const} */ ("converted"),
       reason: "CLINE_MCP_SETTINGS_PATH，transport 按 Cline 格式",
     })),
-    ...(ctx.assets?.memory ?? []).map((asset) => ({
-      kind: "memory",
-      id: asset.name,
-      status: /** @type {const} */ ("converted"),
-      reason: "不注入索引，靠 expert-memory 工具的 memory_index",
-    })),
+    ...(memory
+      ? [
+          {
+            kind: "memory",
+            id: memory.name,
+            status: /** @type {const} */ ("applied"),
+            reason: memory.text
+              ? "索引写成会话 rules/berth-memory.md"
+              : "还没有记忆，索引为空",
+            // 还没有记忆时索引不存在，不给打不开的路径。
+            source: memory.text ? memory.source : undefined,
+          },
+        ]
+      : []),
     ...(ctx.assets?.plugins ?? []).map((asset) => ({
       kind: "plugins",
       id: asset.name,
@@ -246,10 +267,11 @@ export default {
     for (const [serverId, spec] of Object.entries(expert?.mcp ?? {}))
       servers[serverId] = clineTransport(serverId, spec)
     const skills = expert?.skills ?? []
+    const memory = await memoryIndex(ctx)
     const session = ctx.paths.tmp
     const configDir = `${session}/config`
     await fs.mkdir(configDir)
-    await prepareConfigDir(ctx, configDir, skills)
+    await prepareConfigDir(ctx, configDir, skills, memory)
     const mcpPath = `${session}/mcp.json`
     await fs.writeText(
       mcpPath,
@@ -265,7 +287,7 @@ export default {
       mcp: Object.keys(servers).sort(),
       sharedNotIsolated: shared,
     })
-    reportAssets(ctx, shared)
+    reportAssets(ctx, shared, memory)
     // local：会话在本进程跑。默认 auto 会经 data/locks 找到或拉起常驻 hub，hub 用的是
     // 它自己启动时的 CLINE_DIR——既会绕过本会话镜像，也会让本会话拉起的 hub 污染之后的普通会话
     /** @type {Record<string, string>} */

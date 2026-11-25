@@ -2,7 +2,8 @@
 # 发版的唯一入口：dev → main → 公开仓库（触发安装包构建）+ 插件仓库。可在任意 worktree 里运行。
 # 流程说明见 docs/releasing/workflow.md。
 #
-#   scripts/release <版本>
+#   scripts/release [--no-wait] <版本>
+#   --no-wait：不等公开 Test 跑完，推快照后直接打 tag 与 Test 并行构建安装包。
 set -euo pipefail
 
 die() {
@@ -57,8 +58,19 @@ wait_public_test() {
     die "公开 Test 没过，没有打 tag：gh run view $run -R zqverse0/berth --log-failed；在 dev 修好后用同一版本号重跑 scripts/release $version"
 }
 
-version=${1:-}
-[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "用法：scripts/release <版本>，例如 scripts/release 0.38.0"
+wait_test=true
+version=""
+for arg in "$@"; do
+  case "$arg" in
+    --no-wait) wait_test=false ;;
+    -*) die "未知参数：$arg（用法：scripts/release [--no-wait] <版本>）" ;;
+    *)
+      [ -z "$version" ] || die "多余参数：$arg（用法：scripts/release [--no-wait] <版本>）"
+      version="$arg"
+      ;;
+  esac
+done
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "用法：scripts/release [--no-wait] <版本>，例如 scripts/release 0.38.0"
 
 dev=$(worktree_of dev)
 main=$(worktree_of main)
@@ -89,9 +101,13 @@ git -C "$main" push origin main
 git -C "$dev" merge -q --ff-only main
 git -C "$dev" push origin dev
 
-(cd "$main" && scripts/publish-public)
-wait_public_test
-(cd "$main" && scripts/publish-public --tag)
+if $wait_test; then
+  (cd "$main" && scripts/publish-public)
+  wait_public_test
+  (cd "$main" && scripts/publish-public --tag)
+else
+  (cd "$main" && scripts/publish-public --tag)
+fi
 (cd "$main" && scripts/publish-plugins)
 
 echo "release: $version 已发布，构建进度：gh run list -R zqverse0/berth"

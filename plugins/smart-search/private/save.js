@@ -1,4 +1,4 @@
-// 存到知识库「来源」：`.berth/knowledge/来源/<标题>.md`（kind other、digested false，之后由用户自己看、自己整理）。
+// 存到项目知识库「来源」（空间目录 `knowledge/来源/<标题>.md`，kind other、digested false，之后由用户自己看、自己整理）。
 // 只在用户要求时调用。记录里有这个网址的正文就直接用，没有先抓；抓取失败不写。
 
 import * as records from "./core/records.js"

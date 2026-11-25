@@ -2,7 +2,10 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "agy",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "engines": {
+    "berth": ">=0.37"
+  },
   "requires": {
     "process": 1,
     "fs": 1
@@ -155,16 +158,6 @@
         "path": ".berth/skills"
       },
       "purpose": "skill-store-central"
-    }
-  },
-  "knowledge": {
-    "research": {
-      "title": {
-        "zh-CN": "调研记录",
-        "en": "Research notes"
-      },
-      "kind": "maintenance",
-      "path": "research.md"
     }
   },
   "evidence": {

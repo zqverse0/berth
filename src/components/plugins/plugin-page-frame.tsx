@@ -14,7 +14,12 @@ import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useWorkspaceRuntimeActions } from "@/hooks/workspace/use-workspace-runtime"
 import { useSendToAgent } from "@/hooks/use-send-to-agent"
 import { useOpenProjectSession } from "@/sessions/project/open-project-session"
-import { localizedTitle, type PluginView } from "@/lib/plugins/plugin-views"
+import {
+  localizedTitle,
+  usePluginViewsStore,
+  type PluginView,
+} from "@/lib/plugins/plugin-views"
+import type { PluginPageWorkspaceTab } from "@/lib/files/file-workspace-tab"
 import {
   connectPluginPage,
   pluginAssetUrl,
@@ -163,6 +168,7 @@ export function PluginPageFrame({
         title={title}
         src={pluginAssetUrl(host.plugin, page)}
         sandbox={pluginFrameSandbox()}
+        allow="clipboard-read; clipboard-write"
         className={cn(
           "block h-full w-full border-0 bg-transparent",
           !revealed && "invisible"
@@ -269,5 +275,62 @@ export function PluginSidebarPage({
         editorPath={activePath}
       />
     </>
+  )
+}
+
+/** 阅读区工作区标签页里的第 2 层页面视图（`location: "tab"` + `page`）。 */
+export function PluginTabPage({ tab }: { tab: PluginPageWorkspaceTab }) {
+  const { activeFolder } = useActiveFolder()
+  const locale = useLocale()
+  const { openFilePreview } = useWorkspaceRuntimeActions()
+  const { send: sendToAgent } = useSendToAgent()
+  const openSession = useOpenProjectSession(activeFolder?.id ?? 0)
+  const openSessionRef = useRef(openSession)
+  useEffect(() => {
+    openSessionRef.current = openSession
+  })
+  const liveView = usePluginViewsStore(
+    (state) =>
+      state.views.find(
+        (view) => view.plugin === tab.plugin && view.id === tab.viewId
+      ) ?? null
+  )
+  const page = liveView?.page ?? tab.page
+  const permissions = liveView?.permissions ?? tab.permissions
+  const host = useMemo<PageHost>(
+    () => ({
+      plugin: tab.plugin,
+      permissions,
+      root: activeFolder?.path ?? null,
+      project: activeFolder
+        ? {
+            id: String(activeFolder.id),
+            name: activeFolder.name,
+            root: activeFolder.path,
+          }
+        : null,
+      locale,
+      context: { kind: "view", id: tab.viewId, params: tab.params },
+      openFile: (path) => void openFilePreview(path),
+      notify: (message, kind) =>
+        kind === "error" ? toast.error(message) : toast(message),
+      sendToAgent: (text) => void sendToAgent(text),
+      openSession: activeFolder
+        ? (session) => void openSessionRef.current(session)
+        : undefined,
+    }),
+    [
+      tab.plugin,
+      tab.viewId,
+      tab.params,
+      permissions,
+      activeFolder,
+      locale,
+      openFilePreview,
+      sendToAgent,
+    ]
+  )
+  return (
+    <PluginPageFrame page={page} host={host} deferReveal title={tab.title} />
   )
 }

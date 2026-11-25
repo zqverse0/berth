@@ -2,10 +2,14 @@
   "$schema": "urn:berth:tool-asset:1",
   "protocol": "berth.tool/1",
   "id": "pi",
-  "version": "1.2.0",
+  "version": "1.2.1",
+  "engines": {
+    "berth": ">=0.38.5"
+  },
   "requires": {
     "process": 1,
-    "fs": 1
+    "fs": 1,
+    "env": 1
   },
   "permissions": [
     "process",
@@ -346,14 +350,6 @@
     }
   },
   "knowledge": {
-    "research": {
-      "title": {
-        "zh-CN": "调研记录",
-        "en": "Research notes"
-      },
-      "kind": "maintenance",
-      "path": "research.md"
-    },
     "usage": {
       "title": {
         "zh-CN": "使用说明",

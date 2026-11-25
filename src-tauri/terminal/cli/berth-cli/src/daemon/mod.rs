@@ -1,27 +1,43 @@
-#![deny(missing_docs)]
-
-//! Minimal Berth terminal daemon binary.
+//! 内置于 `berth`（`berth-cli`）的本地终端守护进程入口。
 //!
-//! The public `berth` owns terminal-compatible parsing and presentation. This
-//! binary owns only the long-lived local daemon process.
+//! 以前作为独立 sidecar `berth-termd` 分发；合并后，`berth` 既承担命令行与工具能力，
+//! 也在收到 `--__internal-daemon`（或以 `berth-termd` 别名调用）时直接以长驻终端守护进程运行，
+//! 便于无头服务器单文件部署并省去第二份 sidecar 维护。
 
 mod server_runtime;
 
-use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use berth_term_server::{DaemonConfig, ServerDaemon};
 
-const INTERNAL_DAEMON_FLAG: &str = "--__internal-daemon";
+/// SDK / GUI 拉起内置终端守护进程时传入的隐藏入口参数。
+pub(crate) const INTERNAL_DAEMON_FLAG: &str = "--__internal-daemon";
 
-fn main() {
-    match try_main(env::args_os().skip(1)) {
-        Ok(()) => {}
+/// 判断本次调用是否应直接进入隐藏终端守护进程模式（跳过 CLI 数据库/参数初始化）。
+pub(crate) fn should_run_as_daemon(raw_args: &[OsString]) -> bool {
+    if raw_args.get(1).map(OsString::as_os_str) == Some(OsStr::new(INTERNAL_DAEMON_FLAG)) {
+        return true;
+    }
+    raw_args
+        .first()
+        .and_then(|argv0| Path::new(argv0).file_stem())
+        .and_then(OsStr::to_str)
+        .is_some_and(|stem| stem == "berth-termd")
+}
+
+/// 以守护进程模式执行，参数为 `argv[1..]`。
+pub(crate) fn run_from_args<I>(args: I) -> ExitCode
+where
+    I: IntoIterator<Item = OsString>,
+{
+    match try_main(args) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let _ = writeln!(io::stderr().lock(), "{error}");
-            std::process::exit(1);
+            ExitCode::FAILURE
         }
     }
 }
@@ -51,7 +67,7 @@ where
     let mut startup_ready_event = None;
 
     let mut first = args.next();
-    if first.as_deref() == Some(std::ffi::OsStr::new(INTERNAL_DAEMON_FLAG)) {
+    if first.as_deref() == Some(OsStr::new(INTERNAL_DAEMON_FLAG)) {
         first = args.next();
     }
 
@@ -139,6 +155,7 @@ fn run_hidden_daemon(args: DaemonArgs) -> io::Result<()> {
     if let Some(ready_event) = args.startup_ready_event {
         config = config.with_startup_ready_event(ready_event);
     }
+    set_daemon_process_name();
     berth_term_os::memory::configure_daemon_allocator();
     berth_term_os::scope::move_to_own_scope("berth-termd", std::process::id());
     let runtime = server_runtime::build_daemon_runtime()?;
@@ -149,15 +166,49 @@ fn run_hidden_daemon(args: DaemonArgs) -> io::Result<()> {
     })
 }
 
-fn is_internal_flag_token(value: &std::ffi::OsStr) -> bool {
+/// Linux 下将线程/进程 comm 设为 `berth-termd`，便于 `ps`/`htop` 与普通 CLI 进程区分。
+#[cfg(target_os = "linux")]
+fn set_daemon_process_name() {
+    // SAFETY: `PR_SET_NAME` 读取以 NUL 结尾且不超过 16 字节的字符串，不持有指针。
+    unsafe {
+        libc::prctl(libc::PR_SET_NAME, c"berth-termd".as_ptr(), 0, 0, 0);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_daemon_process_name() {}
+
+fn is_internal_flag_token(value: &OsStr) -> bool {
     value.to_str().is_some_and(|value| value.starts_with("--"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_daemon_args, INTERNAL_DAEMON_FLAG};
+    use super::{parse_daemon_args, should_run_as_daemon, INTERNAL_DAEMON_FLAG};
     use std::ffi::OsString;
     use std::path::PathBuf;
+
+    #[test]
+    fn daemon_mode_triggers_on_internal_flag_or_legacy_argv0() {
+        assert!(should_run_as_daemon(&[
+            OsString::from("/usr/bin/berth"),
+            OsString::from(INTERNAL_DAEMON_FLAG),
+            OsString::from("/tmp/berth.sock"),
+        ]));
+        assert!(should_run_as_daemon(&[OsString::from(
+            "/usr/bin/berth-termd"
+        )]));
+        assert!(!should_run_as_daemon(&[
+            OsString::from("/usr/bin/berth"),
+            OsString::from("terminal"),
+            OsString::from("ls"),
+        ]));
+        assert!(!should_run_as_daemon(&[
+            OsString::from("/usr/bin/berth"),
+            OsString::from("group"),
+            OsString::from("watch"),
+        ]));
+    }
 
     #[test]
     fn daemon_parser_accepts_direct_start() {

@@ -86,7 +86,7 @@ impl Drop for Harness {
         if !self.armed {
             return;
         }
-        let _ = Command::new(berth_termd_binary().unwrap_or_else(|_| Path::new("berth-termd")))
+        let _ = Command::new(berth_termd_binary().unwrap_or_else(|_| Path::new("berth")))
             .arg("-S")
             .arg(&self.pipe_name)
             .arg("kill-server")
@@ -286,15 +286,15 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
     }
 
     let target_dir = target_dir()?;
-    let candidate = target_dir.join("debug").join("berth-termd.exe");
+    let candidate = target_dir.join("debug").join("berth.exe");
 
     let _cargo_build_guard = windows_cargo_build::acquire()?;
     let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .arg("build")
         .arg("--bin")
-        .arg("berth-termd")
+        .arg("berth")
         .arg("--package")
-        .arg("berth-terminald")
+        .arg("berth-cli")
         .arg("--locked")
         .arg("--manifest-path")
         .arg(workspace_root().join("Cargo.toml"))
@@ -302,12 +302,12 @@ fn resolve_berth_termd_binary() -> TestResult<PathBuf> {
         .status()?;
     if !status.success() {
         return Err(
-            format!("failed to build berth-termd binary for Windows SDK smoke: {status}").into(),
+            format!("failed to build berth binary for Windows SDK smoke: {status}").into(),
         );
     }
     if !candidate.is_file() {
         return Err(format!(
-            "berth-termd build succeeded but '{}' was not created",
+            "berth build succeeded but '{}' was not created",
             candidate.display()
         )
         .into());

@@ -55,18 +55,13 @@ pub(crate) fn diagnose(gui_override: Option<&std::ffi::OsString>) -> io::Result<
         Err(error) if error.kind() == io::ErrorKind::NotFound => "missing",
         Err(error) => return Err(error),
     };
-    let daemon = sibling_daemon(&executable);
     let shim_dir = destination
         .parent()
         .ok_or_else(|| io::Error::other("shim path has no parent directory"))?;
     Ok(vec![
         format!("cli: {}", executable.display()),
         format!("shim: {shim_status} ({})", destination.display()),
-        format!(
-            "daemon: {} ({})",
-            if daemon.is_file() { "ok" } else { "missing" },
-            daemon.display()
-        ),
+        format!("daemon: builtin ({})", executable.display()),
         crate::gui_launch::probe_gui_socket(gui_override),
         format!(
             "path: {} ({})",
@@ -109,15 +104,6 @@ fn path_contains_dir(path_value: &OsStr, dir: &Path) -> bool {
             .map(|canonical| canonical == expected)
             .unwrap_or_else(|| entry == dir)
     })
-}
-
-fn sibling_daemon(executable: &Path) -> PathBuf {
-    let name = if cfg!(windows) {
-        "berth-termd.exe"
-    } else {
-        "berth-termd"
-    };
-    executable.with_file_name(name)
 }
 
 fn remove_existing(path: &Path) -> io::Result<()> {
@@ -196,20 +182,6 @@ mod tests {
     #[test]
     fn shell_quote_handles_apostrophes() {
         assert_eq!(super::shell_quote("a'b"), "'a'\\''b'");
-    }
-
-    #[test]
-    fn sibling_daemon_matches_platform_name() {
-        let cli = std::path::Path::new("/opt/berth-cli");
-        let daemon = super::sibling_daemon(cli);
-        assert_eq!(
-            daemon.file_name().and_then(|name| name.to_str()),
-            Some(if cfg!(windows) {
-                "berth-termd.exe"
-            } else {
-                "berth-termd"
-            })
-        );
     }
 
     #[test]

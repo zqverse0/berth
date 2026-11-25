@@ -83,7 +83,7 @@
   iframe `sandbox="allow-scripts allow-same-origin"`；远程浏览器经同源的 `/__berth/plugin/<id>/…`，iframe 只给
   `allow-scripts`（不透明源，资源响应带 CORS；`localStorage` 由桥换成内存实现）。插件停用后地址即失效。
 - 宿主在 html 的 `<head>` 最前注入桥脚本（`berth-plugin-api/src/page.js`），页面里的 `window.berth` 就是它；
-  页面 CSP 只许加载包内资源与 data / blob，不许联网、不许再嵌 frame。页面脚本必须是包内文件，不能写内联 `<script>`
+  页面 CSP 只许加载包内资源与 data / blob（声明了 `network` 权限的插件额外放行 `img-src https:`），不许联网请求、不许再嵌 frame。页面脚本必须是包内文件，不能写内联 `<script>`
   或 `onclick=` 之类的内联事件：CEF 往每个框架注入自己的脚本并把哈希追加进 `script-src`，`'unsafe-inline'` 随之失效，
   桥脚本靠 CSP 里它自己的哈希放行。
 - 桥与宿主经 postMessage 说 §2.2 的 JSON-RPC：页面发 `page.hello`，宿主回通知 `page.init`（上下文、主题变量、语言），
@@ -165,7 +165,7 @@
 | `title` | 字符串，或按语言的对象（缺当前语言取 `en`） |
 | `icon` | 包内 svg / png；省略用插件图标 |
 | `location` | `sidebar`：侧栏活动栏一个入口；`tab`：只能被 `open-view` 动作打开，在工作区标签页显示 |
-| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层（目前只能 `location: "sidebar"`，页面 `ui.context` 是 `ViewContext`；打开过的侧栏页面切走时只隐藏不卸载，换项目时重载） |
+| `script` / `page` | 二选一；`script` 是第 1 层，`page` 是第 2 层（`sidebar` 与 `tab` 都支持，页面 `ui.context` 是 `ViewContext`；侧栏页面切走时只隐藏不卸载、换项目时重载；`tab` 页面由 `open-view` 在阅读区工作区标签页打开，参数经 `context.params` 传入） |
 | `new` | 可选，工作区 tab 栏「+」菜单项 `{ title, script, input? }`：运行包内脚本（默认导出函数收 `input`），脚本返回 `{ path }`（绝对路径），宿主开成 tab（在当前项目之外的文件钉成全局 tab，就地可见） |
 
 `script` 默认导出 `render(req)`，返回下列视图之一（类型见 `berth-plugin.d.ts` `ViewResult`）：
@@ -283,6 +283,7 @@
 | 2026-11-06 | 页面环境实现 `agent.attach`（随内置「想法」提取成 `ideas` 插件） |
 | 2026-11-11 | 新增脚本命名空间 `editor@1`（`render`，经 control `editor.render` 交给窗口）；`onRender` 入参加 `format`；插件包约定目录加 `skills/`，`tools show` 列出包内 skill；侧栏页面收文件树拖放（通知 `view.drop`，`ViewContext.onDrop`）；脚本 `fs.readBase64` |
 | 2026-11-11 | http@1 加 `fetchAll` 与请求可选 `retry`；页面 `scripts.run` 第三参 `{ signal }`（宿主中断脚本与进行中的 http，经 `scripts.cancel`）；env@1 加 `agent()`；knowledge@1 脚本实现 `findSource` / `addSource`（berth-cli 与 GUI 都注入）；错误可带 `data`（`BerthError.data`） |
+| 2026-11-24 | 开放 `view` 的 `location: "tab"` + `page`（阅读区 `PluginTabPage` 承载第 2 层页面）；`open-view` 增加可选 `tabTitle`；`PluginPageFrame` 放行剪贴板权限；声明 `network` 权限的插件页面 CSP 放行 `img-src https:` |
 | 2026-11-22 | 新增页面命名空间 `sessions@1`（`open`；随侧栏群组「会话」页并入 `sounding` 插件） |
 | 2026-11-20 | 新增页面命名空间 `devices@1` 与权限 `devices`（随设备管理提取成 `devices` 插件；同日未发布前改定：`inspect` 只给原始结果，本机为 id 0，面板按权限认） |
 | 2026-10-30 | 界面两层（§2.5）；`view` 接入点定义第 1 层声明式视图（§4.1，`list` / `detail`，动作 `open-url` / `open-view` / `script` / `copy`；`req.locale` / `refresh` / `dropdown`；`list.dropdown` / `note`；图标名与 `inline` 动作；动作 `clone` / `send-to-agent`）；新增 `http@1` |
